@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "lib": ["esnext"],
+        "module": "commonjs",
+        "noImplicitOverride": true,
+        "noUncheckedIndexedAccess": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "strict": true,
+        "removeComments": true,
+        "declaration": true,
+        "inlineSourceMap": true,
+        "outDir": "./lib",
+        "rootDir": "./src",
+        "types": ["*"]
+    },
+    "include": [
+        "src/index.ts",
+        "src/cli.ts",
+        "src/**/*.test.ts"
+    ]
+}

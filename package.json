@@ -1,0 +1,42 @@
+{
+  "name": "flanders",
+  "version": "0.0.2",
+  "description": "Stubborn and smart plan implementation looper using AI",
+  "main": "lib/",
+  "types": "lib/types",
+  "files": [
+    "lib/",
+    "!lib/**/*.test.*",
+    "LICENSE"
+  ],
+  "bin": {
+    "flanders": "lib/cli.js"
+  },
+  "private": false,
+  "publishConfig": {
+    "provenance": true,
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "node -e \"require('fs').rm('lib', { recursive: true, force: true }, () => {})\"",
+    "watch": "npm run clean && npx tsc -p tsconfig.json -watch",
+    "build": "npm run clean && npx tsc -p tsconfig.build.json",
+    "build-debug": "npm run clean && npx tsc -p tsconfig.json",
+    "test": "npm run build-debug && npx aaa"
+  },
+  "author": "Llorx",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Llorx/flanders.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Llorx/flanders/issues"
+  },
+  "homepage": "https://github.com/Llorx/flanders#readme",
+  "devDependencies": {
+    "@types/node": "^22.7.8",
+    "arrange-act-assert": "^2.11.1",
+    "typescript": "^6.0.3"
+  }
+}
