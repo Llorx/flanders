@@ -17,31 +17,39 @@ The optional `<data>` argument follows the same rule as `/flanders-contract`:
 - Supplied and does not resolve to an existing file: used verbatim as inline input.
 
 ## Behavior
-1. Recursively list every file inside the project's `contracts/` folder and every file inside the project's `rules/` folder. The listing captures the relative path of each file (relative to the project root). The contracts listing is the canonical reference of contracts for this run; the rules listing is the canonical reference of rules for this run.
-2. Resolve the input from the invocation rule above.
-3. Produce exactly one markdown file inside the project's `plans/` folder:
-   - The file content follows the plan file format defined in `shared/plan-file-format.md`.
-   - The filename is descriptive of the plan's subject.
-4. After writing the plan file, re-read it and verify in chat:
-   - The file exists at the expected path inside `plans/` and is non-empty.
-   - Every leaf task line follows the shape defined in `shared/plan-file-format.md` — a valid `[ ]` or `[x]` checkbox (no malformed variants such as `[]`, `[ x]`, or `[X ]`) immediately followed by a metrics object literally equal to `{"it":0,"ot":0,"t":0}`.
-   - At least one task line was produced.
-   If any check fails, the skill fixes the file and re-verifies, instead of leaving a malformed plan on disk.
-5. After successful verification, the skill prints a summary in chat, containing:
+The skill's sole deliverable is exactly one markdown plan file inside the project's `plans/` folder. The skill must not write, modify, or delete any source code or any file outside `plans/`. The full write-authority obligation that applies to `contracts/`, `rules/`, and `plans/` is pinned in `shared/spec-folder-write-authority.md`.
+
+1. Resolve the input from the invocation rule above.
+2. The plan is generated against the state of the project's `contracts/` and `rules/` folders as they exist at invocation. That state is the canonical reference for the run; the plan never references contracts or rules that are not present in it.
+3. **Clarification phase.** The skill asks the user clarifying questions only when the question targets either an implementation choice in the code the tasks will produce that the request does not specify, or a task-scope ambiguity the skill cannot reasonably infer from the request or from the canonical contracts and rules. Any other doubt is resolved silently: the skill picks the most reasonable default and proceeds, documenting the choice in the relevant task's description when it is plan-local and load-bearing. Permitted questions are asked sequentially — one question per turn, multiple-choice preferred when the answer space is bounded.
+
+   When the doubt is about how the code should be implemented, the skill resolves it through one of two outcomes:
+   - **Cross-cutting convention** — the answer would apply to all future code of the same kind in the project and belongs in `rules/`. The skill surfaces the gap to the user and recommends creating the rule via `/flanders-rule` before the plan is drafted, instead of silently baking the decision into the plan. The user may explicitly elect to treat the decision as plan-local for this run; in that case it follows the plan-local outcome below.
+   - **Plan-local implementation choice** — the answer is specific to the requested work and does not generalize. The chosen answer is embedded in the relevant task's description and acceptance criteria, and is never promoted to a rule.
+
+   The skill itself never writes to `rules/` or `contracts/`. Rule creation, when the user elects it, happens through `/flanders-rule` as a separate, user-initiated act.
+4. **Drafting phase.** Before persisting the plan file, the skill presents the planned plan layout (the task hierarchy, the subject of each leaf task, and the contract and rule files each leaf task will link to) as a structured summary, and waits for user approval or redirection. For non-trivial plans, sections of the draft are presented and approved before moving on. Trivial plans may be presented as a single combined draft.
+5. After approval, the skill persists exactly one markdown file inside the project's `plans/` folder. The filename is descriptive of the plan's subject, and the file content conforms to `shared/plan-file-format.md`.
+6. Upon successful completion, the skill prints a summary in chat containing:
    - The plan file path.
-   - The plan file's character size (number of bytes or characters in the file).
+   - The plan file's character size.
    - The plan file's total line count.
    - The total number of detected tasks.
 
+   If the plan cannot be made compliant with the Plan content rules below, the skill does not declare complete and surfaces the issue along with the plan file path.
+
 ## Plan content rules
-- The skill's sole deliverable is the plan markdown file. The skill must not write, modify, or delete any source code or any file outside `plans/`. The same prohibition extends to the plan's task content: no task the skill writes may describe work that creates, modifies, deletes, or renames files inside `contracts/`, `rules/`, or `plans/` (with the bounded checkbox/metrics exception that the `implement` command holds, not the worker). Both constraints — the skill's own write boundary and the immovability that applies to the tasks it generates — are pinned in `shared/spec-folder-write-authority.md`.
-- Order tasks top-to-bottom in the order they must be implemented, accounting for dependencies between them. A task that depends on another must appear after the task it depends on.
-- Write each task with a detailed description and explicit acceptance criteria — the conditions that must be true once the task is implemented for it to be considered complete.
-- Choose a granularity that is neither too broad nor too narrow. Tasks must be small enough to be tackled by a single AI invocation without burning excessive tokens, but large enough that splitting them further would create artificial fragmentation. When in doubt, subdivide a broad task into sub-tasks rather than leaving it broad.
-- For every leaf task, link the relevant contract file or files by their listed relative path. When the relevant obligation lives in a specific section or line range of a contract, reference that section or line range as well.
-- For every leaf task, link the relevant rule file or files by their listed relative path. The planner MUST read every rule file it determines is relevant to the request before drafting the plan; reading the relevant rules is not optional. When a rule's enforcement is bound to a specific scope, reference that scope alongside the file path.
-- Number tasks hierarchically (`1`, `1.1`, `1.2`, `2`, `2.1`, ...) per `shared/plan-file-format.md`.
-- Never produce a plan that violates any contract or rule on the canonical lists.
+- No task the skill writes may describe work that creates, modifies, deletes, or renames files inside `contracts/`, `rules/`, or `plans/` (with the bounded checkbox/metrics exception that the `implement` command holds, not the worker). The skill's own write boundary and the immovability that applies to the tasks it generates are pinned in `shared/spec-folder-write-authority.md`.
+- The persisted plan is free of placeholders, contradictions with existing contracts or rules, ambiguous task wording, missing acceptance criteria on leaf tasks, and missing contract or rule links on leaf tasks.
+- The plan only references contracts and rules that exist in the canonical state captured at invocation.
+- Tasks are ordered top-to-bottom in the order they must be implemented, accounting for dependencies. A task that depends on another appears after the task it depends on.
+- Every leaf task carries a detailed description and explicit acceptance criteria — the conditions that must be true once the task is implemented for it to be considered complete.
+- Implementation decisions resolved during the clarification phase and classified as plan-local are embedded in the relevant task's description and acceptance criteria. They are never promoted to a rule.
+- Task granularity is chosen so each task is small enough to be tackled by a single AI invocation without burning excessive tokens, and large enough that splitting it further would create artificial fragmentation. When in doubt, a broad task is subdivided.
+- Every leaf task links the relevant contract file or files by their listed relative path. When the obligation lives in a specific section or line range, that section or line range is referenced as well.
+- Every leaf task links the relevant rule file or files by their listed relative path. When a rule's enforcement is bound to a specific scope, that scope is referenced alongside the file path.
+- Tasks are numbered hierarchically (`1`, `1.1`, `1.2`, `2`, `2.1`, ...) per `shared/plan-file-format.md`.
+- The plan never violates any contract or rule on the canonical references.
 
 ## Output language
 The plan file is written in the same natural language as the input request, unless the user says otherwise.
