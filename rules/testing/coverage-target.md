@@ -7,12 +7,14 @@ The project targets **100% line and branch coverage** on every file under `src/`
 Run:
 
 ```
-npm test -- --coverage --summary
+npm test -- --coverage-target 100 --summary
 ```
 
-This invokes the project's `test` script (which builds the debug output and then runs `npx aaa`) and forwards `--coverage --summary` to the `aaa` runner. `--coverage` makes the runner print per-file line and branch percentages; everything that is not explicitly ignored (see below) must report 100%. `--summary` suppresses the per-test live tree so the runner emits only the final summary block, the coverage table, and — when any test fails — the path and assertion error of each failure. That is the exact shape downstream tooling (and you as a worker reading the output) need; running without `--summary` produces a noisy tree that has to be filtered away.
+This invokes the project's `test` script (which builds the debug output and then runs `npx aaa`) and forwards `--coverage-target 100 --summary` to the `aaa` runner. `--coverage-target 100` implies `--coverage` (so coverage collection is automatic) **and** makes the runner exit non-zero when any covered file reports below 100% line or branch coverage — the threshold is enforced by the test run itself, not by reading the report. `--summary` suppresses the per-test live tree so the runner emits only the final summary block, the coverage table, and — when any test or the coverage check fails — the path and assertion error of each failure. That is the exact shape downstream tooling (and you as a worker reading the output) need; running without `--summary` produces a noisy tree that has to be filtered away.
 
 `node_modules` and test files (`*.test.*`) are excluded by the runner by default — no extra configuration is needed for those.
+
+`--coverage` on its own (without `--coverage-target`) still prints the report but does not fail the run on a shortfall, so it is not sufficient for verifying the 100% floor — use `--coverage-target 100` whenever the goal is to confirm the rule holds.
 
 ## When 100% is genuinely unreachable
 
@@ -49,7 +51,8 @@ Every ignore comment must carry a reason directly next to it (on the same line, 
 
 ## Failure signals
 
-- `npm test -- --coverage --summary` reports any covered file below 100% lines or branches.
+- `npm test -- --coverage-target 100 --summary` exits non-zero because the runner's own coverage check rejected the run (any covered file below 100% lines or branches).
+- A worker verifies coverage with `--coverage` alone and relies on eyeballing the table, instead of letting `--coverage-target 100` enforce the floor automatically.
 - A `/* coverage ignore ... */` comment appears with no adjacent reason.
 - An ignore is used to skip business logic rather than a genuinely unreachable defensive branch or an I/O wrapper inside a context implementation.
 - A class is covered only because its tests exercise real Node built-ins (real `setTimeout`, real `fs`, etc.) instead of stubs wired through a context interface.
