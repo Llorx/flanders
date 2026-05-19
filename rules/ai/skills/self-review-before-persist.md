@@ -1,6 +1,6 @@
 # Skills run a self-review pass on the draft before persisting
 
-Before persisting any deliverable, `/flanders-contract`, `/flanders-rule`, and `/flanders-plan` re-read the draft and audit it against a fixed checklist. Any issue is fixed in place. If a fix would change the meaning of content the user already approved during the drafting phase, the skill surfaces the issue to the user and asks before applying the fix. A draft that has not been self-reviewed against this checklist must not be persisted.
+Before persisting any deliverable, `/flanders-contract`, `/flanders-rule`, and `/flanders-plan` re-read the draft and audit it against a fixed checklist. Any issue is fixed in place. The content the user approved during the drafting phase differs by skill: for `/flanders-contract` and `/flanders-rule`, it is the layout summary the user approved (the file list and the key obligations promised in it); for `/flanders-plan`, there is no user-approved content at all. When a fix would change the meaning of content the user approved, the skill surfaces the issue to the user and asks before applying the fix; for `/flanders-plan`, no such content exists, so findings are always fixed silently. A draft that has not been self-reviewed against this checklist must not be persisted.
 
 ## Who this applies to
 
@@ -12,7 +12,10 @@ Before persisting any deliverable, `/flanders-contract`, `/flanders-rule`, and `
 
 ## When the self-review runs
 
-The self-review runs after the user has approved the draft (or the section of the draft, for non-trivial requests) and before the skill writes the file to disk. The self-review is the last step the skill performs before persistence; persisting a draft and then verifying it is not a substitute for this pre-persist pass.
+The self-review is the last step the skill performs before persistence; persisting a draft and then verifying it is not a substitute for this pre-persist pass. The trigger point differs by skill:
+
+- `/flanders-contract` and `/flanders-rule` — the self-review runs after the user approves the layout summary and before the skill writes the batch of files to disk. Every file in the batch is self-reviewed before being persisted.
+- `/flanders-plan` — the self-review runs after the clarification phase ends and before the skill writes the plan file to disk. No user approval precedes it.
 
 ## The self-review checklist
 
@@ -29,8 +32,8 @@ A failure in any one of these is treated as a finding and must be addressed befo
 
 When the self-review surfaces a finding, the skill does one of the following:
 
-- **Mechanical fix that does not change meaning** — for example, removing a stray placeholder, rewording an ambiguous sentence without altering the obligation, or pruning content that drifted outside the approved scope. The skill fixes the draft in place and re-runs the self-review on the fixed version.
-- **Fix that would change the meaning of already-approved content** — the skill stops, surfaces the issue to the user in chat (naming the file or section, the finding, and the proposed change), and waits for the user's decision before applying it. The skill does not silently rewrite content the user already approved.
+- **Mechanical fix that does not change meaning** — for example, removing a stray placeholder, rewording an ambiguous sentence without altering the obligation, or pruning content that drifted outside scope. The skill fixes the draft in place and re-runs the self-review on the fixed version.
+- **Fix that would change the meaning of already-approved content** — applies only to `/flanders-contract` and `/flanders-rule`, whose user-approved content is the layout summary (the file list and the key obligations promised in it). When such a fix is needed, the skill stops, surfaces the issue to the user in chat (naming the file, the finding, and the proposed change), and waits for the user's decision before applying it. The skill does not silently rewrite content the user already approved. For `/flanders-plan`, this branch never triggers, because no content in the draft is user-approved; every finding in a plan draft is handled by the mechanical-fix branch above.
 
 The self-review loop ends only when the draft passes every item on the checklist. The skill does not persist a draft with an open finding.
 
@@ -38,6 +41,6 @@ The self-review loop ends only when the draft passes every item on the checklist
 
 - The skill persists a file without having run the self-review checklist on the final draft.
 - The skill persists a file with a placeholder, a contradiction against an existing canonical file, an ambiguous obligation, or scope drift the user did not approve.
-- The skill silently rewrites already-approved content as part of a self-review fix, instead of surfacing the issue to the user.
+- For `/flanders-contract` or `/flanders-rule`, the skill silently rewrites content that the user approved in the layout summary as part of a self-review fix, instead of surfacing the issue to the user.
 - The skill exits the self-review loop with an open finding still standing and treats the deliverable as complete.
 - The skill substitutes a post-persist verification (re-read the file from disk and check it) for the pre-persist self-review the draft is owed.

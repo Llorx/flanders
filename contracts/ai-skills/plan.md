@@ -28,7 +28,7 @@ The skill's sole deliverable is exactly one markdown plan file inside the projec
    - **Plan-local implementation choice** — the answer is specific to the requested work and does not generalize. The chosen answer is embedded in the relevant task's description and acceptance criteria, and is never promoted to a rule.
 
    The skill itself never writes to `rules/` or `contracts/`. Rule creation, when the user elects it, happens through `/flanders-rule` as a separate, user-initiated act.
-4. **Drafting phase.** Before persisting the plan file, the skill presents the planned plan layout (the task hierarchy, the subject of each leaf task, and the contract and rule files each leaf task will link to) as a structured summary, and waits for user approval or redirection. For non-trivial plans, sections of the draft are presented and approved before moving on. Trivial plans may be presented as a single combined draft.
+4. **Drafting phase.** Once the clarification phase is complete, the skill persists the plan file directly without presenting a layout summary, a section-by-section draft, or any other pre-write approval step. The user reviews the written plan file after the fact.
 5. After approval, the skill persists exactly one markdown file inside the project's `plans/` folder. The filename is descriptive of the plan's subject, and the file content conforms to `shared/plan-file-format.md`.
 6. Upon successful completion, the skill prints a summary in chat containing:
    - The plan file path.
