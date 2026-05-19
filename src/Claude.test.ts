@@ -405,6 +405,32 @@ test.describe("Claude", test => {
             }
         }
     });
+    test("usage with only output_tokens defaults input_tokens to 0", {
+        async ARRANGE() {
+            const context = claudeContext();
+            const time = timeContext();
+            const claude = new Claude({ prompt: "hi" }, context, time);
+            return { context, claude };
+        },
+        async ACT({ context, claude }) {
+            const proc = context.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "result",
+                result: "ok",
+                usage: { output_tokens: 12 }
+            }) + "\n");
+            proc.$emit("exit", 0);
+            return await claude.result();
+        },
+        ASSERTS: {
+            "defaults input tokens to zero"(result) {
+                Assert.deepStrictEqual(result.inputTokens, 0);
+            },
+            "preserves the provided output tokens"(result) {
+                Assert.deepStrictEqual(result.outputTokens, 12);
+            }
+        }
+    });
     test("no result event returns zero token totals", {
         async ARRANGE() {
             const context = claudeContext();

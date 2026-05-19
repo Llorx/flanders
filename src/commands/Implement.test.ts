@@ -4817,6 +4817,26 @@ test.describe("Implement _selectPlan edge cases", test => {
             Assert.strictEqual(code, 0);
         }
     });
+    test("multiple positional args are joined with spaces", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set("/project/plans/my plan.md", PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "PASS" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement(["my", "plan.md"], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 0);
+        }
+    });
     test("no positional arg and empty plans folder shows diagnostic", {
         ARRANGE() {
             const s = stubContexts();
@@ -5041,6 +5061,64 @@ test.describe("Implement _stringifyError non-Error", test => {
             "error.log contains the string error value"(_code, { files }) {
                 const errorLog = files.get(WS_ROOT + "/error.log")!;
                 Assert.ok(errorLog.includes("string-error-value"));
+            }
+        }
+    });
+});
+
+test.describe("Implement .bat script path on Windows", test => {
+    test("uses cmd.exe /c for .bat scripts when isWindows is true", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.contexts.platform.isWindows = () => true;
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect ok" });
+            s.files.set(WS_ROOT + "/build.bat", "@echo off\necho build ok");
+            s.files.set(WS_ROOT + "/test.bat", "@echo off\necho test ok");
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
+            s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "" });
+            s.claudeQueue.push({ text: "PASS" });
+            const scriptSpawns:Array<{ command:string; args:readonly string[] }> = [];
+            const origSpawn = s.contexts.script.spawn;
+            s.contexts.script.spawn = (command, args, options) => {
+                if (command !== "git") {
+                    scriptSpawns.push({ command, args: [...args] });
+                }
+                return origSpawn(command, args, options);
+            };
+            return { ...s, scriptSpawns };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "build command is cmd.exe"(_code, { scriptSpawns }) {
+                const build = scriptSpawns.find((s:{ command:string; args:readonly string[] }) => s.args.some((a:string) => a.includes("build.bat")));
+                Assert.ok(build, "build.bat should have been spawned");
+                Assert.strictEqual(build!.command, "cmd.exe");
+            },
+            "build first arg is /c"(_code, { scriptSpawns }) {
+                const build = scriptSpawns.find((s:{ command:string; args:readonly string[] }) => s.args.some((a:string) => a.includes("build.bat")));
+                Assert.ok(build, "build.bat should have been spawned");
+                Assert.strictEqual(build!.args[0], "/c");
+            },
+            "test command is cmd.exe"(_code, { scriptSpawns }) {
+                const t = scriptSpawns.find((s:{ command:string; args:readonly string[] }) => s.args.some((a:string) => a.includes("test.bat")));
+                Assert.ok(t, "test.bat should have been spawned");
+                Assert.strictEqual(t!.command, "cmd.exe");
+            },
+            "test first arg is /c"(_code, { scriptSpawns }) {
+                const t = scriptSpawns.find((s:{ command:string; args:readonly string[] }) => s.args.some((a:string) => a.includes("test.bat")));
+                Assert.ok(t, "test.bat should have been spawned");
+                Assert.strictEqual(t!.args[0], "/c");
             }
         }
     });

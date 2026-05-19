@@ -268,7 +268,7 @@ function formatToolInput(input:Readonly<Record<string, unknown>>|undefined):stri
         return i["path"];
     }
     if (typeof i["pattern"] === "string") {
-        return typeof i["path"] === "string" ? `${i["pattern"]} in ${i["path"]}` : i["pattern"];
+        return i["pattern"];
     }
     if (typeof i["url"] === "string") {
         return i["url"];

@@ -618,6 +618,88 @@ test.describe("countPendingChangesExcept", test => {
         }
     });
 
+    test("rejects with wrapped Error when spawn emits a non-Error value", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => proc.$emit("error", "raw string error"));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            let caught:Error|null = null;
+            try {
+                await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+            } catch (e) {
+                caught = e as Error;
+            }
+            return caught;
+        },
+        ASSERTS: {
+            "rejects with an Error instance"(result) {
+                Assert.ok(result instanceof Error);
+            },
+            "message is the stringified value"(result) {
+                Assert.strictEqual(result!.message, "raw string error");
+            }
+        }
+    });
+
+    test("rejects with the original Error when spawn emits an Error instance", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => proc.$emit("error", new Error("ENOENT")));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            let caught:Error|null = null;
+            try {
+                await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+            } catch (e) {
+                caught = e as Error;
+            }
+            return caught;
+        },
+        ASSERTS: {
+            "rejects with an Error instance"(result) {
+                Assert.ok(result instanceof Error);
+            },
+            "message is the original error message"(result) {
+                Assert.strictEqual(result!.message, "ENOENT");
+            }
+        }
+    });
+
+    test("rename entry without arrow uses rawPath as entryPath", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => {
+                        proc.$emitStdout("R  some-renamed-file.ts\n");
+                        proc.$emit("exit", 0);
+                    });
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, 1);
+        }
+    });
+
     test("excludes by absolute path match, not substring", {
         ARRANGE() {
             const script:ScriptContext = {
@@ -753,6 +835,44 @@ test.describe("addAll", test => {
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, { code: -1, stdout: "", stderr: "ENOENT" });
+        }
+    });
+
+    test("resolves with code -1 and stringified error on non-Error spawn error", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => proc.$emit("error", "raw string error"));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime(), output: fakeOutput() };
+        },
+        async ACT({ script, time, output }) {
+            return await addAll(script, time, output, CWD);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { code: -1, stdout: "", stderr: "raw string error" });
+        }
+    });
+
+    test("resolves with code -1 when exit code is null", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => proc.$emit("exit", null));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime(), output: fakeOutput() };
+        },
+        async ACT({ script, time, output }) {
+            return await addAll(script, time, output, CWD);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result.code, -1);
         }
     });
 

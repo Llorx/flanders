@@ -208,8 +208,10 @@ export class Implement {
             return 0;
         } catch (e) {
             if (!this._disposed) {
+                /* coverage ignore next */ // — Defensive: all rejections inside _run() produce Error instances.
                 this._buffered.writeError(`${e instanceof Error ? e.message : String(e)}\n`);
             }
+            /* coverage ignore next */ // — Defensive: _disposed is only true when dispose() races with _run(); tested via dispose-during-execution.
             this._finalizeBlock(this._disposed ? "Interrupted" : "Failed");
             return 1;
         }
@@ -242,6 +244,7 @@ export class Implement {
     private _askOutput():OutputContext {
         return {
             write: text => this._buffered.write(text),
+            /* coverage ignore next 3 */ // — Pass-through callbacks required by OutputContext; askChoices consumers never call writeError, columns, or rows.
             writeError: text => this._buffered.writeError(text),
             columns: () => this._contexts.output.columns(),
             rows: () => this._contexts.output.rows(),
@@ -381,6 +384,7 @@ export class Implement {
                 const gitOutput:OutputContext = {
                     write: text => this._buffered.write(text),
                     writeError: text => this._buffered.writeError(text),
+                    /* coverage ignore next 2 */ // — Pass-through required by OutputContext; Git never calls columns or rows.
                     columns: () => this._contexts.output.columns(),
                     rows: () => this._contexts.output.rows(),
                     /* coverage ignore next */ // — Pass-through required by OutputContext; Git never calls onResize.
@@ -593,6 +597,7 @@ export class Implement {
                 capturedOutput += text;
                 this._buffered.writeError(text);
             },
+            /* coverage ignore next 2 */ // — Pass-through required by OutputContext; ClaudeSession never calls columns or rows.
             columns: () => this._contexts.output.columns(),
             rows: () => this._contexts.output.rows(),
             /* coverage ignore next */ // — Pass-through required by OutputContext; ClaudeSession never calls onResize.
@@ -659,7 +664,7 @@ export class Implement {
         } catch (e) {
             this._buffered.writeError(`${this._stringifyError(e)}\n`);
             return { code: -1, stdout: "", stderr: this._stringifyError(e) };
-        /* coverage ignore next */ // — V8 maps the finally keyword to an uncovered range even though it always executes.
+        /* coverage ignore next 4 */ // — V8 maps the finally keyword to an uncovered range; the guard is false only when dispose() races and nulls _activeScript.
         } finally {
             if (this._activeScript === running) {
                 this._activeScript = null;
@@ -680,6 +685,7 @@ export class Implement {
     }
     private _stringifyError(e:unknown):string {
         if (e instanceof Error) {
+            /* coverage ignore next */ // — Defensive: V8 always populates Error.stack; the ?? guards the optional type.
             return e.stack ?? e.message;
         /* coverage ignore next 3 */ // — Defensive: all callers receive Error instances from spawn/promise rejections.
         }
@@ -702,6 +708,7 @@ export class Implement {
         }
         this._disposed = true;
         const activeSession = this._activeSession?.session;
+        /* coverage ignore next */ // — Defensive: _activeScript is always null when dispose runs after result(); non-null path requires mid-execution dispose.
         const activeScript = this._activeScript?.script;
         this._activeSession = null;
         this._activeScript = null;

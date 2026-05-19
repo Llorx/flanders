@@ -356,6 +356,34 @@ test.describe("ClaudeSession event rendering", test => {
             }
         }
     });
+    test("assistant message text that does not start with seen text emits full block", {
+        ARRANGE() {
+            const claude = claudeContext();
+            const time = timeContext();
+            const output = trackedOutputContext();
+            const ask = askContext();
+            const session = new ClaudeSession({ prompt: "hi" }, { claude, time, output, ask });
+            return { claude, output, session };
+        },
+        async ACT({ claude, session }) {
+            const runPromise = session.run();
+            await flush();
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({ type: "content_block_start", content_block: { type: "text", text: "abc" } }) + "\n");
+            proc.$emitStdout(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "xyz" }] } }) + "\n");
+            proc.$emitStdout(JSON.stringify({ type: "result", result: "done" }) + "\n");
+            proc.$emit("exit", 0);
+            await runPromise;
+        },
+        ASSERTS: {
+            "streamed text is written"(_, { output }) {
+                Assert.ok(output.$written.includes("abc"));
+            },
+            "full assistant text is written without dedup"(_, { output }) {
+                Assert.ok(output.$written.includes("xyz"));
+            }
+        }
+    });
     test("assistant message with tool_use block writes formatted tool call", {
         ARRANGE() {
             const claude = claudeContext();
@@ -1054,6 +1082,43 @@ test.describe("ClaudeSession AskUserQuestion handling", test => {
                 type: "control_request",
                 request_id: "ask-8",
                 request: { subtype: "can_use_tool", request_id: "ask-8", tool_name: "AskUserQuestion", input: { questions: "not-array" } }
+            }) + "\n");
+            await flush();
+            proc.$emitStdout(JSON.stringify({ type: "result", result: "done" }) + "\n");
+            proc.$emit("exit", 0);
+            await runPromise;
+            return proc.$stdinWrites;
+        },
+        ASSERT(writes) {
+            const response = writes.find(w => w.includes("control_response"));
+            const parsed = JSON.parse(response!);
+            Assert.strictEqual(parsed.response.response.behavior, "allow");
+        }
+    });
+    test("extractQuestions defaults non-string question, header, and label to empty string", {
+        ARRANGE() {
+            const claude = claudeContext();
+            const time = timeContext();
+            const output = trackedOutputContext();
+            const ask = askContext([[{ picked: [{ label: "" }] }]]);
+            const session = new ClaudeSession({ prompt: "hi" }, { claude, time, output, ask });
+            return { claude, session };
+        },
+        async ACT({ claude, session }) {
+            const runPromise = session.run();
+            await flush();
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "control_request",
+                request_id: "ask-nonstr",
+                request: {
+                    subtype: "can_use_tool", request_id: "ask-nonstr", tool_name: "AskUserQuestion",
+                    input: {
+                        questions: [
+                            { question: 42, header: true, options: [{ label: 99 }] }
+                        ]
+                    }
+                }
             }) + "\n");
             await flush();
             proc.$emitStdout(JSON.stringify({ type: "result", result: "done" }) + "\n");

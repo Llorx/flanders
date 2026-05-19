@@ -293,7 +293,7 @@ test.describe("skills – planSkillBody", test => {
         ACT() { return planSkillBody; },
         ASSERTS: {
             "references rules/ folder"(body) {
-                Assert.ok(body.includes("rules/ folder"), "must reference rules/ folder in step 1");
+                Assert.ok(body.includes("rules/ folder"), "must reference rules/ folder in step 2");
             },
             "mentions canonical reference of rules"(body) {
                 Assert.ok(body.includes("canonical reference of rules"), "must mention canonical reference of rules");
@@ -460,11 +460,11 @@ test.describe("skills – planSkillBody", test => {
             "passes absolute plan file path"(body) {
                 Assert.ok(body.includes("The absolute path to the plan file you just wrote"), "must pass absolute plan file path to the validator");
             },
-            "passes canonical contract listing from step 1"(body) {
-                Assert.ok(body.includes("The canonical contract listing captured in step 1 of the procedure"), "must pass canonical contract listing");
+            "passes canonical contract listing from step 2"(body) {
+                Assert.ok(body.includes("The canonical contract listing captured in step 2 of the procedure"), "must pass canonical contract listing");
             },
-            "passes canonical rule listing from step 1"(body) {
-                Assert.ok(body.includes("The canonical rule listing captured in step 1 of the procedure"), "must pass canonical rule listing");
+            "passes canonical rule listing from step 2"(body) {
+                Assert.ok(body.includes("The canonical rule listing captured in step 2 of the procedure"), "must pass canonical rule listing");
             }
         }
     });
@@ -544,6 +544,97 @@ test.describe("skills – planSkillBody", test => {
             },
             "does not contain }} placeholders"(body) {
                 Assert.ok(!body.includes("}}"), "must not contain }} placeholders");
+            }
+        }
+    });
+
+    test("covers clarification phase", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "has Clarification phase heading"(body) {
+                Assert.ok(body.includes("Clarification phase"), "must have Clarification phase heading");
+            },
+            "enforces one question per turn"(body) {
+                Assert.ok(body.includes("one question per turn"), "must enforce one question per turn");
+            },
+            "limits trigger to implementation choice"(body) {
+                Assert.ok(body.includes("implementation choice"), "must mention implementation choice as trigger");
+            },
+            "limits trigger to task-scope ambiguity"(body) {
+                Assert.ok(body.includes("task-scope ambiguity"), "must mention task-scope ambiguity as trigger");
+            },
+            "describes cross-cutting convention outcome"(body) {
+                Assert.ok(body.includes("Cross-cutting convention"), "must describe cross-cutting convention outcome");
+            },
+            "describes plan-local outcome"(body) {
+                Assert.ok(body.includes("Plan-local implementation choice"), "must describe plan-local outcome");
+            },
+            "prohibits writing to rules/ or contracts/"(body) {
+                Assert.ok(body.includes("never writes to rules/ or contracts/"), "must prohibit writing to rules/ or contracts/");
+            }
+        }
+    });
+
+    test("covers drafting phase with layout approval", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "has Drafting phase heading"(body) {
+                Assert.ok(body.includes("Drafting phase"), "must have Drafting phase heading");
+            },
+            "presents task hierarchy in plan layout"(body) {
+                Assert.ok(body.includes("task hierarchy"), "must present task hierarchy");
+            },
+            "presents leaf-task subjects"(body) {
+                Assert.ok(body.includes("subject of each leaf task"), "must present leaf-task subjects");
+            },
+            "presents contract and rule files each leaf task will link to"(body) {
+                Assert.ok(body.includes("contract and rule files each leaf task will link to"), "must present contract and rule files");
+            },
+            "requires user approval before persisting"(body) {
+                Assert.ok(body.includes("user approval"), "must require user approval before persisting");
+            },
+            "distinguishes non-trivial plans with sectional approval"(body) {
+                Assert.ok(body.includes("non-trivial"), "must distinguish non-trivial plans");
+            },
+            "distinguishes trivial plans with combined draft"(body) {
+                Assert.ok(body.includes("Trivial plans"), "must distinguish trivial plans");
+            }
+        }
+    });
+
+    test("covers updated plan content rules", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "states plan is free of placeholders"(body) {
+                Assert.ok(body.includes("free of placeholders"), "must state plan is free of placeholders");
+            },
+            "states plan is free of contradictions"(body) {
+                Assert.ok(body.includes("contradictions with existing contracts or rules"), "must state plan is free of contradictions");
+            },
+            "limits references to canonical state"(body) {
+                Assert.ok(body.includes("canonical state captured at invocation"), "must limit references to canonical state");
+            },
+            "embeds plan-local decisions in task description"(body) {
+                Assert.ok(body.includes("embedded in the relevant task"), "must embed plan-local decisions in task description");
+            },
+            "forbids promoting plan-local decisions to rules"(body) {
+                Assert.ok(body.includes("never promoted to a rule"), "must forbid promoting plan-local decisions to rules");
+            }
+        }
+    });
+
+    test("references the new plan-specific rules", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "references clarification-scope rule"(body) {
+                Assert.ok(body.includes("rules/ai/skills/plan/clarification-scope.md"), "must reference clarification-scope rule");
+            },
+            "references scope-driven-rule-selection rule"(body) {
+                Assert.ok(body.includes("rules/ai/skills/plan/scope-driven-rule-selection.md"), "must reference scope-driven-rule-selection rule");
             }
         }
     });

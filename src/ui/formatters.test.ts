@@ -508,6 +508,26 @@ test.describe("formatHeaderLine", test => {
         }
     });
 
+    test("renders activity without color when not done and not in LIVE_ACTIVITIES", {
+        ARRANGE() {
+            return { indexLabel: "1/1", iter: 1, activity: "preparing", cols: 120 };
+        },
+        ACT({ indexLabel, iter, activity, cols }) {
+            return formatHeaderLine(indexLabel, iter, activity, null, null, cols);
+        },
+        ASSERTS: {
+            "plain text contains the activity"(result) {
+                Assert.strictEqual(stripAnsi(result), "1/1 iter 1 preparing");
+            },
+            "no GREEN color applied"(result) {
+                Assert.ok(!result.includes(GREEN + "preparing"));
+            },
+            "no MAGENTA color applied"(result) {
+                Assert.ok(!result.includes(MAGENTA + "preparing"));
+            }
+        }
+    });
+
     test("truncates partial header with ellipsis when indexLabel alone exceeds cols", {
         ARRANGE() {
             return { indexLabel: "0/12345", cols: 4 };
@@ -700,6 +720,26 @@ test.describe("formatMetricsLine", test => {
             },
             "ends with ellipsis"(result) {
                 Assert.ok(stripAnsi(result).endsWith("…"));
+            }
+        }
+    });
+
+    test("renders only task pair when plan is undefined", {
+        ARRANGE() {
+            return { task: {tokens:1000, seconds:60}, plan: undefined as MetricsPair|undefined, cols: 100 };
+        },
+        ACT({ task, plan, cols }) {
+            return formatMetricsLine(task, plan, cols);
+        },
+        ASSERTS: {
+            "plain text shows only the task pair"(result) {
+                Assert.strictEqual(stripAnsi(result), "task 1.0k 1m00s");
+            },
+            "does not contain plan label"(result) {
+                Assert.ok(!stripAnsi(result).includes("plan"), "plan label must be absent");
+            },
+            "does not contain separator"(result) {
+                Assert.ok(!stripAnsi(result).includes("│"), "separator must be absent");
             }
         }
     });

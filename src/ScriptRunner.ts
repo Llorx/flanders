@@ -87,6 +87,7 @@ export class ScriptRunner {
         });
     }
     async dispose() {
+        /* coverage ignore next 7 */ // — Defensive: second-dispose idempotent guard; _runPromise is always settled by the first dispose.
         if (this._disposed) {
             try {
                 await this._runPromise;
