@@ -31,7 +31,7 @@ Contracts are the most public surface of the project. Once written, they are imm
    - The clarification phase ends only when you have enough information to draft contract files that contain no placeholders, no contradictions, and no scope ambiguity.
 4. Run the drafting phase. Before persisting any file:
    - Present the planned file layout (which files will exist, what each file will cover) and the key obligations of each file as a structured summary, and wait for user approval or redirection.
-   - For non-trivial requests, present the draft of each file (or each section, when a file is large) and wait for approval before moving on. Trivial requests may be presented as a single combined draft.
+   - Once the layout is approved, persist every resulting file in a single batch without any further per-file or per-section confirmation step.
    - Update related existing contract files in place when the request affects obligations they already cover, and create new files only for obligations not already covered. Do not duplicate an existing obligation across files.
 5. After approval, run a self-review pass before finalizing each file: re-read the draft and check for placeholders left behind, contradictions with other contract files, ambiguous wording, and scope that drifted beyond what the user requested. Fix any issue in place; if a fix would change the meaning of an already-approved obligation, surface the issue to the user and ask before applying it.
 6. Organize the resulting files in whichever shape best fits the requested product:
@@ -85,7 +85,7 @@ Rules are immovable once written unless the user explicitly asks for a change.
    - The clarification phase ends only when you have enough information to draft rule files that contain no placeholders, no contradictions, and no scope ambiguity.
 4. Run the drafting phase. Before persisting any file:
    - Present the planned file layout (which rule files will exist, in which subfolders, and the atomic rule each file captures) as a structured summary, and wait for user approval or redirection.
-   - For non-trivial requests, present the draft of each file (or each section, when a file is large) and wait for approval before moving on. Trivial requests may be presented as a single combined draft.
+   - Once the layout is approved, persist every resulting file in a single batch without any further per-file or per-section confirmation step.
    - Update related existing rule files in place when the request affects rules they already cover, and create new files only for rules not already covered. Do not duplicate the same rule across files.
 5. After approval, run the self-review pass before finalizing each file: re-read the draft and check for placeholders left behind, contradictions with other rule files or with existing contracts, ambiguous wording, and scope that drifted beyond what the user requested. Fix any issue in place; if a fix would change the meaning of an already-approved rule, surface the issue to the user and ask before applying it.
 6. Organize the resulting files so that each rule lives in its own file. Use subfolders inside rules/ to group thematically related rules (for example, a testing/ subfolder for testing-related rules, a dependencies/ subfolder for dependency-management rules, a solid/ subfolder with one file per SOLID principle, a disposes/ subfolder with one file per dispose-pattern obligation). A bundle of related rules MUST be modeled as a subfolder of single-rule files, never as one multi-rule file.
@@ -125,7 +125,7 @@ The user invokes you as: /flanders-plan [<data>]
    - **Plan-local implementation choice** — the answer is specific to the requested work and does not generalize. The chosen answer is embedded in the relevant task's description and acceptance criteria, and is never promoted to a rule.
 
    The skill itself never writes to rules/ or contracts/. Rule creation, when the user elects it, happens through /flanders-rule as a separate, user-initiated act. The full clarification-scope obligation lives in rules/ai/skills/plan/clarification-scope.md.
-4. **Drafting phase.** Before persisting the plan file, present the planned plan layout (the task hierarchy, the subject of each leaf task, and the contract and rule files each leaf task will link to) as a structured summary, and wait for user approval or redirection. For non-trivial plans, sections of the draft are presented and approved before moving on. Trivial plans may be presented as a single combined draft.
+4. **Drafting phase.** Once the clarification phase is complete, persist the plan file directly without presenting a layout summary, a section-by-section draft, or any other pre-write approval step. The user reviews the written plan file after the fact.
 5. Persist exactly one markdown file inside the project's plans/ folder. The filename must be descriptive of the plan's subject.
 6. Upon successful completion, print the summary described in the Summary section below. If the plan cannot be made compliant with the Plan content rules, do not declare complete: surface the issue along with the plan file path to the user in chat.
 

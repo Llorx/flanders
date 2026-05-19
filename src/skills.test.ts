@@ -36,6 +36,9 @@ test.describe("skills – contractSkillBody", test => {
             },
             "requires user approval"(body) {
                 Assert.ok(body.includes("approval"), "must require user approval");
+            },
+            "persists every file in a single batch after layout approval"(body) {
+                Assert.ok(body.includes("single batch without"), "must persist files in a single batch after layout approval");
             }
         }
     });
@@ -576,30 +579,21 @@ test.describe("skills – planSkillBody", test => {
         }
     });
 
-    test("covers drafting phase with layout approval", {
+    test("covers drafting phase as direct write without approval", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
             "has Drafting phase heading"(body) {
                 Assert.ok(body.includes("Drafting phase"), "must have Drafting phase heading");
             },
-            "presents task hierarchy in plan layout"(body) {
-                Assert.ok(body.includes("task hierarchy"), "must present task hierarchy");
+            "persists the plan file directly after clarification"(body) {
+                Assert.ok(body.includes("persist the plan file directly"), "must persist the plan file directly after clarification");
             },
-            "presents leaf-task subjects"(body) {
-                Assert.ok(body.includes("subject of each leaf task"), "must present leaf-task subjects");
+            "writes without presenting a layout summary"(body) {
+                Assert.ok(body.includes("without presenting a layout summary"), "must write without presenting a layout summary");
             },
-            "presents contract and rule files each leaf task will link to"(body) {
-                Assert.ok(body.includes("contract and rule files each leaf task will link to"), "must present contract and rule files");
-            },
-            "requires user approval before persisting"(body) {
-                Assert.ok(body.includes("user approval"), "must require user approval before persisting");
-            },
-            "distinguishes non-trivial plans with sectional approval"(body) {
-                Assert.ok(body.includes("non-trivial"), "must distinguish non-trivial plans");
-            },
-            "distinguishes trivial plans with combined draft"(body) {
-                Assert.ok(body.includes("Trivial plans"), "must distinguish trivial plans");
+            "user reviews the plan after it is written"(body) {
+                Assert.ok(body.includes("user reviews the written plan file after the fact"), "user must review the plan after it is written");
             }
         }
     });
@@ -672,6 +666,9 @@ test.describe("skills – ruleSkillBody", test => {
             },
             "requires user approval"(body) {
                 Assert.ok(body.includes("approval"), "must require user approval");
+            },
+            "persists every file in a single batch after layout approval"(body) {
+                Assert.ok(body.includes("single batch without"), "must persist files in a single batch after layout approval");
             }
         }
     });
