@@ -1,13 +1,13 @@
 # `/flanders-contract` Skill Contract
 
 ## Purpose
-Translate a free-form description of a software product into one or more contract markdown files that capture the public, user-visible obligations of that product. The skill runs inside the user's own Claude Code session and writes the resulting files directly into the user's project.
+Translate a free-form description of a software product into one or more contract markdown files that capture the public, user-visible obligations of that product. The skill runs inside the user's own AI-tool session and writes the resulting files directly into the user's project.
 
 ## Provisioning
-The skill becomes available only after the user runs `npx flanders install` (see `cli-commands/install.md`).
+The skill becomes available only after the user runs `npx flanders install` (see `cli-commands/install.md`). The skill is installed for each AI tool the user picked at install time (Claude Code, Codex CLI, or both). The invocation form below is the same regardless of which AI tool the user is invoking it from.
 
 ## Invocation
-The user invokes the skill from inside a Claude Code session as:
+The user invokes the skill from inside an AI-tool session as:
 
     /flanders-contract [<data>]
 

@@ -11,18 +11,8 @@ Define the loop that picks the next open task, drives a worker AI through implem
 While there is an unchecked task in the plan file:
 1. Pick the next unchecked task. Capture both its line number in the plan file and its title verbatim, with no summarization or rewriting.
 2. Reset `iteration` to 0.
-3. **Prep stage.** Spawn a read-only prep AI (via the Claude runner) with a prompt that includes:
-   - The plan file path.
-   - The task line number and the task title verbatim.
-   - The full list of contract files currently inside the project's `contracts/` folder and the full list of rule files currently inside the project's `rules/` folder, both by relative path from the project root.
-   - Instructions to read the full content of the task, every contract and rule referenced by the task, and any additional contract or rule from the global lists that the prep judges relevant to the task.
-   - Instructions to end the session with a short acknowledgement (for example, `READY`) and no pending tool calls, so the session is in a state suitable to be forked.
-
-   The prep is a read-only context-loading agent — see `rules/ai/session-ids/prep-session-per-task.md`. Its `session_id` is captured upon successful completion and becomes the fork parent for the worker's first iteration and for every reviewer invocation on this task. The prep's output is persisted to `prep.log` inside the temporary folder (see `cli-commands/implement/workspace.md`).
-
-   If the prep fails to produce a usable forkable session — the runner surfaces an unrecoverable error, or the prep does not end in a state suitable for forking — the run is hard-stopped: print an error that names the task, point at the workspace logs, preserve the temporary folder on disk (suppressing the automatic cleanup), and exit non-zero.
-4. Run the inner loop (below).
-5. On a successful inner loop, the task's checkbox is flipped from open to done in the plan file. The prep's `session_id` is discarded together with the worker's `session_id` (per `rules/ai/session-ids/worker-session-across-iterations.md`); each task gets its own prep. Continue with the next task.
+3. Run the inner loop (below).
+4. On a successful inner loop, the task's checkbox is flipped from open to done in the plan file. Continue with the next task.
 
 When no unchecked tasks remain, print `all tasks completed` and exit successfully.
 
@@ -31,15 +21,17 @@ Each iteration walks through the stages below in order. Any stage that fails wri
 
 1. Increment `iteration`. If `iteration` exceeds `MAX_ITER`, hard stop: print an error that names the task and points at the workspace logs, and exit non-zero.
 
-2. **Worker stage.** Spawn a worker AI (via the Claude runner — see `cli-commands/implement/claude-runner.md`). How the worker is launched depends on the iteration:
-   - **Iteration 1.** The worker is spawned as a fork of the task's prep session captured in stage 3 of the outer loop, so the linked contracts and rules (and any global ones the prep judged relevant) are already loaded in the worker's context — see `rules/ai/session-ids/worker-first-iteration-forks-prep.md`.
-   - **Iteration n>1.** The worker resumes its own session captured from iteration 1 (per `rules/ai/session-ids/worker-session-across-iterations.md`). It does not refork from the prep.
+2. **Worker stage.** Spawn a worker AI (via the AI runner — see `cli-commands/implement/ai-runner.md`). The AI tool and model used for the worker are the ones selected in the Flanders configuration (see `shared/flanders-config.md`).
+
+   How the worker is launched depends on the iteration:
+   - **Iteration 1.** A fresh worker invocation. The worker has access to the task and to the contents of the contracts and rules linked by the task.
+   - **Iteration n>1.** The worker continues from the work it produced in iteration 1, so prior tool calls and prior reasoning made by this task's worker remain available.
 
    The worker prompt contains:
    - The plan file path.
    - The task line number and the task title verbatim.
-   - Instructions to find that line in the plan file, respect the obligations of every contract and rule linked by the task, implement the task, and update or extend tests so the new behavior is covered. The worker is not required to re-read the linked contracts and rules — on iteration 1 their content is already in context through the prep fork, and on later iterations it is preserved by the worker's own session continuity.
-   - The full list of contract files and the full list of rule files (both by relative path from the project root, where each path is the contract's or rule's namespace). The worker may consult any file in these lists at its discretion in addition to the ones already linked to the task or already loaded by the prep.
+   - Instructions to find that line in the plan file, respect the obligations of every contract and rule linked by the task, implement the task, and update or extend tests so the new behavior is covered.
+   - The full list of contract files and the full list of rule files (both by relative path from the project root, where each path is the contract's or rule's namespace). The worker may consult any file in these lists at its discretion in addition to the ones already linked to the task.
    - Instructions stating that, if the implementation changes how the project builds or how its tests run, the worker also updates the build and test scripts inside the temporary folder.
    - On every iteration after the first, the previous-iteration briefing (see below).
 
@@ -47,7 +39,9 @@ Each iteration walks through the stages below in order. Any stage that fails wri
 
 4. **Test stage.** Run the test script (when one exists). On non-zero exit, capture both stdout and stderr to the `error.log` file and restart the inner loop.
 
-5. **Adversarial review stage.** Spawn a reviewer AI (via the Claude runner) as a fork of the task's prep session captured in stage 3 of the outer loop. Every reviewer invocation across every iteration of the task forks from the same prep; there is no reviewer-to-reviewer session continuity (see `rules/ai/session-ids/reviewer-forks-prep-each-call.md`). The reviewer's prompt includes the same full lists of contract files and rule files (relative paths inside `contracts/` and `rules/`, where each path is the contract's or rule's namespace) that the worker receives in stage 2; the reviewer may consult any of them at its discretion. The reviewer is instructed to find why the working-tree changes FAIL to satisfy the task spec or to honor the contracts and rules referenced by the task. Verifying that every contract and rule referenced by the task is actually honored in the working-tree changes is an explicit obligation of the reviewer — a referenced contract or rule that is not honored is a FAIL; a contract or rule the reviewer determines should have applied but did not, even if not referenced by the task, is also a FAIL.
+5. **Adversarial review stage.** Spawn a reviewer AI (via the AI runner). The AI tool and model used for the reviewer are the ones selected in the Flanders configuration (see `shared/flanders-config.md`), which may be the same as or different from the worker's. Every reviewer invocation for the task is a fresh invocation with no continuity from any prior reviewer invocation — there is no reviewer-to-reviewer continuity.
+
+   The reviewer's prompt includes the same full lists of contract files and rule files (relative paths inside `contracts/` and `rules/`, where each path is the contract's or rule's namespace) that the worker receives in stage 2; the reviewer may consult any of them at its discretion. The reviewer is instructed to find why the working-tree changes FAIL to satisfy the task spec or to honor the contracts and rules referenced by the task. Verifying that every contract and rule referenced by the task is actually honored in the working-tree changes is an explicit obligation of the reviewer — a referenced contract or rule that is not honored is a FAIL; a contract or rule the reviewer determines should have applied but did not, even if not referenced by the task, is also a FAIL.
 
    The reviewer must run every verification it is required to run and every additional check its judgment deems applicable, and must not stop when the first violation is discovered. The four FAIL conditions above and the acceptance-criteria verification protocol are executed in full on every invocation; encountering a violation in one of them does not exempt the reviewer from completing the rest. The goal is that a single review produces the complete list of fixes the next worker needs to apply, so the next iteration can address every outstanding problem at once instead of one at a time across multiple iterations.
 
@@ -83,4 +77,4 @@ Unlike every other exit path, the hard stop intentionally preserves the temporar
 The command then exits non-zero.
 
 ## Spec folder immovability
-None of the AI agents spawned by the `implement` command — the prep, the worker, or the reviewer — may write to `contracts/`, `rules/`, or `plans/`. The `implement` command itself writes to `plans/` only to rewrite the checkbox state and the metrics object of an existing task line as work progresses (per the commit/check and task-metrics-persistence sections above and per `shared/plan-file-format.md`); it does not create, delete, or rename plan files. See `shared/spec-folder-write-authority.md`.
+None of the AI agents spawned by the `implement` command — the worker or the reviewer — may write to `contracts/`, `rules/`, or `plans/`. The `implement` command itself writes to `plans/` only to rewrite the checkbox state and the metrics object of an existing task line as work progresses (per the commit/check and task-metrics-persistence sections above and per `shared/plan-file-format.md`); it does not create, delete, or rename plan files. See `shared/spec-folder-write-authority.md`.

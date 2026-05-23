@@ -1,15 +1,15 @@
 # `/flanders-rule` Skill Contract
 
 ## Purpose
-Translate a free-form description of code-implementation guidance into one or more rule markdown files that capture how code in the project must be written. The skill runs inside the user's own Claude Code session and writes the resulting files directly into the user's project.
+Translate a free-form description of code-implementation guidance into one or more rule markdown files that capture how code in the project must be written. The skill runs inside the user's own AI-tool session and writes the resulting files directly into the user's project.
 
 Rules differ from contracts: contracts pin public, user-visible obligations of the product, while rules pin internal implementation conventions that the project's code must follow — for example, "use library X", "100% test coverage for this kind of code", "no production dependencies without asking", "use a mocking context whenever the class accesses something it does not own", "follow the dispose pattern", "apply SOLID". Plans and implementations downstream must respect rules just as they respect contracts.
 
 ## Provisioning
-The skill becomes available only after the user runs `npx flanders install` (see `cli-commands/install.md`).
+The skill becomes available only after the user runs `npx flanders install` (see `cli-commands/install.md`). The skill is installed for each AI tool the user picked at install time (Claude Code, Codex CLI, or both). The invocation form below is the same regardless of which AI tool the user is invoking it from.
 
 ## Invocation
-The user invokes the skill from inside a Claude Code session as:
+The user invokes the skill from inside an AI-tool session as:
 
     /flanders-rule [<data>]
 
