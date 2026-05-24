@@ -10,12 +10,14 @@ Before `/flanders-plan` declares its work complete, the skill runs a **final val
 
 ## How the validator is hosted
 
-The validator runs as a subagent — spawned via the `Agent` tool — in a fresh session that does not share context with the drafting phase. The fresh session is load-bearing: it forces the validator to re-derive its judgments from the file on disk and the canonical listings, instead of inheriting the drafter's confirmation bias.
+The validator runs as a subagent — spawned via the AI tool's subagent mechanism — in a fresh session that does not share context with the drafting phase. The fresh session is load-bearing: it forces the validator to re-derive its judgments from the file on disk and the canonical listings, instead of inheriting the drafter's confirmation bias.
+
+The subagent mechanism is tool-specific. In Claude Code, the skill spawns the validator through the `Agent` tool. In Codex CLI, the skill spawns the validator through whatever Codex documents as its subagent surface at the time of the run. The skill chooses the mechanism based on the AI tool the user is running it from.
 
 The skill may fall back to an **inline pass** (running the same checks in its own session, without spawning a subagent) only when the subagent invocation is genuinely unavailable or fails. Concretely, an inline fallback is allowed when:
 
-- The `Agent` tool is not present in the environment the skill is running in.
-- An `Agent` invocation returns an error that the skill cannot recover from (spawn failure, transport error, environment refusal).
+- The AI tool the skill is running in does not expose a subagent mechanism (for example, Codex CLI without a documented subagent surface at run time).
+- A subagent invocation returns an error that the skill cannot recover from (spawn failure, transport error, environment refusal).
 
 An inline fallback is not allowed for ergonomic reasons (the plan looks small, the drafter is confident, tokens are tight). When the skill takes the inline path, it states in chat that it is falling back to inline validation and names the reason; a silent fallback is a violation of this rule.
 

@@ -1,11 +1,10 @@
 # Transient retries use exponential backoff capped at one minute
 
-For retryable failures that do not carry a wait duration of their own, the Claude runner waits before each retry using an exponential backoff capped at one minute, resetting once a call succeeds.
+For retryable failures that do not carry a wait duration of their own, the AI runner waits before each retry using an exponential backoff capped at one minute, resetting once a call succeeds.
 
 ## Who this applies to
 
-- **Subject:** the Claude runner.
-- **Scope:** every retry triggered by a failure that satisfies the retryable predicate in `retryable-error-taxonomy.md`. Rate-limit retries are out of scope — their wait policy lives in `rate-limit-wait-from-error.md`.
+- **Subject:** the AI runner (see `contracts/cli-commands/implement/ai-runner.md`).
 
 ## How the backoff progresses
 
@@ -16,7 +15,7 @@ For retryable failures that do not carry a wait duration of their own, the Claud
 
 ## When the backoff resets
 
-The backoff counter resets to its initial wait the moment a Claude call succeeds. A future transient failure starts again from the short initial wait, not from wherever the previous failure series ended.
+The backoff counter resets to its initial wait the moment a call succeeds. A future transient failure starts again from the short initial wait, not from wherever the previous failure series ended.
 
 ## Failure signals
 

@@ -1,13 +1,13 @@
 # Los subagentes autónomos no escriben en git
 
-Cualquier instancia de Claude que se ejecute como agente autónomo dentro de este proyecto — workers, reviewers, adversarial reviewers, validadores y, en general, cualquier subagente lanzado por una skill, una orquestación o por la sesión principal — tiene prohibido ejecutar comandos git que modifiquen el estado del repositorio. Solo puede leer git, y solo cuando lo necesite para su tarea.
+Cualquier instancia de IA (Claude Code, Codex CLI, o cualquier otra herramienta soportada) que se ejecute como agente autónomo dentro de este proyecto — workers, reviewers, adversarial reviewers, validadores y, en general, cualquier subagente lanzado por una skill, una orquestación o por la sesión principal — tiene prohibido ejecutar comandos git que modifiquen el estado del repositorio. Solo puede leer git, y solo cuando lo necesite para su tarea.
 
 La única instancia exenta es la sesión interactiva con el usuario, que sí puede ejecutar git de escritura cuando el usuario lo pide explícitamente en esa misma sesión.
 
 ## A quién aplica
 
-- **Sujeto a la regla:** todo subagente lanzado mediante la tool `Agent` (cualquier `subagent_type`), todo proceso de Claude lanzado por una skill como worker/reviewer/validator, y cualquier instancia que opere sin un humano respondiendo turno a turno.
-- **Exento:** la sesión interactiva en la que el usuario está conversando con Claude. Esa sesión puede ejecutar comandos git de escritura cuando el usuario los pide explícitamente. Una orden inferida o anticipada por Claude no cuenta como orden explícita.
+- **Sujeto a la regla:** todo subagente lanzado mediante el mecanismo de subagentes del AI tool (en Claude Code, la tool `Agent` con cualquier `subagent_type`; en Codex CLI, el equivalente cuando exista), todo proceso de AI tool lanzado por una skill o por el comando `implement` como worker/reviewer/prep/validator/detect, y cualquier instancia que opere sin un humano respondiendo turno a turno.
+- **Exento:** la sesión interactiva en la que el usuario está conversando con el AI tool. Esa sesión puede ejecutar comandos git de escritura cuando el usuario los pide explícitamente. Una orden inferida o anticipada por Claude no cuenta como orden explícita.
 
 Un subagente no hereda permiso para escribir en git por el hecho de que la sesión que lo lanzó sí lo tuviera. La prohibición es por rol, no por cadena de invocación.
 

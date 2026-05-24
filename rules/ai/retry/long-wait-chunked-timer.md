@@ -5,7 +5,6 @@ Any wait that can plausibly last beyond an hour is implemented as a loop of boun
 ## Who this applies to
 
 - **Subject:** any wait inside Flanders that can run for an hour or more.
-- **Scope:** in practice, rate-limit waits. Transient backoffs are capped at one minute and do not need this mechanism.
 
 ## How the wait is structured
 
@@ -15,7 +14,7 @@ Any wait that can plausibly last beyond an hour is implemented as a loop of boun
 
 ## Why this is needed
 
-- JavaScript timers (`setTimeout`) cannot reliably schedule arbitrarily long single delays; very long delays are subject to skipped, clamped, or coalesced behaviour.
+- JavaScript timers (`setTimeout`) cannot reliably schedule arbitrarily long single delays; very long delays are subject to skipped, clamped, or coalesced behavior.
 - The system clock can drift, jump, or be adjusted while a long wait is sleeping; chunking gives the wait an opportunity to re-anchor against the current clock after each chunk.
 
 ## Failure signals
