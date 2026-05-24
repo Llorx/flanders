@@ -42,7 +42,7 @@ Tasks appear top-to-bottom in implementation order. The audit is semantic, not n
 
 No task — leaf or parent — describes work that creates, modifies, deletes, or renames any file inside `contracts/`, `rules/`, or `plans/`. There is no exception for flipping checkboxes or rewriting metrics: those mutations are performed programmatically by the `implement` command and are never described by a task.
 
-### 4. Plan content rules (verbatim from `contracts/ai-skills/plan.md`)
+### 4. Plan content rules (verbatim from `contracts/ai-skills/plan-skill.md`)
 
 Verify that the plan satisfies EACH of the following obligations, independently. The host inlines this list verbatim in the validator's prompt; the validator audits each item as its own check and enumerates violations by name plus the offending file:line.
 

@@ -34,6 +34,7 @@ The skill's sole deliverable is one or more contract markdown files inside the p
    - Multiple files inside `contracts/` when the product has clearly separable concerns (for example, a logic file and a UI file).
    - Subfolders grouping related files when the product has multiple sections (for example, one folder per major feature, with logic and UI files inside, plus any other concerns that are neither logic nor UI).
 7. Filenames must be descriptive of their content — the user must be able to tell what each file covers from its name alone.
+8. **Post-write validation.** Before declaring complete, the skill runs the post-write validation gate per `ai-skills/post-write-validation.md`. If the gate fails, the skill follows the triage-then-fix loop defined there — re-entering this contract's clarification phase for any issue that closes a previously-unresolved ambiguity in this contract's clarification scope, and fixing the rest in place — and surfaces the final failure to the user if the bounded loop exhausts.
 
 ## Output language
 Contract files are written in the same natural language as the input request. If the input is in Spanish, the output is in Spanish; if English, English; and so on. The skill does not translate, unless the user says otherwise.

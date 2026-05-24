@@ -4,14 +4,14 @@
 
 ## Who this applies to
 
-- **Subject:** `/flanders-plan` during its clarification phase, on every invocation.
+- **Subject:** `/flanders-plan` during its clarification phase, on every invocation. The same scope binds any re-entry of the clarification phase triggered by the post-write fix loop per `rules/ai/skills/final-validator-host.md` — a validator FAIL never broadens what `/flanders-plan` is allowed to ask about.
 - **Not subject:** `/flanders-contract` and `/flanders-rule` — they run their own clarification phases governed by their own contracts.
 
 ## Forbidden topics
 
 The planner does not ask the user about any of the following, regardless of how much ambiguity the planner perceives in them:
 
-- The plan file's format, structure, location, filename, or any other property pinned by `contracts/ai-skills/plan.md` or `contracts/shared/plan-file-format.md`.
+- The plan file's format, structure, location, filename, or any other property pinned by `contracts/ai-skills/plan-skill.md` or `contracts/shared/plan-file-format.md`.
 - The skill's own output, chat messages, summary shape, or any other aspect of its UX.
 - Obligations already pinned by any file in the canonical contracts or rules listings captured at invocation. The planner reads those files (per `rules/ai/skills/read-relevant-references-before-drafting.md`) and follows them silently.
 - Scope choices the planner can reasonably infer from the request and the canonical references — for example, which existing module a feature naturally extends, which rule namespace a new task naturally falls under, or which obvious default applies when the request is silent on a non-load-bearing detail.
@@ -27,7 +27,7 @@ The planner asks the user only when both of the following are true:
    - **An implementation choice in the code the tasks will produce** — which approach to take among multiple valid ones, which library or pattern to use, which trade-off to favor; or
    - **A task-scope ambiguity** the planner cannot reasonably infer — for example, "add tests" without naming the module, "refactor the controller" when there are several candidate controllers and the request gives no signal which one.
 
-When this test passes, the question mechanics already pinned in `contracts/ai-skills/plan.md` apply (one question per turn, multiple-choice preferred when the answer space is bounded).
+When this test passes, the question mechanics already pinned in `contracts/ai-skills/plan-skill.md` apply (one question per turn, multiple-choice preferred when the answer space is bounded).
 
 ## Failure signals
 

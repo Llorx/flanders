@@ -49,15 +49,26 @@ If the validator wants to show its work, it does so in the body of its response 
 
 ## How the host reacts to FAIL
 
-When the validator returns FAIL, the host enters an auto-fix loop:
+When the validator returns FAIL, the host enters a triage-then-fix loop. The triage step is non-negotiable: the host MUST process every issue through it before reaching for any rewrite, so that failures requiring user input are surfaced as questions rather than silently patched.
 
-1. The host reads the FAIL report and rewrites the affected artifact(s) in place, addressing each enumerated issue.
-2. The host re-launches the validator (a new subagent in a fresh session when the subagent host is available) over the rewritten artifact(s).
-3. The cycle repeats. The host performs at most **five** auto-fix passes per skill invocation. The fifth FAIL ends the loop.
+1. **Triage each issue.** For every issue enumerated in the FAIL report, the host classifies it against the clarification-scope of the originating skill's contract — the same criteria that govern that skill's initial clarification phase. The originating skill maps to its clarification-scope source as follows:
+   - `/flanders-contract` — the clarification phase in `contracts/ai-skills/contract-skill.md`.
+   - `/flanders-rule` — the clarification phase in `contracts/ai-skills/rule-skill.md`.
+   - `/flanders-plan` — the clarification phase in `contracts/ai-skills/plan-skill.md`, further constrained by `rules/ai/skills/plan/clarification-scope.md`.
+
+   An issue lands in one of two buckets:
+   - **Re-clarify bucket** — the issue's fix would commit the skill to an answer that, per the originating skill's clarification-scope, the user is the one who must give, and that the user did not give in the initial clarification phase of this invocation. The host re-enters the originating skill's clarification phase for that specific ambiguity before any rewrite happens. Re-entered clarification follows the same question mechanics the originating skill's contract already pins: one question per turn, multiple-choice preferred when the answer space is bounded, no bundling. The re-entered phase is scoped to the specific ambiguity the issue closes — it is not the original phase re-run wholesale, and it does not re-ask decisions the user has already given in this same invocation.
+   - **Silent-fix bucket** — every other issue. This covers formatting, missing links, naming, numbering, placeholders that do not require a user-level decision, and any other fix the originating skill's contract authorizes the skill to resolve on its own. The host applies these in place without asking.
+
+2. **Apply the fixes.** With the answers gathered for the re-clarify bucket (if any) and the silent-fix bucket determined, the host rewrites the affected artifact(s) in place, addressing every enumerated issue.
+3. **Re-launch the validator** (a new subagent in a fresh session when the subagent host is available) over the rewritten artifact(s).
+4. The cycle repeats. The host performs at most **five** triage-then-fix passes per skill invocation. The fifth FAIL ends the loop.
 
 When the loop ends with a PASS at any iteration, the host proceeds to its end-of-run summary as defined by the skill's own contract.
 
-When the loop ends with FAIL — i.e., after five unsuccessful auto-fix passes — the host stops, does not declare complete, and surfaces the last FAIL report along with the artifact path(s) to the user in chat. It is then the user's call to redirect, restart, or accept the partial output. The host does not silently leave a failing artifact on disk as if it were valid.
+When the loop ends with FAIL — i.e., after five unsuccessful passes — the host stops, does not declare complete, and surfaces the last FAIL report along with the artifact path(s) to the user in chat. It is then the user's call to redirect, restart, or accept the partial output. The host does not silently leave a failing artifact on disk as if it were valid.
+
+Triage never broadens the originating skill's clarification-scope: an issue the originating skill would not have asked about in its initial clarification phase is never asked about during the fix loop either. It is fixed in place per the silent-fix bucket.
 
 ## Failure signals
 
@@ -67,6 +78,10 @@ When the loop ends with FAIL — i.e., after five unsuccessful auto-fix passes �
 - The validator subagent edits, writes, renames, or deletes any file in the project, or runs a git command that mutates state.
 - The validator's response includes an Evidence Report, or any multi-line content after the final verdict line.
 - The validator's verdict line is not exactly `PASS` or `FAIL <enumerated issues>` on a single trailing line.
-- The host receives a FAIL and declares complete without running the auto-fix loop.
-- The auto-fix loop exceeds five passes within a single skill invocation.
+- The host receives a FAIL and declares complete without running the triage-then-fix loop.
+- The host rewrites the artifact in place for a FAIL issue whose fix closes a clarification-scope ambiguity the originating skill's contract pins as user-input territory and that the user did not resolve in the initial clarification phase, instead of re-entering the originating skill's clarification phase for that ambiguity.
+- The triage step is collapsed into the rewrite — the host reads the FAIL report and rewrites without first classifying each issue against the originating skill's clarification-scope.
+- The host re-asks decisions the user has already given in the same skill invocation when re-entering the clarification phase, instead of scoping the re-entered phase to the specific ambiguity at hand.
+- The host broadens the originating skill's clarification-scope during the fix loop — asks about an issue the originating skill's contract would not have asked about in its initial clarification phase.
+- The triage-then-fix loop exceeds five passes within a single skill invocation.
 - The host ends with a FAIL still standing and silently writes its end-of-run summary as if the artifact were valid, instead of surfacing the FAIL to the user.

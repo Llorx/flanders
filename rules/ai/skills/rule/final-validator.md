@@ -33,7 +33,7 @@ Every rule artifact file written or updated in this run:
 - Has a filename descriptive of the single rule the file captures — a reader can tell which rule the file pins from its name alone.
 - Bundles of related rules are modeled as subfolders containing single-rule files, never as one multi-rule file. A `testing/` subfolder with one file per testing obligation is correct; a single `testing.md` listing multiple obligations is FAIL.
 
-### 2. Content rules (verbatim from `contracts/ai-skills/rule.md`)
+### 2. Content rules (verbatim from `contracts/ai-skills/rule-skill.md`)
 
 Verify that each persisted rule satisfies EACH of the following obligations, independently. The host inlines this list verbatim in the validator's prompt; the validator audits each item as its own check and enumerates violations by name plus the offending file:line.
 

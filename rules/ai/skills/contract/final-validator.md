@@ -30,9 +30,9 @@ Every contract artifact file written or updated in this run:
 - Lives inside `contracts/` and is non-empty.
 - Is markdown.
 - Has a filename descriptive of its content — a reader can tell what each file covers from its name alone.
-- Is organized per `contracts/ai-skills/contract.md` step 6 of the Behavior section: a single descriptive file when the product is small, multiple files when the product has clearly separable concerns (for example, a logic file and a UI file), subfolders grouping related files when the product has multiple sections (for example, one folder per major feature, with logic and UI files inside).
+- Is organized per `contracts/ai-skills/contract-skill.md` step 6 of the Behavior section: a single descriptive file when the product is small, multiple files when the product has clearly separable concerns (for example, a logic file and a UI file), subfolders grouping related files when the product has multiple sections (for example, one folder per major feature, with logic and UI files inside).
 
-### 2. Content rules (verbatim from `contracts/ai-skills/contract.md`)
+### 2. Content rules (verbatim from `contracts/ai-skills/contract-skill.md`)
 
 Verify that each persisted contract satisfies EACH of the following obligations, independently. The host inlines this list verbatim in the validator's prompt; the validator audits each item as its own check and enumerates violations by name plus the offending file:line.
 

@@ -30,13 +30,12 @@ The skill's sole deliverable is exactly one markdown plan file inside the projec
    The skill itself never writes to `rules/` or `contracts/`. Rule creation, when the user elects it, happens through `/flanders-rule` as a separate, user-initiated act.
 4. **Drafting phase.** Once the clarification phase is complete, the skill persists the plan file directly without presenting a layout summary, a section-by-section draft, or any other pre-write approval step. The user reviews the written plan file after the fact.
 5. After approval, the skill persists exactly one markdown file inside the project's `plans/` folder. The filename is descriptive of the plan's subject, and the file content conforms to `shared/plan-file-format.md`.
-6. Upon successful completion, the skill prints a summary in chat containing:
+6. **Post-write validation.** Before declaring complete, the skill runs the post-write validation gate per `ai-skills/post-write-validation.md`. If the gate fails, the skill follows the triage-then-fix loop defined there — re-entering this contract's clarification phase for any issue that closes a previously-unresolved ambiguity in this contract's clarification scope (the narrowest of the three skills'), and fixing the rest in place. If the bounded loop exhausts, the skill does not declare complete and surfaces the final failure along with the plan file path.
+7. Upon declaring complete, the skill prints a summary in chat containing:
    - The plan file path.
    - The plan file's character size.
    - The plan file's total line count.
    - The total number of detected tasks.
-
-   If the plan cannot be made compliant with the Plan content rules below, the skill does not declare complete and surfaces the issue along with the plan file path.
 
 ## Plan content rules
 - No task the skill writes may describe work that creates, modifies, deletes, or renames files inside `contracts/`, `rules/`, or `plans/` (with the bounded checkbox/metrics exception that the `implement` command holds, not the worker). The skill's own write boundary and the immovability that applies to the tasks it generates are pinned in `shared/spec-folder-write-authority.md`.
