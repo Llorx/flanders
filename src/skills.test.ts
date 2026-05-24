@@ -405,8 +405,8 @@ test.describe("skills – planSkillBody", test => {
             "validator is the gate before declaring complete"(body) {
                 Assert.ok(body.includes("only declare complete when it returns PASS"), "validator must be the completion gate");
             },
-            "launches validator as fresh subagent via Agent tool"(body) {
-                Assert.ok(body.includes("Launch the validator as a fresh subagent via the Agent tool"), "must launch validator as a subagent via Agent tool");
+            "launches validator as fresh subagent via the AI tool's subagent mechanism"(body) {
+                Assert.ok(body.includes("Launch the validator as a fresh subagent via the AI tool's subagent mechanism"), "must launch validator as a fresh subagent via the AI tool's subagent mechanism");
             },
             "fresh session is load-bearing"(body) {
                 Assert.ok(body.includes("does not share context with this drafting session"), "validator session must not share context with the drafter");
@@ -418,11 +418,11 @@ test.describe("skills – planSkillBody", test => {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            "permits inline fallback when Agent tool is unavailable"(body) {
-                Assert.ok(body.includes("Agent tool is unavailable in the current environment"), "must permit inline fallback when Agent tool is unavailable");
+            "permits inline fallback when the subagent mechanism is unavailable"(body) {
+                Assert.ok(body.includes("subagent mechanism is unavailable in the current environment"), "must permit inline fallback when the subagent mechanism is unavailable");
             },
-            "permits inline fallback on unrecoverable Agent error"(body) {
-                Assert.ok(body.includes("unrecoverable error (spawn failure, transport error, environment refusal)"), "must permit inline fallback on unrecoverable Agent error");
+            "permits inline fallback on unrecoverable subagent error"(body) {
+                Assert.ok(body.includes("unrecoverable error (spawn failure, transport error, environment refusal)"), "must permit inline fallback on unrecoverable subagent error");
             },
             "forbids ergonomic inline fallback"(body) {
                 Assert.ok(body.includes("Inline fallback for ergonomic reasons"), "must forbid inline fallback for ergonomic reasons");
@@ -434,7 +434,7 @@ test.describe("skills – planSkillBody", test => {
         }
     });
 
-    test("Final validation enumerates the three mandatory validator checks", {
+    test("Final validation enumerates the five mandatory validator checks", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
@@ -444,8 +444,14 @@ test.describe("skills – planSkillBody", test => {
             "lists Semantic dependency order check"(body) {
                 Assert.ok(body.includes("2. Semantic dependency order"), "must list Semantic dependency order check");
             },
-            "lists Spec-folder write boundary and contract non-contradiction check"(body) {
-                Assert.ok(body.includes("3. Spec-folder write boundary and contract non-contradiction"), "must list Spec-folder write boundary and contract non-contradiction check");
+            "lists Spec-folder write boundary check"(body) {
+                Assert.ok(body.includes("3. Spec-folder write boundary"), "must list Spec-folder write boundary check");
+            },
+            "lists Plan content rules check"(body) {
+                Assert.ok(body.includes("4. Plan content rules"), "must list Plan content rules check");
+            },
+            "lists Active application of referenced contracts and rules check"(body) {
+                Assert.ok(body.includes("5. Active application of referenced contracts and rules"), "must list Active application of referenced contracts and rules check");
             },
             "states no exception for checkbox flips or metrics rewrites"(body) {
                 Assert.ok(body.includes("no exception for flipping checkboxes or rewriting metrics"), "must state no exception for checkbox flips or metrics rewrites");
