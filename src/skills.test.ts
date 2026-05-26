@@ -121,6 +121,50 @@ test.describe("skills – contractSkillBody", test => {
             }
         }
     });
+
+    test("contains no flanders-internal .md citations", {
+        ARRANGE() {},
+        ACT() { return contractSkillBody; },
+        ASSERTS: {
+            "no path under contracts/, rules/, or plans/ names a specific .md file"(body) {
+                Assert.strictEqual(
+                    /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/.test(body),
+                    false
+                );
+            }
+        }
+    });
+
+    test("On FAIL section pins the triage-then-fix loop", {
+        ARRANGE() {},
+        ACT() { return contractSkillBody; },
+        ASSERTS: {
+            "describes the triage step"(body) {
+                Assert.ok(body.includes("Triage each issue"), "must describe the triage step");
+            },
+            "describes the re-clarify branch"(body) {
+                Assert.ok(body.includes("re-enter the clarification phase"), "must describe the re-clarify branch");
+            },
+            "describes the silent-fix branch"(body) {
+                Assert.ok(body.includes("apply in place without asking"), "must describe the silent-fix branch");
+            },
+            "pins the bounded five-pass loop"(body) {
+                Assert.ok(body.includes("at most FIVE triage-then-fix passes"), "must pin the bounded five-pass loop");
+            },
+            "describes the rewrite step"(body) {
+                Assert.ok(body.includes("Rewrite the affected contract file(s) in place, addressing every enumerated issue"), "must describe the rewrite step");
+            },
+            "describes the validator re-launch step"(body) {
+                Assert.ok(body.includes("Re-launch the validator"), "must describe the validator re-launch step");
+            },
+            "does not declare complete on exhaustion"(body) {
+                Assert.ok(body.includes("do not declare complete"), "must not declare complete on exhaustion");
+            },
+            "surfaces the last FAIL report on exhaustion"(body) {
+                Assert.ok(body.includes("surface the last FAIL report"), "must surface the last FAIL report on exhaustion");
+            }
+        }
+    });
 });
 
 test.describe("skills – planSkillBody", test => {
@@ -346,8 +390,8 @@ test.describe("skills – planSkillBody", test => {
             "prohibits task content from touching plans/"(body) {
                 Assert.ok(body.includes("or inside plans/"), "must prohibit tasks from touching plans/");
             },
-            "references shared/spec-folder-write-authority.md"(body) {
-                Assert.ok(body.includes("shared/spec-folder-write-authority.md"), "must reference spec-folder-write-authority contract");
+            "does not cite shared/spec-folder-write-authority.md"(body) {
+                Assert.ok(!body.includes("shared/spec-folder-write-authority.md"), "must not cite spec-folder-write-authority path");
             }
         }
     });
@@ -498,18 +542,27 @@ test.describe("skills – planSkillBody", test => {
         }
     });
 
-    test("Final validation pins the bounded auto-fix loop and on-terminal-FAIL surface", {
+    test("Final validation pins the bounded triage-then-fix loop and on-terminal-FAIL surface", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
+            "describes the triage step"(body) {
+                Assert.ok(body.includes("Triage each issue"), "must describe the triage step");
+            },
+            "describes the re-clarify branch"(body) {
+                Assert.ok(body.includes("re-enter the clarification phase"), "must describe the re-clarify branch");
+            },
+            "describes the silent-fix branch"(body) {
+                Assert.ok(body.includes("apply in place without asking"), "must describe the silent-fix branch");
+            },
             "rewrites plan in place addressing every enumerated issue"(body) {
-                Assert.ok(body.includes("rewrite the plan file in place, addressing every enumerated issue"), "auto-fix must rewrite the plan in place addressing every issue");
+                Assert.ok(body.includes("Rewrite the plan file in place, addressing every enumerated issue"), "must rewrite the plan in place addressing every issue");
             },
             "re-launches the validator in a fresh subagent session"(body) {
-                Assert.ok(body.includes("Re-launch the validator (a new subagent in a fresh session when the subagent host is available)"), "auto-fix must re-launch a fresh subagent session");
+                Assert.ok(body.includes("Re-launch the validator (a new subagent in a fresh session when the subagent host is available)"), "must re-launch a fresh subagent session");
             },
-            "caps the loop at FIVE auto-fix passes"(body) {
-                Assert.ok(body.includes("at most FIVE auto-fix passes per /flanders-plan invocation"), "must cap the auto-fix loop at FIVE passes per invocation");
+            "caps the loop at FIVE triage-then-fix passes"(body) {
+                Assert.ok(body.includes("at most FIVE triage-then-fix passes per /flanders-plan invocation"), "must cap the triage-then-fix loop at FIVE passes per invocation");
             },
             "does not declare complete on terminal FAIL"(body) {
                 Assert.ok(body.includes("do not declare complete: surface the last FAIL report and the plan file path to the user in chat, then stop"), "must surface the terminal FAIL and stop rather than declaring complete");
@@ -520,15 +573,18 @@ test.describe("skills – planSkillBody", test => {
         }
     });
 
-    test("Final validation references the governing rule files", {
+    test("Final validation does not cite flanders-internal rule paths", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            "points at the final-validator rule"(body) {
-                Assert.ok(body.includes("rules/ai/skills/plan/final-validator.md"), "must point at the final-validator rule");
+            "does not cite the final-validator rule path"(body) {
+                Assert.ok(!body.includes("rules/ai/skills/plan/final-validator.md"), "must not cite the final-validator rule path");
             },
-            "subjects the validator subagent to no-git-writes"(body) {
-                Assert.ok(body.includes("rules/ai/agents/no-git-writes.md"), "must subject the validator subagent to no-git-writes");
+            "does not cite the final-validator-host rule path"(body) {
+                Assert.ok(!body.includes("rules/ai/skills/final-validator-host.md"), "must not cite the final-validator-host rule path");
+            },
+            "does not cite the no-git-writes rule path"(body) {
+                Assert.ok(!body.includes("rules/ai/agents/no-git-writes.md"), "must not cite the no-git-writes rule path");
             }
         }
     });
@@ -553,6 +609,55 @@ test.describe("skills – planSkillBody", test => {
             },
             "does not contain }} placeholders"(body) {
                 Assert.ok(!body.includes("}}"), "must not contain }} placeholders");
+            }
+        }
+    });
+
+    test("self-contained body: no flanders-internal citations and all obligations inline", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "no path under contracts/, rules/, or plans/ names a specific .md file"(body) {
+                Assert.strictEqual(
+                    /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/.test(body),
+                    false
+                );
+            },
+            "inlines the narrower clarification-scope criteria"(body) {
+                Assert.ok(body.includes("implementation choice in the code the tasks will produce that the request does not specify, or a task-scope ambiguity"), "must inline the narrower clarification-scope criteria");
+            },
+            "inlines the scope-driven rule-selection heuristic"(body) {
+                Assert.ok(body.includes("Rule selection per task is scope-driven, not topic-driven"), "must inline the scope-driven rule-selection heuristic");
+            },
+            "inlines that under-linking is penalized"(body) {
+                Assert.ok(body.includes("Under-linking is costly"), "must state that under-linking is penalized");
+            },
+            "inlines the plan-file format: checkbox shape"(body) {
+                Assert.ok(body.includes("`[ ]` — open"), "must inline the open checkbox shape");
+            },
+            "inlines the plan-file format: metrics object byte-exact"(body) {
+                Assert.ok(body.includes("byte-exact"), "must inline the byte-exact metrics check");
+            },
+            "inlines the plan-file format: hierarchical numbering"(body) {
+                Assert.ok(body.includes("numbered hierarchically"), "must inline hierarchical numbering");
+            },
+            "inlines the plan-file format: leaf/parent distinction"(body) {
+                Assert.ok(body.includes("does NOT carry its own checkbox"), "must inline the leaf/parent distinction");
+            },
+            "inlines the spec-folder write boundary for tasks"(body) {
+                Assert.ok(body.includes("No task may describe work that creates, modifies, deletes, or renames files inside contracts/, inside rules/, or inside plans/"), "must inline the spec-folder write boundary");
+            },
+            "On FAIL triage step"(body) {
+                Assert.ok(body.includes("Triage each issue"), "must describe the triage step");
+            },
+            "On FAIL re-clarify branch"(body) {
+                Assert.ok(body.includes("re-enter the clarification phase for that specific ambiguity"), "must describe the re-clarify branch");
+            },
+            "On FAIL silent-fix branch"(body) {
+                Assert.ok(body.includes("apply in place without asking"), "must describe the silent-fix branch");
+            },
+            "On FAIL bounded five-pass loop"(body) {
+                Assert.ok(body.includes("at most FIVE triage-then-fix passes"), "must cap the loop at five passes");
             }
         }
     });
@@ -626,15 +731,15 @@ test.describe("skills – planSkillBody", test => {
         }
     });
 
-    test("references the new plan-specific rules", {
+    test("does not cite plan-specific rule paths", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            "references clarification-scope rule"(body) {
-                Assert.ok(body.includes("rules/ai/skills/plan/clarification-scope.md"), "must reference clarification-scope rule");
+            "does not cite clarification-scope rule path"(body) {
+                Assert.ok(!body.includes("rules/ai/skills/plan/clarification-scope.md"), "must not cite clarification-scope rule path");
             },
-            "references scope-driven-rule-selection rule"(body) {
-                Assert.ok(body.includes("rules/ai/skills/plan/scope-driven-rule-selection.md"), "must reference scope-driven-rule-selection rule");
+            "does not cite scope-driven-rule-selection rule path"(body) {
+                Assert.ok(!body.includes("rules/ai/skills/plan/scope-driven-rule-selection.md"), "must not cite scope-driven-rule-selection rule path");
             }
         }
     });
@@ -775,6 +880,50 @@ test.describe("skills – ruleSkillBody", test => {
             },
             "does not contain }} placeholders"(body) {
                 Assert.ok(!body.includes("}}"), "must not contain }} placeholders");
+            }
+        }
+    });
+
+    test("contains no flanders-internal .md citations", {
+        ARRANGE() {},
+        ACT() { return ruleSkillBody; },
+        ASSERTS: {
+            "no path under contracts/, rules/, or plans/ names a specific .md file"(body) {
+                Assert.strictEqual(
+                    /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/.test(body),
+                    false
+                );
+            }
+        }
+    });
+
+    test("On FAIL section pins the triage-then-fix loop", {
+        ARRANGE() {},
+        ACT() { return ruleSkillBody; },
+        ASSERTS: {
+            "describes the triage step"(body) {
+                Assert.ok(body.includes("Triage each issue"), "must describe the triage step");
+            },
+            "describes the re-clarify branch"(body) {
+                Assert.ok(body.includes("re-enter the clarification phase"), "must describe the re-clarify branch");
+            },
+            "describes the silent-fix branch"(body) {
+                Assert.ok(body.includes("apply in place without asking"), "must describe the silent-fix branch");
+            },
+            "pins the bounded five-pass loop"(body) {
+                Assert.ok(body.includes("at most FIVE triage-then-fix passes"), "must pin the bounded five-pass loop");
+            },
+            "describes the rewrite step"(body) {
+                Assert.ok(body.includes("Rewrite the affected rule file(s) in place, addressing every enumerated issue"), "must describe the rewrite step");
+            },
+            "describes the validator re-launch step"(body) {
+                Assert.ok(body.includes("Re-launch the validator"), "must describe the validator re-launch step");
+            },
+            "does not declare complete on exhaustion"(body) {
+                Assert.ok(body.includes("do not declare complete"), "must not declare complete on exhaustion");
+            },
+            "surfaces the last FAIL report on exhaustion"(body) {
+                Assert.ok(body.includes("surface the last FAIL report"), "must surface the last FAIL report on exhaustion");
             }
         }
     });
