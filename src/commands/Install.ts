@@ -1,6 +1,6 @@
 import type { AskContext, FsContext, OutputContext } from "../contexts";
 import { joinPath } from "../fsUtils";
-import { contractSkillBody, planSkillBody, ruleSkillBody } from "../skills";
+import { planSkillBody, specSkillBody } from "../skills";
 import type { PlatformContext } from "../Workspace";
 
 export type InstallContexts = Readonly<{
@@ -21,9 +21,8 @@ type SkillDef = Readonly<{
 }>;
 
 const SKILLS:readonly SkillDef[] = [
-    { name: "flanders-contract", folder: "flanders-contract", body: contractSkillBody },
-    { name: "flanders-plan", folder: "flanders-plan", body: planSkillBody },
-    { name: "flanders-rule", folder: "flanders-rule", body: ruleSkillBody }
+    { name: "flanders-spec", folder: "flanders-spec", body: specSkillBody },
+    { name: "flanders-plan", folder: "flanders-plan", body: planSkillBody }
 ];
 
 export class Install {

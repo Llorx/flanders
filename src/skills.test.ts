@@ -2,170 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { contractSkillBody, planSkillBody, ruleSkillBody } from "./skills";
-
-test.describe("skills – contractSkillBody", test => {
-    test("is a non-empty string", {
-        ARRANGE() {},
-        ACT() { return contractSkillBody; },
-        ASSERT(body) {
-            Assert.strictEqual(typeof body, "string");
-            Assert.ok(body.length > 0);
-        }
-    });
-
-    test("covers clarification phase", {
-        ARRANGE() {},
-        ACT() { return contractSkillBody; },
-        ASSERTS: {
-            "mentions clarification phase"(body) {
-                Assert.ok(body.includes("clarification"), "must mention clarification phase");
-            },
-            "enforces sequential questions"(body) {
-                Assert.ok(body.includes("one question per turn"), "must enforce sequential questions");
-            }
-        }
-    });
-
-    test("covers drafting phase with approval", {
-        ARRANGE() {},
-        ACT() { return contractSkillBody; },
-        ASSERTS: {
-            "mentions drafting phase"(body) {
-                Assert.ok(body.includes("drafting phase"), "must mention drafting phase");
-            },
-            "requires user approval"(body) {
-                Assert.ok(body.includes("approval"), "must require user approval");
-            },
-            "persists every file in a single batch after layout approval"(body) {
-                Assert.ok(body.includes("single batch without"), "must persist files in a single batch after layout approval");
-            }
-        }
-    });
-
-    test("covers self-review pass", {
-        ARRANGE() {},
-        ACT() { return contractSkillBody; },
-        ASSERTS: {
-            "mentions self-review pass"(body) {
-                Assert.ok(body.includes("self-review"), "must mention self-review pass");
-            },
-            "self-review checks for placeholders"(body) {
-                Assert.ok(body.includes("placeholders"), "self-review must check for placeholders");
-            },
-            "self-review checks for contradictions"(body) {
-                Assert.ok(body.includes("contradictions"), "self-review must check for contradictions");
-            }
-        }
-    });
-
-    test("covers file layout and descriptive filenames", {
-        ARRANGE() {},
-        ACT() { return contractSkillBody; },
-        ASSERTS: {
-            "mentions file layout presentation"(body) {
-                Assert.ok(body.includes("file layout"), "must mention file layout presentation");
-            },
-            "requires descriptive filenames"(body) {
-                Assert.ok(body.includes("Filenames must be descriptive"), "must require descriptive filenames");
-            }
-        }
-    });
-
-    test("covers output language obligation", {
-        ARRANGE() {},
-        ACT() { return contractSkillBody; },
-        ASSERTS: {
-            "has output language section"(body) {
-                Assert.ok(body.includes("Output language"), "must have output language section");
-            },
-            "matches input language"(body) {
-                Assert.ok(body.includes("same natural language as the input"), "must match input language");
-            }
-        }
-    });
-
-    test("covers idempotency and overwrites", {
-        ARRANGE() {},
-        ACT() { return contractSkillBody; },
-        ASSERTS: {
-            "mentions idempotency"(body) {
-                Assert.ok(body.includes("Idempotency"), "must mention idempotency");
-            },
-            "describes in-place updates"(body) {
-                Assert.ok(body.includes("update related files in place"), "must describe in-place updates");
-            }
-        }
-    });
-
-    test("restricts writes to contracts/ only", {
-        ARRANGE() {},
-        ACT() { return contractSkillBody; },
-        ASSERT(body) {
-            Assert.ok(body.includes("must not write, modify, or delete any source code or any file outside contracts/"), "must restrict to contracts/");
-        }
-    });
-
-    test("has no unresolved placeholders or TODOs", {
-        ARRANGE() {},
-        ACT() { return contractSkillBody; },
-        ASSERTS: {
-            "does not contain TODO"(body) {
-                Assert.ok(!body.includes("TODO"), "must not contain TODO");
-            },
-            "does not contain {{ placeholders"(body) {
-                Assert.ok(!body.includes("{{"), "must not contain {{ placeholders");
-            },
-            "does not contain }} placeholders"(body) {
-                Assert.ok(!body.includes("}}"), "must not contain }} placeholders");
-            }
-        }
-    });
-
-    test("contains no flanders-internal .md citations", {
-        ARRANGE() {},
-        ACT() { return contractSkillBody; },
-        ASSERTS: {
-            "no path under contracts/, rules/, or plans/ names a specific .md file"(body) {
-                Assert.strictEqual(
-                    /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/.test(body),
-                    false
-                );
-            }
-        }
-    });
-
-    test("On FAIL section pins the triage-then-fix loop", {
-        ARRANGE() {},
-        ACT() { return contractSkillBody; },
-        ASSERTS: {
-            "describes the triage step"(body) {
-                Assert.ok(body.includes("Triage each issue"), "must describe the triage step");
-            },
-            "describes the re-clarify branch"(body) {
-                Assert.ok(body.includes("re-enter the clarification phase"), "must describe the re-clarify branch");
-            },
-            "describes the silent-fix branch"(body) {
-                Assert.ok(body.includes("apply in place without asking"), "must describe the silent-fix branch");
-            },
-            "pins the bounded five-pass loop"(body) {
-                Assert.ok(body.includes("at most FIVE triage-then-fix passes"), "must pin the bounded five-pass loop");
-            },
-            "describes the rewrite step"(body) {
-                Assert.ok(body.includes("Rewrite the affected contract file(s) in place, addressing every enumerated issue"), "must describe the rewrite step");
-            },
-            "describes the validator re-launch step"(body) {
-                Assert.ok(body.includes("Re-launch the validator"), "must describe the validator re-launch step");
-            },
-            "does not declare complete on exhaustion"(body) {
-                Assert.ok(body.includes("do not declare complete"), "must not declare complete on exhaustion");
-            },
-            "surfaces the last FAIL report on exhaustion"(body) {
-                Assert.ok(body.includes("surface the last FAIL report"), "must surface the last FAIL report on exhaustion");
-            }
-        }
-    });
-});
+import { planSkillBody, specSkillBody } from "./skills";
 
 test.describe("skills – planSkillBody", test => {
     test("is a non-empty string", {
@@ -743,12 +580,25 @@ test.describe("skills – planSkillBody", test => {
             }
         }
     });
+
+    test("references /flanders-spec and not /flanders-rule", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "references /flanders-spec"(body) {
+                Assert.ok(body.includes("/flanders-spec"), "must reference /flanders-spec");
+            },
+            "does not contain /flanders-rule"(body) {
+                Assert.ok(!body.includes("/flanders-rule"), "must not contain /flanders-rule");
+            }
+        }
+    });
 });
 
-test.describe("skills – ruleSkillBody", test => {
+test.describe("skills – specSkillBody", test => {
     test("is a non-empty string", {
         ARRANGE() {},
-        ACT() { return ruleSkillBody; },
+        ACT() { return specSkillBody; },
         ASSERT(body) {
             Assert.strictEqual(typeof body, "string");
             Assert.ok(body.length > 0);
@@ -757,23 +607,23 @@ test.describe("skills – ruleSkillBody", test => {
 
     test("covers clarification phase", {
         ARRANGE() {},
-        ACT() { return ruleSkillBody; },
+        ACT() { return specSkillBody; },
         ASSERTS: {
             "mentions clarification phase"(body) {
-                Assert.ok(body.includes("clarification"), "must mention clarification phase");
+                Assert.ok(body.includes("Clarification phase"), "must mention clarification phase");
             },
-            "enforces sequential questions"(body) {
-                Assert.ok(body.includes("one question per turn"), "must enforce sequential questions");
+            "enforces one question per turn"(body) {
+                Assert.ok(body.includes("one question per turn"), "must enforce one question per turn");
             }
         }
     });
 
-    test("covers drafting phase with approval", {
+    test("covers drafting phase with approval and single-batch persist", {
         ARRANGE() {},
-        ACT() { return ruleSkillBody; },
+        ACT() { return specSkillBody; },
         ASSERTS: {
             "mentions drafting phase"(body) {
-                Assert.ok(body.includes("drafting phase"), "must mention drafting phase");
+                Assert.ok(body.includes("Drafting phase"), "must mention drafting phase");
             },
             "requires user approval"(body) {
                 Assert.ok(body.includes("approval"), "must require user approval");
@@ -786,39 +636,66 @@ test.describe("skills – ruleSkillBody", test => {
 
     test("covers self-review pass", {
         ARRANGE() {},
-        ACT() { return ruleSkillBody; },
+        ACT() { return specSkillBody; },
         ASSERTS: {
             "mentions self-review pass"(body) {
                 Assert.ok(body.includes("self-review"), "must mention self-review pass");
             },
             "self-review checks for placeholders"(body) {
-                Assert.ok(body.includes("placeholders"), "self-review must check for placeholders");
+                Assert.ok(body.includes("placeholders left behind"), "self-review must check for placeholders");
             },
             "self-review checks for contradictions"(body) {
-                Assert.ok(body.includes("contradictions"), "self-review must check for contradictions");
+                Assert.ok(body.includes("contradictions with the canonical reference set"), "self-review must check for contradictions");
             }
         }
     });
 
-    test("covers file layout and descriptive filenames", {
+    test("covers contract-vs-rule classification", {
         ARRANGE() {},
-        ACT() { return ruleSkillBody; },
+        ACT() { return specSkillBody; },
         ASSERTS: {
-            "mentions file layout presentation"(body) {
-                Assert.ok(body.includes("file layout"), "must mention file layout presentation");
+            "has What a contract is section"(body) {
+                Assert.ok(body.includes("## What a contract is"), "must have What a contract is section");
             },
-            "requires descriptive filenames"(body) {
-                Assert.ok(body.includes("Filenames must be descriptive"), "must require descriptive filenames");
+            "has What a rule is section"(body) {
+                Assert.ok(body.includes("## What a rule is"), "must have What a rule is section");
+            },
+            "has classification section"(body) {
+                Assert.ok(body.includes("## Contract vs rule"), "must have Contract vs rule classification section");
+            },
+            "classification is the skill's own decision"(body) {
+                Assert.ok(body.includes("classification is the skill's own decision"), "classification must be the skill's own decision");
             }
+        }
+    });
+
+    test("carries the active no-historical-content prohibition in drafting guidance", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERT(body) {
+            const draftingStart = body.indexOf("Drafting phase");
+            const finalValidationStart = body.indexOf("Final validation");
+            Assert.ok(draftingStart !== -1, "must have Drafting phase section");
+            Assert.ok(finalValidationStart !== -1, "must have Final validation section");
+            const draftingSection = body.slice(draftingStart, finalValidationStart);
+            Assert.ok(draftingSection.includes("Do not write historical, transitional, or migration content"), "the no-historical-content prohibition must appear in the drafting guidance");
+        }
+    });
+
+    test("restricts writes to contracts/ and rules/ only", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERT(body) {
+            Assert.ok(body.includes("must not write, modify, or delete any source code or any file outside contracts/ and rules/"), "must restrict writes to contracts/ and rules/");
         }
     });
 
     test("covers output language obligation", {
         ARRANGE() {},
-        ACT() { return ruleSkillBody; },
+        ACT() { return specSkillBody; },
         ASSERTS: {
             "has output language section"(body) {
-                Assert.ok(body.includes("Output language"), "must have output language section");
+                Assert.ok(body.includes("## Output language"), "must have output language section");
             },
             "matches input language"(body) {
                 Assert.ok(body.includes("same natural language as the input"), "must match input language");
@@ -828,10 +705,10 @@ test.describe("skills – ruleSkillBody", test => {
 
     test("covers idempotency and overwrites", {
         ARRANGE() {},
-        ACT() { return ruleSkillBody; },
+        ACT() { return specSkillBody; },
         ASSERTS: {
             "mentions idempotency"(body) {
-                Assert.ok(body.includes("Idempotency"), "must mention idempotency");
+                Assert.ok(body.includes("## Idempotency"), "must mention idempotency");
             },
             "describes in-place updates"(body) {
                 Assert.ok(body.includes("update related files in place"), "must describe in-place updates");
@@ -839,38 +716,111 @@ test.describe("skills – ruleSkillBody", test => {
         }
     });
 
-    test("restricts writes to rules/ only", {
+    test("requires capturing canonical reference set and mandatory reading before drafting", {
         ARRANGE() {},
-        ACT() { return ruleSkillBody; },
-        ASSERT(body) {
-            Assert.ok(body.includes("must not write, modify, or delete any source code or any file outside rules/"), "must restrict to rules/");
-        }
-    });
-
-    test("covers one-rule-per-file granularity", {
-        ARRANGE() {},
-        ACT() { return ruleSkillBody; },
+        ACT() { return specSkillBody; },
         ASSERTS: {
-            "enforces one rule per file"(body) {
-                Assert.ok(body.includes("Each rule file describes exactly one rule"), "must enforce one rule per file");
+            "captures canonical reference set"(body) {
+                Assert.ok(body.includes("canonical reference set for the run"), "must capture canonical reference set");
             },
-            "bundles must be subfolders of atomic files"(body) {
-                Assert.ok(body.includes("subfolder of single-rule files, never as one multi-rule file"), "bundles must be subfolders of atomic files");
+            "states reading is mandatory"(body) {
+                Assert.ok(body.includes("Reading the relevant existing files is mandatory"), "must state reading is mandatory");
+            },
+            "states draft without reading is invalid"(body) {
+                Assert.ok(body.includes("draft begun without having read them is invalid"), "must state draft without reading is invalid");
             }
         }
     });
 
-    test("covers namespace as relative path inside rules/", {
+    test("Final validation names the three folder-driven check categories and bounded loop", {
         ARRANGE() {},
-        ACT() { return ruleSkillBody; },
-        ASSERT(body) {
-            Assert.ok(body.includes("namespace of a rule is its relative path inside rules/"), "must define namespace as relative path");
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "lists category A for contract artifacts"(body) {
+                Assert.ok(body.includes("**A. Contract artifacts"), "must list category A for contract artifacts");
+            },
+            "lists category B for rule artifacts"(body) {
+                Assert.ok(body.includes("**B. Rule artifacts"), "must list category B for rule artifacts");
+            },
+            "lists category C for non-contradiction"(body) {
+                Assert.ok(body.includes("**C. Non-contradiction"), "must list category C for non-contradiction");
+            },
+            "selects category set by folder"(body) {
+                Assert.ok(body.includes("category set is selected by the folder each file landed in"), "must select category set by folder");
+            },
+            "pins the bounded five-pass loop"(body) {
+                Assert.ok(body.includes("at most FIVE triage-then-fix passes"), "must pin the bounded five-pass triage-then-fix loop");
+            },
+            "does not declare complete on exhaustion"(body) {
+                Assert.ok(body.includes("do not declare complete"), "must not declare complete on exhaustion");
+            },
+            "surfaces the last FAIL report on exhaustion"(body) {
+                Assert.ok(body.includes("surface the last FAIL report"), "must surface the last FAIL report on exhaustion");
+            }
+        }
+    });
+
+    test("Final validation pins validator host as subagent with inline-fallback conditions", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "launches validator as fresh subagent"(body) {
+                Assert.ok(body.includes("Launch the validator as a fresh subagent via the AI tool's subagent mechanism"), "must launch validator as a fresh subagent");
+            },
+            "fresh session does not share context"(body) {
+                Assert.ok(body.includes("does not share context with this drafting session"), "validator session must not share context with the drafter");
+            },
+            "permits inline fallback on unavailable mechanism"(body) {
+                Assert.ok(body.includes("subagent mechanism is unavailable in the current environment"), "must permit inline fallback when mechanism is unavailable");
+            },
+            "permits inline fallback on unrecoverable error"(body) {
+                Assert.ok(body.includes("unrecoverable error (spawn failure, transport error, environment refusal)"), "must permit inline fallback on unrecoverable error");
+            },
+            "forbids ergonomic inline fallback"(body) {
+                Assert.ok(body.includes("Inline fallback for ergonomic reasons"), "must mention ergonomic fallback");
+                Assert.ok(body.includes("is forbidden"), "must state the ergonomic inline fallback is forbidden");
+            }
+        }
+    });
+
+    test("Final validation pins validator inputs including both canonical listings", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "passes file paths partitioned by folder"(body) {
+                Assert.ok(body.includes("partitioned by folder"), "must pass file paths partitioned by folder");
+            },
+            "passes canonical contracts listing"(body) {
+                Assert.ok(body.includes("The canonical contracts listing captured in step 2"), "must pass canonical contracts listing");
+            },
+            "passes canonical rules listing"(body) {
+                Assert.ok(body.includes("The canonical rules listing captured in step 2"), "must pass canonical rules listing");
+            }
+        }
+    });
+
+    test("Final validation pins single-verdict output with no Evidence Report", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "verdict is a single line"(body) {
+                Assert.ok(body.includes("single verdict line"), "must state single verdict line");
+            },
+            "no Evidence Report"(body) {
+                Assert.ok(body.includes("no Evidence Report"), "must forbid Evidence Report");
+            },
+            "names the PASS verdict"(body) {
+                Assert.ok(body.includes("`PASS`"), "must name the PASS verdict");
+            },
+            "names the FAIL verdict with enumerated issues"(body) {
+                Assert.ok(body.includes("`FAIL <enumerated issues>`"), "must name the FAIL verdict shape");
+            }
         }
     });
 
     test("has no unresolved placeholders or TODOs", {
         ARRANGE() {},
-        ACT() { return ruleSkillBody; },
+        ACT() { return specSkillBody; },
         ASSERTS: {
             "does not contain TODO"(body) {
                 Assert.ok(!body.includes("TODO"), "must not contain TODO");
@@ -886,45 +836,12 @@ test.describe("skills – ruleSkillBody", test => {
 
     test("contains no flanders-internal .md citations", {
         ARRANGE() {},
-        ACT() { return ruleSkillBody; },
-        ASSERTS: {
-            "no path under contracts/, rules/, or plans/ names a specific .md file"(body) {
-                Assert.strictEqual(
-                    /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/.test(body),
-                    false
-                );
-            }
-        }
-    });
-
-    test("On FAIL section pins the triage-then-fix loop", {
-        ARRANGE() {},
-        ACT() { return ruleSkillBody; },
-        ASSERTS: {
-            "describes the triage step"(body) {
-                Assert.ok(body.includes("Triage each issue"), "must describe the triage step");
-            },
-            "describes the re-clarify branch"(body) {
-                Assert.ok(body.includes("re-enter the clarification phase"), "must describe the re-clarify branch");
-            },
-            "describes the silent-fix branch"(body) {
-                Assert.ok(body.includes("apply in place without asking"), "must describe the silent-fix branch");
-            },
-            "pins the bounded five-pass loop"(body) {
-                Assert.ok(body.includes("at most FIVE triage-then-fix passes"), "must pin the bounded five-pass loop");
-            },
-            "describes the rewrite step"(body) {
-                Assert.ok(body.includes("Rewrite the affected rule file(s) in place, addressing every enumerated issue"), "must describe the rewrite step");
-            },
-            "describes the validator re-launch step"(body) {
-                Assert.ok(body.includes("Re-launch the validator"), "must describe the validator re-launch step");
-            },
-            "does not declare complete on exhaustion"(body) {
-                Assert.ok(body.includes("do not declare complete"), "must not declare complete on exhaustion");
-            },
-            "surfaces the last FAIL report on exhaustion"(body) {
-                Assert.ok(body.includes("surface the last FAIL report"), "must surface the last FAIL report on exhaustion");
-            }
+        ACT() { return specSkillBody; },
+        ASSERT(body) {
+            Assert.strictEqual(
+                /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/.test(body),
+                false
+            );
         }
     });
 });

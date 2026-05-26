@@ -5,7 +5,7 @@ import test from "arrange-act-assert";
 import { Install } from "./Install";
 import type { InstallContexts } from "./Install";
 import type { AskAnswer } from "../contexts";
-import { contractSkillBody, planSkillBody, ruleSkillBody } from "../skills";
+import { planSkillBody, specSkillBody } from "../skills";
 
 function stubContexts() {
     const written:string[] = [];
@@ -62,32 +62,26 @@ test.describe("Install --project", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "creates contract skill file"(_code, { files }) {
-                Assert.ok(files.has("/myproject/.claude/skills/flanders-contract/SKILL.md"));
+            "creates spec skill file"(_code, { files }) {
+                Assert.ok(files.has("/myproject/.claude/skills/flanders-spec/SKILL.md"));
             },
             "creates plan skill file"(_code, { files }) {
                 Assert.ok(files.has("/myproject/.claude/skills/flanders-plan/SKILL.md"));
             },
-            "creates rule skill file"(_code, { files }) {
-                Assert.ok(files.has("/myproject/.claude/skills/flanders-rule/SKILL.md"));
-            },
-            "contract skill file has correct body"(_code, { files }) {
-                Assert.strictEqual(files.get("/myproject/.claude/skills/flanders-contract/SKILL.md"), contractSkillBody);
+            "spec skill file has correct body"(_code, { files }) {
+                Assert.strictEqual(files.get("/myproject/.claude/skills/flanders-spec/SKILL.md"), specSkillBody);
             },
             "plan skill file has correct body"(_code, { files }) {
                 Assert.strictEqual(files.get("/myproject/.claude/skills/flanders-plan/SKILL.md"), planSkillBody);
             },
-            "rule skill file has correct body"(_code, { files }) {
-                Assert.strictEqual(files.get("/myproject/.claude/skills/flanders-rule/SKILL.md"), ruleSkillBody);
+            "writes exactly 2 files"(_code, { files }) {
+                Assert.strictEqual(files.size, 2);
             },
-            "stdout includes contract skill path"(_code, { written }) {
-                Assert.ok(written.join("").includes("/myproject/.claude/skills/flanders-contract/SKILL.md"));
+            "stdout includes spec skill path"(_code, { written }) {
+                Assert.ok(written.join("").includes("/myproject/.claude/skills/flanders-spec/SKILL.md"));
             },
             "stdout includes plan skill path"(_code, { written }) {
                 Assert.ok(written.join("").includes("/myproject/.claude/skills/flanders-plan/SKILL.md"));
-            },
-            "stdout includes rule skill path"(_code, { written }) {
-                Assert.ok(written.join("").includes("/myproject/.claude/skills/flanders-rule/SKILL.md"));
             }
         }
     });
@@ -102,21 +96,17 @@ test.describe("Install --project", test => {
             await cmd.dispose();
         },
         ASSERTS: {
-            "outputs exactly 3 lines"(_, { written }) {
+            "outputs exactly 2 lines"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
-                Assert.strictEqual(lines.length, 3);
+                Assert.strictEqual(lines.length, 2);
             },
-            "first line includes contract skill path"(_, { written }) {
+            "first line includes spec skill path"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
-                Assert.ok(lines[0]!.includes("flanders-contract/SKILL.md"));
+                Assert.ok(lines[0]!.includes("flanders-spec/SKILL.md"));
             },
             "second line includes plan skill path"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
                 Assert.ok(lines[1]!.includes("flanders-plan/SKILL.md"));
-            },
-            "third line includes rule skill path"(_, { written }) {
-                const lines = written.join("").split("\n").filter(l => l.length > 0);
-                Assert.ok(lines[2]!.includes("flanders-rule/SKILL.md"));
             }
         }
     });
@@ -137,26 +127,23 @@ test.describe("Install --global", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "creates contract skill file"(_code, { files }) {
-                Assert.ok(files.has("/home/testuser/.claude/skills/flanders-contract/SKILL.md"));
+            "creates spec skill file"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.claude/skills/flanders-spec/SKILL.md"));
             },
             "creates plan skill file"(_code, { files }) {
                 Assert.ok(files.has("/home/testuser/.claude/skills/flanders-plan/SKILL.md"));
             },
-            "creates rule skill file"(_code, { files }) {
-                Assert.ok(files.has("/home/testuser/.claude/skills/flanders-rule/SKILL.md"));
+            "spec skill file has correct body"(_code, { files }) {
+                Assert.strictEqual(files.get("/home/testuser/.claude/skills/flanders-spec/SKILL.md"), specSkillBody);
             },
-            "rule skill file has correct body"(_code, { files }) {
-                Assert.strictEqual(files.get("/home/testuser/.claude/skills/flanders-rule/SKILL.md"), ruleSkillBody);
+            "writes exactly 2 files"(_code, { files }) {
+                Assert.strictEqual(files.size, 2);
             },
-            "stdout includes contract skill path"(_code, { written }) {
-                Assert.ok(written.join("").includes("/home/testuser/.claude/skills/flanders-contract/SKILL.md"));
+            "stdout includes spec skill path"(_code, { written }) {
+                Assert.ok(written.join("").includes("/home/testuser/.claude/skills/flanders-spec/SKILL.md"));
             },
             "stdout includes plan skill path"(_code, { written }) {
                 Assert.ok(written.join("").includes("/home/testuser/.claude/skills/flanders-plan/SKILL.md"));
-            },
-            "stdout includes rule skill path"(_code, { written }) {
-                Assert.ok(written.join("").includes("/home/testuser/.claude/skills/flanders-rule/SKILL.md"));
             }
         }
     });
@@ -207,14 +194,14 @@ test.describe("Install interactive prompt", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "creates contract skill file under project"(_code, { files }) {
-                Assert.ok(files.has("/proj/.claude/skills/flanders-contract/SKILL.md"));
+            "creates spec skill file under project"(_code, { files }) {
+                Assert.ok(files.has("/proj/.claude/skills/flanders-spec/SKILL.md"));
             },
             "creates plan skill file under project"(_code, { files }) {
                 Assert.ok(files.has("/proj/.claude/skills/flanders-plan/SKILL.md"));
             },
-            "creates rule skill file under project"(_code, { files }) {
-                Assert.ok(files.has("/proj/.claude/skills/flanders-rule/SKILL.md"));
+            "writes exactly 2 files"(_code, { files }) {
+                Assert.strictEqual(files.size, 2);
             }
         }
     });
@@ -235,11 +222,14 @@ test.describe("Install interactive prompt", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "creates contract skill file under homedir"(_code, { files }) {
-                Assert.ok(files.has("/home/testuser/.claude/skills/flanders-contract/SKILL.md"));
+            "creates spec skill file under homedir"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.claude/skills/flanders-spec/SKILL.md"));
             },
-            "creates rule skill file under homedir"(_code, { files }) {
-                Assert.ok(files.has("/home/testuser/.claude/skills/flanders-rule/SKILL.md"));
+            "creates plan skill file under homedir"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.claude/skills/flanders-plan/SKILL.md"));
+            },
+            "writes exactly 2 files"(_code, { files }) {
+                Assert.strictEqual(files.size, 2);
             }
         }
     });
@@ -295,7 +285,7 @@ test.describe("Install filesystem errors", test => {
                 Assert.notStrictEqual(code, 0);
             },
             "diagnostic names the path"(_code, { errors }) {
-                Assert.ok(errors.join("").includes("/proj/.claude/skills/flanders-contract"));
+                Assert.ok(errors.join("").includes("/proj/.claude/skills/flanders-spec"));
             }
         }
     });
@@ -329,9 +319,8 @@ test.describe("Install overwrites", test => {
     test("silently overwrites existing files", {
         ARRANGE() {
             const s = stubContexts();
-            s.files.set("/proj/.claude/skills/flanders-contract/SKILL.md", "old content");
+            s.files.set("/proj/.claude/skills/flanders-spec/SKILL.md", "old content");
             s.files.set("/proj/.claude/skills/flanders-plan/SKILL.md", "old content");
-            s.files.set("/proj/.claude/skills/flanders-rule/SKILL.md", "old content");
             return s;
         },
         async ACT({ contexts }) {
@@ -344,14 +333,11 @@ test.describe("Install overwrites", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "contract skill file is overwritten with correct body"(_code, { files }) {
-                Assert.strictEqual(files.get("/proj/.claude/skills/flanders-contract/SKILL.md"), contractSkillBody);
+            "spec skill file is overwritten with correct body"(_code, { files }) {
+                Assert.strictEqual(files.get("/proj/.claude/skills/flanders-spec/SKILL.md"), specSkillBody);
             },
             "plan skill file is overwritten with correct body"(_code, { files }) {
                 Assert.strictEqual(files.get("/proj/.claude/skills/flanders-plan/SKILL.md"), planSkillBody);
-            },
-            "rule skill file is overwritten with correct body"(_code, { files }) {
-                Assert.strictEqual(files.get("/proj/.claude/skills/flanders-rule/SKILL.md"), ruleSkillBody);
             }
         }
     });
@@ -469,10 +455,10 @@ test.describe("Install dispose", test => {
                 Assert.strictEqual(code, 1);
             },
             "first skill file is written"(_code, { files }) {
-                Assert.ok(files.has("/proj/.claude/skills/flanders-contract/SKILL.md"));
+                Assert.ok(files.has("/proj/.claude/skills/flanders-spec/SKILL.md"));
             },
             "second skill file is not written"(_code, { files }) {
-                Assert.ok(!files.has("/proj/.claude/skills/flanders-rule/SKILL.md"));
+                Assert.ok(!files.has("/proj/.claude/skills/flanders-plan/SKILL.md"));
             }
         }
     });

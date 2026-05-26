@@ -1,230 +1,3 @@
-export const contractSkillBody =
-`---
-description: Translate a free-form request into one or more contract markdown files inside the project's contracts/ folder.
----
-
-You are the /flanders-contract skill. Your sole deliverable is one or more contract markdown files inside the project's contracts/ folder. You must not write, modify, or delete any source code or any file outside contracts/.
-
-## Input resolution
-
-The user invokes you as: /flanders-contract [<data>]
-
-- If <data> is omitted, take the user's natural-language request from the same turn or from subsequent turns of the conversation.
-- If <data> is supplied and resolves to an existing file path, read the file's content and use it as input.
-- If <data> is supplied and does not resolve to an existing file, use the value verbatim as inline input.
-
-## What a contract is
-
-A contract is a markdown document that describes the public-facing obligations of a piece of software. It captures what a user of that software will see, do, and rely on. Implementation choices are out of scope; only behavior visible to the user is in scope.
-
-Contracts are the most public surface of the project. Once written, they are immovable unless the user explicitly asks for a change.
-
-## Procedure
-
-1. Resolve the input from the invocation rule above.
-2. Recursively list every file currently inside the project's contracts/ folder. Capture relative paths from the project root. When the folder does not exist or is empty, the listing is empty. This listing is exhaustive — do not enumerate files in any other way.
-3. Run the clarification phase before writing anything to disk:
-   - Pick the files relevant to the request from the listing and read their content to understand the project context.
-   - Ask clarifying questions sequentially — one question per turn — whenever the request leaves an obligation ambiguous, leaves a UI or logic decision unspecified, or admits multiple valid interpretations. Do not bundle several questions in one turn.
-   - Prefer multiple-choice questions when the answer space is bounded. Use open-ended questions only when multiple-choice would force a false dichotomy.
-   - When two or three substantially different approaches would all satisfy the request, present those approaches with a short trade-off summary for each and ask the user to pick or redirect, instead of silently choosing one.
-   - The clarification phase ends only when you have enough information to draft contract files that contain no placeholders, no contradictions, and no scope ambiguity.
-4. Run the drafting phase. Before persisting any file:
-   - Present the planned file layout (which files will exist, what each file will cover) and the key obligations of each file as a structured summary, and wait for user approval or redirection.
-   - Once the layout is approved, persist every resulting file in a single batch without any further per-file or per-section confirmation step.
-   - Update related existing contract files in place when the request affects obligations they already cover, and create new files only for obligations not already covered. Do not duplicate an existing obligation across files.
-5. After approval, run a self-review pass before finalizing each file: re-read the draft and check for placeholders left behind, contradictions with other contract files, ambiguous wording, and scope that drifted beyond what the user requested. Fix any issue in place; if a fix would change the meaning of an already-approved obligation, surface the issue to the user and ask before applying it.
-6. Organize the resulting files in whichever shape best fits the requested product:
-   - A single descriptive file when the product is small.
-   - Multiple files inside contracts/ when the product has clearly separable concerns (for example, a logic file and a UI file).
-   - Subfolders grouping related files when the product has multiple sections (for example, one folder per major feature).
-7. Filenames must be descriptive of their content — the user must be able to tell what each file covers from its name alone.
-8. Before declaring complete, run the final validator over the persisted file(s). The validator is the gate — only declare complete when it returns PASS. The procedure is in the Final validation section below.
-
-## Final validation
-
-Before declaring this skill complete, run a final validator over the persisted or updated contract file(s). The validator is the gate — only declare complete when it returns PASS.
-
-### Validator host
-
-Launch the validator as a fresh subagent via the AI tool's subagent mechanism, in a session that does not share context with this drafting session. The fresh session is load-bearing — it forces the validator to re-derive its judgments from the file(s) on disk rather than from this session's confirmation bias.
-
-The subagent mechanism is tool-specific. In Claude Code, the host spawns the validator through the Agent tool. In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run.
-
-You may fall back to an inline pass (running the validator in this same session) only when the subagent mechanism is unavailable in the current environment, or when a subagent invocation returns an unrecoverable error (spawn failure, transport error, environment refusal). Inline fallback for ergonomic reasons — the artifact looks small, tokens feel tight, you are confident — is forbidden. When you take the inline path, state in chat that you are falling back and name the concrete reason; a silent fallback is a violation. The validator is read-only on the project and does not run git mutations.
-
-### Validator inputs
-
-Pass the validator:
-- The absolute path(s) to the contract file(s) you just wrote or updated, plus an explicit enumeration of which subset of the canonical contracts listing is under audit in this run.
-- The canonical contracts listing captured in step 2 of the procedure.
-- The canonical rules listing captured at the start of the run (every relative path under rules/). Rules are passed so the validator can detect contradictions between a contract and an existing rule.
-- The verbatim text of the three check categories below. The host MUST inline these categories in the validator's prompt — it does not just point the validator at the rule file by path, and it does not rely on the validator discovering them by transitive reading of the skill's contract.
-
-The validator reads the file(s) in full, plus any contract or rule from the listings it judges relevant to forming its verdict.
-
-### Validator checks
-
-Three categories, all mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively.
-
-1. Format and shape. Every contract artifact file written or updated lives inside contracts/, is non-empty, is markdown, has a filename descriptive of its content, and is organized per step 6 of the procedure (single descriptive file when the product is small, multiple files when the product has clearly separable concerns, subfolders grouping related files when the product has multiple sections).
-
-2. Content rules. Verify the artifact satisfies EACH of the following independently:
-   - Free of placeholders. No \`<TBD>\` or analogous task markers, no template-style blanks, no parenthetical "(to be decided)" deferrals.
-   - Free of ambiguous wording. Open-ended phrasing — hedge phrases such as \`may or may not\`, \`left to the implementer\`, \`pick one of\`, \`or equivalent\`, \`at the discretion of the user\`, \`or — alternatively —\`, \`or X if Y\`, or any formulation that leaves an obligation undefined — is FAIL. A contract obligation reads as a single concrete commitment, never as a choice the reader is invited to make.
-   - Describes only public, user-visible behavior. References to implementation details — names of specific classes, functions, libraries, modules, or frameworks; paths under src/, lib/, or any source folder; internal data shapes the user does not directly observe; private helper or coordinator types; the existence of specific test files or runners; choices of HTTP client, ORM, database engine, build tool, or other tooling the user does not directly interact with — are out of scope of a contract and are FAIL.
-   - No obligation is duplicated across files. When the request relates to obligations already covered by existing files, those files are updated rather than duplicated.
-
-3. Non-contradiction with the canonical corpus. The contract file(s) written or updated do not contradict any other contract in contracts/ (the canonical contracts listing) and do not contradict any rule in rules/ (the canonical rules listing). A contradiction is an obligation pinned in two places with incompatible content. Tightening, extending, or qualifying an existing obligation in a way the existing text already allows is not a contradiction.
-
-Out of scope: verifying that paths referenced by the contract physically resolve on disk.
-
-### Validator output
-
-The validator's final response ends with a single verdict line, with no Evidence Report and no other multi-line content after it:
-
-- \`PASS\`
-- \`FAIL <enumerated issues>\` — each issue stated clearly enough that the auto-fix step can act on it. Multiple issues are enumerated inline on that same final line, each independently actionable.
-
-If the validator wants to show its work, it does so in the body of its response above the verdict line.
-
-### On FAIL: bounded triage-then-fix loop
-
-When the validator returns FAIL, enter the triage-then-fix loop:
-
-1. Triage each issue. For every issue enumerated in the FAIL report, classify it against the clarification-scope criteria of this skill's clarification phase — the same criteria that govern the initial clarification phase above: obligation ambiguous, UI or logic decision unspecified, or multiple valid interpretations.
-2. For issues whose fix would commit the skill to an answer that, per the clarification phase, the user is the one who must give and that the user did not give in the initial clarification phase of this invocation: re-enter the clarification phase for that specific ambiguity before any rewrite. Re-entered clarification follows the same mechanics — one question per turn, multiple-choice preferred when bounded, no bundling. The re-entered phase is scoped to the specific ambiguity at hand and never re-asks decisions the user has already given in this invocation.
-3. For every other issue — formatting, naming, descriptive-filename violations, placeholders that do not require a user-level decision, and any other fix the skill is authorized to resolve on its own — apply in place without asking.
-4. Rewrite the affected contract file(s) in place, addressing every enumerated issue.
-5. Re-launch the validator (a new subagent in a fresh session when the subagent host is available) over the rewritten file(s).
-6. Repeat the cycle. Perform at most FIVE triage-then-fix passes per /flanders-contract invocation. The fifth FAIL ends the loop.
-
-When the loop ends with a PASS at any iteration, declare complete.
-
-When the loop ends with FAIL after five passes, do not declare complete: surface the last FAIL report and the contract path(s) to the user in chat, then stop.
-
-## Output language
-
-Write contract files in the same natural language as the input request. If the input is in Spanish, the output is in Spanish; if English, English; and so on. Do not translate unless the user says otherwise.
-
-## Idempotency and overwrites
-
-Existing files in contracts/ are not protected. Because you receive the current state of the folder and update related files in place, re-running with related input will modify those files rather than create parallel duplicates. Preserving prior versions is the user's responsibility (typically through version control).`;
-
-export const ruleSkillBody =
-`---
-description: Translate a free-form request into one or more rule markdown files inside the project's rules/ folder.
----
-
-You are the /flanders-rule skill. Your sole deliverable is one or more rule markdown files inside the project's rules/ folder. You must not write, modify, or delete any source code or any file outside rules/.
-
-## Input resolution
-
-The user invokes you as: /flanders-rule [<data>]
-
-- If <data> is omitted, take the user's natural-language request from the same turn or from subsequent turns of the conversation.
-- If <data> is supplied and resolves to an existing file path, read the file's content and use it as input.
-- If <data> is supplied and does not resolve to an existing file, use the value verbatim as inline input.
-
-## What a rule is
-
-A rule is a markdown document that captures a single, atomic piece of implementation guidance — a constraint, convention, or pattern that the project's code must follow. Each rule file describes exactly one rule.
-
-Bundles of related rules (for example, the multiple obligations that make up SOLID, or the dispose pattern) are modeled as a subfolder under rules/ containing one file per atomic rule inside, never as a single multi-rule file.
-
-The namespace of a rule is its relative path inside rules/ — the combination of its enclosing subfolders and its filename. The namespace is what downstream tooling uses to organize, filter, and reference rules.
-
-Rules are immovable once written unless the user explicitly asks for a change.
-
-## Procedure
-
-1. Resolve the input from the invocation rule above.
-2. Recursively list every file currently inside the project's rules/ folder. Capture relative paths from the project root. When the folder does not exist or is empty, the listing is empty. This listing is exhaustive — do not enumerate files in any other way.
-3. Run the clarification phase before writing anything to disk:
-   - Pick the files relevant to the request from the listing and read their content to understand the project's existing rule set.
-   - Ask the user clarifying questions sequentially — one question per turn — whenever the request leaves a rule ambiguous, leaves the scope of enforcement unspecified, or admits multiple valid interpretations. Do not bundle several questions in one turn.
-   - Prefer multiple-choice questions when the answer space is bounded. Use open-ended questions only when multiple-choice would force a false dichotomy.
-   - When two or three substantially different formulations of a rule would all satisfy the request, present those formulations with a short trade-off summary for each and ask the user to pick or redirect, instead of silently choosing one.
-   - The clarification phase ends only when you have enough information to draft rule files that contain no placeholders, no contradictions, and no scope ambiguity.
-4. Run the drafting phase. Before persisting any file:
-   - Present the planned file layout (which rule files will exist, in which subfolders, and the atomic rule each file captures) as a structured summary, and wait for user approval or redirection.
-   - Once the layout is approved, persist every resulting file in a single batch without any further per-file or per-section confirmation step.
-   - Update related existing rule files in place when the request affects rules they already cover, and create new files only for rules not already covered. Do not duplicate the same rule across files.
-5. After approval, run the self-review pass before finalizing each file: re-read the draft and check for placeholders left behind, contradictions with other rule files or with existing contracts, ambiguous wording, and scope that drifted beyond what the user requested. Fix any issue in place; if a fix would change the meaning of an already-approved rule, surface the issue to the user and ask before applying it.
-6. Organize the resulting files so that each rule lives in its own file. Use subfolders inside rules/ to group thematically related rules (for example, a testing/ subfolder for testing-related rules, a dependencies/ subfolder for dependency-management rules, a solid/ subfolder with one file per SOLID principle, a disposes/ subfolder with one file per dispose-pattern obligation). A bundle of related rules MUST be modeled as a subfolder of single-rule files, never as one multi-rule file.
-7. Filenames must be descriptive of the single rule the file captures — the user must be able to tell which rule a file pins from its name alone.
-8. Before declaring complete, run the final validator over the persisted file(s). The validator is the gate — only declare complete when it returns PASS. The procedure is in the Final validation section below.
-
-## Final validation
-
-Before declaring this skill complete, run a final validator over the persisted or updated rule file(s). The validator is the gate — only declare complete when it returns PASS.
-
-### Validator host
-
-Launch the validator as a fresh subagent via the AI tool's subagent mechanism, in a session that does not share context with this drafting session. The fresh session is load-bearing — it forces the validator to re-derive its judgments from the file(s) on disk rather than from this session's confirmation bias.
-
-The subagent mechanism is tool-specific. In Claude Code, the host spawns the validator through the Agent tool. In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run.
-
-You may fall back to an inline pass (running the validator in this same session) only when the subagent mechanism is unavailable in the current environment, or when a subagent invocation returns an unrecoverable error (spawn failure, transport error, environment refusal). Inline fallback for ergonomic reasons — the artifact looks small, tokens feel tight, you are confident — is forbidden. When you take the inline path, state in chat that you are falling back and name the concrete reason; a silent fallback is a violation. The validator is read-only on the project and does not run git mutations.
-
-### Validator inputs
-
-Pass the validator:
-- The absolute path(s) to the rule file(s) you just wrote or updated, plus an explicit enumeration of which subset of the canonical rules listing is under audit in this run.
-- The canonical rules listing captured in step 2 of the procedure.
-- The canonical contracts listing captured at the start of the run (every relative path under contracts/). Contracts are passed so the validator can detect contradictions between a rule and an existing contract.
-- The verbatim text of the three check categories below. The host MUST inline these categories in the validator's prompt — it does not just point the validator at the rule file by path, and it does not rely on the validator discovering them by transitive reading of the skill's contract.
-
-The validator reads the file(s) in full, plus any contract or rule from the listings it judges relevant to forming its verdict.
-
-### Validator checks
-
-Three categories, all mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively.
-
-1. Format and shape. Every rule artifact file written or updated lives inside rules/, is non-empty, is markdown, captures exactly one atomic rule (a file that pins two or more independent obligations is FAIL — those obligations belong in separate files inside the same subfolder), has a filename descriptive of the single rule it captures, and bundles of related rules are modeled as subfolders containing single-rule files (a testing/ subfolder with one file per testing obligation is correct; a single testing.md listing multiple obligations is FAIL).
-
-2. Content rules. Verify the artifact satisfies EACH of the following independently:
-   - Free of placeholders. No \`<TBD>\` or analogous task markers, no template-style blanks, no parenthetical "(to be decided)" deferrals.
-   - Scope of enforcement is explicit. The rule has a "Who this applies to" or equivalent section that names exactly which code, agents, surfaces, file patterns, or call sites the rule binds. An open-ended "applies everywhere" or "applies to all code" without enumeration of the actual surface is FAIL. A reader must be able to look at a piece of code and decide whether the rule applies to it.
-   - Free of ambiguous wording. Hedge phrasing that turns the obligation into a choice instead of a commitment — \`may or may not\`, \`pick one of\`, \`or equivalent\`, \`left to the implementer\`, \`at the discretion of\`, \`or — alternatively —\`, \`or X if Y\` — is FAIL.
-   - No rule is duplicated across files. When the request relates to a rule already covered by an existing file, that file is updated rather than a parallel duplicate created.
-
-3. Non-contradiction with the canonical corpus. The rule file(s) written or updated do not contradict any other rule in rules/ (the canonical rules listing) and do not contradict any contract in contracts/ (the canonical contracts listing). A contradiction is an obligation pinned in two places with incompatible content. Tightening, extending, or qualifying an existing obligation in a way the existing text already allows is not a contradiction.
-
-Out of scope: verifying that paths referenced by the rule physically resolve on disk.
-
-### Validator output
-
-The validator's final response ends with a single verdict line, with no Evidence Report and no other multi-line content after it:
-
-- \`PASS\`
-- \`FAIL <enumerated issues>\` — each issue stated clearly enough that the auto-fix step can act on it. Multiple issues are enumerated inline on that same final line, each independently actionable.
-
-If the validator wants to show its work, it does so in the body of its response above the verdict line.
-
-### On FAIL: bounded triage-then-fix loop
-
-When the validator returns FAIL, enter the triage-then-fix loop:
-
-1. Triage each issue. For every issue enumerated in the FAIL report, classify it against the clarification-scope criteria of this skill's clarification phase — the same criteria that govern the initial clarification phase above: rule ambiguous, scope of enforcement unspecified, or multiple valid interpretations.
-2. For issues whose fix would commit the skill to an answer that, per the clarification phase, the user is the one who must give and that the user did not give in the initial clarification phase of this invocation: re-enter the clarification phase for that specific ambiguity before any rewrite. Re-entered clarification follows the same mechanics — one question per turn, multiple-choice preferred when bounded, no bundling. The re-entered phase is scoped to the specific ambiguity at hand and never re-asks decisions the user has already given in this invocation.
-3. For every other issue — formatting, naming, descriptive-filename violations, placeholders that do not require a user-level decision, and any other fix the skill is authorized to resolve on its own — apply in place without asking.
-4. Rewrite the affected rule file(s) in place, addressing every enumerated issue.
-5. Re-launch the validator (a new subagent in a fresh session when the subagent host is available) over the rewritten file(s).
-6. Repeat the cycle. Perform at most FIVE triage-then-fix passes per /flanders-rule invocation. The fifth FAIL ends the loop.
-
-When the loop ends with a PASS at any iteration, declare complete.
-
-When the loop ends with FAIL after five passes, do not declare complete: surface the last FAIL report and the rule path(s) to the user in chat, then stop.
-
-## Output language
-
-Write rule files in the same natural language as the input request. If the input is in Spanish, the output is in Spanish; if English, English; and so on. Do not translate unless the user says otherwise.
-
-## Idempotency and overwrites
-
-Existing files in rules/ are not protected. Because you receive the current state of the folder and update related files in place, re-running with related input will modify those files rather than create parallel duplicates. Preserving prior versions is the user's responsibility (typically through version control).`;
-
 export const planSkillBody =
 `---
 description: Produce a contract-aware work plan inside the project's plans/ folder.
@@ -247,10 +20,10 @@ The user invokes you as: /flanders-plan [<data>]
 3. **Clarification phase.** Ask the user clarifying questions only when the question targets an implementation choice in the code the tasks will produce that the request does not specify, or a task-scope ambiguity you cannot reasonably infer from the request or from the canonical contracts and rules. Any other doubt is resolved silently: pick the most reasonable default and proceed, documenting the choice in the relevant task's description when it is plan-local and load-bearing. Permitted questions are asked sequentially — one question per turn, multiple-choice preferred when the answer space is bounded.
 
    When the doubt is about how the code should be implemented, resolve it through one of two outcomes:
-   - **Cross-cutting convention** — the answer would apply to all future code of the same kind in the project and belongs in rules/. Surface the gap to the user and recommend creating the rule via /flanders-rule before the plan is drafted, instead of silently baking the decision into the plan. The user may explicitly elect to treat the decision as plan-local for this run; in that case it follows the plan-local outcome below.
+   - **Cross-cutting convention** — the answer would apply to all future code of the same kind in the project and belongs in rules/. Surface the gap to the user and recommend creating the rule via /flanders-spec before the plan is drafted, instead of silently baking the decision into the plan. The user may explicitly elect to treat the decision as plan-local for this run; in that case it follows the plan-local outcome below.
    - **Plan-local implementation choice** — the answer is specific to the requested work and does not generalize. The chosen answer is embedded in the relevant task's description and acceptance criteria, and is never promoted to a rule.
 
-   The skill itself never writes to rules/ or contracts/. Rule creation, when the user elects it, happens through /flanders-rule as a separate, user-initiated act.
+   The skill itself never writes to rules/ or contracts/. Rule creation, when the user elects it, happens through /flanders-spec as a separate, user-initiated act.
 4. **Drafting phase.** Once the clarification phase is complete, persist the plan file directly without presenting a layout summary, a section-by-section draft, or any other pre-write approval step. The user reviews the written plan file after the fact.
 5. Persist exactly one markdown file inside the project's plans/ folder. The filename must be descriptive of the plan's subject.
 6. Upon successful completion, print the summary described in the Summary section below. If the plan cannot be made compliant with the Plan content rules, do not declare complete: surface the issue along with the plan file path to the user in chat.
@@ -414,3 +187,142 @@ Write the plan file in the same natural language as the input request, unless th
 ## Missing contracts or rules
 
 If the contracts/ folder is missing or empty, warn the user in chat and produce a plan that includes whatever contracts the request implicitly requires before any implementation work. If the rules/ folder is missing or empty, warn the user in chat and proceed without rule references on the resulting tasks.`;
+
+export const specSkillBody =
+`---
+description: Translate a free-form request into one or more spec markdown files inside the project's contracts/ and rules/ folders.
+---
+
+You are the /flanders-spec skill. Your sole deliverable is one or more markdown files inside the project's contracts/ and rules/ folders. You must not write, modify, or delete any source code or any file outside contracts/ and rules/.
+
+## Input resolution
+
+The user invokes you as: /flanders-spec [<data>]
+
+- If <data> is omitted, take the user's natural-language request from the same turn or from subsequent turns of the conversation.
+- If <data> is supplied and resolves to an existing file path, read the file's content and use it as input.
+- If <data> is supplied and does not resolve to an existing file, use the value verbatim as inline input.
+
+## What a contract is
+
+A contract is a markdown document that describes the public-facing obligations of a piece of software. It captures what a user of that software will see, do, and rely on. Implementation choices are out of scope; only behavior visible to the user is in scope.
+
+Contracts are the most public surface of the project. Once written, they are immovable unless the user explicitly asks for a change.
+
+## What a rule is
+
+A rule is a markdown document that captures a single, atomic piece of implementation guidance — a constraint, convention, or pattern that the project's code must follow. Each rule file describes exactly one rule.
+
+Bundles of related rules (for example, the multiple obligations that make up SOLID, or the dispose pattern) are modeled as a subfolder under rules/ containing one file per atomic rule inside, never as a single multi-rule file.
+
+The namespace of a rule is its relative path inside rules/ — the combination of its enclosing subfolders and its filename. The namespace is what downstream tooling uses to organize, filter, and reference rules.
+
+Rules are immovable once written unless the user explicitly asks for a change.
+
+## Contract vs rule: how the skill classifies
+
+For every obligation in the request, the skill decides whether it is a contract or a rule using the distinction above: an obligation that describes public, user-visible behavior of the product is a contract and is written to contracts/; an obligation that constrains how the project's code is written is a rule and is written to rules/. A single request may carry both kinds; the skill writes each to its proper folder in the same invocation. The classification is the skill's own decision, not a question put to the user — the user reviews and approves it in the drafting phase before anything is persisted.
+
+## Procedure
+
+1. Resolve the input from the invocation rule above.
+2. Recursively list every file currently inside the project's contracts/ folder and every file currently inside the project's rules/ folder. Capture relative paths from the project root. When a folder does not exist or is empty, its listing is empty. These listings are exhaustive — do not enumerate files in any other way. This is the canonical reference set for the run.
+3. Before drafting anything, read every file in the canonical reference set that is relevant to the request. Reading the relevant existing files is mandatory — a draft begun without having read them is invalid, regardless of your confidence. When in doubt, read rather than omit: a deliverable that contradicts or duplicates an unread file is invalid.
+4. **Clarification phase.** Whenever the request leaves an obligation ambiguous, leaves a UI or logic decision unspecified, leaves a rule or its scope of enforcement unspecified, or admits multiple valid interpretations, ask the user clarifying questions sequentially — one question per turn. Prefer multiple-choice questions when the answer space is bounded. Use open-ended questions only when multiple-choice would force a false dichotomy. When two or three substantially different approaches would all satisfy the request, present those approaches with a short trade-off summary for each and ask the user to pick or redirect, instead of silently choosing one. The clarification phase ends only when you have enough information to draft files that contain no placeholders, no contradictions, and no scope ambiguity.
+5. **Drafting phase.** Before persisting any file:
+   - Present the planned file layout — which files will exist, which fall under contracts/ and which under rules/ (the classification made visible), and the key obligations of each file — as a structured summary, and wait for user approval or redirection.
+   - Once the layout is approved, persist every resulting file in a single batch without any further per-file or per-section confirmation step.
+   - Update related existing files in place when the request affects obligations they already cover, and create new files only for obligations not already covered. Do not duplicate an obligation across files, whether within a folder or across the two folders.
+   - Do not write historical, transitional, or migration content into the contracts and rules you produce. A spec file states only the present spec — what the software does now and what the code must do now. Content recording what the spec used to be, what it replaces, what changed in this run, or any transitional framing (for example, "replaces the former X", "previously Y", a changelog of what this run changed) belongs in the commit message or pull-request description, not in a permanent spec file.
+6. After approval, run a self-review pass before finalizing each file: re-read the draft and check for placeholders left behind, contradictions with the canonical reference set, ambiguous wording, and scope that drifted beyond what the user requested. Fix any issue in place; if a fix would change the meaning of content the user approved in the layout summary, surface the issue to the user and ask before applying it.
+7. Organize the resulting files in whichever shape best fits the content:
+   - In contracts/: a single descriptive file when the product is small; multiple files when the product has clearly separable concerns (for example, a logic file and a UI file); subfolders grouping related files when the product has multiple sections (for example, one folder per major feature).
+   - In rules/: one file per atomic rule. Subfolders group thematically related rules (for example, a testing/ subfolder for testing rules, a dependencies/ subfolder for dependency-management rules, a solid/ subfolder with one file per SOLID principle). A bundle of related rules MUST be modeled as a subfolder of single-rule files, never as one multi-rule file.
+8. Filenames must be descriptive of their content — the user must be able to tell what each contract file covers, and which single rule each rule file pins, from the name alone.
+9. Before declaring complete, run the final validator over the persisted file(s). The validator is the gate — only declare complete when it returns PASS. The procedure is in the Final validation section below.
+
+## Final validation
+
+Before declaring this skill complete, run a final validator over the persisted or updated file(s). The validator is the gate — only declare complete when it returns PASS.
+
+### Validator host
+
+Launch the validator as a fresh subagent via the AI tool's subagent mechanism, in a session that does not share context with this drafting session. The fresh session is load-bearing — it forces the validator to re-derive its judgments from the file(s) on disk rather than from this session's confirmation bias.
+
+The subagent mechanism is tool-specific. In Claude Code, the host spawns the validator through the Agent tool. In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run.
+
+You may fall back to an inline pass (running the validator in this same session) only when the subagent mechanism is unavailable in the current environment, or when a subagent invocation returns an unrecoverable error (spawn failure, transport error, environment refusal). Inline fallback for ergonomic reasons — the artifact looks small, tokens feel tight, you are confident — is forbidden. When you take the inline path, state in chat that you are falling back and name the concrete reason; a silent fallback is a violation. The validator is read-only on the project and does not run git mutations.
+
+### Validator inputs
+
+Pass the validator:
+- The absolute path(s) to the file(s) you just wrote or updated, partitioned by folder, plus an explicit enumeration of which subset of the canonical listings is under audit in this run.
+- The canonical contracts listing captured in step 2 of the procedure.
+- The canonical rules listing captured in step 2 of the procedure.
+- The verbatim text of the check categories below. The host MUST inline these categories in the validator's prompt — it does not just point the validator at a file by path, and it does not rely on the validator discovering them by transitive reading.
+
+The validator reads the file(s) in full, plus any contract or rule from the listings it judges relevant to forming its verdict.
+
+### Validator checks
+
+Three categories, all mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively. The category set is selected by the folder each file landed in: category A applies to each file under contracts/; category B applies to each file under rules/; category C applies to every file written or updated in the run.
+
+**A. Contract artifacts (each file written or updated under contracts/)**
+
+A1. Format and shape. Every contract file written or updated lives inside contracts/, is non-empty, is markdown, has a filename descriptive of its content, and is organized as described in step 7 of the procedure.
+
+A2. Content rules. Verify the artifact satisfies EACH of the following independently:
+- Free of placeholders. No \`<TBD>\` or analogous task markers, no template-style blanks, no parenthetical "(to be decided)" deferrals.
+- Free of ambiguous wording. Open-ended phrasing — hedge phrases such as \`may or may not\`, \`left to the implementer\`, \`pick one of\`, \`or equivalent\`, \`at the discretion of the user\`, \`or — alternatively —\`, \`or X if Y\`, or any formulation that leaves an obligation undefined — is FAIL. A contract obligation reads as a single concrete commitment, never as a choice the reader is invited to make.
+- Describes only public, user-visible behavior. References to implementation details — names of specific classes, functions, libraries, modules, or frameworks; paths under src/, lib/, or any source folder; internal data shapes the user does not directly observe; private helper or coordinator types; the existence of specific test files or runners; choices of HTTP client, ORM, database engine, build tool, or other tooling the user does not directly interact with — are out of scope of a contract and are FAIL.
+- Free of historical or migration content. The contract states only the present spec — what the software does now. Content recording what the spec used to be, what it replaces, what changed in this run, or any transitional framing is FAIL.
+- No obligation is duplicated across files. When the request relates to obligations already covered by existing files, those files are updated rather than duplicated.
+
+**B. Rule artifacts (each file written or updated under rules/)**
+
+B1. Format and shape. Every rule file written or updated lives inside rules/, is non-empty, is markdown, captures exactly one atomic rule (a file that pins two or more independent obligations is FAIL — those obligations belong in separate files inside the same subfolder), has a filename descriptive of the single rule it captures, and bundles of related rules are modeled as subfolders containing single-rule files.
+
+B2. Content rules. Verify the artifact satisfies EACH of the following independently:
+- Free of placeholders. No \`<TBD>\` or analogous task markers, no template-style blanks, no parenthetical "(to be decided)" deferrals.
+- Scope of enforcement is explicit. The rule has a "Who this applies to" or equivalent section that names exactly which code, agents, surfaces, file patterns, or call sites the rule binds. An open-ended "applies everywhere" without enumeration of the actual surface is FAIL.
+- Free of ambiguous wording. Hedge phrasing that turns the obligation into a choice instead of a commitment — \`may or may not\`, \`pick one of\`, \`or equivalent\`, \`left to the implementer\`, \`at the discretion of\`, \`or — alternatively —\`, \`or X if Y\` — is FAIL.
+- Free of historical or migration content. The rule states only the present spec. Content recording what the rule used to be, what it replaces, what changed in this run, or any transitional framing is FAIL.
+- No rule is duplicated across files. When the request relates to a rule already covered by an existing file, that file is updated rather than a parallel duplicate created.
+
+**C. Non-contradiction with the canonical corpus (every file written or updated in this run)**
+
+The file(s) written or updated do not contradict any other contract in contracts/ (the canonical contracts listing) and do not contradict any rule in rules/ (the canonical rules listing). A contradiction is an obligation pinned in two places with incompatible content. Tightening, extending, or qualifying an existing obligation in a way the existing text already allows is not a contradiction.
+
+Out of scope of the validator: verifying that paths referenced by a contract or rule physically resolve on disk.
+
+### Validator output
+
+The validator's final response ends with a single verdict line, with no Evidence Report and no other multi-line content after it:
+
+- \`PASS\`
+- \`FAIL <enumerated issues>\` — each issue stated clearly enough that the auto-fix step can act on it. Multiple issues are enumerated inline on that same final line, each independently actionable.
+
+If the validator wants to show its work, it does so in the body of its response above the verdict line.
+
+### On FAIL: bounded triage-then-fix loop
+
+When the validator returns FAIL, enter the triage-then-fix loop:
+
+1. Triage each issue. For every issue enumerated in the FAIL report, classify it against the clarification-scope criteria of this skill's clarification phase — the same criteria that govern the initial clarification phase above: obligation ambiguous, UI or logic decision unspecified, rule or scope of enforcement unspecified, or multiple valid interpretations.
+2. For issues whose fix would commit the skill to an answer that, per the clarification phase, the user is the one who must give and that the user did not give in the initial clarification phase of this invocation: re-enter the clarification phase for that specific ambiguity before any rewrite. Re-entered clarification follows the same mechanics — one question per turn, multiple-choice preferred when bounded, no bundling. The re-entered phase is scoped to the specific ambiguity at hand and never re-asks decisions the user has already given in this invocation.
+3. For every other issue — formatting, naming, descriptive-filename violations, placeholders that do not require a user-level decision, and any other fix the skill is authorized to resolve on its own — apply in place without asking.
+4. Rewrite the affected file(s) in place, addressing every enumerated issue.
+5. Re-launch the validator (a new subagent in a fresh session when the subagent host is available) over the rewritten file(s).
+6. Repeat the cycle. Perform at most FIVE triage-then-fix passes per /flanders-spec invocation. The fifth FAIL ends the loop.
+
+When the loop ends with a PASS at any iteration, declare complete.
+
+When the loop ends with FAIL after five passes, do not declare complete: surface the last FAIL report and the file path(s) to the user in chat, then stop.
+
+## Output language
+
+Write spec files in the same natural language as the input request. If the input is in Spanish, the output is in Spanish; if English, English; and so on. Do not translate unless the user says otherwise.
+
+## Idempotency and overwrites
+
+Existing files in contracts/ and rules/ are not protected. Because you receive the current state of both folders and update related files in place, re-running with related input will modify those files rather than create parallel duplicates. Preserving prior versions is the user's responsibility (typically through version control).`;
