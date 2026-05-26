@@ -11,7 +11,7 @@ The user invokes the skill from inside an AI-tool session as:
 
     /flanders-plan [<data>]
 
-The optional `<data>` argument follows the same rule as `/flanders-contract`:
+The optional `<data>` argument follows the same rule as `/flanders-spec`:
 - Omitted: the skill takes the user's natural-language request inline from the conversation.
 - Supplied and resolves to an existing file path: read and used as input.
 - Supplied and does not resolve to an existing file: used verbatim as inline input.
@@ -24,13 +24,13 @@ The skill's sole deliverable is exactly one markdown plan file inside the projec
 3. **Clarification phase.** The skill asks the user clarifying questions only when the question targets either an implementation choice in the code the tasks will produce that the request does not specify, or a task-scope ambiguity the skill cannot reasonably infer from the request or from the canonical contracts and rules. Any other doubt is resolved silently: the skill picks the most reasonable default and proceeds, documenting the choice in the relevant task's description when it is plan-local and load-bearing. Permitted questions are asked sequentially — one question per turn, multiple-choice preferred when the answer space is bounded.
 
    When the doubt is about how the code should be implemented, the skill resolves it through one of two outcomes:
-   - **Cross-cutting convention** — the answer would apply to all future code of the same kind in the project and belongs in `rules/`. The skill surfaces the gap to the user and recommends creating the rule via `/flanders-rule` before the plan is drafted, instead of silently baking the decision into the plan. The user may explicitly elect to treat the decision as plan-local for this run; in that case it follows the plan-local outcome below.
+   - **Cross-cutting convention** — the answer would apply to all future code of the same kind in the project and belongs in `rules/`. The skill surfaces the gap to the user and recommends creating the rule via `/flanders-spec` before the plan is drafted, instead of silently baking the decision into the plan. The user may explicitly elect to treat the decision as plan-local for this run; in that case it follows the plan-local outcome below.
    - **Plan-local implementation choice** — the answer is specific to the requested work and does not generalize. The chosen answer is embedded in the relevant task's description and acceptance criteria, and is never promoted to a rule.
 
-   The skill itself never writes to `rules/` or `contracts/`. Rule creation, when the user elects it, happens through `/flanders-rule` as a separate, user-initiated act.
+   The skill itself never writes to `rules/` or `contracts/`. Rule creation, when the user elects it, happens through `/flanders-spec` as a separate, user-initiated act.
 4. **Drafting phase.** Once the clarification phase is complete, the skill persists the plan file directly without presenting a layout summary, a section-by-section draft, or any other pre-write approval step. The user reviews the written plan file after the fact.
 5. After approval, the skill persists exactly one markdown file inside the project's `plans/` folder. The filename is descriptive of the plan's subject, and the file content conforms to `shared/plan-file-format.md`.
-6. **Post-write validation.** Before declaring complete, the skill runs the post-write validation gate per `ai-skills/post-write-validation.md`. If the gate fails, the skill follows the triage-then-fix loop defined there — re-entering this contract's clarification phase for any issue that closes a previously-unresolved ambiguity in this contract's clarification scope (the narrowest of the three skills'), and fixing the rest in place. If the bounded loop exhausts, the skill does not declare complete and surfaces the final failure along with the plan file path.
+6. **Post-write validation.** Before declaring complete, the skill runs the post-write validation gate per `ai-skills/post-write-validation.md`. If the gate fails, the skill follows the triage-then-fix loop defined there — re-entering this contract's clarification phase for any issue that closes a previously-unresolved ambiguity in this contract's clarification scope (the narrower of the two skills'), and fixing the rest in place. If the bounded loop exhausts, the skill does not declare complete and surfaces the final failure along with the plan file path.
 7. Upon declaring complete, the skill prints a summary in chat containing:
    - The plan file path.
    - The plan file's character size.

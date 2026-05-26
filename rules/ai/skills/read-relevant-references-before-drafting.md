@@ -1,12 +1,11 @@
 # Skills read relevant references before drafting
 
-Before drafting any deliverable, `/flanders-contract`, `/flanders-rule`, and `/flanders-plan` read every file in their canonical reference set that is relevant to the request. Reading is not optional. A draft that begins without the relevant files having been read is invalid, regardless of how confident the drafter is about the request.
+Before drafting any deliverable, `/flanders-spec` and `/flanders-plan` read every file in their canonical reference set that is relevant to the request. Reading is not optional. A draft that begins without the relevant files having been read is invalid, regardless of how confident the drafter is about the request.
 
 ## Who this applies to
 
-- **Subject:** every invocation of the three Flanders skills:
-  - `/flanders-contract`
-  - `/flanders-rule`
+- **Subject:** every invocation of the two Flanders skills:
+  - `/flanders-spec`
   - `/flanders-plan`
 - **Not subject:** other agents and commands, including the `implement` command and the workers, reviewers, and validators it spawns. They consult contracts and rules under their own rules and are out of scope here.
 
@@ -14,8 +13,7 @@ Before drafting any deliverable, `/flanders-contract`, `/flanders-rule`, and `/f
 
 The reference set is the folder (or folders) whose existing content the new deliverable must be consistent with:
 
-- `/flanders-contract` — `contracts/`.
-- `/flanders-rule` — `rules/`.
+- `/flanders-spec` — both `contracts/` and `rules/`.
 - `/flanders-plan` — both `contracts/` and `rules/`.
 
 The reference set is captured at invocation. Files added or removed mid-run are not picked up retroactively. The drafter does not consult any other source — for example, a stale snapshot held in conversation context, a previous run's listing, or memory — in place of the state captured at invocation.

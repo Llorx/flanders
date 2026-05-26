@@ -6,7 +6,7 @@ The `/flanders-plan` skill gates its work behind a final validator hosted as `ru
 
 - **Subject:** the `/flanders-plan` skill, as the host that packages the validator's prompt with the five categories enumerated below.
 - **Subject (when running as a subagent):** the validator instance, in producing a verdict that audits all five categories independently.
-- **Not subject:** the `/flanders-contract` and `/flanders-rule` validators — each has its own per-skill rule.
+- **Not subject:** the `/flanders-spec` validator — it has its own per-skill rule.
 
 ## What the validator receives
 

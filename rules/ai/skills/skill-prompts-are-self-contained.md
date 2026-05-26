@@ -1,6 +1,6 @@
 # Flanders skill artifact prompts are self-contained — no citations of flanders-internal spec paths
 
-The body of every Flanders skill artifact — the prompt text that the `install` command writes to the user's AI-tool skill folders, where each artifact represents `/flanders-contract`, `/flanders-rule`, or `/flanders-plan` — is self-contained. Every obligation the artifact enforces is inline in its body. The body never cites a specific file path that points to a file under flanders' own `contracts/`, `rules/`, or `plans/` folders, because those folders do not exist in the user's project where the artifact runs and the citation resolves to nothing.
+The body of every Flanders skill artifact — the prompt text that the `install` command writes to the user's AI-tool skill folders, where each artifact represents `/flanders-spec` or `/flanders-plan` — is self-contained. Every obligation the artifact enforces is inline in its body. The body never cites a specific file path that points to a file under flanders' own `contracts/`, `rules/`, or `plans/` folders, because those folders do not exist in the user's project where the artifact runs and the citation resolves to nothing.
 
 ## Who this applies to
 
@@ -10,7 +10,7 @@ The body of every Flanders skill artifact — the prompt text that the `install`
 
 ## What is forbidden in a skill artifact body
 
-- A relative or absolute path that names a specific file under flanders' own `contracts/`, `rules/`, or `plans/` folders. Examples of what NOT to embed: `contracts/ai-skills/contract-skill.md`, `rules/ai/skills/final-validator-host.md`, `rules/ai/agents/no-git-writes.md`, `contracts/shared/spec-folder-write-authority.md`, `contracts/cli-commands/install.md`.
+- A relative or absolute path that names a specific file under flanders' own `contracts/`, `rules/`, or `plans/` folders. Examples of what NOT to embed: `contracts/ai-skills/spec-skill.md`, `rules/ai/skills/final-validator-host.md`, `rules/ai/agents/no-git-writes.md`, `contracts/shared/spec-folder-write-authority.md`, `contracts/cli-commands/install.md`.
 - A phrase that defers an obligation to such a file — "the full obligation lives in X", "subject to X", "see X for the canonical definition", "verbatim from X", and analogous deferrals — when `X` is a flanders-internal spec path. The obligation itself is inlined in the body; the pointer is removed.
 
 ## What is permitted in a skill artifact body

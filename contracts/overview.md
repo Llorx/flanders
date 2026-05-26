@@ -9,10 +9,9 @@ Flanders ships two user-facing surfaces:
 - A **CLI**, invoked via `npx flanders <command> [arguments...]`. Each command owns its own contract under `cli-commands/`:
   - `install` — see `cli-commands/install.md`.
   - `implement [plan]` — see `cli-commands/implement/overview.md`.
-- Three **AI-tool skills**, invoked from inside an AI-coding-tool session. Each skill owns its own contract under `ai-skills/`:
-  - `/flanders-contract` — see `ai-skills/contract-skill.md`.
+- Two **AI-tool skills**, invoked from inside an AI-coding-tool session. Each skill owns its own contract under `ai-skills/`:
+  - `/flanders-spec` — authors contracts and rules; see `ai-skills/spec-skill.md`.
   - `/flanders-plan` — see `ai-skills/plan-skill.md`.
-  - `/flanders-rule` — see `ai-skills/rule-skill.md`.
 
 The skills are delivered to the user's AI-tool environment by the `install` subcommand. The set of supported AI tools is currently Claude Code and OpenAI Codex CLI.
 

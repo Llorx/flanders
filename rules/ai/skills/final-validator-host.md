@@ -1,10 +1,10 @@
 # Every Flanders content skill hosts its final validator the same way
 
-The Flanders content skills (`/flanders-plan`, `/flanders-contract`, `/flanders-rule`) each gate their persisted output through a final validator subagent. The host behavior of that validator — how it is spawned, what it receives, how it produces its verdict, and how the skill reacts to a FAIL — is identical across the three skills. This rule pins that shared host behavior in one place. Each skill's per-skill rule under `rules/ai/skills/{plan,contract,rule}/final-validator.md` pins only the check categories that are specific to that skill's artifact.
+The Flanders content skills (`/flanders-spec`, `/flanders-plan`) each gate their persisted output through a final validator subagent. The host behavior of that validator — how it is spawned, what it receives, how it produces its verdict, and how the skill reacts to a FAIL — is identical across both skills. This rule pins that shared host behavior in one place. Each skill's per-skill rule under `rules/ai/skills/{spec,plan}/final-validator.md` pins only the check categories that are specific to that skill's artifact.
 
 ## Who this applies to
 
-- **Subject:** every Flanders content skill that owns a final-validator stage — today `/flanders-plan`, `/flanders-contract`, and `/flanders-rule` — as the host that orchestrates the validator launch.
+- **Subject:** every Flanders content skill that owns a final-validator stage — today `/flanders-spec` and `/flanders-plan` — as the host that orchestrates the validator launch.
 - **Subject (when running as a subagent):** the validator instance, in the obligations described below about its read-only behavior and the shape of its output.
 - **Not subject:** skills or commands that do not have a final-validator stage. The `implement` command's adversarial reviewer is a separate gate with its own contract in `contracts/cli-commands/implement/iteration-loop.md`.
 
@@ -26,7 +26,7 @@ An inline fallback is not allowed for ergonomic reasons (the artifact looks smal
 The host packages the validator's prompt with all four of the following, regardless of which skill is invoking the validator:
 
 1. The absolute path to the artifact file. When the skill produced or updated multiple files, every absolute path is included plus an explicit enumeration of which subset of the canonical listing is under audit in this run.
-2. The canonical listing(s) captured by the skill at the start of the run. Which listings to pass is named by the per-skill rule (for example, `/flanders-plan` passes both the contracts and the rules listings; `/flanders-contract` passes both; `/flanders-rule` passes both).
+2. The canonical listing(s) captured by the skill at the start of the run. Which listings to pass is named by the per-skill rule (every skill passes both the contracts and the rules listings).
 3. The **verbatim text of every check obligation enumerated by the per-skill rule.** The host MUST inline those obligations in the prompt — it does not just point the validator at the per-skill rule file by path, and it does not rely on the validator discovering check obligations through transitive reading of the skill's own contract. Without the verbatim text, the validator's categories collapse to whatever the validator chooses to read on its own, and gaps appear silently. Including the verbatim text closes that gap.
 4. The output-format spec described in the `Output shape` section below.
 
@@ -52,8 +52,7 @@ If the validator wants to show its work, it does so in the body of its response 
 When the validator returns FAIL, the host enters a triage-then-fix loop. The triage step is non-negotiable: the host MUST process every issue through it before reaching for any rewrite, so that failures requiring user input are surfaced as questions rather than silently patched.
 
 1. **Triage each issue.** For every issue enumerated in the FAIL report, the host classifies it against the clarification-scope of the originating skill's contract — the same criteria that govern that skill's initial clarification phase. The originating skill maps to its clarification-scope source as follows:
-   - `/flanders-contract` — the clarification phase in `contracts/ai-skills/contract-skill.md`.
-   - `/flanders-rule` — the clarification phase in `contracts/ai-skills/rule-skill.md`.
+   - `/flanders-spec` — the clarification phase in `contracts/ai-skills/spec-skill.md`.
    - `/flanders-plan` — the clarification phase in `contracts/ai-skills/plan-skill.md`, further constrained by `rules/ai/skills/plan/clarification-scope.md`.
 
    An issue lands in one of two buckets:

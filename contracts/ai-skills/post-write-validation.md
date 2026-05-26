@@ -1,10 +1,10 @@
 # Post-Write Validation — Shared Skill Obligation
 
 ## Purpose
-Pin the user-visible behavior every Flanders content skill (`/flanders-contract`, `/flanders-rule`, `/flanders-plan`) follows after persisting its file(s): a post-write validation gate, and the loop the skill enters when that gate fails. Each skill's own contract references this file instead of repeating the obligation inline.
+Pin the user-visible behavior every Flanders content skill (`/flanders-spec`, `/flanders-plan`) follows after persisting its file(s): a post-write validation gate, and the loop the skill enters when that gate fails. Each skill's own contract references this file instead of repeating the obligation inline.
 
 ## Scope
-This obligation applies to `/flanders-contract`, `/flanders-rule`, and `/flanders-plan`. Each skill runs its own clarification phase and drafting phase per its own contract, then runs the validation gate described here before declaring complete.
+This obligation applies to `/flanders-spec` and `/flanders-plan`. Each skill runs its own clarification phase and drafting phase per its own contract, then runs the validation gate described here before declaring complete.
 
 ## Post-write validation gate
 After persisting the file(s), and before declaring complete, the skill runs a validation gate over what it just wrote or updated. The gate is the sole condition for declaring complete: when it passes, the skill declares complete; when it fails, the skill enters the loop below. The skill does not declare complete on a gate failure, and does not skip the gate.
@@ -22,13 +22,12 @@ The re-entered clarification phase is not the original clarification phase repea
 ## Bounded loop and exhaustion surface
 The fix loop is bounded — the skill never spins indefinitely. When the loop ends with a still-failing gate, the skill does not declare complete: it surfaces, in chat, the last failure report together with the absolute path(s) of the file(s) it persisted, and stops. It is then the user's call to redirect, restart, or accept the partial output. The skill never silently leaves a failing artifact on disk as if it were valid.
 
-The exact bound, the precise mechanism by which the gate runs, and the format of the failure report are implementation conventions and are pinned in `rules/ai/skills/final-validator-host.md` and the per-skill final-validator rules under `rules/ai/skills/{contract,rule,plan}/final-validator.md`.
+The exact bound, the precise mechanism by which the gate runs, and the format of the failure report are implementation conventions and are pinned in `rules/ai/skills/final-validator-host.md` and the per-skill final-validator rules under `rules/ai/skills/{spec,plan}/final-validator.md`.
 
 ## Relationship to the originating skill's clarification phase
 The clarification-scope criteria that govern triage in step 2 above are exactly the criteria the originating skill's contract pins for its initial clarification phase:
 
-- `/flanders-contract` — the clarification phase described in `ai-skills/contract-skill.md`.
-- `/flanders-rule` — the clarification phase described in `ai-skills/rule-skill.md`.
-- `/flanders-plan` — the clarification phase described in `ai-skills/plan-skill.md` (the scope of which is the narrowest of the three).
+- `/flanders-spec` — the clarification phase described in `ai-skills/spec-skill.md`.
+- `/flanders-plan` — the clarification phase described in `ai-skills/plan-skill.md` (the narrower of the two).
 
 Triage never broadens the originating skill's clarification scope: an issue the originating skill would not have asked about in its initial phase is not asked about during the fix loop either. It is fixed in place per step 3.

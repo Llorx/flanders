@@ -5,7 +5,7 @@
 ## Who this applies to
 
 - **Subject:** `/flanders-plan` during its clarification phase, on every invocation. The same scope binds any re-entry of the clarification phase triggered by the post-write fix loop per `rules/ai/skills/final-validator-host.md` — a validator FAIL never broadens what `/flanders-plan` is allowed to ask about.
-- **Not subject:** `/flanders-contract` and `/flanders-rule` — they run their own clarification phases governed by their own contracts.
+- **Not subject:** `/flanders-spec` — it runs its own clarification phase governed by its own contract.
 
 ## Forbidden topics
 
