@@ -30,11 +30,9 @@ For every acceptance criterion in the task, the report contains an entry with:
 
 1. **The criterion**, stated verbatim or as a brief paraphrase clear enough to match it to the task description.
 2. **Evidence in the working tree**, as a `file:line` citation — the code, test, or both that satisfies the criterion.
-3. **For behavioral or observable criteria**, the specific assertion that would fail if the behavior regressed, plus a one-sentence regression argument explaining why a plausible regression of the criterion would break that exact assertion. If the regression argument cannot be soundly constructed — i.e., the assertion would still pass under a regression the criterion forbids — the assertion is too weak: the subagent strengthens it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-runs the toolchain, and updates the report. The subagent must not declare complete while any behavioral criterion has an unsound regression argument.
-4. **For criteria that prescribe a literal value, options object, or specific shape** ("verbatim", "exactly", or any concrete literal): the cited assertion must verify that literal exactly, not via substring, prefix, or partial match.
-5. **For negative-scope criteria** ("no other call to X", "no other code path activates Y"): the literal search the subagent ran across the affected files and the confirmation of zero matches outside the intended location.
+3. **The evidence the criterion's classification requires**, per `rules/ai/agents/acceptance-criteria/criterion-evidence-classification.md`. The subagent classifies each criterion by that rule's regression-signal question and produces the evidence it prescribes: for a toolchain-guarded criterion, the named automated failure a regression would trigger; for a criterion with no implicit guard, the assertion `file:line` and a sound one-sentence regression argument. The literal-content, absence, order, and count cases that rule enumerates always need a test that would fail under the regression — the report cites that test, never "the fact holds by inspection". When a regression argument cannot be soundly constructed — the assertion would still pass under a regression the criterion forbids — the assertion is too weak: the subagent strengthens it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-runs the toolchain, and updates the report. The subagent must not declare complete while any criterion in the no-implicit-guard branch has an unsound or missing regression argument.
 
-One entry per criterion. Criteria with multiple independent post-conditions ("X AND Y AND Z") expand into one entry per post-condition, each with its own evidence.
+One entry per criterion. A criterion that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") expands into one entry per fact, each with its own evidence, per `rules/ai/agents/acceptance-criteria/enumerated-criterion-coverage.md`.
 
 ## Why this exists
 
@@ -46,9 +44,9 @@ The report is also the artifact a human can read in the per-iteration log to und
 
 - The prompt of an in-scope subagent does not include the instruction to produce an Evidence Report before declaring complete.
 - The subagent declares complete without an Evidence Report in its final output.
-- A behavioral or observable criterion in the report cites only the change in source code without identifying the assertion that detects its regression.
-- A criterion that prescribes a literal value is paired with a substring, prefix, or inclusion-based assertion.
-- A negative-scope criterion appears in the report without a literal search query and an explicit zero-match confirmation.
-- A behavioral criterion's regression argument is missing, hand-waved ("the test covers this"), or trivially defeated by a plausible regression the assertion would still pass under — and the subagent does not strengthen the assertion before declaring complete.
-- The Evidence Report omits criteria from the task or collapses multiple independent post-conditions of one criterion into a single entry.
+- A criterion in the no-implicit-guard branch (per `rules/ai/agents/acceptance-criteria/criterion-evidence-classification.md`) cites only the source-code change without identifying the assertion that would fail under a regression.
+- A literal-content, absence, order, or count criterion is paired with an assertion that would still pass under the regression it must detect — a substring or prefix check where exact match is required, a search that does not confirm zero matches, or an order or count fact asserted "by inspection".
+- A criterion classified as toolchain-guarded does not name the concrete automated failure (build error, type error, linker error, existing test failing, runtime crash on an exercised path) a regression would trigger.
+- A regression argument is missing, hand-waved ("the test covers this"), or trivially defeated by a plausible regression the assertion would still pass under — and the subagent does not strengthen the assertion before declaring complete.
+- The Evidence Report omits criteria from the task, or collapses an enumerated criterion's N independent facts into fewer than N entries (see `rules/ai/agents/acceptance-criteria/enumerated-criterion-coverage.md`).
 - The reviewer produces an Evidence Report (or any content beyond the single final PASS/FAIL line) — this is a violation of the reviewer's terminal format, which this rule preserves rather than overrides.
