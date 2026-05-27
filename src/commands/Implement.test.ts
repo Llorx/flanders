@@ -137,6 +137,7 @@ function stubContexts() {
         fs: {
             readFile(p) { return files.has(p) ? Promise.resolve(files.get(p)!) : Promise.reject(new Error("not found: " + p)); },
             writeFile(p, content) { files.set(p, content); return Promise.resolve(); },
+            rename(oldP, newP) { const c = files.get(oldP); if (c !== undefined) { files.delete(oldP); files.set(newP, c); } return Promise.resolve(); },
             readdir() { return Promise.resolve([]); },
             stat(p) {
                 if (files.has(p)) return Promise.resolve({ size: files.get(p)!.length, isFile: true, isDirectory: false });

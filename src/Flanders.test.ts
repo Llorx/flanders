@@ -14,6 +14,7 @@ function stubContexts() {
         fs: {
             readFile() { return Promise.reject(new Error("unexpected readFile")); },
             writeFile() { return Promise.reject(new Error("unexpected writeFile")); },
+            rename() { return Promise.reject(new Error("unexpected rename")); },
             readdir() { return Promise.reject(new Error("unexpected readdir")); },
             stat() { return Promise.reject(new Error("unexpected stat")); },
             exists() { return Promise.resolve(false); },

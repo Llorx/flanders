@@ -64,6 +64,9 @@ const fsContext:FsContext = {
         await fsp.mkdir(path.dirname(p), { recursive: true });
         await fsp.writeFile(p, content, "utf8");
     },
+    async rename(oldP, newP) {
+        await fsp.rename(oldP, newP);
+    },
     async readdir(p) {
         const entries = await fsp.readdir(p, { withFileTypes: true });
         return entries.map(e => ({

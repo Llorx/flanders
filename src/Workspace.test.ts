@@ -14,6 +14,7 @@ function stubFs():FsContext & { rmCalls:RmCall[] } {
     return {
         readFile() { return Promise.reject(new Error("unexpected readFile")); },
         writeFile() { return Promise.resolve(); },
+        rename() { return Promise.resolve(); },
         readdir() { return Promise.resolve([]); },
         stat() { return Promise.reject(new Error("unexpected stat")); },
         exists() { return Promise.resolve(false); },

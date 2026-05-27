@@ -1,5 +1,6 @@
 export { Flanders } from "./Flanders"; /* coverage ignore next */ // — Type-only re-exports below: no runtime code is generated.
 export type { FlandersContexts, FlandersOptions } from "./Flanders"; /* coverage disable */ // — Type-only re-exports: no runtime code is generated.
+export type { FlandersConfig } from "./FlandersConfig";
 export type {
     AskAnswer,
     AskChoiceOptions,

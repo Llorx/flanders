@@ -41,6 +41,7 @@ export type FsDirEntry = Readonly<{
 export interface FsContext {
     readFile(path:string):Promise<string>;
     writeFile(path:string, content:string):Promise<void>;
+    rename(oldPath:string, newPath:string):Promise<void>;
     readdir(path:string):Promise<readonly FsDirEntry[]>;
     stat(path:string):Promise<Readonly<{ size:number; isFile:boolean; isDirectory:boolean }>>;
     exists(path:string):Promise<boolean>;

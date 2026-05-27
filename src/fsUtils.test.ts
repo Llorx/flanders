@@ -9,6 +9,7 @@ function stubFs():FsContext {
     return {
         readFile() { return Promise.reject(new Error("unexpected readFile")); },
         writeFile() { return Promise.resolve(); },
+        rename() { return Promise.resolve(); },
         readdir() { return Promise.resolve([]); },
         stat() { return Promise.resolve({ size: 42, isFile: true, isDirectory: false }); },
         exists() { return Promise.resolve(false); },

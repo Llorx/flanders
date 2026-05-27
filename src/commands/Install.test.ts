@@ -17,6 +17,7 @@ function stubContexts() {
         fs: {
             readFile(p) { return files.has(p) ? Promise.resolve(files.get(p)!) : Promise.reject(new Error("not found")); },
             writeFile(p, content) { files.set(p, content); return Promise.resolve(); },
+            rename() { return Promise.resolve(); },
             readdir() { return Promise.resolve([]); },
             stat() { return Promise.reject(new Error("unexpected stat")); },
             exists(p) { return Promise.resolve(files.has(p) || dirs.has(p)); },

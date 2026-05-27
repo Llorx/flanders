@@ -11,6 +11,7 @@ function mockFs(initialContent:string):{ fs:FsContext; content():string } {
         fs: {
             readFile() { return Promise.resolve(stored); },
             writeFile(_p:string, c:string) { stored = c; return Promise.resolve(); },
+            rename() { return Promise.resolve(); },
             readdir() { return Promise.resolve([]); },
             stat() { return Promise.resolve({ size: stored.length, isFile: true, isDirectory: false }); },
             exists() { return Promise.resolve(true); },
