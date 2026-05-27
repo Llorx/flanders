@@ -10,19 +10,19 @@ import type { OutputContext, ScriptContext, SpawnedProcess, TimeContext, Timeout
 type FakeProcess = SpawnedProcess & {
     $emitStdout(chunk:string):void;
     $emitStderr(chunk:string):void;
-    $emit(event:"exit", code:number|null):void;
+    $emit(event:"exit", code:number|null, signal?:string|null):void;
     $emit(event:"error", e:unknown):void;
 };
 
 function fakeProcess():FakeProcess {
-    const exitListeners:Array<(code:number|null) => void> = [];
+    const exitListeners:Array<(code:number|null, signal:string|null) => void> = [];
     const errorListeners:Array<(e:unknown) => void> = [];
     const stdoutListeners:Array<(chunk:Buffer|string) => void> = [];
     const stderrListeners:Array<(chunk:Buffer|string) => void> = [];
     return {
         kill() {},
-        on(event:"exit"|"error", listener:((code:number|null) => void)|((e:unknown) => void)) {
-            if (event === "exit") exitListeners.push(listener as (code:number|null) => void);
+        on(event:"exit"|"error", listener:((code:number|null, signal:string|null) => void)|((e:unknown) => void)) {
+            if (event === "exit") exitListeners.push(listener as (code:number|null, signal:string|null) => void);
             else if (event === "error") errorListeners.push(listener as (e:unknown) => void);
         },
         stdout: { on(_event:"data", listener:(chunk:Buffer|string) => void) { stdoutListeners.push(listener); } },
@@ -30,9 +30,9 @@ function fakeProcess():FakeProcess {
         stdin: { write() {}, end() {} },
         $emitStdout(chunk:string) { for (const l of stdoutListeners) l(chunk); },
         $emitStderr(chunk:string) { for (const l of stderrListeners) l(chunk); },
-        $emit(event:string, payload:unknown) {
-            if (event === "exit") for (const l of exitListeners) l(payload as number|null);
-            else if (event === "error") for (const l of errorListeners) l(payload);
+        $emit(event:string, codeOrError:unknown, signal?:unknown) {
+            if (event === "exit") for (const l of exitListeners) l(codeOrError as number|null, (signal ?? null) as string|null);
+            else if (event === "error") for (const l of errorListeners) l(codeOrError);
         }
     };
 }

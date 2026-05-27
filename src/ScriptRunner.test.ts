@@ -6,7 +6,7 @@ import { ScriptRunner } from "./ScriptRunner";
 import type { ScriptContext, SpawnedProcess, TimeContext, TimeoutHandle } from "./contexts";
 
 type SpawnedProcessSpy = SpawnedProcess & {
-    $emit(event:"exit", code:number|null):void;
+    $emit(event:"exit", code:number|null, signal?:string|null):void;
     $emit(event:"error", e:unknown):void;
     $emitStdout(chunk:string):void;
     $emitStderr(chunk:string):void;
@@ -22,7 +22,7 @@ function scriptContext() {
         ...({
             spawn(command, args, options) {
                 spawned.push([command, args, options]);
-                const exitListeners:Array<(code:number|null) => void> = [];
+                const exitListeners:Array<(code:number|null, signal:string|null) => void> = [];
                 const errorListeners:Array<(e:unknown) => void> = [];
                 const stdoutListeners:Array<(chunk:Buffer|string) => void> = [];
                 const stderrListeners:Array<(chunk:Buffer|string) => void> = [];
@@ -33,7 +33,7 @@ function scriptContext() {
                     },
                     on(event, listener) {
                         if (event === "exit") {
-                            exitListeners.push(listener as (code:number|null) => void);
+                            exitListeners.push(listener as (code:number|null, signal:string|null) => void);
                         } else if (event === "error") {
                             errorListeners.push(listener as (e:unknown) => void);
                         }
@@ -48,14 +48,14 @@ function scriptContext() {
                             stderrListeners.push(listener);
                         }
                     },
-                    $emit(event, payload) {
+                    $emit(event:string, codeOrError:unknown, signal?:unknown) {
                         if (event === "exit") {
                             for (const l of exitListeners) {
-                                l(payload as number|null);
+                                l(codeOrError as number|null, (signal ?? null) as string|null);
                             }
                         } else if (event === "error") {
                             for (const l of errorListeners) {
-                                l(payload);
+                                l(codeOrError);
                             }
                         }
                     },

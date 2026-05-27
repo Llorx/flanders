@@ -5,7 +5,7 @@ export type SpawnedReadable = {
 };
 
 export type SpawnedProcess = {
-    on(event:"exit", listener:(code:number|null) => void):void;
+    on(event:"exit", listener:(code:number|null, signal:string|null) => void):void;
     on(event:"error", listener:(e:unknown) => void):void;
     kill(signal:"SIGINT"|"SIGTERM"):void;
     stdout?:SpawnedReadable;
