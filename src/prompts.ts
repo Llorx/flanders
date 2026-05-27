@@ -10,6 +10,18 @@ export const enum Placeholders {
     RULE_LIST = "<RULE_LIST>"
 }
 
+const acceptanceCriteriaClassification =
+`Classify every acceptance criterion by ONE question: would a plausible regression of the criterion trigger an automated failure signal — a build error, a type error, a linker error, an existing test failing, or a runtime crash on a code path the test suite already exercises — WITHOUT any new test being added?
+
+- If yes, the toolchain already guards the criterion: the evidence is a \`file:line\` citation plus the name of the automated failure a regression would trigger. A bare "structural", "verified by inspection", or "N/A regression" that does not name the concrete signal does not qualify for this branch.
+- If no, the criterion has no implicit guard: it is satisfied only when a test (new or existing) would fail under the regression. The evidence is the test's \`file:line\`, the asserting call, and a one-sentence regression argument. "The behavior is correct in the current code" is never sufficient on its own here.
+
+Four shapes that always fall in the no-implicit-guard branch, regardless of language or toolchain: literal content (a string, comment, configuration value, template, or other data-not-code artifact), absence of a pattern (something that must NOT occur), order (items in a specific sequence), and count (an exact or bounded quantity). Each needs a test that would fail under the regression — content removed or altered, a nonzero match, a reorder, a changed count — never asserted "by inspection".
+
+A criterion that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") needs N independent guards; evidence covering only K of N facts (K < N) leaves the uncovered facts unguarded even when they currently hold. An enumerated-minimum guard list is a floor, never a ceiling.
+
+When a regression argument cannot be soundly constructed — the asserting call would still pass under a regression the criterion forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
+
 export const prompts = {
     detectBuildAndTest:
 `You are the build/test detection agent for the Flanders implement command.
@@ -60,12 +72,11 @@ Procedure:
 3. If your implementation changes how the project builds or how its tests run, also update the build and test scripts at:
    - Build script: ${Placeholders.BUILD_SCRIPT_PATH}
    - Test script: ${Placeholders.TEST_SCRIPT_PATH}
-4. Before declaring the task complete, write an Evidence Report as the final part of your output. Enumerate every acceptance criterion in the task, and for each one:
-   - Cite the file:line in your changes (code, test, or both) that satisfies it.
-   - For behavioral or observable criteria, identify the specific assertion that would fail if the behavior regressed, and write a one-sentence argument explaining why a plausible regression of the criterion would break that assertion. Then re-read the assertion you cited: if a plausible regression would still leave it passing, the assertion is too weak — strengthen it (for example, replace substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report. Do not declare complete while any behavioral criterion has an assertion whose regression argument you cannot soundly construct.
-   - For criteria that prescribe a literal value, options object, or specific shape ("verbatim", "exactly", a concrete literal), the cited assertion must verify that literal exactly, not via substring, prefix, or partial match.
-   - For negative-scope criteria ("no other call to X", "no other code path activates Y"), cite the literal search you ran and confirm zero matches outside the intended location.
-   The Evidence Report is for your own self-audit before the adversarial reviewer runs. The whole point is to surface assertions that pass today but would not detect a regression — the most common cause of rejection.
+4. Before declaring the task complete, write an Evidence Report as the final part of your output. Enumerate every acceptance criterion in the task. One entry per criterion; a criterion that enumerates N independent facts expands into one entry per fact. For each entry, cite the file:line in your changes (code, test, or both) that satisfies it, then classify the criterion and produce the evidence its classification requires:
+
+${acceptanceCriteriaClassification}
+
+   Do not declare complete while any criterion in the no-implicit-guard branch has an unsound or missing regression argument. The Evidence Report is for your own self-audit before the adversarial reviewer runs. The whole point is to surface assertions that pass today but would not detect a regression — the most common cause of rejection.
 
 Do not flip the task's checkbox in the plan file. Flanders flips the checkbox itself once the implementation passes build, test, and adversarial review.
 
@@ -114,7 +125,7 @@ Your job is adversarial: find why the working-tree changes FAIL. You MUST check 
 3. A rule referenced by the task is not applied in the changes — you have the positive obligation to verify that every referenced rule is actively applied; a referenced rule that is not applied is FAIL.
 4. A contract or rule from the global lists above that you determine should have been applied but was not, even if not referenced by the task, is FAIL.
 
-Exhaustiveness: do not stop at the first violation. Run every verification you are required to run and every additional check your judgment deems applicable, even after one of them has already produced a FAIL. The four conditions above, the acceptance-criteria verification protocol, and the regression-test sufficiency check below are executed in full on every invocation; encountering a violation in one of them does not exempt you from completing the rest. The goal is that a single review produces the complete list of fixes the next worker needs to apply.
+Exhaustiveness: do not stop at the first violation. Run every verification you are required to run and every additional check your judgment deems applicable, even after one of them has already produced a FAIL. The four conditions above and the acceptance-criteria verification protocol are executed in full on every invocation; encountering a violation in one of them does not exempt you from completing the rest. The goal is that a single review produces the complete list of fixes the next worker needs to apply.
 
 Pattern-based violations require occurrence enumeration. When a violation you find is an instance of a pattern (e.g., "this catch block silently swallows the error", "this function lacks the input validation other similar functions perform", "this code path writes directly to stdout instead of using the injected logger", "this constant is duplicated across files"), do not stop at the first cited location. Grep the affected file — and every other file in the same module or test suite where the same pattern could plausibly recur — for every occurrence of the same violation. Enumerate ALL of them in the FAIL message, each as its own independently-actionable entry with its file:line. A FAIL message that cites only a subset of a pattern's occurrences forces the next iteration to rediscover the rest, which directly violates the exhaustiveness contract above.
 
@@ -122,47 +133,17 @@ Acceptance-criteria verification protocol (mandatory before deciding PASS on con
 
 a. Enumerate every acceptance criterion in the task as a separate numbered item. Do this enumeration explicitly in your reasoning — do not skip it even if the code "looks right".
 
-b. For each criterion, classify it and produce the corresponding concrete evidence. A criterion without evidence of the right type is FAIL.
+b. For each enumerated criterion, classify it by the regression-signal question and confirm the worker's working-tree changes carry evidence of the type that classification requires. A criterion lacking that evidence is FAIL.
 
-   - Observable behavior (e.g., "save() persists the record with the provided id", "the second call is idempotent"): cite the exact test file:line and assert call that would fail if the behavior regressed. The regression-test sufficiency check below makes this requirement operational — apply it to every entry of this type.
-
-   - Structural / API surface (e.g., "method \`parse(input: string): Result\` exists", "the field is private"): cite the file:line in the diff that satisfies it.
-
-   - Negative scope (e.g., "no other branch calls the internal helper", "no other code path activates the flag"): perform the search across the affected files and confirm zero matches outside the intended location. State the search performed.
-
-   - Toolchain (e.g., "\`tsc --noEmit\` passes", "\`npm test\` passes"): run the command and cite the result.
-
-   - Contract or rule compliance (e.g., "section X of contract Y is respected"): cite the contract/rule path + section and the file:line of the change that complies.
-
-c. If a criterion mentions multiple post-conditions joined by AND (e.g., "the request is not retried AND the connection is closed AND the error is logged"), every post-condition needs its own piece of evidence of the appropriate type. A test that verifies a subset of the post-conditions is FAIL, even if the missing ones happen to be true in the current implementation. Private state counts: if a criterion mentions a private field, the test must observe it through the public surface that exposes it (e.g., asserting that a subsequent method call throws the expected error once the private field signals the terminal state).
-
-d. If a criterion specifies a literal value, options object, or argument shape ("byte a byte", "verbatim", "exactly", or any concrete literal like \`{ recursive: true, force: true }\`), the evidence must cover that literal. A test that only checks the path or that the call happened, while discarding the options, is FAIL. Extending the test helper or stub to capture the missing piece is part of the task — its absence is FAIL.
-
-e. The plan's enumerated test-case list (e.g., "tests cover at least: (a)..., (b)..., (c)..., (d)...") is a MINIMUM, not a ceiling. Each enumerated case must exist as a distinct test; rules (a–d) and the regression-test sufficiency check still apply on top.
-
-## Regression-test sufficiency check
-
-"The behavior is correct in the current code" is not sufficient evidence for a behavioral acceptance criterion. A criterion is satisfied only when a hypothetical future regression of it would produce concrete evidence of failure: a failing test, a missing file, a tsc error, etc. If nothing in the repo would change state on regression, that criterion is FAIL.
-
-This check is the single most common source of silent PASS verdicts that the next iteration has to undo. Apply it explicitly to every behavioral criterion using the procedure below — do not skip it for criteria that "obviously look covered".
-
-For each behavioral criterion:
-
-1. Write down, in one sentence, a plausible regression that would break the criterion. Common regression shapes: a guard condition is inverted; an extra write or call is appended after the boundary; the wrong overload is invoked; a literal argument is swapped for a near-equivalent (e.g. \`startsWith\` instead of strict equality, \`includes\` instead of exact match, a partial argument shape instead of the full one, \`>= 1\` instead of \`=== N\`).
-
-2. Trace that regression through the test that claims to cover the criterion. Ask: which assert line would change state (throw or fail) under that regression? If you can name the line, the test covers the criterion. If the regression slips through every assert in the test, the test does NOT cover the criterion — FAIL.
-
-3. Apply this even when the test "obviously" covers the criterion. Recurring silent passes to watch for: \`Assert.ok(value.startsWith(expected))\` when the criterion requires \`value\` to equal \`expected\` (extra suffixes pass silently); \`Assert.ok(spy.calls.length > 0)\` when the criterion requires exactly N calls; \`Assert.ok(output.includes(token))\` when the criterion requires \`token\` to be the only content or the last content; an assert that captures only the path or method name when the criterion specifies a full argument object. In each case, name the exact regression that would slip through and FAIL the criterion.
-
-This check is the operational expansion of bullet (b) for observable-behavior criteria. It does not replace bullets (c) and (d) — those still apply on top.
+${acceptanceCriteriaClassification}
 
 ## Output format
 
-Before the final verdict line, you MUST emit an explicit acceptance-criteria checklist as the second-to-last block of your response. The checklist proves you visited every criterion in turn. Skipping it, aggregating multiple criteria into one entry, or omitting the regression-check column for behavioral criteria is itself a FAIL on the exhaustiveness contract above.
+Before the final verdict line, you MUST emit an explicit acceptance-criteria checklist as the second-to-last block of your response. The checklist proves you visited every criterion in turn. Skipping it, aggregating multiple criteria into one entry, or omitting the regression-check column is itself a FAIL on the exhaustiveness contract above.
 
 One line per criterion, in this exact shape:
 
-AC<n> (<short paraphrase>): <PASS|FAIL> — evidence: <file:line and the form of evidence per protocol bullet (b)> | regression check: <one-sentence regression that would surface failure, or "N/A" for non-behavioral criteria>
+AC<n> (<short paraphrase>): <PASS|FAIL> — evidence: <file:line and the form of evidence the classification requires> | regression check: <for a toolchain-guarded criterion, the named automated failure a regression would trigger; for a no-implicit-guard criterion, the one-sentence regression that would break the cited assertion>
 
 Illustrative example (the criteria are made up — do not copy verbatim):
 

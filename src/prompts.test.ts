@@ -194,6 +194,83 @@ test.describe("prompts – worker – prep-fork context relaxation", test => {
     });
 });
 
+test.describe("prompts – worker – acceptance-criteria classification taxonomy", test => {
+    test("the classification taxonomy is used in the worker but not exported", {
+        ARRANGE() {},
+        ACT() { return prompts; },
+        ASSERTS: {
+            "worker contains the taxonomy's distinctive text"(p) {
+                Assert.ok(p.worker.includes("Classify every acceptance criterion by ONE question"));
+            },
+            "acceptanceCriteriaClassification is not a member of the prompts export"(p) {
+                Assert.strictEqual((p as Record<string, unknown>).acceptanceCriteriaClassification, undefined);
+            }
+        }
+    });
+
+    test("contains all six taxonomy elements", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERTS: {
+            "regression-signal question"(template) {
+                Assert.ok(template.includes("would a plausible regression of the criterion trigger an automated failure signal"));
+            },
+            "toolchain-guarded yes branch"(template) {
+                Assert.ok(template.includes("the toolchain already guards the criterion"));
+            },
+            "no-implicit-guard no branch"(template) {
+                Assert.ok(template.includes("the criterion has no implicit guard"));
+            },
+            "four always-guard shapes"(template) {
+                Assert.ok(template.includes("Four shapes that always fall in the no-implicit-guard branch"));
+            },
+            "N-facts-need-N-guards rule"(template) {
+                Assert.ok(template.includes("needs N independent guards"));
+            },
+            "regression-argument soundness step"(template) {
+                Assert.ok(template.includes("When a regression argument cannot be soundly constructed"));
+            }
+        }
+    });
+
+    test("preserves the Evidence Report instruction", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERT(template) {
+            Assert.ok(template.includes("write an Evidence Report as the final part of your output"));
+        }
+    });
+
+    test("old category bullets are removed", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERTS: {
+            "no 'For behavioral or observable criteria'"(template) {
+                Assert.strictEqual(template.includes("For behavioral or observable criteria"), false);
+            },
+            "no 'For negative-scope criteria'"(template) {
+                Assert.strictEqual(template.includes("For negative-scope criteria"), false);
+            },
+            "no 'For criteria that prescribe a literal value, options object, or specific shape'"(template) {
+                Assert.strictEqual(template.includes("For criteria that prescribe a literal value, options object, or specific shape"), false);
+            }
+        }
+    });
+
+    test("contains no spec-path citations", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERTS: {
+            "no criterion-evidence-classification"(template) {
+                Assert.strictEqual(template.includes("criterion-evidence-classification"), false);
+            },
+            "no enumerated-criterion-coverage"(template) {
+                Assert.strictEqual(template.includes("enumerated-criterion-coverage"), false);
+            }
+        }
+    });
+});
+
 test.describe("prompts – reviewer", test => {
     test("explicitly forbids appending an Evidence Report after the PASS/FAIL line", {
         ARRANGE() {},
@@ -218,6 +295,101 @@ test.describe("prompts – reviewer", test => {
             },
             "references shared/spec-folder-write-authority.md"(template) {
                 Assert.ok(template.includes("shared/spec-folder-write-authority.md"));
+            }
+        }
+    });
+});
+
+test.describe("prompts – reviewer – acceptance-criteria classification taxonomy", test => {
+    test("contains all six taxonomy elements", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "regression-signal question"(template) {
+                Assert.ok(template.includes("would a plausible regression of the criterion trigger an automated failure signal"));
+            },
+            "toolchain-guarded yes branch"(template) {
+                Assert.ok(template.includes("the toolchain already guards the criterion"));
+            },
+            "no-implicit-guard no branch"(template) {
+                Assert.ok(template.includes("the criterion has no implicit guard"));
+            },
+            "four always-guard shapes"(template) {
+                Assert.ok(template.includes("Four shapes that always fall in the no-implicit-guard branch"));
+            },
+            "N-facts-need-N-guards rule"(template) {
+                Assert.ok(template.includes("needs N independent guards"));
+            },
+            "regression-argument soundness step"(template) {
+                Assert.ok(template.includes("When a regression argument cannot be soundly constructed"));
+            }
+        }
+    });
+
+    test("shares the taxonomy constant with the worker prompt", {
+        ARRANGE() {},
+        ACT() { return prompts; },
+        ASSERTS: {
+            "distinctive taxonomy text in worker"(p) {
+                Assert.ok(p.worker.includes("would a plausible regression of the criterion trigger an automated failure signal"));
+            },
+            "distinctive taxonomy text in reviewer"(p) {
+                Assert.ok(p.reviewer.includes("would a plausible regression of the criterion trigger an automated failure signal"));
+            }
+        }
+    });
+
+    test("old reviewer category list is removed", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "no 'Observable behavior (e.g.,'"(template) {
+                Assert.strictEqual(template.includes("Observable behavior (e.g.,"), false);
+            },
+            "no 'Structural / API surface'"(template) {
+                Assert.strictEqual(template.includes("Structural / API surface"), false);
+            },
+            "no 'Negative scope (e.g.,'"(template) {
+                Assert.strictEqual(template.includes("Negative scope (e.g.,"), false);
+            }
+        }
+    });
+
+    test("preserves the reviewer's terminal format", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "forbids appending content after the verdict"(template) {
+                Assert.ok(template.includes("Do not append an Evidence Report or any other multi-line content after the final PASS/FAIL line"));
+            },
+            "contains the verdict instruction"(template) {
+                Assert.ok(template.includes("Reply with exactly one of the two following formats on that final line"));
+            }
+        }
+    });
+
+    test("preserves and realigns the per-criterion checklist format", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "contains the AC<n> checklist marker"(template) {
+                Assert.ok(template.includes("AC<n>"));
+            },
+            "no 'non-behavioral' label"(template) {
+                Assert.strictEqual(template.includes("non-behavioral"), false);
+            }
+        }
+    });
+
+    test("contains no spec-path citations", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "no criterion-evidence-classification"(template) {
+                Assert.strictEqual(template.includes("criterion-evidence-classification"), false);
+            },
+            "no enumerated-criterion-coverage"(template) {
+                Assert.strictEqual(template.includes("enumerated-criterion-coverage"), false);
             }
         }
     });
