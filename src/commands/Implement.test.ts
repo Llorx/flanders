@@ -879,6 +879,31 @@ test.describe("Implement interactive plan prompt routed through block", test => 
             }
         }
     });
+
+    test("unexpected error in askChoices during plan selection propagates to outer handler", {
+        ARRANGE() {
+            const s = stubContexts();
+            withMultiplePlans(s);
+            (s.contexts.ask as any).askChoices = () => {
+                return Promise.reject(new Error("unexpected askChoices error"));
+            };
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "error message appears in output"(_code, { written }) {
+                Assert.ok(written.join("").includes("unexpected askChoices error"));
+            }
+        }
+    });
 });
 
 test.describe("Implement intermediate header and metrics states", test => {

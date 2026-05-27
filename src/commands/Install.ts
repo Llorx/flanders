@@ -1,4 +1,5 @@
 import type { AskContext, FsContext, OutputContext } from "../contexts";
+import { askChoice } from "../PromptHelper";
 import { joinPath } from "../fsUtils";
 import { planSkillBody, specSkillBody } from "../skills";
 import type { PlatformContext } from "../Workspace";
@@ -110,19 +111,22 @@ export class Install {
         }
     }
     private async _promptDestination(contexts:InstallContexts):Promise<"global"|"project"|null> {
-        const [answer] = await contexts.ask.askChoices([{
-            header: "Install destination",
-            question: "Where should Flanders skills be installed?",
-            options: [
-                { label: "project", description: "Install in .claude/skills/ relative to CWD" },
-                { label: "global", description: "Install in ~/.claude/skills/" }
-            ],
-            multiSelect: false
-        }]);
-        if (!answer || answer.picked.length === 0) {
-            return null;
+        try {
+            const option = await askChoice(contexts.ask, {
+                header: "Install destination",
+                question: "Where should Flanders skills be installed?",
+                options: [
+                    { label: "project", description: "Install in .claude/skills/ relative to CWD" },
+                    { label: "global", description: "Install in ~/.claude/skills/" }
+                ]
+            });
+            return option.label as "global"|"project";
+        } catch (e) {
+            if (e instanceof Error && e.name === "AbortError") {
+                return null;
+            }
+            throw e;
         }
-        return answer.picked[0]!.label as "global"|"project";
     }
     async dispose():Promise<void> {
         if (this._disposed) {

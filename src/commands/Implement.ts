@@ -1,5 +1,6 @@
 import { ClaudeSession } from "../ClaudeSession";
 import type { AskContext, ClaudeContext, FsContext, OutputContext, ScriptContext, TimeContext } from "../contexts";
+import { askChoice } from "../PromptHelper";
 import { isNonEmptyFile, joinPath, listFilesRecursive } from "../fsUtils";
 import { isGitAvailable, isInsideWorkTree, countPendingChangesExcept, addAll, commit } from "../Git";
 import { PlanFile, PlanTask } from "../PlanFile";
@@ -259,20 +260,28 @@ export class Implement {
             if (this._disposed) {
                 return null;
             }
-            const [answer] = await this._contexts.ask.askChoices([{
-                header: "Plan file",
-                question: `Multiple plans found in ${plansFolder}. Which one do you want to implement?`,
-                options: files.map(f => ({ label: f })),
-                multiSelect: false
-            }], askOutput);
-            /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
-            if (this._disposed) {
-                return null;
+            try {
+                const option = await askChoice(this._contexts.ask, {
+                    header: "Plan file",
+                    question: `Multiple plans found in ${plansFolder}. Which one do you want to implement?`,
+                    options: files.map(f => ({ label: f }))
+                }, askOutput);
+                /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
+                if (this._disposed) {
+                    return null;
+                }
+                return joinPath(plansFolder, option.label);
+            } catch (e) {
+                /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
+                if (this._disposed) {
+                    return null;
+                }
+                if (e instanceof Error && e.name === "AbortError") {
+                    this._buffered.writeError("Please pick one of the listed plans by its number.\n");
+                    continue;
+                }
+                throw e;
             }
-            if (answer && answer.picked.length > 0) {
-                return joinPath(plansFolder, answer.picked[0]!.label);
-            }
-            this._buffered.writeError("Please pick one of the listed plans by its number.\n");
         }
     }
     private async _detectBuildAndTest(ws:WorkspacePaths):Promise<void> {
