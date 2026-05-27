@@ -16,6 +16,6 @@ export type {
     SpawnedProcess,
     SpawnedReadable
 } from "./contexts";
-export type { ClaudeEvent, ClaudeContentBlock, ClaudeControlRequestBody, ClaudeDelta, ClaudeResult, ClaudeRunOptions, PermissionRequest, PermissionResponse } from "./Claude";
+export type { ClaudeEvent, ClaudeContentBlock, ClaudeControlRequestBody, ClaudeDelta, ClaudeResult, ClaudeRunOptions, PermissionRequest, PermissionResponse } from "./ClaudeSession";
 export type { PlatformContext } from "./Workspace";
 /* coverage enable */
