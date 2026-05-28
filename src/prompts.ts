@@ -10,17 +10,17 @@ export const enum Placeholders {
     RULE_LIST = "<RULE_LIST>"
 }
 
-const acceptanceCriteriaClassification =
-`Classify every acceptance criterion by ONE question: would a plausible regression of the criterion trigger an automated failure signal — a build error, a type error, a linker error, an existing test failing, or a runtime crash on a code path the test suite already exercises — WITHOUT any new test being added?
+const claimClassification =
+`Classify every claim by ONE question: would a plausible regression of the claim trigger an automated failure signal — a build error, a type error, a linker error, an existing test failing, or a runtime crash on a code path the test suite already exercises — WITHOUT any new test being added?
 
-- If yes, the toolchain already guards the criterion: the evidence is a \`file:line\` citation plus the name of the automated failure a regression would trigger. A bare "structural", "verified by inspection", or "N/A regression" that does not name the concrete signal does not qualify for this branch.
-- If no, the criterion has no implicit guard: it is satisfied only when a test (new or existing) would fail under the regression. The evidence is the test's \`file:line\`, the asserting call, and a one-sentence regression argument. "The behavior is correct in the current code" is never sufficient on its own here.
+- If yes, the toolchain already guards the claim: the evidence is a \`file:line\` citation plus the name of the automated failure a regression would trigger. A bare "structural", "verified by inspection", or "N/A regression" that does not name the concrete signal does not qualify for this branch.
+- If no, the claim has no implicit guard: it is satisfied only when a test (new or existing) would fail under the regression. The evidence is the test's \`file:line\`, the asserting call, and a one-sentence regression argument. "The behavior is correct in the current code" is never sufficient on its own here.
 
 Four shapes that always fall in the no-implicit-guard branch, regardless of language or toolchain: literal content (a string, comment, configuration value, template, or other data-not-code artifact), absence of a pattern (something that must NOT occur), order (items in a specific sequence), and count (an exact or bounded quantity). Each needs a test that would fail under the regression — content removed or altered, a nonzero match, a reorder, a changed count — never asserted "by inspection".
 
-A criterion that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") needs N independent guards; evidence covering only K of N facts (K < N) leaves the uncovered facts unguarded even when they currently hold. An enumerated-minimum guard list is a floor, never a ceiling.
+A claim that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") needs N independent guards; evidence covering only K of N facts (K < N) leaves the uncovered facts unguarded even when they currently hold. An enumerated-minimum guard list is a floor, never a ceiling.
 
-When a regression argument cannot be soundly constructed — the asserting call would still pass under a regression the criterion forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
+When a regression argument cannot be soundly constructed — the asserting call would still pass under a regression the claim forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
 
 export const prompts = {
     detectBuildAndTest:
@@ -72,11 +72,27 @@ Procedure:
 3. If your implementation changes how the project builds or how its tests run, also update the build and test scripts at:
    - Build script: ${Placeholders.BUILD_SCRIPT_PATH}
    - Test script: ${Placeholders.TEST_SCRIPT_PATH}
-4. Before declaring the task complete, write an Evidence Report as the final part of your output. Enumerate every acceptance criterion in the task. One entry per criterion; a criterion that enumerates N independent facts expands into one entry per fact. For each entry, cite the file:line in your changes (code, test, or both) that satisfies it, then classify the criterion and produce the evidence its classification requires:
+4. Before declaring the task complete, write an Evidence Report as the final part of your output. This is a lightweight self-audit scoped to your diff and the task's links; the reviewer audits the full working tree in a separate, heavier pass. The report has three sections, in order. Consult the following rule files for the full framework:
+   - \`rules/ai/agents/evidence-report.md\`
+   - \`rules/ai/agents/evidence/claim-evidence-classification.md\`
+   - \`rules/ai/agents/evidence/enumerated-claim-coverage.md\`
+   - \`rules/ai/agents/evidence/scope-driven-self-audit.md\`
 
-${acceptanceCriteriaClassification}
+   **Acceptance-criterion claims**
 
-   Do not declare complete while any criterion in the no-implicit-guard branch has an unsound or missing regression argument. The Evidence Report is for your own self-audit before the adversarial reviewer runs. The whole point is to surface assertions that pass today but would not detect a regression — the most common cause of rejection.
+   For every acceptance criterion in the task, one entry. A criterion that enumerates N independent facts expands into one entry per fact. For each entry, cite the file:line in your changes (code, test, or both) that satisfies it, then classify the claim and produce the evidence its classification requires:
+
+${claimClassification}
+
+   **Rule claims**
+
+   For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per \`rules/ai/agents/evidence/scope-driven-self-audit.md\`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (relative path inside \`rules/\`), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape require a search-based assertion that confirms zero matches in the diff; "verified by inspection" never satisfies that branch. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per \`rules/ai/agents/evidence/enumerated-claim-coverage.md\`.
+
+   **Contract claims**
+
+   For every in-scope contract, one entry. Contracts follow the same union scope rule as rules: the set is the union of contracts the task linked and contracts your diff triggers. Each entry carries the contract's namespace (relative path inside \`contracts/\`), the trigger, and the evidence of compliance classified by the same regression-signal question. Contract obligations that pin literal public-surface details (string messages, output channels, error-shape fields) fall into the literal-content shape and require an exact-match assertion; a substring or prefix check on those details is too weak.
+
+   Do not declare complete while any claim in the no-implicit-guard branch has an unsound or missing regression argument. The Evidence Report is for your own self-audit before the adversarial reviewer runs. The whole point is to surface assertions that pass today but would not detect a regression — the most common cause of rejection.
 
 Do not flip the task's checkbox in the plan file. Flanders flips the checkbox itself once the implementation passes build, test, and adversarial review.
 
@@ -135,21 +151,39 @@ a. Enumerate every acceptance criterion in the task as a separate numbered item.
 
 b. For each enumerated criterion, classify it by the regression-signal question and confirm the worker's working-tree changes carry evidence of the type that classification requires. A criterion lacking that evidence is FAIL.
 
-${acceptanceCriteriaClassification}
+${claimClassification}
 
 ## Output format
 
-Before the final verdict line, you MUST emit an explicit acceptance-criteria checklist as the second-to-last block of your response. The checklist proves you visited every criterion in turn. Skipping it, aggregating multiple criteria into one entry, or omitting the regression-check column is itself a FAIL on the exhaustiveness contract above.
+Before the final verdict line, you MUST audit the full working tree and emit an explicit three-section claim checklist as the second-to-last block of your response. The checklist uses the structure defined in \`rules/ai/agents/evidence-report.md\` as a checklist, applying the classification framework from \`rules/ai/agents/evidence/claim-evidence-classification.md\` and the N-fact-coverage discipline from \`rules/ai/agents/evidence/enumerated-claim-coverage.md\` to every claim. Skipping a section, aggregating multiple claims into one entry, or omitting the regression-check column is itself a FAIL on the exhaustiveness contract above.
 
-One line per criterion, in this exact shape:
+The three sections, in order:
+
+**Acceptance-criterion claims**
+
+One entry per acceptance criterion in the task, in this exact shape:
 
 AC<n> (<short paraphrase>): <PASS|FAIL> — evidence: <file:line and the form of evidence the classification requires> | regression check: <for a toolchain-guarded criterion, the named automated failure a regression would trigger; for a no-implicit-guard criterion, the one-sentence regression that would break the cited assertion>
 
-Illustrative example (the criteria are made up — do not copy verbatim):
+**Rule claims**
+
+One entry per rule you determine should have applied — the union of rules the task linked and rules whose obligation the working-tree changes trigger. Per-line shape:
+
+R<n> (<rules/.../...md>): <PASS|FAIL> — evidence: <file:line and the form of evidence the classification requires> | regression check: <argument>
+
+**Contract claims**
+
+One entry per contract you determine should have applied. Per-line shape:
+
+C<n> (<contracts/.../...md>): <PASS|FAIL> — evidence: <file:line and the form of evidence the classification requires> | regression check: <argument>
+
+Illustrative example (the claims are made up — do not copy verbatim):
 
 AC1 (record is persisted with provided id): PASS — evidence: store.test.ts:42 asserts repo.insert called with \`{ id, payload }\` | regression check: changing save() to log-only would make the insert spy never fire, breaking the assert
 AC2 (no other write paths exist): PASS — evidence: grep "repo\\." across module shows only the one call site | regression check: a new repo.write added elsewhere would surface in the same grep
 AC3 (cleanup runs on error path): FAIL — no test exercises the error path; a regression that skips cleanup on throw would not break any assert
+R1 (rules/testing/library-and-aaa-structure.md): PASS — evidence: store.test.ts uses arrange-act-assert library throughout | regression check: switching to jest would cause import resolution failure at build time
+C1 (contracts/cli-commands/implement/iteration-loop.md): PASS — evidence: worker prompt at prompts.ts:52 includes four FAIL conditions | regression check: removing condition 4 would make the condition-count assertion at prompts.test.ts:469 fail
 
 After the checklist, emit the verdict on a single final line, with no surrounding quotes or markdown.
 
