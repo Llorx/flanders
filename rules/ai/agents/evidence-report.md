@@ -26,15 +26,9 @@ The rule pins how the subagent's prompt is constructed, not how the subagent hap
 
 ## Not subject
 
-**The adversarial reviewer.** Explicitly excluded, even though it reads this rule as part of the rule-discovery scan. The reviewer audits the Evidence Report produced by the worker; it does not produce one of its own. Its output is a verdict, not a deliverable.
+**The adversarial reviewer.** Explicitly excluded, even though it reads this rule as part of the rule-discovery scan. The reviewer audits the Evidence Report produced by the worker; it does not produce one of its own. Its result is a verdict, not a deliverable.
 
-This exclusion is load-bearing for the reviewer's terminal format. The reviewer's prompt requires its final output to be exactly a single line of the form `PASS` or `FAIL <reason>`, with the FAIL enumeration encoded inline on that one line. This rule must never lead a reviewer to:
-
-- Append an Evidence Report (or any other multi-line content) after the final PASS/FAIL line.
-- Insert an Evidence Report (or any other section labelled as such) before the final PASS/FAIL line.
-- Reword its final line to embed Evidence-Report-shaped content.
-
-If a reader of this rule is the reviewer, the correct application is: use the structure of the Evidence Report as a checklist when auditing the worker's report, then reply with the single PASS or FAIL line exactly as the reviewer prompt specifies.
+The reviewer signals that verdict by writing the violations it finds into the `error.log` file, per `rules/ai/agents/reviewer-verdict-via-error-log.md`; a review that finds nothing leaves that file empty. The reviewer's own streamed output has no prescribed format and the orchestrator does not read it for the verdict. This rule must therefore never lead a reviewer to produce an Evidence Report of its own, nor to treat the violations it records as a deliverable to be self-audited. If a reader of this rule is the reviewer, the correct application is: use the structure of the Evidence Report as a checklist when auditing the worker's report, and record each violation it finds into `error.log` rather than emitting a report of its own.
 
 **Subagents that do not produce reviewable deliverables.** For example, the build/test detection agent writes scripts but is not adversarially reviewed; it is out of scope. Any subagent that only inspects or summarizes without producing artifacts that are subsequently graded is also out of scope.
 
@@ -84,4 +78,4 @@ The report is also the artifact a human can read in the per-iteration log to und
 - The Evidence Report omits a rule or contract whose namespace is triggered by the subagent's diff per `rules/ai/agents/evidence/scope-driven-self-audit.md`, on the grounds that the task did not link it.
 - The Evidence Report omits a rule or contract the task linked, on the grounds that the diff does not touch anything related — the diff-driven scope is additive on top of the link list, never a replacement.
 - The Evidence Report collapses an N-fact claim into fewer than N entries (see `rules/ai/agents/evidence/enumerated-claim-coverage.md`), whether the claim is an acceptance criterion, a rule, or a contract.
-- The reviewer produces an Evidence Report (or any content beyond the single final PASS/FAIL line) — this is a violation of the reviewer's terminal format, which this rule preserves rather than overrides.
+- The reviewer produces an Evidence Report of its own, instead of recording the violations it finds into `error.log` per `rules/ai/agents/reviewer-verdict-via-error-log.md`.
