@@ -82,3 +82,7 @@ A `_result` parameter prefix is conventional when the entry only inspects the `A
 - A test concatenates several unrelated checks with `&&` or sequential `Assert.ok(...)` calls to keep them inside a single `ASSERT` or a single `ASSERTS` entry.
 - The name of an `ASSERTS` entry describes several expectations at once ("returns the seat and deducts the fee and registers the player") — that is one entry doing the work of three.
 - A `_result` argument is destructured into multiple unrelated property checks inside one `ASSERTS` entry instead of being split entry-by-entry.
+
+## This rule is a hint, not enforced at review
+
+This rule is advisory: a hint that improves test readability and per-assertion reporting, not a gate. It is **not enforced at review level** — the adversarial reviewer must not raise a violation of it as a FAIL, and the worker is not required to prove compliance with it in its Evidence Report. Apply it where it helps; never let it block a task from completing.
