@@ -444,6 +444,56 @@ test.describe("Workspace.clearErrorLog", test => {
     });
 });
 
+test.describe("Workspace.errorLogExists", test => {
+    test("returns true when error.log exists", {
+        ARRANGE() {
+            const fs = stubFs();
+            fs.exists = (p:string) => Promise.resolve(p.endsWith("error.log"));
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { ws };
+        },
+        async ACT({ ws }) {
+            await ws.setup();
+            return await ws.errorLogExists();
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, true);
+        }
+    });
+
+    test("returns false when error.log does not exist", {
+        ARRANGE() {
+            const fs = stubFs();
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { ws };
+        },
+        async ACT({ ws }) {
+            await ws.setup();
+            return await ws.errorLogExists();
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, false);
+        }
+    });
+
+    test("throws when workspace is not set up", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            try {
+                await ws.errorLogExists();
+                return "no error";
+            } catch (e) {
+                return (e as Error).message;
+            }
+        },
+        ASSERT(message) {
+            Assert.strictEqual(message, "Workspace not set up");
+        }
+    });
+});
+
 test.describe("Workspace.writeErrorLog", test => {
     test("writes content to the error log path", {
         ARRANGE() {
