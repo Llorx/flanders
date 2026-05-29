@@ -538,7 +538,6 @@ export class Implement {
         if (this._currentPrepSessionId === null) {
             throw new Error(`Reviewer for task at line ${task.line} ("${task.title}") requires a prep session id but none was captured`);
         }
-        await this._writeLog(ws.errorLog, "");
         const prompt = prompts.reviewer
             .split(Placeholders.PLAN_PATH).join(plan.path)
             .split(Placeholders.TASK_LINE).join(String(task.line))
@@ -546,26 +545,34 @@ export class Implement {
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
             .split(Placeholders.ERROR_LOG_PATH).join(ws.errorLog);
-        try {
-            const { result, capturedOutput } = await this._runClaude(prompt, null, this._currentPrepSessionId);
-            this._taskTokens.it += result.inputTokens;
-            this._taskTokens.ot += result.outputTokens;
-            await this._persistMetrics(plan, task.line);
-            this._updateMetrics(plan);
-            const trimmedViolations = (await this._workspace!.readErrorLog()).trim();
-            const reviewPassed = trimmedViolations.length === 0;
-            await this._writeLog(ws.reviewerLog(iteration), reviewPassed
-                ? `${capturedOutput}\n\nVerdict: PASS`
-                : `${capturedOutput}\n\nVerdict: FAIL ${trimmedViolations}`);
-            if (reviewPassed) {
-                return true;
+        for (;;) {
+            /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
+            if (this._disposed) {
+                return false;
             }
-            return false;
-        } catch (e) {
-            await this._persistMetrics(plan, task.line);
-            this._updateMetrics(plan);
-            await this._writeErrorLog(ws, `reviewer stage failed: ${this._stringifyError(e)}`);
-            return false;
+            await this._workspace!.clearErrorLog();
+            try {
+                const { result, capturedOutput } = await this._runClaude(prompt, null, this._currentPrepSessionId);
+                this._taskTokens.it += result.inputTokens;
+                this._taskTokens.ot += result.outputTokens;
+                await this._persistMetrics(plan, task.line);
+                this._updateMetrics(plan);
+                if (!await this._workspace!.errorLogExists()) {
+                    await this._writeLog(ws.reviewerLog(iteration), capturedOutput);
+                    continue;
+                }
+                const trimmedViolations = (await this._workspace!.readErrorLog()).trim();
+                const reviewPassed = trimmedViolations.length === 0;
+                await this._writeLog(ws.reviewerLog(iteration), reviewPassed
+                    ? `${capturedOutput}\n\nVerdict: PASS`
+                    : `${capturedOutput}\n\nVerdict: FAIL ${trimmedViolations}`);
+                return reviewPassed;
+            } catch (e) {
+                await this._persistMetrics(plan, task.line);
+                this._updateMetrics(plan);
+                await this._writeErrorLog(ws, `reviewer stage failed: ${this._stringifyError(e)}`);
+                return false;
+            }
         }
     }
     private _formatPathList(items:readonly string[]):string {

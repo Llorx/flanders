@@ -149,7 +149,7 @@ function stubContexts() {
             exists(p) { return Promise.resolve(files.has(p)); },
             mkdir() { return Promise.resolve(); },
             mkdtemp(prefix) { return Promise.resolve(prefix + "ws123"); },
-            rm(p:string) { rmCalls.push(p); return Promise.resolve(); }
+            rm(p:string) { rmCalls.push(p); files.delete(p); return Promise.resolve(); }
         },
         time: {
             now() { return 0; },
@@ -197,7 +197,7 @@ test.describe("Implement per-iteration logs", test => {
             // Script run 1: build (skipped — no build script)
             // Script run 2: test (skipped — no test script)
             // Claude run 3: reviewer
-            s.claudeQueue.push({ text: "Looks good.\n\nPASS" });
+            s.claudeQueue.push({ text: "Looks good.\n\nPASS", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -233,7 +233,7 @@ test.describe("Implement per-iteration logs", test => {
             // test script
             s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "warn\n" });
             // reviewer
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -271,7 +271,7 @@ test.describe("Implement per-iteration logs", test => {
             s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
             // iter 2: test (skipped — no test script)
             // iter 2: reviewer
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -310,7 +310,7 @@ test.describe("Implement per-iteration logs", test => {
             // iter 3: worker ok, build passes, reviewer passes
             s.claudeQueue.push({ text: "w3" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -336,7 +336,7 @@ test.describe("Implement per-iteration logs", test => {
             s.claudeQueue.push({ text: "Missing edge case.", errorLog: "needs error handling" });
             // iter 2: worker ok, reviewer passes
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "All good." });
+            s.claudeQueue.push({ text: "All good.", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -403,7 +403,7 @@ test.describe("Implement per-iteration logs", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker output" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -435,7 +435,7 @@ test.describe("Implement output routing through BottomBlock", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker output line\n" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -463,7 +463,7 @@ test.describe("Implement output routing through BottomBlock", test => {
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "implemented" });
             s.scriptQueue.push({ code: 0, stdout: "build stdout line\n", stderr: "build stderr line\n" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -503,7 +503,7 @@ test.describe("Implement output routing through BottomBlock", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "implemented" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -530,7 +530,7 @@ test.describe("Implement output routing through BottomBlock", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "implemented" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -554,7 +554,7 @@ test.describe("Implement output routing through BottomBlock", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts, written }) {
@@ -797,7 +797,7 @@ test.describe("Implement interactive plan prompt routed through block", test => 
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -847,7 +847,7 @@ test.describe("Implement interactive plan prompt routed through block", test => 
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -976,7 +976,7 @@ test.describe("Implement intermediate header and metrics states", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return { s, headerCalls, metricsCalls, origSetHeader, origSetMetrics };
         },
         async ACT({ s, headerCalls, metricsCalls, origSetHeader, origSetMetrics }) {
@@ -1023,7 +1023,7 @@ test.describe("Implement header line", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -1047,7 +1047,7 @@ test.describe("Implement header line", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -1075,7 +1075,7 @@ test.describe("Implement header line", test => {
             s.claudeQueue.push({ text: "worker" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -1103,7 +1103,7 @@ test.describe("Implement header line", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -1128,7 +1128,7 @@ test.describe("Implement header line", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -1155,7 +1155,7 @@ test.describe("Implement header line", test => {
             s.claudeQueue.push({ text: "w1" });
             s.claudeQueue.push({ text: "found issues", errorLog: "not ready" });
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -1181,7 +1181,7 @@ test.describe("Implement header line", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -1213,7 +1213,7 @@ test.describe("Implement footer animation", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -1239,7 +1239,7 @@ test.describe("Implement footer animation", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts, written }) {
@@ -1297,6 +1297,9 @@ function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
         } else {
             const response = s.claudeQueue.shift()!;
             setImmediate(() => {
+                if (response.errorLog !== undefined) {
+                    s.files.set(WS_ROOT + "/error.log", response.errorLog);
+                }
                 proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
                 proc.$emit("exit", 0);
             });
@@ -1320,7 +1323,7 @@ test.describe("Implement rate-limit footer", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker output" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return { s, time };
         },
         async ACT({ s, time }) {
@@ -1354,7 +1357,7 @@ test.describe("Implement rate-limit footer", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return { s, time };
         },
         async ACT({ s, time }) {
@@ -1387,7 +1390,7 @@ test.describe("Implement rate-limit footer", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return { s, time };
         },
         async ACT({ s, time }) {
@@ -1420,7 +1423,7 @@ test.describe("Implement rate-limit footer", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return { s, time };
         },
         async ACT({ s, time }) {
@@ -1450,7 +1453,7 @@ test.describe("Implement rate-limit footer", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return { s, time };
         },
         async ACT({ s, time }) {
@@ -1475,7 +1478,7 @@ test.describe("Implement rate-limit footer", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return { s, time };
         },
         async ACT({ s, time }) {
@@ -1574,7 +1577,7 @@ test.describe("Implement cleanup on exit", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts, written }) {
@@ -1595,7 +1598,7 @@ test.describe("Implement cleanup on exit", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return { s, time };
         },
         async ACT({ s }) {
@@ -1630,7 +1633,7 @@ test.describe("Implement per-task token and time metrics", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 100, outputTokens: 50 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30, errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -1656,7 +1659,7 @@ test.describe("Implement per-task token and time metrics", test => {
             s.claudeQueue.push({ text: "w1", inputTokens: 100, outputTokens: 50 });
             s.claudeQueue.push({ text: "found issues", inputTokens: 80, outputTokens: 30, errorLog: "not ready" });
             s.claudeQueue.push({ text: "w2", inputTokens: 120, outputTokens: 60 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 90, outputTokens: 40 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 90, outputTokens: 40, errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -1684,7 +1687,7 @@ test.describe("Implement per-task token and time metrics", test => {
             s.claudeQueue.push({ text: "worker", inputTokens: 100, outputTokens: 50 });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30, errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -1732,7 +1735,7 @@ test.describe("Implement per-task token and time metrics", test => {
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 10, outputTokens: 5 });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 10, outputTokens: 5 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 10, outputTokens: 5, errorLog: "" });
             return { s };
         },
         async ACT({ s }) {
@@ -1764,37 +1767,20 @@ test.describe("Implement per-task token and time metrics", test => {
             (s.contexts.claude as { spawn:typeof s.contexts.claude.spawn }).spawn = () => {
                 spawnCount++;
                 const proc = fakeProcess();
-                if (spawnCount === 1) {
-                    time.advance(2000);
-                    const response = s.claudeQueue.shift()!;
-                    setImmediate(() => {
-                        proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
-                        proc.$emit("exit", 0);
-                    });
-                } else if (spawnCount === 2) {
-                    time.advance(1000);
-                    const response = s.claudeQueue.shift()!;
-                    setImmediate(() => {
-                        proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
-                        proc.$emit("exit", 0);
-                    });
-                } else if (spawnCount === 3) {
+                if (spawnCount === 3) {
                     time.advance(1000);
                     setImmediate(() => {
                         proc.$emitStdout(rateLimitEvent(time.ctx.now(), 10) + "\n");
                         proc.$emit("exit", 1);
                     });
-                } else if (spawnCount === 4) {
-                    time.advance(1000);
-                    const response = s.claudeQueue.shift()!;
-                    setImmediate(() => {
-                        proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
-                        proc.$emit("exit", 0);
-                    });
                 } else {
-                    time.advance(2000);
+                    const advance = spawnCount === 1 ? 2000 : spawnCount === 5 ? 2000 : 1000;
+                    time.advance(advance);
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
+                        if (response.errorLog !== undefined) {
+                            s.files.set(WS_ROOT + "/error.log", response.errorLog);
+                        }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
                         proc.$emit("exit", 0);
                     });
@@ -1805,7 +1791,7 @@ test.describe("Implement per-task token and time metrics", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 50, outputTokens: 25 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25, errorLog: "" });
             return { s, time };
         },
         async ACT({ s, time }) {
@@ -1839,7 +1825,7 @@ test.describe("Implement per-task token and time metrics", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 100, outputTokens: 50 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30, errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -1863,7 +1849,7 @@ test.describe("Implement per-task token and time metrics", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 100, outputTokens: 50 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30, errorLog: "" });
             const origWriteFile = s.contexts.fs.writeFile;
             let planWriteCount = 0;
             (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, content) => {
@@ -1913,6 +1899,9 @@ test.describe("Implement per-task token and time metrics", test => {
                     time.advance(1000);
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
+                        if (response.errorLog !== undefined) {
+                            s.files.set(WS_ROOT + "/error.log", response.errorLog);
+                        }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
                         proc.$emit("exit", 0);
                     });
@@ -1923,7 +1912,7 @@ test.describe("Implement per-task token and time metrics", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 50, outputTokens: 25 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25, errorLog: "" });
             return { s, time };
         },
         async ACT({ s, time }) {
@@ -1971,6 +1960,9 @@ test.describe("Implement per-task token and time metrics", test => {
                     time.advance(1000);
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
+                        if (response.errorLog !== undefined) {
+                            s.files.set(WS_ROOT + "/error.log", response.errorLog);
+                        }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
                         proc.$emit("exit", 0);
                     });
@@ -1981,7 +1973,7 @@ test.describe("Implement per-task token and time metrics", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 50, outputTokens: 25 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25, errorLog: "" });
             return { s, time };
         },
         async ACT({ s, time }) {
@@ -2014,7 +2006,7 @@ test.describe("Implement per-task token and time metrics", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             const callTracker = { count: 0 };
             const origSetMetrics = BottomBlock.prototype.setMetrics;
             BottomBlock.prototype.setMetrics = function(fields:MetricsFields) {
@@ -2058,7 +2050,7 @@ test.describe("Implement per-task token and time metrics", test => {
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 100, outputTokens: 50 });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30, errorLog: "" });
             const planSnapshots:string[] = [];
             const origWriteFile = s.contexts.fs.writeFile;
             (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, content) => {
@@ -2097,7 +2089,7 @@ test.describe("Implement per-task token and time metrics", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 1000, outputTokens: 500 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 800, outputTokens: 300 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 800, outputTokens: 300, errorLog: "" });
             const metricsCalls:MetricsFields[] = [];
             const origSetMetrics = BottomBlock.prototype.setMetrics;
             BottomBlock.prototype.setMetrics = function(fields:MetricsFields) {
@@ -2193,6 +2185,7 @@ test.describe("Implement per-task token and time metrics", test => {
                 if (spawnCount === 4) {
                     new Promise<void>(r => { releaseReviewer = r; }).then(() => {
                         setImmediate(() => {
+                            s.files.set(WS_ROOT + "/error.log", "");
                             proc.$emitStdout(claudeResultEvents("PASS", 800, 300));
                             proc.$emit("exit", 0);
                         });
@@ -2200,6 +2193,9 @@ test.describe("Implement per-task token and time metrics", test => {
                 } else {
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
+                        if (response.errorLog !== undefined) {
+                            s.files.set(WS_ROOT + "/error.log", response.errorLog);
+                        }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
                         proc.$emit("exit", 0);
                     });
@@ -2247,7 +2243,7 @@ test.describe("Implement per-task token and time metrics", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 1000, outputTokens: 500 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 800, outputTokens: 300 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 800, outputTokens: 300, errorLog: "" });
             return s;
         },
         async ACT({ contexts, written }) {
@@ -2291,11 +2287,11 @@ test.describe("Implement per-task completion snapshot", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1", inputTokens: 100, outputTokens: 50 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30, errorLog: "" });
             // Task 2: prep + worker + reviewer
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w2", inputTokens: 200, outputTokens: 100 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 120, outputTokens: 60 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 120, outputTokens: 60, errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -2324,7 +2320,7 @@ test.describe("Implement per-task completion snapshot", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 100, outputTokens: 50 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30, errorLog: "" });
             const writeAboveCalls:string[] = [];
             const origWriteAbove = BottomBlock.prototype.writeAbove;
             BottomBlock.prototype.writeAbove = function(text:string) {
@@ -2361,7 +2357,7 @@ test.describe("Implement per-task completion snapshot", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 1500, outputTokens: 500 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 1000, outputTokens: 300 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 1000, outputTokens: 300, errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -2400,7 +2396,7 @@ test.describe("Implement per-task completion snapshot", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 100, outputTokens: 50 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30, errorLog: "" });
             const writeAboveCalls:string[] = [];
             const origWriteAbove = BottomBlock.prototype.writeAbove;
             BottomBlock.prototype.writeAbove = function(text:string) {
@@ -2441,10 +2437,10 @@ test.describe("Implement per-task completion snapshot", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1", inputTokens: 100, outputTokens: 50 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30, errorLog: "" });
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w2", inputTokens: 200, outputTokens: 100 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 120, outputTokens: 60 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 120, outputTokens: 60, errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -2504,10 +2500,10 @@ test.describe("Implement per-task completion snapshot", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1", inputTokens: 100, outputTokens: 50 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30, errorLog: "" });
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w2", inputTokens: 200, outputTokens: 100 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 120, outputTokens: 60 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 120, outputTokens: 60, errorLog: "" });
             const headerCalls:HeaderFields[] = [];
             const origSetHeader = BottomBlock.prototype.setHeader;
             BottomBlock.prototype.setHeader = function(fields:HeaderFields) {
@@ -2557,7 +2553,7 @@ test.describe("Implement per-task completion snapshot", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker", inputTokens: 100, outputTokens: 50 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30, errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -2593,7 +2589,7 @@ test.describe("Implement --no-git flag parsing", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -2615,12 +2611,12 @@ test.describe("Implement --no-git flag parsing", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             s.claudeQueue.push({ text: "ok" });
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts, files }) {
@@ -2647,7 +2643,7 @@ test.describe("Implement --no-git flag parsing", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -2742,7 +2738,7 @@ test.describe("Implement git activation", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -2766,7 +2762,7 @@ test.describe("Implement git activation", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -2792,7 +2788,7 @@ test.describe("Implement git activation", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -2821,7 +2817,7 @@ test.describe("Implement git activation", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             // git add + commit after task accepted
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
@@ -2854,7 +2850,7 @@ test.describe("Implement git preflight", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             // git add + commit after task accepted
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
@@ -2917,7 +2913,7 @@ test.describe("Implement git preflight", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -2943,7 +2939,7 @@ test.describe("Implement commit per task", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -2975,7 +2971,7 @@ test.describe("Implement commit per task", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             // git add -A + git commit
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
@@ -3017,11 +3013,11 @@ test.describe("Implement commit per task", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             s.gitQueue.push({ code: 128, stdout: "", stderr: "add error output\n" });
             // iter 2: worker + reviewer pass, add + commit succeed
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             return s;
@@ -3054,12 +3050,12 @@ test.describe("Implement commit per task", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // add ok
             s.gitQueue.push({ code: 1, stdout: "hook output\n", stderr: "pre-commit hook failed\n" }); // commit fails
             // iter 2: worker + reviewer pass, add + commit succeed
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             return s;
@@ -3093,7 +3089,7 @@ test.describe("Implement commit per task", test => {
             // 5 iterations: worker + reviewer pass, add succeeds, commit fails each time
             for (let i = 0; i < 5; i++) {
                 s.claudeQueue.push({ text: `w${i + 1}` });
-                s.claudeQueue.push({ text: "reviewer ok" });
+                s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
                 s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // add ok
                 s.gitQueue.push({ code: 1, stdout: "", stderr: "hook failed\n" }); // commit fails
             }
@@ -3128,7 +3124,7 @@ test.describe("Implement commit per task", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             return s;
@@ -3182,7 +3178,7 @@ test.describe("Implement end-to-end git flow", test => {
             s.claudeQueue.push({ text: "parser implemented" });
             s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
             s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "[main abc1234] 1 Build the parser\n", stderr: "" });
             // Task 2: prep → worker → build → test → reviewer
@@ -3190,7 +3186,7 @@ test.describe("Implement end-to-end git flow", test => {
             s.claudeQueue.push({ text: "validation added" });
             s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
             s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "[main def5678] 2 Add validation\n", stderr: "" });
             return s;
@@ -3230,7 +3226,7 @@ test.describe("Implement end-to-end git flow", test => {
             s.claudeQueue.push({ text: "worker output" });
             s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
             s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3258,7 +3254,7 @@ test.describe("Implement end-to-end git flow", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker output" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3334,14 +3330,14 @@ test.describe("Implement end-to-end git flow", test => {
             s.claudeQueue.push({ text: "iter 1 worker" });
             s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
             s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 1, stdout: "hook output\n", stderr: "pre-commit hook rejected\n" });
             // Iteration 2: worker → build → test → reviewer → add → commit (ok)
             s.claudeQueue.push({ text: "iter 2 worker" });
             s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
             s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "[main abc1234] committed\n", stderr: "" });
             return s;
@@ -3395,7 +3391,7 @@ test.describe("Implement detect prompt rule list", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker done" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3425,7 +3421,7 @@ test.describe("Implement detect prompt rule list", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker done" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3466,7 +3462,7 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3503,7 +3499,7 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3546,10 +3542,10 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return { ...s, getReaddirCallCount: () => readdirCallCount };
         },
         async ACT({ contexts }) {
@@ -3590,11 +3586,11 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             s.claudeQueue.push({ text: "w1" });
             s.claudeQueue.push({ text: "found issues", errorLog: "not ready" });
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             // Task B: prep + worker + reviewer
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w3" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3656,7 +3652,7 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker done" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3702,7 +3698,7 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker done" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3734,7 +3730,7 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
             s.claudeQueue.push({ text: "Checking contracts and rules...", errorLog: "missing test for edge case" });
             // iter 2: worker ok, reviewer passes
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "All four conditions verified." });
+            s.claudeQueue.push({ text: "All four conditions verified.", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3773,7 +3769,7 @@ test.describe("Implement worker session_id persistence", test => {
             // iter 2: worker again, build ok, reviewer ok
             s.claudeQueue.push({ text: "w2" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3815,7 +3811,7 @@ test.describe("Implement worker session_id persistence", test => {
             s.claudeQueue.push({ text: "found issues", errorLog: "not ready" });
             // iter 2: worker + reviewer PASS
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3853,11 +3849,11 @@ test.describe("Implement worker session_id persistence", test => {
             // Task 1: worker returns sessionId, reviewer PASS
             s.claudeQueue.push({ text: "READY", sessionId: "prep-session-1" });
             s.claudeQueue.push({ text: "w1", sessionId: "WS1" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             // Task 2: prep + worker + reviewer
             s.claudeQueue.push({ text: "READY", sessionId: "prep-session-2" });
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3900,7 +3896,7 @@ test.describe("Implement worker session_id persistence", test => {
             // iter 3: worker, build ok, reviewer PASS
             s.claudeQueue.push({ text: "w3" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3946,7 +3942,7 @@ test.describe("Implement worker session_id persistence", test => {
             s.claudeQueue.push({ text: "", error: true });
             // iter 3: worker, reviewer PASS
             s.claudeQueue.push({ text: "w3" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3983,7 +3979,7 @@ test.describe("Implement worker session_id persistence", test => {
             // iter 2: worker, build ok, reviewer PASS
             s.claudeQueue.push({ text: "w2" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4072,7 +4068,7 @@ test.describe("Implement reviewer forks from prep", test => {
             s.claudeQueue.push({ text: "READY", sessionId: "PREP-R" });
             // iter 1: worker, reviewer PASS
             s.claudeQueue.push({ text: "w1", sessionId: "WORKER-R" });
-            s.claudeQueue.push({ text: "reviewer ok", sessionId: "REVIEWER-1" });
+            s.claudeQueue.push({ text: "reviewer ok", sessionId: "REVIEWER-1", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4110,7 +4106,7 @@ test.describe("Implement reviewer forks from prep", test => {
             s.claudeQueue.push({ text: "found issues", sessionId: "REVIEWER-ITER1", errorLog: "not ready" });
             // iter 2: worker, reviewer PASS
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "reviewer ok", sessionId: "REVIEWER-ITER2" });
+            s.claudeQueue.push({ text: "reviewer ok", sessionId: "REVIEWER-ITER2", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4157,7 +4153,7 @@ test.describe("Implement reviewer forks from prep", test => {
             s.claudeQueue.push({ text: "found issues", sessionId: "REVIEWER-SESS-1", errorLog: "not ready" });
             // iter 2: worker, reviewer returns a different sessionId, PASS
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "reviewer ok", sessionId: "REVIEWER-SESS-2" });
+            s.claudeQueue.push({ text: "reviewer ok", sessionId: "REVIEWER-SESS-2", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4236,7 +4232,7 @@ test.describe("Implement terminal label on exit", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4508,7 +4504,7 @@ test.describe("Implement terminal label on exit", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             const finalizeCalls:TerminalLabel[] = [];
             const origFinalize = BottomBlock.prototype.finalize;
             BottomBlock.prototype.finalize = function(label:TerminalLabel) {
@@ -4597,7 +4593,7 @@ test.describe("Implement prep stage", test => {
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker output" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4629,7 +4625,7 @@ test.describe("Implement prep stage", test => {
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4658,7 +4654,7 @@ test.describe("Implement prep stage", test => {
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "READY", sessionId: "prep-session", inputTokens: 200, outputTokens: 100 });
             s.claudeQueue.push({ text: "worker", inputTokens: 300, outputTokens: 150 });
-            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25, errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4768,11 +4764,11 @@ test.describe("Implement prep stage", test => {
             // task 1
             s.claudeQueue.push({ text: "READY", sessionId: "prep-sess-1" });
             s.claudeQueue.push({ text: "worker1" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             // task 2
             s.claudeQueue.push({ text: "READY", sessionId: "prep-sess-2" });
             s.claudeQueue.push({ text: "worker2" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             const capturedPrepSessionIds:Array<string|null> = [];
             return { ...s, capturedPrepSessionIds };
         },
@@ -4817,7 +4813,7 @@ test.describe("Implement _selectPlan edge cases", test => {
             s.claudeQueue.push({ text: "detect ok" });
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4837,7 +4833,7 @@ test.describe("Implement _selectPlan edge cases", test => {
             s.claudeQueue.push({ text: "detect ok" });
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4888,7 +4884,7 @@ test.describe("Implement test-stage failure", test => {
             // iter 2: worker ok, test passes, reviewer passes
             s.claudeQueue.push({ text: "worker iter 2" });
             s.scriptQueue.push({ code: 0, stdout: "OK\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4921,7 +4917,7 @@ test.describe("Implement reviewer-stage error", test => {
             s.claudeQueue.push({ text: "w1-review", error: true });
             // iter 2: worker ok, reviewer passes
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4944,7 +4940,7 @@ test.describe("Implement error.log verdict protocol", test => {
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -4979,7 +4975,7 @@ test.describe("Implement error.log verdict protocol", test => {
             s.claudeQueue.push({ text: "found issues", errorLog: "missing test for edge case" });
             // iter 2: reviewer passes
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -5014,7 +5010,7 @@ test.describe("Implement error.log verdict protocol", test => {
             s.claudeQueue.push({ text: "found issues", errorLog: "violation X" });
             // iter 2: reviewer passes
             s.claudeQueue.push({ text: "w2" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -5042,7 +5038,7 @@ test.describe("Implement error.log verdict protocol", test => {
             s.files.set(WS_ROOT + "/error.log", "stale content from previous stage");
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -5069,7 +5065,7 @@ test.describe("Implement error.log verdict protocol", test => {
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts, promptQueue }) {
@@ -5121,6 +5117,289 @@ test.describe("Implement error.log verdict protocol", test => {
     });
 });
 
+test.describe("Implement reviewer delete-before and relaunch protocol", test => {
+    test("error.log is deleted (not emptied) before the reviewer", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(WS_ROOT + "/error.log", "stale");
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, rmCalls }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, rmCalls };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "rm was called on error.log before the reviewer"({ rmCalls }) {
+                Assert.ok(rmCalls.includes(WS_ROOT + "/error.log"), "clearErrorLog should call rm on error.log");
+            }
+        }
+    });
+
+    test("absent error.log after reviewer triggers relaunch until file exists", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            // reviewer #1: does not create error.log (no errorLog field)
+            s.claudeQueue.push({ text: "no verdict" });
+            // reviewer #2: creates empty error.log → PASS
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs, files }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs, files };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "two reviewer spawns occurred"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=prep, [2]=worker, [3]=reviewer#1, [4]=reviewer#2
+                Assert.strictEqual(claudeSpawnedArgs.length, 5);
+            },
+            "reviewer log contains the last invocation output"({ files }) {
+                const log = files.get(WS_ROOT + "/reviewer.1.log")!;
+                Assert.ok(log.includes("Verdict: PASS"), "reviewer log should reflect the invocation that produced the verdict");
+            }
+        }
+    });
+
+    test("relaunch does not increment worker iteration or restart worker/build/test", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            // reviewer #1: absent file
+            s.claudeQueue.push({ text: "no verdict 1" });
+            // reviewer #2: absent file
+            s.claudeQueue.push({ text: "no verdict 2" });
+            // reviewer #3: PASS
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "only one worker spawn"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=prep, [2]=worker, [3]=reviewer#1, [4]=reviewer#2, [5]=reviewer#3
+                Assert.strictEqual(claudeSpawnedArgs.length, 6);
+            }
+        }
+    });
+
+    test("tokens accumulate across reviewer relaunches", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker", inputTokens: 100, outputTokens: 50 });
+            // reviewer #1: absent file, 200+80 tokens
+            s.claudeQueue.push({ text: "no verdict", inputTokens: 200, outputTokens: 80 });
+            // reviewer #2: PASS, 300+120 tokens
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 300, outputTokens: 120, errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, files }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, files };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "task it accumulates both reviewer invocations"({ files }) {
+                const plan = files.get(PLAN_PATH)!;
+                // prep(0) + worker(100) + reviewer#1(200) + reviewer#2(300) = 600
+                Assert.ok(plan.includes('"it":600'), `it should be 600, got: ${plan}`);
+            },
+            "task ot accumulates both reviewer invocations"({ files }) {
+                const plan = files.get(PLAN_PATH)!;
+                // prep(0) + worker(50) + reviewer#1(80) + reviewer#2(120) = 250
+                Assert.ok(plan.includes('"ot":250'), `ot should be 250, got: ${plan}`);
+            }
+        }
+    });
+
+    test("each reviewer relaunch forks from prep session", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "READY", sessionId: "PREP-RELAUNCH" });
+            s.claudeQueue.push({ text: "worker", sessionId: "WORKER-S" });
+            // reviewer #1: absent file
+            s.claudeQueue.push({ text: "no verdict", sessionId: "REV-1" });
+            // reviewer #2: PASS
+            s.claudeQueue.push({ text: "reviewer ok", sessionId: "REV-2", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer #1 forks from prep"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=prep, [2]=worker, [3]=reviewer#1, [4]=reviewer#2
+                const revArgs = claudeSpawnedArgs[3]!;
+                Assert.ok(revArgs.includes("--resume") && revArgs.includes("PREP-RELAUNCH") && revArgs.includes("--fork-session"));
+            },
+            "reviewer #2 forks from same prep"({ claudeSpawnedArgs }) {
+                const revArgs = claudeSpawnedArgs[4]!;
+                Assert.ok(revArgs.includes("--resume") && revArgs.includes("PREP-RELAUNCH") && revArgs.includes("--fork-session"));
+            }
+        }
+    });
+
+    test("error.log deleted before each reviewer relaunch", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(WS_ROOT + "/error.log", "stale");
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            // reviewer #1: absent file
+            s.claudeQueue.push({ text: "no verdict" });
+            // reviewer #2: PASS
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, rmCalls }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, rmCalls };
+        },
+        ASSERT({ code, rmCalls }) {
+            Assert.strictEqual(code, 0);
+            const errorLogRms = rmCalls.filter((p:string) => p === WS_ROOT + "/error.log");
+            Assert.ok(errorLogRms.length >= 1, "clearErrorLog should call rm when error.log exists before reviewer invocation");
+        }
+    });
+
+    test("present empty error.log is PASS", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, files }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, files };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer log shows PASS"({ files }) {
+                const log = files.get(WS_ROOT + "/reviewer.1.log")!;
+                Assert.ok(log.includes("Verdict: PASS"));
+            }
+        }
+    });
+
+    test("present non-empty error.log is FAIL and content preserved between iterations", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer output", errorLog: "missing edge case\nincorrect return type" });
+            // iter 2: worker ok, reviewer pass
+            s.claudeQueue.push({ text: "w2" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, files, rmCalls }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, files, rmCalls };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer.1.log shows FAIL with content"({ files }) {
+                const log = files.get(WS_ROOT + "/reviewer.1.log")!;
+                Assert.ok(log.includes("Verdict: FAIL missing edge case\nincorrect return type"));
+            },
+            "error.log survives until next iteration clears it"({ rmCalls }) {
+                Assert.ok(rmCalls.includes(WS_ROOT + "/error.log"), "iteration 2 clearErrorLog should find and delete the violations file");
+            }
+        }
+    });
+
+    test("reviewer exception writes error.log and returns false", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            // reviewer throws
+            s.claudeQueue.push({ text: "", error: true });
+            // iter 2: worker ok, reviewer pass
+            s.claudeQueue.push({ text: "w2" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, rmCalls }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, rmCalls };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "error.log was written by catch block and found by next iteration"({ rmCalls }) {
+                Assert.ok(rmCalls.includes(WS_ROOT + "/error.log"), "clearErrorLog in iteration 2 should find the error.log written by the catch block");
+            }
+        }
+    });
+});
+
 test.describe("Implement Claude stderr forwarding", test => {
     test("Claude stderr is captured in writeError output", {
         ARRANGE() {
@@ -5130,7 +5409,7 @@ test.describe("Implement Claude stderr forwarding", test => {
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker done", stderr: "warning: something happened\n" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts, written }) {
@@ -5175,7 +5454,7 @@ test.describe("Implement _stringifyError non-Error", test => {
             // iter 2: build ok, reviewer passes
             s.claudeQueue.push({ text: "w2" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -5203,7 +5482,7 @@ test.describe("Implement .bat script path on Windows", test => {
             s.claudeQueue.push({ text: "worker" });
             s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
             s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             const scriptSpawns:Array<{ command:string; args:readonly string[] }> = [];
             const origSpawn = s.contexts.script.spawn;
             s.contexts.script.spawn = (command, args, options) => {
