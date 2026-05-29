@@ -508,11 +508,27 @@ test.describe("prompts – reviewer", test => {
         }
     });
 
-    test("contains locked substring: writes nothing", {
+    test("create-empty-file paragraph is byte-equal to the required wording", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERT(template) {
-            Assert.ok(template.includes("writes nothing"));
+            const start = template.indexOf("When your audit finds no violation");
+            const end = template.indexOf("\n\n", start);
+            const paragraph = template.substring(start, end);
+            Assert.strictEqual(paragraph, "When your audit finds no violation across every verification, you must still create `<ERROR_LOG_PATH>` as an empty file as your final act, so the file always exists once you have reached a verdict. Do not write a pass confirmation or any non-violation content into that file; any content there is read as a failure.");
+        }
+    });
+
+    test("old writes-nothing wording is absent", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "no 'writes nothing'"(template) {
+                Assert.strictEqual(template.includes("writes nothing"), false);
+            },
+            "no 'leave the file empty'"(template) {
+                Assert.strictEqual(template.includes("leave the file empty"), false);
+            }
         }
     });
 

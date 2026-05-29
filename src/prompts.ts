@@ -177,7 +177,7 @@ As you discover each violation during the audit, you MUST append every violation
 
 Each appended violation entry must be independently actionable: precise enough that the next iteration's worker can act on it from \`error.log\` alone, citing concrete \`file:line\` references, contract/rule paths, and the exact behavior or evidence that is missing.
 
-When your audit finds no violation across every verification, writes nothing to \`${Placeholders.ERROR_LOG_PATH}\` and leave the file empty. Do not write a pass confirmation or any non-violation content into that file; any content there is read as a failure.
+When your audit finds no violation across every verification, you must still create \`${Placeholders.ERROR_LOG_PATH}\` as an empty file as your final act, so the file always exists once you have reached a verdict. Do not write a pass confirmation or any non-violation content into that file; any content there is read as a failure.
 
 Your streamed output — the text you print during the review — has no prescribed format. You may narrate, summarize, or format your reasoning however you want. The orchestrator does not parse your output for a verdict token.
 
