@@ -122,6 +122,20 @@ ${Placeholders.TASK_TITLE}
 
 Read the task's full description, its acceptance criteria, every contract referenced by the task AND every rule referenced by the task. Inspect the working-tree changes that the worker just produced.
 
+## Determining the worker's change set
+
+When you are running inside a git work tree (git is available and the project root is inside a working tree), you must derive the worker's complete change set from git, not from the task description alone:
+
+1. **Enumerate with \`git status --porcelain\`.** Run \`git status --porcelain\` and treat its output as the authoritative, complete enumeration of the worker's uncommitted changes: tracked modifications (\` M\`, \`M \`), untracked creations (\`??\`), deletions (\` D\`, \`D \`), and renames (\`R \`). This enumeration — not the list of files the task happens to name — is the set you must account for.
+
+2. **Inspect every file in the set.** Inspect each file the enumeration reports. Do not narrow your inspection to the files the task references when \`git status\` reports more, and do not skip a created or deleted file because the task did not mention it.
+
+3. **Read content the right way per file kind.** For tracked modifications, inspect content with \`git diff\` (and \`git diff --cached\` for staged hunks). For untracked created files — which \`git diff\` does not surface — read the file directly from disk. A created file is never left uninspected on the grounds that \`git diff\` showed nothing for it.
+
+When the project is not a git work tree, this obligation imposes nothing and you fall back to the files the task references plus whatever your judgment deems relevant.
+
+All of the above are read-only git operations, permitted under and consistent with \`rules/ai/agents/no-git-writes.md\`. Nothing here authorizes you to mutate repository state. See \`rules/ai/agents/reviewer-enumerates-worker-changes-via-git.md\` for the full obligation.
+
 ## Available contracts
 
 Each path below is the contract's namespace. You may consult any of these at your discretion.

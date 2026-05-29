@@ -810,6 +810,81 @@ test.describe("prompts – reviewer – three-section claim checklist", test => 
     });
 });
 
+test.describe("prompts – reviewer – git-status change-set enumeration", test => {
+    test("contains the git status --porcelain command", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERT(template) {
+            Assert.ok(template.includes("git status --porcelain"));
+        }
+    });
+
+    test("obliges enumeration from git status as authoritative over task-named files", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "contains authoritative enumeration wording"(template) {
+                Assert.ok(template.includes("authoritative, complete enumeration"));
+            },
+            "contains not-the-task-list wording"(template) {
+                Assert.ok(template.includes("not the list of files the task happens to name"));
+            }
+        }
+    });
+
+    test("obliges inspection of every file in the enumerated set", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "contains inspect-every-file wording"(template) {
+                Assert.ok(template.includes("Inspect each file the enumeration reports"));
+            },
+            "contains do-not-narrow wording"(template) {
+                Assert.ok(template.includes("Do not narrow your inspection to the files the task references"));
+            }
+        }
+    });
+
+    test("obliges reading untracked created files directly from disk", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "contains read-from-disk wording"(template) {
+                Assert.ok(template.includes("read the file directly from disk"));
+            },
+            "contains git-diff-does-not-surface wording"(template) {
+                Assert.ok(template.includes("which `git diff` does not surface"));
+            }
+        }
+    });
+
+    test("contains the non-git fallback statement", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "contains the imposes-nothing clause"(template) {
+                Assert.ok(template.includes("When the project is not a git work tree, this obligation imposes nothing"));
+            },
+            "contains the fallback-to-task-files clause"(template) {
+                Assert.ok(template.includes("you fall back to the files the task references"));
+            }
+        }
+    });
+
+    test("cites the rule and the read-only boundary", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "cites the full rule path"(template) {
+                Assert.ok(template.includes("rules/ai/agents/reviewer-enumerates-worker-changes-via-git.md"));
+            },
+            "states read-only consistency with no-git-writes"(template) {
+                Assert.ok(template.includes("read-only git operations, permitted under and consistent with"));
+            }
+        }
+    });
+});
+
 test.describe("prompts – shared classification constant – source-level invariants", test => {
     test("old constant name does not appear in the prompts source file", {
         ARRANGE() {},
