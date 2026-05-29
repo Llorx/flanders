@@ -25,6 +25,7 @@ Five categories, all mandatory; failure in any one is a FAIL. Each category is a
 
 Every task line conforms to `contracts/shared/plan-file-format.md`:
 
+- The task line matches the canonical task-line recognizer regex per `rules/ai/skills/plan/validator-matches-task-line-regex.md`. The host inlines that exact regex verbatim in the validator's prompt, and the validator confirms every line the plan presents as a task matches it. In particular the line carries the mandatory leading markdown list marker (`-`, `*`, or `+` followed by a space) before the checkbox; a line that begins with `[ ]{...}` without the leading marker is FAIL, because the `implement` command's detector would skip it and treat the plan as having no tasks.
 - Valid `[ ]` or `[x]` checkbox (no malformed variants such as `[]`, `[ x]`, or `[X ]`).
 - Immediately-following metrics object literally equal to `{"it":0,"ot":0,"t":0}` for freshly-generated tasks. The check is byte-exact: no extra spaces, no reordered keys, no trailing commas.
 - A single space between the closing `}` and the task number, and a single space between the task number and the title.

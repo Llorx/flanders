@@ -6,10 +6,11 @@ Define the shape of a plan markdown file in a way that both the `plan` command (
 ## Task lines
 A task is a markdown list item that carries, at the start of its content, a checkbox and a metrics object. The shape of a task line is:
 
-    [ ]{"it":0,"ot":0,"t":0} 1.1 TITLE
+    - [ ]{"it":0,"ot":0,"t":0} 1.1 TITLE
 
 with the following pieces, in this exact order and spacing:
 
+- A markdown list marker — one of `-`, `*`, or `+` — followed by at least one space. The line may be indented by leading whitespace before the marker. This marker is mandatory: a line that begins with the checkbox but no preceding list marker is NOT a task line and is not detected as one.
 - A checkbox, in one of two states:
   - `[ ]` — open (not yet implemented).
   - `[x]` — done (already implemented).
@@ -19,7 +20,7 @@ with the following pieces, in this exact order and spacing:
 - A single space.
 - The task title.
 
-A task line is detected by matching this shape on a non-blank line in the document. The same shape is used when generating tasks: any task line written by the `plan` command must be a line that the `implement` command's detector would recognize as a task.
+A task line is detected by matching this shape on a non-blank line in the document. The same shape is used when generating tasks: any task line written by the `plan` command must be a line that the `implement` command's detector would recognize as a task — in particular it must carry the leading list marker, otherwise the detector skips it and the plan is treated as having no tasks.
 
 ## Task metrics
 Every leaf task line carries a metrics object that tracks what the tool has consumed while working on that task. The object is a strict JSON literal of the form:
