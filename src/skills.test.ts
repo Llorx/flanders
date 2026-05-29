@@ -2,6 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
+import { TASK_LINE } from "./PlanFile";
 import { planSkillBody, specSkillBody } from "./skills";
 
 test.describe("skills – planSkillBody", test => {
@@ -590,6 +591,37 @@ test.describe("skills – planSkillBody", test => {
             },
             "does not contain /flanders-rule"(body) {
                 Assert.ok(!body.includes("/flanders-rule"), "must not contain /flanders-rule");
+            }
+        }
+    });
+
+    test("task-line section requires the leading markdown list marker", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "example shape shows the leading marker"(body) {
+                Assert.ok(body.includes('    - [ ]{"it":0,"ot":0,"t":0} 1.1 TITLE'), "example must show the leading - marker");
+            },
+            "states the marker is mandatory"(body) {
+                Assert.ok(body.includes("This marker is mandatory"), "must state the marker is mandatory");
+            },
+            "states unmarked lines are not task lines"(body) {
+                Assert.ok(body.includes("not a task line and is not detected as one"), "must state unmarked lines are not detected as task lines");
+            }
+        }
+    });
+
+    test("validator Format and shape contains the canonical recognizer regex from TASK_LINE", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "contains the TASK_LINE source pattern in Format and shape"(body) {
+                const formatSection = body.slice(body.indexOf("1. Format and shape"));
+                Assert.ok(formatSection.includes(TASK_LINE.source), "Format and shape must include the TASK_LINE source pattern");
+            },
+            "states marker-less task lines are FAIL"(body) {
+                const formatSection = body.slice(body.indexOf("1. Format and shape"));
+                Assert.ok(formatSection.includes("`[ ]{...}` without the leading list marker — is FAIL"), "must state that lines without the leading marker are FAIL");
             }
         }
     });

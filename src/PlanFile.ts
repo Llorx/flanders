@@ -18,7 +18,7 @@ export type PlanParseResult = Readonly<{
     size:number;
 }>;
 
-const TASK_LINE = /^(\s*[-*+]\s+)\[([ xX])\](\{[^}]*\})(\s.*)?$/;
+export const TASK_LINE = /^(\s*[-*+]\s+)\[([ xX])\](\{[^}]*\})(\s.*)?$/;
 const MALFORMED_TASK_LINE = /^\s*[-*+]\s+\[([^\]]*)\]/;
 const HEADING_NUMBER = /^#{1,6}\s+(\d+(?:\.\d+)*)\b/;
 

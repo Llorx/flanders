@@ -1,3 +1,5 @@
+import { TASK_LINE } from "./PlanFile";
+
 export const planSkillBody =
 `---
 description: Produce a contract-aware work plan inside the project's plans/ folder.
@@ -36,10 +38,11 @@ The plan file must follow these rules exactly:
 
 A task is a markdown list item that carries a checkbox and a metrics object at the start of its content. The full shape of a task line is:
 
-    [ ]{"it":0,"ot":0,"t":0} 1.1 TITLE
+    - [ ]{"it":0,"ot":0,"t":0} 1.1 TITLE
 
 with the following pieces, in this exact order and spacing:
 
+- A markdown list marker — one of \`-\`, \`*\`, or \`+\` — followed by at least one space. The line may be indented by leading whitespace before the marker. This marker is mandatory: a line that begins with the checkbox but no preceding list marker is not a task line and is not detected as one.
 - A checkbox, in one of two states:
   - \`[ ]\` — open (not yet implemented).
   - \`[x]\` — done (already implemented).
@@ -127,7 +130,7 @@ The validator reads the plan file in full, plus any contract or rule from the li
 
 Five categories, all mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively — encountering a violation in one category does not exempt the validator from completing the remaining four.
 
-1. Format and shape. Every task line conforms to the Plan file format section above: valid \`[ ]\` or \`[x]\` checkbox (no malformed variants), immediately-following metrics object literally equal to \`{"it":0,"ot":0,"t":0}\` for freshly generated tasks (byte-exact: no extra spaces, no reordered keys, no trailing commas), a single space between the closing \`}\` and the task number, hierarchical task number coherent with document position (1 before 2, 1.1 before 1.2, no malformed numbering), leaf-vs-parent distinction respected (leaves carry checkbox and metrics, parents carry neither), each leaf carries a description and an explicit acceptance-criteria section, plan file inside plans/ and non-empty, at least one task line.
+1. Format and shape. Every task line conforms to the Plan file format section above. Every line the plan presents as a task must match the canonical task-line recognizer regex \`/${TASK_LINE.source}/\`, inlined here as part of the verbatim text the host passes to the validator. The validator confirms every task line matches this regex; a line that the plan treats as a task but does not match — in particular a line beginning with \`[ ]{...}\` without the leading list marker — is FAIL, because the \`implement\` command's detector would skip it and treat the plan as having no tasks. Additionally: valid \`[ ]\` or \`[x]\` checkbox (no malformed variants), immediately-following metrics object literally equal to \`{"it":0,"ot":0,"t":0}\` for freshly generated tasks (byte-exact: no extra spaces, no reordered keys, no trailing commas), a single space between the closing \`}\` and the task number, hierarchical task number coherent with document position (1 before 2, 1.1 before 1.2, no malformed numbering), leaf-vs-parent distinction respected (leaves carry checkbox and metrics, parents carry neither), each leaf carries a description and an explicit acceptance-criteria section, plan file inside plans/ and non-empty, at least one task line.
 
 2. Semantic dependency order. Tasks appear top-to-bottom in implementation order. The audit is semantic, not numeric: read each task's description and acceptance criteria and confirm that no task depends on work performed by a task that appears later in the document. A plan whose numbering is well-formed but whose dependencies flow upward is FAIL.
 
