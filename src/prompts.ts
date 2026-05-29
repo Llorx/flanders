@@ -153,47 +153,33 @@ b. For each enumerated criterion, classify it by the regression-signal question 
 
 ${claimClassification}
 
-## Output format
+## Review protocol
 
-Before the final verdict line, you MUST audit the full working tree and emit an explicit three-section claim checklist as the second-to-last block of your response. The checklist uses the structure defined in \`rules/ai/agents/evidence-report.md\` as a checklist, applying the classification framework from \`rules/ai/agents/evidence/claim-evidence-classification.md\` and the N-fact-coverage discipline from \`rules/ai/agents/evidence/enumerated-claim-coverage.md\` to every claim. Skipping a section, aggregating multiple claims into one entry, or omitting the regression-check column is itself a FAIL on the exhaustiveness contract above.
+Use the three-section claim checklist to audit the full working tree — applying \`rules/ai/agents/evidence-report.md\` as a checklist structure, the classification framework from \`rules/ai/agents/evidence/claim-evidence-classification.md\`, and the N-fact-coverage discipline from \`rules/ai/agents/evidence/enumerated-claim-coverage.md\` to every claim. The checklist is your internal audit framework for discovering violations; it is not a deliverable you emit as final output.
 
-The three sections, in order:
+The three sections of the internal audit, in order:
 
 **Acceptance-criterion claims**
 
-One entry per acceptance criterion in the task, in this exact shape:
-
-AC<n> (<short paraphrase>): <PASS|FAIL> — evidence: <file:line and the form of evidence the classification requires> | regression check: <for a toolchain-guarded criterion, the named automated failure a regression would trigger; for a no-implicit-guard criterion, the one-sentence regression that would break the cited assertion>
+Number each acceptance criterion as AC<n> and classify it by the regression-signal question. Confirm the worker's changes carry evidence of the type that classification requires. A criterion lacking that evidence is a violation.
 
 **Rule claims**
 
-One entry per rule you determine should have applied — the union of rules the task linked and rules whose obligation the working-tree changes trigger. Per-line shape:
-
-R<n> (<rules/.../...md>): <PASS|FAIL> — evidence: <file:line and the form of evidence the classification requires> | regression check: <argument>
+One entry per rule you determine should have applied — the union of rules the task linked and rules whose obligation the working-tree changes trigger. Confirm the evidence of compliance for each.
 
 **Contract claims**
 
-One entry per contract you determine should have applied. Per-line shape:
+One entry per contract you determine should have applied. Confirm the evidence of compliance for each.
 
-C<n> (<contracts/.../...md>): <PASS|FAIL> — evidence: <file:line and the form of evidence the classification requires> | regression check: <argument>
+## Recording your result
 
-Illustrative example (the claims are made up — do not copy verbatim):
+As you discover each violation during the audit, you MUST append every violation to \`${Placeholders.ERROR_LOG_PATH}\` immediately — append mode, never overwrite, so partial findings survive even if you are interrupted mid-review.
 
-AC1 (record is persisted with provided id): PASS — evidence: store.test.ts:42 asserts repo.insert called with \`{ id, payload }\` | regression check: changing save() to log-only would make the insert spy never fire, breaking the assert
-AC2 (no other write paths exist): PASS — evidence: grep "repo\\." across module shows only the one call site | regression check: a new repo.write added elsewhere would surface in the same grep
-AC3 (cleanup runs on error path): FAIL — no test exercises the error path; a regression that skips cleanup on throw would not break any assert
-R1 (rules/testing/library-and-aaa-structure.md): PASS — evidence: store.test.ts uses arrange-act-assert library throughout | regression check: switching to jest would cause import resolution failure at build time
-C1 (contracts/cli-commands/implement/iteration-loop.md): PASS — evidence: worker prompt at prompts.ts:52 includes four FAIL conditions | regression check: removing condition 4 would make the condition-count assertion at prompts.test.ts:469 fail
+Each appended violation entry must be independently actionable: precise enough that the next iteration's worker can act on it from \`error.log\` alone, citing concrete \`file:line\` references, contract/rule paths, and the exact behavior or evidence that is missing.
 
-After the checklist, emit the verdict on a single final line, with no surrounding quotes or markdown.
+When your audit finds no violation across every verification, writes nothing to \`${Placeholders.ERROR_LOG_PATH}\` and leave the file empty. Do not write a pass confirmation or any non-violation content into that file; any content there is read as a failure.
 
-Reply with exactly one of the two following formats on that final line:
-- PASS — return this only when every applicable verification passed AND the checklist above contains no FAIL entries. A single unresolved violation forbids PASS.
-- FAIL <detailed reason> — the <detailed reason> is an enumeration of every violation you found across all verifications, not a single cause. Encode every entry inline on this same final line (for example, as a numbered list "1) ... 2) ... 3) ...") so the verdict and the full list of violations live on the one final line that the orchestrator parses.
-
-Each entry in the FAIL enumeration must be independently actionable: precise enough that the next iteration's worker can act on it without having to rediscover the problem from the diff. Cite concrete file:line references, contract/rule paths, and the exact behavior or evidence that is missing.
-
-Do not append an Evidence Report or any other multi-line content after the final PASS/FAIL line. The Evidence Report obligation applies to the worker, not to you; your terminal format is the single-line verdict above.
+Your streamed output — the text you print during the review — has no prescribed format. You may narrate, summarize, or format your reasoning however you want. The orchestrator does not parse your output for a verdict token.
 
 Git boundary: you are an inspection-only agent. You must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, no edits under \`.git/\`, and no remote git operations. Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed and are how you should inspect the worker's changes. The full obligation lives in rules/ai/agents/no-git-writes.md.
 

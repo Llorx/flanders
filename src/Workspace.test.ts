@@ -473,6 +473,112 @@ test.describe("Workspace.writeErrorLog", test => {
     });
 });
 
+test.describe("Workspace.readErrorLog", test => {
+    test("returns empty string when error.log does not exist", {
+        ARRANGE() {
+            const fs = stubFs();
+            const readFileCalls:string[] = [];
+            const origReadFile = fs.readFile;
+            fs.readFile = (p:string) => { readFileCalls.push(p); return origReadFile(p); };
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { ws, readFileCalls };
+        },
+        async ACT({ ws }) {
+            await ws.setup();
+            return await ws.readErrorLog();
+        },
+        ASSERTS: {
+            "resolves to the empty string"(result) {
+                Assert.strictEqual(result, "");
+            },
+            "does not call readFile"(_result, { readFileCalls }) {
+                Assert.strictEqual(readFileCalls.length, 0);
+            }
+        }
+    });
+
+    test("returns exact file contents when error.log exists with content", {
+        ARRANGE() {
+            const fs = stubFs();
+            const content = "violation A\nviolation B\n";
+            const readFileCalls:string[] = [];
+            fs.exists = (p:string) => Promise.resolve(p.endsWith("error.log"));
+            fs.readFile = (p:string) => { readFileCalls.push(p); return Promise.resolve(content); };
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { ws, content, readFileCalls };
+        },
+        async ACT({ ws }) {
+            await ws.setup();
+            return await ws.readErrorLog();
+        },
+        ASSERTS: {
+            "resolves to the exact file content including trailing whitespace"(result, { content }) {
+                Assert.strictEqual(result, content);
+            },
+            "calls readFile exactly once on the error.log path"(_result, { readFileCalls, ws }) {
+                Assert.strictEqual(readFileCalls.length, 1);
+                Assert.strictEqual(readFileCalls[0], ws.paths().errorLog);
+            }
+        }
+    });
+
+    test("rejects with Workspace not set up when called before setup", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            try {
+                await ws.readErrorLog();
+                return "no error";
+            } catch (e) {
+                return (e as Error).message;
+            }
+        },
+        ASSERT(message) {
+            Assert.strictEqual(message, "Workspace not set up");
+        }
+    });
+
+    test("propagates readFile rejection", {
+        ARRANGE() {
+            const fs = stubFs();
+            fs.exists = (p:string) => Promise.resolve(p.endsWith("error.log"));
+            fs.readFile = () => Promise.reject(new Error("disk read failed"));
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { ws };
+        },
+        async ACT({ ws }) {
+            await ws.setup();
+            try {
+                await ws.readErrorLog();
+                return "no error";
+            } catch (e) {
+                return (e as Error).message;
+            }
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "disk read failed");
+        }
+    });
+
+    test("returns empty string when error.log exists with empty content", {
+        ARRANGE() {
+            const fs = stubFs();
+            fs.exists = (p:string) => Promise.resolve(p.endsWith("error.log"));
+            fs.readFile = () => Promise.resolve("");
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { ws };
+        },
+        async ACT({ ws }) {
+            await ws.setup();
+            return await ws.readErrorLog();
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "");
+        }
+    });
+});
+
 test.describe("Workspace.dispose rm failure", test => {
     test("rm throwing during dispose does not propagate the error", {
         ARRANGE() {

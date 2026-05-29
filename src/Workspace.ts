@@ -62,6 +62,13 @@ export class Workspace {
             reviewerLog(iter:number) { return joinPath(root, `reviewer.${iter}.log`); }
         };
     }
+    async readErrorLog():Promise<string> {
+        const paths = this.paths();
+        if (!await this._fs.exists(paths.errorLog)) {
+            return "";
+        }
+        return await this._fs.readFile(paths.errorLog);
+    }
     async writeErrorLog(content:string):Promise<void> {
         const paths = this.paths();
         await this._fs.writeFile(paths.errorLog, content);

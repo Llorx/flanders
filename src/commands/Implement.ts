@@ -538,26 +538,28 @@ export class Implement {
         if (this._currentPrepSessionId === null) {
             throw new Error(`Reviewer for task at line ${task.line} ("${task.title}") requires a prep session id but none was captured`);
         }
+        await this._writeLog(ws.errorLog, "");
         const prompt = prompts.reviewer
             .split(Placeholders.PLAN_PATH).join(plan.path)
             .split(Placeholders.TASK_LINE).join(String(task.line))
             .split(Placeholders.TASK_TITLE).join(task.title)
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
-            .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList));
+            .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
+            .split(Placeholders.ERROR_LOG_PATH).join(ws.errorLog);
         try {
             const { result, capturedOutput } = await this._runClaude(prompt, null, this._currentPrepSessionId);
             this._taskTokens.it += result.inputTokens;
             this._taskTokens.ot += result.outputTokens;
             await this._persistMetrics(plan, task.line);
             this._updateMetrics(plan);
-            const verdict = this._parseReviewVerdict(result.text);
-            await this._writeLog(ws.reviewerLog(iteration), verdict.pass
+            const trimmedViolations = (await this._workspace!.readErrorLog()).trim();
+            const reviewPassed = trimmedViolations.length === 0;
+            await this._writeLog(ws.reviewerLog(iteration), reviewPassed
                 ? `${capturedOutput}\n\nVerdict: PASS`
-                : `${capturedOutput}\n\nVerdict: FAIL ${verdict.reason}`);
-            if (verdict.pass) {
+                : `${capturedOutput}\n\nVerdict: FAIL ${trimmedViolations}`);
+            if (reviewPassed) {
                 return true;
             }
-            await this._writeErrorLog(ws, `reviewer rejected: ${verdict.reason}`);
             return false;
         } catch (e) {
             await this._persistMetrics(plan, task.line);
@@ -565,25 +567,6 @@ export class Implement {
             await this._writeErrorLog(ws, `reviewer stage failed: ${this._stringifyError(e)}`);
             return false;
         }
-    }
-    private _parseReviewVerdict(text:string):{ pass:boolean; reason:string } {
-        const trimmed = text.trim();
-        const lines = trimmed.split(/\r?\n/);
-        for (let i = lines.length - 1; i >= 0; i--) {
-            const line = lines[i]!.trim();
-            if (!line) {
-                continue;
-            }
-            if (/^pass$/i.test(line)) {
-                return { pass: true, reason: "" };
-            }
-            const failMatch = /^fail\b\s*(.*)$/i.exec(line);
-            if (failMatch) {
-                return { pass: false, reason: failMatch[1]!.trim() };
-            }
-            break;
-        }
-        return { pass: false, reason: `unrecognized reviewer verdict: ${trimmed}` };
     }
     private _formatPathList(items:readonly string[]):string {
         if (items.length === 0) {

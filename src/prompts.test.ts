@@ -473,14 +473,6 @@ test.describe("prompts – worker – three-section Evidence Report", test => {
 });
 
 test.describe("prompts – reviewer", test => {
-    test("explicitly forbids appending an Evidence Report after the PASS/FAIL line", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERT(template) {
-            Assert.ok(template.includes("Do not append an Evidence Report or any other multi-line content after the final PASS/FAIL line"));
-        }
-    });
-
     test("includes the spec-folder write boundary", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
@@ -496,6 +488,58 @@ test.describe("prompts – reviewer", test => {
             },
             "references shared/spec-folder-write-authority.md"(template) {
                 Assert.ok(template.includes("shared/spec-folder-write-authority.md"));
+            }
+        }
+    });
+
+    test("contains ERROR_LOG_PATH placeholder", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERT(template) {
+            Assert.ok(template.includes("<ERROR_LOG_PATH>"));
+        }
+    });
+
+    test("contains locked substring: append every violation", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERT(template) {
+            Assert.ok(template.includes("append every violation"));
+        }
+    });
+
+    test("contains locked substring: writes nothing", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERT(template) {
+            Assert.ok(template.includes("writes nothing"));
+        }
+    });
+
+    test("deleted PASS/FAIL protocol phrases are absent", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "no 'Do not append an Evidence Report or any other multi-line content after the final PASS/FAIL line'"(template) {
+                Assert.strictEqual(template.includes("Do not append an Evidence Report or any other multi-line content after the final PASS/FAIL line"), false);
+            },
+            "no 'Reply with exactly one of the two following formats on that final line'"(template) {
+                Assert.strictEqual(template.includes("Reply with exactly one of the two following formats on that final line"), false);
+            },
+            "no 'the final PASS/FAIL line that the orchestrator parses'"(template) {
+                Assert.strictEqual(template.includes("the final PASS/FAIL line that the orchestrator parses"), false);
+            },
+            "no 'AC<n> (<short paraphrase>): <PASS|FAIL>'"(template) {
+                Assert.strictEqual(template.includes("AC<n> (<short paraphrase>): <PASS|FAIL>"), false);
+            },
+            "no 'R<n> (<rules/.../...md>): <PASS|FAIL>'"(template) {
+                Assert.strictEqual(template.includes("R<n> (<rules/.../...md>): <PASS|FAIL>"), false);
+            },
+            "no 'C<n> (<contracts/.../...md>): <PASS|FAIL>'"(template) {
+                Assert.strictEqual(template.includes("C<n> (<contracts/.../...md>): <PASS|FAIL>"), false);
+            },
+            "no 'the entire reason lives on it (for example, as a numbered list with inline separators)'"(template) {
+                Assert.strictEqual(template.includes("the entire reason lives on it (for example, as a numbered list with inline separators)"), false);
             }
         }
     });
@@ -552,19 +596,6 @@ test.describe("prompts – reviewer – acceptance-criteria classification taxon
             },
             "no 'Negative scope (e.g.,'"(template) {
                 Assert.strictEqual(template.includes("Negative scope (e.g.,"), false);
-            }
-        }
-    });
-
-    test("preserves the reviewer's terminal format", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERTS: {
-            "forbids appending content after the verdict"(template) {
-                Assert.ok(template.includes("Do not append an Evidence Report or any other multi-line content after the final PASS/FAIL line"));
-            },
-            "contains the verdict instruction"(template) {
-                Assert.ok(template.includes("Reply with exactly one of the two following formats on that final line"));
             }
         }
     });
@@ -675,30 +706,6 @@ test.describe("prompts – reviewer – three-section claim checklist", test => 
         }
     });
 
-    test("AC per-line shape survives", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERT(template) {
-            Assert.ok(template.includes("AC<n> (<short paraphrase>):"));
-        }
-    });
-
-    test("R<n> per-line shape is introduced", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERT(template) {
-            Assert.ok(template.includes("R<n> ("));
-        }
-    });
-
-    test("C<n> per-line shape is introduced", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERT(template) {
-            Assert.ok(template.includes("C<n> ("));
-        }
-    });
-
     test("contains audit the full working tree", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
@@ -744,14 +751,6 @@ test.describe("prompts – reviewer – three-section claim checklist", test => 
         ACT() { return prompts.reviewer; },
         ASSERT(template) {
             Assert.strictEqual(template.includes("acceptance-criteria/enumerated-criterion-coverage"), false);
-        }
-    });
-
-    test("terminal format invariant survives", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERT(template) {
-            Assert.ok(template.includes("Do not append an Evidence Report or any other multi-line content after the final PASS/FAIL line"));
         }
     });
 
