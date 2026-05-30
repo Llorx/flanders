@@ -1,14 +1,16 @@
-import type { AskContext, FsContext, OutputContext } from "../contexts";
+import type { AskContext, FsContext, OutputContext, ScriptContext } from "../contexts";
 import { askChoice } from "../PromptHelper";
 import { joinPath } from "../fsUtils";
 import { planSkillBody, specSkillBody } from "../skills";
 import type { PlatformContext } from "../Workspace";
+import { verifyToolAvailability } from "./InstallAvailabilityCheck";
 
 export type InstallContexts = Readonly<{
     fs:FsContext;
     ask:AskContext;
     output:OutputContext;
     platform:PlatformContext;
+    script:ScriptContext;
 }>;
 
 export type InstallOptions = Readonly<{
@@ -148,6 +150,36 @@ export class Install {
                     return 1;
                 }
                 mode = picked;
+            }
+            const selectedTools = new Set<"claude"|"codex">();
+            if (answers.skillsTool === "both") {
+                selectedTools.add("claude");
+                selectedTools.add("codex");
+            } else if (answers.skillsTool) {
+                selectedTools.add(answers.skillsTool);
+            }
+            if (answers.workerTool) {
+                selectedTools.add(answers.workerTool);
+            }
+            if (answers.reviewerTool) {
+                selectedTools.add(answers.reviewerTool);
+            }
+            if (selectedTools.size > 0) {
+                /* coverage ignore next 3 */ // — Defensive: with flag-supplied scope, code is synchronous here so dispose can't be set; with prompted scope, the earlier guard at _promptDestination catches it.
+                if (this._disposed) {
+                    return 1;
+                }
+                const report = await verifyToolAvailability(selectedTools, contexts.script);
+                if (this._disposed) {
+                    return 1;
+                }
+                const missing = report.filter(e => !e.available);
+                if (missing.length > 0) {
+                    for (const entry of missing) {
+                        contexts.output.writeError(`${entry.reason}\n`);
+                    }
+                    return 1;
+                }
             }
             const skillsRoot = mode === "global"
                 ? joinPath(contexts.platform.homedir(), ".claude/skills")

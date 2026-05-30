@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import { Install, parseInstallFlags } from "./Install";
 import type { InstallContexts } from "./Install";
-import type { AskAnswer } from "../contexts";
+import type { AskAnswer, ScriptContext, SpawnedProcess } from "../contexts";
 import { planSkillBody, specSkillBody } from "../skills";
 
 function stubContexts() {
@@ -43,6 +43,23 @@ function stubContexts() {
             isWindows() { return false; },
             tmpdir() { return "/tmp"; },
             homedir() { return "/home/testuser"; }
+        },
+        script: {
+            spawn():SpawnedProcess {
+                let exitListener:((code:number|null, signal:string|null) => void)|null = null;
+                const proc:SpawnedProcess = {
+                    on(event:"exit"|"error", listener:never) {
+                        if (event === "exit") {
+                            exitListener = listener;
+                            Promise.resolve().then(() => exitListener?.(0, null));
+                        }
+                    },
+                    kill() {},
+                    stdout: { on() {} },
+                    stderr: { on() {} }
+                };
+                return proc;
+            }
         }
     };
     return { contexts, written, errors, files, dirs, askResponses };
@@ -546,6 +563,52 @@ test.describe("Install dispose", test => {
             }
         }
     });
+
+    test("disposed during availability check returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            let cmdRef:Install|null = null;
+            let resolveSpawn:(() => void)|null = null;
+            (s.contexts as { script:ScriptContext }).script = {
+                spawn():SpawnedProcess {
+                    let exitListener:((code:number|null, signal:string|null) => void)|null = null;
+                    const proc:SpawnedProcess = {
+                        on(event:"exit"|"error", listener:never) {
+                            if (event === "exit") {
+                                exitListener = listener;
+                                resolveSpawn = () => exitListener?.(0, null);
+                            }
+                        },
+                        kill() {},
+                        stdout: { on() {} },
+                        stderr: { on() {} }
+                    };
+                    return proc;
+                }
+            };
+            return { ...s, setCmdRef: (cmd:Install) => { cmdRef = cmd; }, getResolveSpawn: () => resolveSpawn, getCmdRef: () => cmdRef };
+        },
+        async ACT({ contexts, setCmdRef, getResolveSpawn }) {
+            const cmd = new Install(["--project", "--worker-tool=claude"], { projectRoot: "/proj" }, contexts);
+            setCmdRef(cmd);
+            while (!getResolveSpawn()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolveSpawn()!();
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files are written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
 });
 
 test.describe("parseInstallFlags", test => {
@@ -795,6 +858,362 @@ test.describe("Install flag validation integration", test => {
             },
             "no interactive prompt was called"(_code, { wasAskCalled }) {
                 Assert.strictEqual(wasAskCalled(), false);
+            }
+        }
+    });
+});
+
+type ExitListener = (code:number|null, signal:string|null) => void;
+type ErrorListener = (e:unknown) => void;
+
+function makeScriptStub(behaviors:Record<string, { event:"exit"; code:number|null; signal:string|null }|{ event:"error"; error:Error }>):ScriptContext {
+    return {
+        spawn(command:string):SpawnedProcess {
+            const behavior = behaviors[command];
+            let exitListener:ExitListener|null = null;
+            let errorListener:ErrorListener|null = null;
+            const proc:SpawnedProcess = {
+                on(event:"exit"|"error", listener:never) {
+                    if (event === "exit") {
+                        exitListener = listener;
+                    } else if (event === "error") {
+                        errorListener = listener;
+                    }
+                    if (behavior) {
+                        Promise.resolve().then(() => {
+                            if (behavior.event === "exit" && exitListener) {
+                                exitListener(behavior.code, behavior.signal);
+                            } else if (behavior.event === "error" && errorListener) {
+                                errorListener(behavior.error);
+                            }
+                        });
+                    }
+                },
+                kill() {},
+                stdout: { on() {} },
+                stderr: { on() {} }
+            };
+            return proc;
+        }
+    };
+}
+
+function makeThrowingScript():ScriptContext {
+    return {
+        spawn(command:string):never {
+            const err = new Error(`spawn ${command} ENOENT`) as Error & { code:string };
+            err.code = "ENOENT";
+            throw err;
+        }
+    };
+}
+
+test.describe("Install tool availability check", test => {
+    test("proceeds when every selected tool exits 0", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeScriptStub({
+                claude: { event: "exit", code: 0, signal: null },
+                codex: { event: "exit", code: 0, signal: null }
+            });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=both"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "skill files are written"(_code, { files }) {
+                Assert.ok(files.has("/proj/.claude/skills/flanders-spec/SKILL.md"));
+                Assert.ok(files.has("/proj/.claude/skills/flanders-plan/SKILL.md"));
+            }
+        }
+    });
+
+    test("ENOENT spawn failure exits non-zero with diagnostic naming binary", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeThrowingScript();
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--worker-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic contains exact binary name"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "codex: spawn failed (spawn codex ENOENT)\n");
+            },
+            "no files are written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("two missing tools diagnostic enumerates both", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeThrowingScript();
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--worker-tool=claude", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic contains claude"(_code, { errors }) {
+                Assert.ok(errors.join("").includes("claude"));
+            },
+            "diagnostic contains codex"(_code, { errors }) {
+                Assert.ok(errors.join("").includes("codex"));
+            },
+            "no files are written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("non-zero exit code treats tool as unavailable", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeScriptStub({
+                claude: { event: "exit", code: 2, signal: null }
+            });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--worker-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic names the tool"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "claude: exited with code 2\n");
+            }
+        }
+    });
+
+    test("signal termination treats tool as unavailable", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeScriptStub({
+                codex: { event: "exit", code: null, signal: "SIGTERM" }
+            });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic names the tool and signal"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "codex: terminated by signal SIGTERM\n");
+            }
+        }
+    });
+
+    test("--version does not forward stdout/stderr to OutputContext", {
+        ARRANGE() {
+            const s = stubContexts();
+            let probePhase = true;
+            const writeDuringProbe:string[] = [];
+            const errorDuringProbe:string[] = [];
+            const origWrite = s.contexts.output.write;
+            const origWriteError = s.contexts.output.writeError;
+            (s.contexts.output as { write:typeof origWrite }).write = (text) => {
+                if (probePhase) writeDuringProbe.push(text);
+                origWrite(text);
+            };
+            (s.contexts.output as { writeError:typeof origWriteError }).writeError = (text) => {
+                if (probePhase) errorDuringProbe.push(text);
+                origWriteError(text);
+            };
+            const origMkdir = s.contexts.fs.mkdir.bind(s.contexts.fs);
+            (s.contexts.fs as { mkdir:typeof s.contexts.fs.mkdir }).mkdir = (p, o) => {
+                probePhase = false;
+                return origMkdir(p, o);
+            };
+            (s.contexts as { script:ScriptContext }).script = makeScriptStub({
+                claude: { event: "exit", code: 0, signal: null }
+            });
+            return { ...s, writeDuringProbe, errorDuringProbe };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--worker-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "no write during probe"(_code, { writeDuringProbe }) {
+                Assert.strictEqual(writeDuringProbe.length, 0);
+            },
+            "no writeError during probe"(_code, { errorDuringProbe }) {
+                Assert.strictEqual(errorDuringProbe.length, 0);
+            }
+        }
+    });
+
+    test("no file written when tool unavailable — FsContext writeFile throws on call", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts.fs as { writeFile:(p:string, c:string) => Promise<void> }).writeFile = () => {
+                throw new Error("writeFile should not be called");
+            };
+            (s.contexts.fs as { mkdir:(p:string, o?:unknown) => Promise<void> }).mkdir = () => {
+                throw new Error("mkdir should not be called");
+            };
+            (s.contexts as { script:ScriptContext }).script = makeThrowingScript();
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--worker-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files are written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("skills-tool=both collects both claude and codex for probe", {
+        ARRANGE() {
+            const s = stubContexts();
+            const spawnedCommands:string[] = [];
+            (s.contexts as { script:ScriptContext }).script = {
+                spawn(command:string):SpawnedProcess {
+                    spawnedCommands.push(command);
+                    let exitListener:ExitListener|null = null;
+                    return {
+                        on(event:"exit"|"error", listener:never) {
+                            if (event === "exit") {
+                                exitListener = listener;
+                                Promise.resolve().then(() => exitListener?.(0, null));
+                            }
+                        },
+                        kill() {},
+                        stdout: { on() {} },
+                        stderr: { on() {} }
+                    };
+                }
+            };
+            return { ...s, spawnedCommands };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=both"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "probed claude"(_code, { spawnedCommands }) {
+                Assert.ok(spawnedCommands.includes("claude"));
+            },
+            "probed codex"(_code, { spawnedCommands }) {
+                Assert.ok(spawnedCommands.includes("codex"));
+            }
+        }
+    });
+
+    test("deduplication — same tool used in skills, worker, and reviewer is probed once", {
+        ARRANGE() {
+            const s = stubContexts();
+            const spawnedCommands:string[] = [];
+            (s.contexts as { script:ScriptContext }).script = {
+                spawn(command:string):SpawnedProcess {
+                    spawnedCommands.push(command);
+                    let exitListener:ExitListener|null = null;
+                    return {
+                        on(event:"exit"|"error", listener:never) {
+                            if (event === "exit") {
+                                exitListener = listener;
+                                Promise.resolve().then(() => exitListener?.(0, null));
+                            }
+                        },
+                        kill() {},
+                        stdout: { on() {} },
+                        stderr: { on() {} }
+                    };
+                }
+            };
+            return { ...s, spawnedCommands };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "claude is probed exactly once"(_code, { spawnedCommands }) {
+                Assert.strictEqual(spawnedCommands.filter(c => c === "claude").length, 1);
+            }
+        }
+    });
+
+    test("no tool flags means no availability check and install proceeds", {
+        ARRANGE() {
+            const s = stubContexts();
+            let spawnCalled = false;
+            (s.contexts as { script:ScriptContext }).script = {
+                spawn():never {
+                    spawnCalled = true;
+                    throw new Error("spawn should not be called");
+                }
+            };
+            return { ...s, wasSpawnCalled: () => spawnCalled };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "spawn was not called"(_code, { wasSpawnCalled }) {
+                Assert.strictEqual(wasSpawnCalled(), false);
             }
         }
     });
