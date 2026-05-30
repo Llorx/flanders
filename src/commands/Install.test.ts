@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { Install } from "./Install";
+import { Install, parseInstallFlags } from "./Install";
 import type { InstallContexts } from "./Install";
 import type { AskAnswer } from "../contexts";
 import { planSkillBody, specSkillBody } from "../skills";
@@ -543,6 +543,258 @@ test.describe("Install dispose", test => {
             },
             "no error is written when disposed"(_code, { errors }) {
                 Assert.strictEqual(errors.length, 0);
+            }
+        }
+    });
+});
+
+test.describe("parseInstallFlags", test => {
+    test("recognizes every flag and returns ResolvedAnswers", {
+        ARRANGE() {
+            return {
+                args: [
+                    "--project",
+                    "--skills-tool=both",
+                    "--worker-tool=codex",
+                    "--worker-model=gpt-4",
+                    "--worker-effort=high",
+                    "--reviewer-tool=claude",
+                    "--reviewer-model=opus",
+                    "--reviewer-effort="
+                ]
+            };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: {
+                    scope: "project",
+                    skillsTool: "both",
+                    workerTool: "codex",
+                    workerModel: "gpt-4",
+                    workerEffort: "high",
+                    reviewerTool: "claude",
+                    reviewerModel: "opus",
+                    reviewerEffort: ""
+                }
+            });
+        }
+    });
+
+    test("--global --project conflict returns exact diagnostic", {
+        ARRANGE() {
+            return { args: ["--global", "--project"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Conflicting flags: --global and --project cannot be used together.\n"
+            });
+        }
+    });
+
+    test("--worker-tool=foo returns diagnostic naming flag and value", {
+        ARRANGE() {
+            return { args: ["--worker-tool=foo"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid value for --worker-tool: \"foo\". Allowed values: claude, codex.\n"
+            });
+        }
+    });
+
+    test("--worker-model= accepts empty string as resolved answer", {
+        ARRANGE() {
+            return { args: ["--worker-model="] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { workerModel: "" }
+            });
+        }
+    });
+
+    test("--skills-tool=cursor is a usage error", {
+        ARRANGE() {
+            return { args: ["--skills-tool=cursor"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid value for --skills-tool: \"cursor\". Allowed values: claude, codex, both.\n"
+            });
+        }
+    });
+
+    test("--worker-effort=high with --worker-tool=codex are both accepted", {
+        ARRANGE() {
+            return { args: ["--worker-effort=high", "--worker-tool=codex"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { workerTool: "codex", workerEffort: "high" }
+            });
+        }
+    });
+
+    test("--worker-effort=high with --worker-tool=claude are both accepted (install does not pre-reject)", {
+        ARRANGE() {
+            return { args: ["--worker-effort=high", "--worker-tool=claude"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { workerTool: "claude", workerEffort: "high" }
+            });
+        }
+    });
+
+    test("no flags returns empty answers", {
+        ARRANGE() {
+            return { args: [] as string[] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { ok: true, answers: {} });
+        }
+    });
+
+    test("--global sets scope to global", {
+        ARRANGE() {
+            return { args: ["--global"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { ok: true, answers: { scope: "global" } });
+        }
+    });
+
+    test("--reviewer-tool=bad returns diagnostic naming flag and value", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=bad"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid value for --reviewer-tool: \"bad\". Allowed values: claude, codex.\n"
+            });
+        }
+    });
+});
+
+test.describe("Install flag validation integration", test => {
+    test("--worker-tool=foo exits non-zero with diagnostic, no prompt called", {
+        ARRANGE() {
+            const s = stubContexts();
+            let askCalled = false;
+            (s.contexts as { ask:InstallContexts["ask"] }).ask = {
+                askChoices() { askCalled = true; throw new Error("askChoices should not be called"); },
+                askText() { askCalled = true; throw new Error("askText should not be called"); }
+            };
+            return { ...s, wasAskCalled: () => askCalled };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--worker-tool=foo"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic is exact"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid value for --worker-tool: \"foo\". Allowed values: claude, codex.\n");
+            },
+            "no interactive prompt was called"(_code, { wasAskCalled }) {
+                Assert.strictEqual(wasAskCalled(), false);
+            }
+        }
+    });
+
+    test("--worker-model= with --project exits 0, no prompt called", {
+        ARRANGE() {
+            const s = stubContexts();
+            let askCalled = false;
+            (s.contexts as { ask:InstallContexts["ask"] }).ask = {
+                askChoices() { askCalled = true; throw new Error("askChoices should not be called"); },
+                askText() { askCalled = true; throw new Error("askText should not be called"); }
+            };
+            return { ...s, wasAskCalled: () => askCalled };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--worker-model="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "no interactive prompt was called"(_code, { wasAskCalled }) {
+                Assert.strictEqual(wasAskCalled(), false);
+            }
+        }
+    });
+
+    test("--skills-tool=cursor exits non-zero with diagnostic, no prompt called", {
+        ARRANGE() {
+            const s = stubContexts();
+            let askCalled = false;
+            (s.contexts as { ask:InstallContexts["ask"] }).ask = {
+                askChoices() { askCalled = true; throw new Error("askChoices should not be called"); },
+                askText() { askCalled = true; throw new Error("askText should not be called"); }
+            };
+            return { ...s, wasAskCalled: () => askCalled };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--skills-tool=cursor"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic is exact"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid value for --skills-tool: \"cursor\". Allowed values: claude, codex, both.\n");
+            },
+            "no interactive prompt was called"(_code, { wasAskCalled }) {
+                Assert.strictEqual(wasAskCalled(), false);
             }
         }
     });

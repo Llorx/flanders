@@ -26,6 +26,89 @@ const SKILLS:readonly SkillDef[] = [
     { name: "flanders-plan", folder: "flanders-plan", body: planSkillBody }
 ];
 
+export type ResolvedAnswers = Readonly<{
+    scope?:"project"|"global";
+    skillsTool?:"claude"|"codex"|"both";
+    workerTool?:"claude"|"codex";
+    workerModel?:string;
+    workerEffort?:string;
+    reviewerTool?:"claude"|"codex";
+    reviewerModel?:string;
+    reviewerEffort?:string;
+}>;
+
+function extractFlagValue(rawArgs:readonly string[], flag:string):string|undefined {
+    const prefix = flag + "=";
+    for (const arg of rawArgs) {
+        if (arg.startsWith(prefix)) {
+            return arg.slice(prefix.length);
+        }
+    }
+    return undefined;
+}
+
+function validateClosedSet(value:string, allowed:readonly string[], flagName:string):string|null {
+    if (allowed.includes(value)) {
+        return null;
+    }
+    return `Invalid value for ${flagName}: "${value}". Allowed values: ${allowed.join(", ")}.\n`;
+}
+
+export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; answers:ResolvedAnswers}>|Readonly<{ok:false; diagnostic:string}> {
+    const hasGlobal = rawArgs.includes("--global");
+    const hasProject = rawArgs.includes("--project");
+    if (hasGlobal && hasProject) {
+        return { ok: false, diagnostic: "Conflicting flags: --global and --project cannot be used together.\n" };
+    }
+    const answers:{
+        scope?:"project"|"global";
+        skillsTool?:"claude"|"codex"|"both";
+        workerTool?:"claude"|"codex";
+        workerModel?:string;
+        workerEffort?:string;
+        reviewerTool?:"claude"|"codex";
+        reviewerModel?:string;
+        reviewerEffort?:string;
+    } = {};
+    if (hasProject) answers.scope = "project";
+    if (hasGlobal) answers.scope = "global";
+    const skillsTool = extractFlagValue(rawArgs, "--skills-tool");
+    if (skillsTool !== undefined) {
+        const error = validateClosedSet(skillsTool, ["claude", "codex", "both"], "--skills-tool");
+        if (error) return { ok: false, diagnostic: error };
+        answers.skillsTool = skillsTool as "claude"|"codex"|"both";
+    }
+    const workerTool = extractFlagValue(rawArgs, "--worker-tool");
+    if (workerTool !== undefined) {
+        const error = validateClosedSet(workerTool, ["claude", "codex"], "--worker-tool");
+        if (error) return { ok: false, diagnostic: error };
+        answers.workerTool = workerTool as "claude"|"codex";
+    }
+    const workerModel = extractFlagValue(rawArgs, "--worker-model");
+    if (workerModel !== undefined) {
+        answers.workerModel = workerModel;
+    }
+    const workerEffort = extractFlagValue(rawArgs, "--worker-effort");
+    if (workerEffort !== undefined) {
+        answers.workerEffort = workerEffort;
+    }
+    const reviewerTool = extractFlagValue(rawArgs, "--reviewer-tool");
+    if (reviewerTool !== undefined) {
+        const error = validateClosedSet(reviewerTool, ["claude", "codex"], "--reviewer-tool");
+        if (error) return { ok: false, diagnostic: error };
+        answers.reviewerTool = reviewerTool as "claude"|"codex";
+    }
+    const reviewerModel = extractFlagValue(rawArgs, "--reviewer-model");
+    if (reviewerModel !== undefined) {
+        answers.reviewerModel = reviewerModel;
+    }
+    const reviewerEffort = extractFlagValue(rawArgs, "--reviewer-effort");
+    if (reviewerEffort !== undefined) {
+        answers.reviewerEffort = reviewerEffort;
+    }
+    return { ok: true, answers };
+}
+
 export class Install {
     private _disposed = false;
     private _runPromise:Promise<number>;
@@ -43,17 +126,15 @@ export class Install {
     }
     private async _run(rawArgs:readonly string[], options:InstallOptions, contexts:InstallContexts):Promise<number> {
         try {
-            const hasGlobal = rawArgs.includes("--global");
-            const hasProject = rawArgs.includes("--project");
-            if (hasGlobal && hasProject) {
-                contexts.output.writeError("Conflicting flags: --global and --project cannot be used together.\n");
+            const parsed = parseInstallFlags(rawArgs);
+            if (!parsed.ok) {
+                contexts.output.writeError(parsed.diagnostic);
                 return 1;
             }
+            const answers = parsed.answers;
             let mode:"global"|"project";
-            if (hasGlobal) {
-                mode = "global";
-            } else if (hasProject) {
-                mode = "project";
+            if (answers.scope) {
+                mode = answers.scope;
             } else {
                 /* coverage ignore next 3 */ // — Defensive: _disposed is false when _run begins synchronously from the constructor.
                 if (this._disposed) {
