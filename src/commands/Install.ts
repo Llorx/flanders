@@ -83,6 +83,8 @@ function validateClosedSet(value:string, allowed:readonly string[], flagName:str
     return `Invalid value for ${flagName}: "${value}". Allowed values: ${allowed.join(", ")}.\n`;
 }
 
+const CODEX_EFFORT_LEVELS:readonly string[] = ["minimal", "low", "medium", "high", "xhigh"];
+
 export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; answers:ResolvedAnswers}>|Readonly<{ok:false; diagnostic:string}> {
     const hasGlobal = rawArgs.includes("--global");
     const hasProject = rawArgs.includes("--project");
@@ -119,6 +121,10 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
     }
     const workerEffort = extractFlagValue(rawArgs, "--worker-effort");
     if (workerEffort !== undefined) {
+        if (workerEffort !== "" && answers.workerTool === "codex") {
+            const error = validateClosedSet(workerEffort, CODEX_EFFORT_LEVELS, "--worker-effort");
+            if (error) return { ok: false, diagnostic: error };
+        }
         answers.workerEffort = workerEffort;
     }
     const reviewerTool = extractFlagValue(rawArgs, "--reviewer-tool");
@@ -133,6 +139,10 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
     }
     const reviewerEffort = extractFlagValue(rawArgs, "--reviewer-effort");
     if (reviewerEffort !== undefined) {
+        if (reviewerEffort !== "" && answers.reviewerTool === "codex") {
+            const error = validateClosedSet(reviewerEffort, CODEX_EFFORT_LEVELS, "--reviewer-effort");
+            if (error) return { ok: false, diagnostic: error };
+        }
         answers.reviewerEffort = reviewerEffort;
     }
     return { ok: true, answers };
@@ -282,6 +292,45 @@ export class Install {
                     workerModel = text;
                 }
             }
+            let workerEffort:string;
+            if (answers.workerEffort !== undefined) {
+                workerEffort = answers.workerEffort;
+            } else {
+                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
+                if (this._disposed) {
+                    return 1;
+                }
+                if (workerTool === "codex") {
+                    const options:ChoiceOption[] = CODEX_EFFORT_LEVELS.map(e => ({ label: e }));
+                    options.push({ label: "default configured effort" });
+                    const option = await promptChoice(contexts.ask, {
+                        header: "Worker effort",
+                        question: "What effort level should the worker use?",
+                        options
+                    });
+                    if (!option) {
+                        return 1;
+                    }
+                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptChoice return and this check.
+                    if (this._disposed) {
+                        return 1;
+                    }
+                    workerEffort = option.label === "default configured effort" ? "" : option.label;
+                } else {
+                    const text = await promptText(contexts.ask, {
+                        question: "What effort level should the worker use?",
+                        placeholder: "leave empty for the default configured effort"
+                    });
+                    if (text === null) {
+                        return 1;
+                    }
+                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptText return and this check.
+                    if (this._disposed) {
+                        return 1;
+                    }
+                    workerEffort = text;
+                }
+            }
             let reviewerTool:"claude"|"codex";
             if (answers.reviewerTool !== undefined) {
                 reviewerTool = answers.reviewerTool;
@@ -354,6 +403,45 @@ export class Install {
                     reviewerModel = text;
                 }
             }
+            let reviewerEffort:string;
+            if (answers.reviewerEffort !== undefined) {
+                reviewerEffort = answers.reviewerEffort;
+            } else {
+                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
+                if (this._disposed) {
+                    return 1;
+                }
+                if (reviewerTool === "codex") {
+                    const options:ChoiceOption[] = CODEX_EFFORT_LEVELS.map(e => ({ label: e }));
+                    options.push({ label: "default configured effort" });
+                    const option = await promptChoice(contexts.ask, {
+                        header: "Reviewer effort",
+                        question: "What effort level should the reviewer use?",
+                        options
+                    });
+                    if (!option) {
+                        return 1;
+                    }
+                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptChoice return and this check.
+                    if (this._disposed) {
+                        return 1;
+                    }
+                    reviewerEffort = option.label === "default configured effort" ? "" : option.label;
+                } else {
+                    const text = await promptText(contexts.ask, {
+                        question: "What effort level should the reviewer use?",
+                        placeholder: "leave empty for the default configured effort"
+                    });
+                    if (text === null) {
+                        return 1;
+                    }
+                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptText return and this check.
+                    if (this._disposed) {
+                        return 1;
+                    }
+                    reviewerEffort = text;
+                }
+            }
             const selectedTools = new Set<"claude"|"codex">();
             if (skillsTool === "both") {
                 selectedTools.add("claude");
@@ -414,8 +502,8 @@ export class Install {
                 return 1;
             }
             const config:FlandersConfig = {
-                worker: { tool: workerTool, model: workerModel, effort: answers.workerEffort ?? "" },
-                reviewer: { tool: reviewerTool, model: reviewerModel, effort: answers.reviewerEffort ?? "" }
+                worker: { tool: workerTool, model: workerModel, effort: workerEffort },
+                reviewer: { tool: reviewerTool, model: reviewerModel, effort: reviewerEffort }
             };
             const configWrittenPath = await writeConfig(contexts.fs, {
                 scope: mode,
