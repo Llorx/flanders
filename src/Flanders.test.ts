@@ -136,10 +136,22 @@ test.describe("Flanders dispatch", test => {
             const files:Record<string, string> = {};
             contexts.fs.writeFile = async (p, content) => { files[p] = content; };
             contexts.fs.mkdir = async () => {};
+            contexts.script.spawn = () => {
+                let exitListener:((code:number|null, signal:string|null) => void)|null = null;
+                return {
+                    on(event:string, listener:never) {
+                        if (event === "exit") {
+                            exitListener = listener;
+                            Promise.resolve().then(() => exitListener?.(0, null));
+                        }
+                    },
+                    kill() {}
+                } as never;
+            };
             return { contexts, written, errors, files };
         },
         async ACT({ contexts }) {
-            const f = new Flanders(["install", "--project"], { projectRoot: "/proj" }, contexts);
+            const f = new Flanders(["install", "--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await f.result();
             await f.dispose();
             return code;

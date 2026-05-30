@@ -1,5 +1,6 @@
-import type { AskContext, FsContext, OutputContext, ScriptContext } from "../contexts";
+import type { AskContext, ChoiceOption, FsContext, OutputContext, ScriptContext } from "../contexts";
 import { askChoice } from "../PromptHelper";
+import type { AskChoiceArgs } from "../PromptHelper";
 import { joinPath } from "../fsUtils";
 import { planSkillBody, specSkillBody } from "../skills";
 import type { PlatformContext } from "../Workspace";
@@ -27,6 +28,17 @@ const SKILLS:readonly SkillDef[] = [
     { name: "flanders-spec", folder: "flanders-spec", body: specSkillBody },
     { name: "flanders-plan", folder: "flanders-plan", body: planSkillBody }
 ];
+
+async function promptChoice(ask:AskContext, args:AskChoiceArgs):Promise<ChoiceOption|null> {
+    try {
+        return await askChoice(ask, args);
+    } catch (e) {
+        if (e instanceof Error && e.name === "AbortError") {
+            return null;
+        }
+        throw e;
+    }
+}
 
 export type ResolvedAnswers = Readonly<{
     scope?:"project"|"global";
@@ -142,44 +154,118 @@ export class Install {
                 if (this._disposed) {
                     return 1;
                 }
-                const picked = await this._promptDestination(contexts);
+                const option = await promptChoice(contexts.ask, {
+                    header: "Install destination",
+                    question: "Where should Flanders skills be installed?",
+                    options: [
+                        { label: "project", description: "Install in .claude/skills/ relative to CWD" },
+                        { label: "global", description: "Install in ~/.claude/skills/" }
+                    ]
+                });
+                if (!option) {
+                    return 1;
+                }
                 if (this._disposed) {
                     return 1;
                 }
-                if (!picked) {
+                mode = option.label as "global"|"project";
+            }
+            let skillsTool:"claude"|"codex"|"both";
+            if (answers.skillsTool !== undefined) {
+                skillsTool = answers.skillsTool;
+            } else {
+                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
+                if (this._disposed) {
                     return 1;
                 }
-                mode = picked;
+                const option = await promptChoice(contexts.ask, {
+                    header: "Skills tool",
+                    question: "Which AI tool(s) should the skills be installed for?",
+                    options: [
+                        { label: "claude", description: "Install skills for Claude Code" },
+                        { label: "codex", description: "Install skills for Codex CLI" },
+                        { label: "both", description: "Install skills for both Claude Code and Codex CLI" }
+                    ]
+                });
+                if (!option) {
+                    return 1;
+                }
+                if (this._disposed) {
+                    return 1;
+                }
+                skillsTool = option.label as "claude"|"codex"|"both";
+            }
+            let workerTool:"claude"|"codex";
+            if (answers.workerTool !== undefined) {
+                workerTool = answers.workerTool;
+            } else {
+                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
+                if (this._disposed) {
+                    return 1;
+                }
+                const option = await promptChoice(contexts.ask, {
+                    header: "Worker tool",
+                    question: "Which AI tool should the worker use?",
+                    options: [
+                        { label: "claude", description: "Use Claude Code" },
+                        { label: "codex", description: "Use Codex CLI" }
+                    ]
+                });
+                if (!option) {
+                    return 1;
+                }
+                if (this._disposed) {
+                    return 1;
+                }
+                workerTool = option.label as "claude"|"codex";
+            }
+            let reviewerTool:"claude"|"codex";
+            if (answers.reviewerTool !== undefined) {
+                reviewerTool = answers.reviewerTool;
+            } else {
+                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
+                if (this._disposed) {
+                    return 1;
+                }
+                const option = await promptChoice(contexts.ask, {
+                    header: "Reviewer tool",
+                    question: "Which AI tool should the reviewer use?",
+                    options: [
+                        { label: "claude", description: "Use Claude Code" },
+                        { label: "codex", description: "Use Codex CLI" }
+                    ]
+                });
+                if (!option) {
+                    return 1;
+                }
+                if (this._disposed) {
+                    return 1;
+                }
+                reviewerTool = option.label as "claude"|"codex";
             }
             const selectedTools = new Set<"claude"|"codex">();
-            if (answers.skillsTool === "both") {
+            if (skillsTool === "both") {
                 selectedTools.add("claude");
                 selectedTools.add("codex");
-            } else if (answers.skillsTool) {
-                selectedTools.add(answers.skillsTool);
+            } else {
+                selectedTools.add(skillsTool);
             }
-            if (answers.workerTool) {
-                selectedTools.add(answers.workerTool);
+            selectedTools.add(workerTool);
+            selectedTools.add(reviewerTool);
+            /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
+            if (this._disposed) {
+                return 1;
             }
-            if (answers.reviewerTool) {
-                selectedTools.add(answers.reviewerTool);
+            const report = await verifyToolAvailability(selectedTools, contexts.script);
+            if (this._disposed) {
+                return 1;
             }
-            if (selectedTools.size > 0) {
-                /* coverage ignore next 3 */ // — Defensive: with flag-supplied scope, code is synchronous here so dispose can't be set; with prompted scope, the earlier guard at _promptDestination catches it.
-                if (this._disposed) {
-                    return 1;
+            const missing = report.filter(e => !e.available);
+            if (missing.length > 0) {
+                for (const entry of missing) {
+                    contexts.output.writeError(`${entry.reason}\n`);
                 }
-                const report = await verifyToolAvailability(selectedTools, contexts.script);
-                if (this._disposed) {
-                    return 1;
-                }
-                const missing = report.filter(e => !e.available);
-                if (missing.length > 0) {
-                    for (const entry of missing) {
-                        contexts.output.writeError(`${entry.reason}\n`);
-                    }
-                    return 1;
-                }
+                return 1;
             }
             const skillsRoot = mode === "global"
                 ? joinPath(contexts.platform.homedir(), ".claude/skills")
@@ -221,24 +307,6 @@ export class Install {
                 contexts.output.writeError(`${e instanceof Error ? e.message : String(e)}\n`);
             }
             return 1;
-        }
-    }
-    private async _promptDestination(contexts:InstallContexts):Promise<"global"|"project"|null> {
-        try {
-            const option = await askChoice(contexts.ask, {
-                header: "Install destination",
-                question: "Where should Flanders skills be installed?",
-                options: [
-                    { label: "project", description: "Install in .claude/skills/ relative to CWD" },
-                    { label: "global", description: "Install in ~/.claude/skills/" }
-                ]
-            });
-            return option.label as "global"|"project";
-        } catch (e) {
-            if (e instanceof Error && e.name === "AbortError") {
-                return null;
-            }
-            throw e;
         }
     }
     async dispose():Promise<void> {

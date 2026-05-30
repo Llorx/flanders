@@ -13,6 +13,7 @@ function stubContexts() {
     const files = new Map<string, string>();
     const dirs = new Set<string>();
     const askResponses:AskAnswer[][] = [];
+    const askedHeaders:string[] = [];
     const contexts:InstallContexts = {
         fs: {
             readFile(p) { return files.has(p) ? Promise.resolve(files.get(p)!) : Promise.reject(new Error("not found")); },
@@ -26,7 +27,10 @@ function stubContexts() {
             rm() { return Promise.reject(new Error("unexpected rm")); }
         },
         ask: {
-            askChoices() {
+            askChoices(questions) {
+                for (const q of questions) {
+                    askedHeaders.push(q.header);
+                }
                 const response = askResponses.shift();
                 return Promise.resolve(response ?? []);
             },
@@ -62,7 +66,7 @@ function stubContexts() {
             }
         }
     };
-    return { contexts, written, errors, files, dirs, askResponses };
+    return { contexts, written, errors, files, dirs, askResponses, askedHeaders };
 }
 
 test.describe("Install --project", test => {
@@ -71,7 +75,7 @@ test.describe("Install --project", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project"], { projectRoot: "/myproject" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/myproject" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -109,7 +113,7 @@ test.describe("Install --project", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             await cmd.result();
             await cmd.dispose();
         },
@@ -136,7 +140,7 @@ test.describe("Install --global", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--global"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--global", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -200,6 +204,9 @@ test.describe("Install interactive prompt", test => {
         ARRANGE() {
             const s = stubContexts();
             s.askResponses.push([{ picked: [{ label: "project" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             return s;
         },
         async ACT({ contexts }) {
@@ -228,6 +235,9 @@ test.describe("Install interactive prompt", test => {
         ARRANGE() {
             const s = stubContexts();
             s.askResponses.push([{ picked: [{ label: "global" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             return s;
         },
         async ACT({ contexts }) {
@@ -252,14 +262,18 @@ test.describe("Install interactive prompt", test => {
         }
     });
 
-    test("prompt offers exactly two options: project and global", {
+    test("scope prompt offers exactly two options: project and global", {
         ARRANGE() {
             const s = stubContexts();
             let capturedOptions:readonly { label:string }[] = [];
+            let firstCall = true;
             const origAsk = s.contexts.ask.askChoices;
             (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions) => {
-                capturedOptions = questions[0]!.options;
-                s.askResponses.push([{ picked: [{ label: "project" }] }]);
+                if (firstCall) {
+                    capturedOptions = questions[0]!.options;
+                    firstCall = false;
+                }
+                s.askResponses.push([{ picked: [{ label: questions[0]!.options[0]!.label }] }]);
                 return origAsk.call(s.contexts.ask, questions);
             };
             return { ...s, getCapturedOptions: () => capturedOptions };
@@ -293,7 +307,7 @@ test.describe("Install filesystem errors", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -317,7 +331,7 @@ test.describe("Install filesystem errors", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -342,7 +356,7 @@ test.describe("Install overwrites", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -367,7 +381,7 @@ test.describe("Install dispose", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             await cmd.result();
             await cmd.dispose();
             await cmd.dispose();
@@ -462,7 +476,7 @@ test.describe("Install dispose", test => {
             return { ...s, setCmdRef: (cmd:Install) => { cmdRef = cmd; } };
         },
         async ACT({ contexts, setCmdRef }) {
-            const cmd = new Install(["--project"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             setCmdRef(cmd);
             const code = await cmd.result();
             await cmd.dispose();
@@ -589,7 +603,7 @@ test.describe("Install dispose", test => {
             return { ...s, setCmdRef: (cmd:Install) => { cmdRef = cmd; }, getResolveSpawn: () => resolveSpawn, getCmdRef: () => cmdRef };
         },
         async ACT({ contexts, setCmdRef, getResolveSpawn }) {
-            const cmd = new Install(["--project", "--worker-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--worker-tool=claude", "--skills-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             setCmdRef(cmd);
             while (!getResolveSpawn()) {
                 await new Promise(r => setTimeout(r, 1));
@@ -818,7 +832,7 @@ test.describe("Install flag validation integration", test => {
             return { ...s, wasAskCalled: () => askCalled };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--worker-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--worker-model=", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -919,7 +933,7 @@ test.describe("Install tool availability check", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=both"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=both", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -942,7 +956,7 @@ test.describe("Install tool availability check", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--worker-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--worker-tool=codex", "--skills-tool=codex", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -967,7 +981,7 @@ test.describe("Install tool availability check", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--worker-tool=claude", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--worker-tool=claude", "--reviewer-tool=codex", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -997,7 +1011,7 @@ test.describe("Install tool availability check", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--worker-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--worker-tool=claude", "--skills-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1021,7 +1035,7 @@ test.describe("Install tool availability check", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--reviewer-tool=codex", "--skills-tool=codex", "--worker-tool=codex"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1063,7 +1077,7 @@ test.describe("Install tool availability check", test => {
             return { ...s, writeDuringProbe, errorDuringProbe };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--worker-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--worker-tool=claude", "--skills-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1094,7 +1108,7 @@ test.describe("Install tool availability check", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--worker-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--worker-tool=codex", "--skills-tool=codex", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1133,7 +1147,7 @@ test.describe("Install tool availability check", test => {
             return { ...s, spawnedCommands };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=both"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=both", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1190,20 +1204,20 @@ test.describe("Install tool availability check", test => {
         }
     });
 
-    test("no tool flags means no availability check and install proceeds", {
+});
+
+test.describe("Install prompt order", test => {
+    test("with no flags, prompts are asked in canonical order", {
         ARRANGE() {
             const s = stubContexts();
-            let spawnCalled = false;
-            (s.contexts as { script:ScriptContext }).script = {
-                spawn():never {
-                    spawnCalled = true;
-                    throw new Error("spawn should not be called");
-                }
-            };
-            return { ...s, wasSpawnCalled: () => spawnCalled };
+            s.askResponses.push([{ picked: [{ label: "project" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install([], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1212,9 +1226,183 @@ test.describe("Install tool availability check", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "spawn was not called"(_code, { wasSpawnCalled }) {
-                Assert.strictEqual(wasSpawnCalled(), false);
+            "headers are in canonical order"(_code, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, ["Install destination", "Skills tool", "Worker tool", "Reviewer tool"]);
             }
+        }
+    });
+
+    test("with --worker-tool and --reviewer-tool flags, only scope and skills tool are prompted", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "project" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--worker-tool=claude", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "headers are exactly scope and skills tool"(_code, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, ["Install destination", "Skills tool"]);
+            }
+        }
+    });
+});
+
+test.describe("Install Ctrl+C during tool prompts", test => {
+    test("Ctrl+C during skills tool prompt exits non-zero with no files", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [] }]);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files are written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("Ctrl+C during worker tool prompt exits non-zero with no files", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [] }]);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files are written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("Ctrl+C during reviewer tool prompt exits non-zero with no files", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [] }]);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files are written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+});
+
+test.describe("Install dispose during tool prompts", test => {
+    test("disposed during skills tool prompt returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            let resolvePrompt:((v:readonly AskAnswer[]) => void) | null = null;
+            (s.contexts.ask as { askChoices:typeof s.contexts.ask.askChoices }).askChoices = () => {
+                return new Promise<readonly AskAnswer[]>(resolve => {
+                    resolvePrompt = resolve;
+                });
+            };
+            return { ...s, getResolvePrompt: () => resolvePrompt };
+        },
+        async ACT({ contexts, getResolvePrompt }) {
+            const cmd = new Install(["--project"], { projectRoot: "/proj" }, contexts);
+            while (!getResolvePrompt()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolvePrompt()!([{ picked: [{ label: "claude" }] }]);
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 1);
+        }
+    });
+
+    test("disposed during worker tool prompt returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            let resolvePrompt:((v:readonly AskAnswer[]) => void) | null = null;
+            (s.contexts.ask as { askChoices:typeof s.contexts.ask.askChoices }).askChoices = () => {
+                return new Promise<readonly AskAnswer[]>(resolve => {
+                    resolvePrompt = resolve;
+                });
+            };
+            return { ...s, getResolvePrompt: () => resolvePrompt };
+        },
+        async ACT({ contexts, getResolvePrompt }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            while (!getResolvePrompt()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolvePrompt()!([{ picked: [{ label: "claude" }] }]);
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 1);
+        }
+    });
+
+    test("disposed during reviewer tool prompt returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            let resolvePrompt:((v:readonly AskAnswer[]) => void) | null = null;
+            (s.contexts.ask as { askChoices:typeof s.contexts.ask.askChoices }).askChoices = () => {
+                return new Promise<readonly AskAnswer[]>(resolve => {
+                    resolvePrompt = resolve;
+                });
+            };
+            return { ...s, getResolvePrompt: () => resolvePrompt };
+        },
+        async ACT({ contexts, getResolvePrompt }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude"], { projectRoot: "/proj" }, contexts);
+            while (!getResolvePrompt()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolvePrompt()!([{ picked: [{ label: "claude" }] }]);
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 1);
         }
     });
 });
