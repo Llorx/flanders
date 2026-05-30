@@ -76,6 +76,7 @@ export function formatCodexToolArgs(argsStr:string|undefined):string {
     for (const key of ["command", "file", "file_path", "path", "pattern", "url", "query"]) {
         const val = parsed[key];
         if (typeof val === "string") {
+            /* coverage ignore next */ // Unreachable: split() on a non-empty string always yields ≥1 element; ?? is a defensive fallback.
             const firstLine = val.split("\n")[0] ?? "";
             if (firstLine.length > TOOL_ARG_INLINE_MAX) {
                 return firstLine.slice(0, TOOL_ARG_INLINE_MAX - 3) + "...";

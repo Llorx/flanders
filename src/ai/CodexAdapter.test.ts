@@ -1074,6 +1074,24 @@ test.describe("CodexAdapter", test => {
         }
     });
 
+    test("JSON null line in stdout is silently ignored", {
+        ARRANGE() {
+            const { contexts, script } = makeContexts();
+            const adapter = new CodexAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, script };
+        },
+        async ACT({ adapter, args, script }) {
+            return await collectEvents(adapter, args, script, proc => {
+                proc.$emitStdout("null\n");
+                emitTurnCompletedAndExit(proc);
+            });
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ type: "done" }]);
+        }
+    });
+
     test("pre-aborted signal sends SIGINT immediately", {
         ARRANGE() {
             const controller = new AbortController();
@@ -1128,17 +1146,17 @@ test.describe("CodexAdapter", test => {
         },
         async ACT({ adapter, args, script }) {
             const iterable = adapter.invoke(args);
+            const iter = iterable[Symbol.asyncIterator]();
             const proc = script.$processes[0]!;
             proc.$emitStdout(JSON.stringify({
                 type: "item.completed",
                 item: { type: "message", role: "assistant", content: [{ text: "hi" }] }
             }) + "\n");
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) {
-                events.push(e);
-                break;
-            }
+            const first = await iter.next();
+            const events:ToolEvent[] = first.done ? [] : [first.value];
+            const returnPromise = iter.return!();
             proc.$emit("exit", null, "SIGINT");
+            await returnPromise;
             return { events, kills: proc.$kills };
         },
         ASSERTS: {
