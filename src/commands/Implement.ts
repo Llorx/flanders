@@ -1,4 +1,5 @@
-import { ClaudeSession } from "../ClaudeSession";
+import { AiSession } from "../ai/AiSession";
+import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import type { AskContext, ClaudeContext, FsContext, OutputContext, ScriptContext, TimeContext } from "../contexts";
 import { askChoice } from "../PromptHelper";
 import { isNonEmptyFile, joinPath, listFilesRecursive } from "../fsUtils";
@@ -36,7 +37,7 @@ class LineBufferedBlock {
         }
     }
     flush():void {
-        /* coverage ignore next 8 */ // — ClaudeSession always appends trailing newlines; buffers are empty when flush() runs.
+        /* coverage ignore next 8 */ // — AiSession always appends trailing newlines; buffers are empty when flush() runs.
         if (this._stdoutBuf) {
             this._block.writeAbove(this._stdoutBuf);
             this._stdoutBuf = "";
@@ -62,7 +63,7 @@ export type ImplementOptions = Readonly<{
     projectRoot:string;
 }>;
 
-type RunningSession = { session:ClaudeSession };
+type RunningSession = { session:AiSession };
 type RunningScript = { script:ScriptRunner };
 
 export class Implement {
@@ -596,17 +597,24 @@ export class Implement {
                 capturedOutput += text;
                 this._buffered.writeError(text);
             },
-            /* coverage ignore next 2 */ // — Pass-through required by OutputContext; ClaudeSession never calls columns or rows.
+            /* coverage ignore next 2 */ // — Pass-through required by OutputContext; AiSession never calls columns or rows.
             columns: () => this._contexts.output.columns(),
             rows: () => this._contexts.output.rows(),
-            /* coverage ignore next */ // — Pass-through required by OutputContext; ClaudeSession never calls onResize.
+            /* coverage ignore next */ // — Pass-through required by OutputContext; AiSession never calls onResize.
             onResize: listener => this._contexts.output.onResize(listener)
         };
-        const session = new ClaudeSession({
+        const adapter = new ClaudeAdapter({
+            claude: this._contexts.claude,
+            time: this._contexts.time,
+            ask: this._contexts.ask
+        });
+        const session = new AiSession({
+            adapter,
             prompt,
-            cwd: this._options.projectRoot,
-            ...(initialSessionId != null ? { initialSessionId } : null),
-            ...(forkFromSessionId != null ? { forkFromSessionId } : null),
+            model: "",
+            effort: "",
+            ...(initialSessionId != null ? { resumeSessionId: initialSessionId } : null),
+            ...(forkFromSessionId != null ? { forkParentSessionId: forkFromSessionId } : null),
             onLongWaitStart: (kind, endTimeMs) => {
                 /* coverage ignore next */ // — Defensive: rate-limit callback after dispose is a no-op.
                 if (this._disposed) return;
@@ -624,10 +632,8 @@ export class Implement {
                 this._block!.setFooter({ kind: "working" });
             }
         }, {
-            claude: this._contexts.claude,
             time: this._contexts.time,
-            output: capturingOutput,
-            ask: this._contexts.ask
+            output: capturingOutput
         });
         const running = { session };
         this._activeSession = running;

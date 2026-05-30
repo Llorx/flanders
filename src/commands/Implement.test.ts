@@ -58,7 +58,10 @@ function claudeResultEvents(text:string, inputTokens = 0, outputTokens = 0, sess
 
 function rateLimitEvent(nowMs:number, retryAfterSeconds:number):string {
     return JSON.stringify({
-        type: "rate_limit_event",
+        type: "result",
+        is_error: true,
+        api_error_status: 429,
+        error: { message: "rate limited" },
         rate_limit_info: {
             status: "rejected",
             resetsAt: Math.ceil((nowMs + retryAfterSeconds * 1000) / 1000),
@@ -1286,19 +1289,32 @@ function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
     (s.contexts as any).time = time.ctx;
     s.files.set(PLAN_PATH, PLAN_ONE_TASK);
     let spawnCount = 0;
-    (s.contexts.claude as any).spawn = () => {
+    (s.contexts.claude as any).spawn = (_command:string, args:readonly string[]) => {
+        s.claudeSpawnedArgs.push([...args]);
         spawnCount++;
         const proc = fakeProcess();
+        const origStdin = proc.stdin!;
+        (proc as any).stdin = {
+            write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { s.promptQueue.push(p.message.content); } } catch {} },
+            end() { origStdin.end(); }
+        };
         if (spawnCount === rateLimitOnSpawn) {
             setImmediate(() => {
                 proc.$emitStdout(rateLimitEvent(time.ctx.now(), retryAfterSeconds) + "\n");
-                proc.$emit("exit", 1);
+                proc.$emit("exit", 0);
             });
         } else {
-            const response = s.claudeQueue.shift()!;
+            const response = s.claudeQueue.shift();
+            if (!response) {
+                setImmediate(() => proc.$emit("error", new Error("claude queue exhausted")));
+                return proc;
+            }
             setImmediate(() => {
                 if (response.errorLog !== undefined) {
                     s.files.set(WS_ROOT + "/error.log", response.errorLog);
+                }
+                if (response.stderr) {
+                    proc.$emitStderr(response.stderr);
                 }
                 proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
                 proc.$emit("exit", 0);

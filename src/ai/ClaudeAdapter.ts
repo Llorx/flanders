@@ -186,6 +186,7 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
     private _error:Error|null = null;
     private _waitResolve:(() => void)|null = null;
     private _abortListener:(() => void)|null = null;
+    private _pendingTerminal:ToolEvent|null = null;
     private _exitPromise:Promise<void>|null = null;
 
     constructor(
@@ -257,10 +258,14 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
                 });
                 stderrBuf = "";
             }
+            if (this._pendingTerminal) {
+                this._queue.push(this._pendingTerminal);
+                this._pendingTerminal = null;
+            }
             if (!this._done) {
                 this._done = true;
-                this._wake();
             }
+            this._wake();
             exitResolve?.();
         });
 
@@ -384,11 +389,9 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
             }
 
             if (!parsed.is_error) {
-                this._queue.push({ type: "done" });
-                this._done = true;
+                this._pendingTerminal = { type: "done" };
             } else {
-                this._queue.push(this._classifyError(parsed));
-                this._done = true;
+                this._pendingTerminal = this._classifyError(parsed);
             }
         }
 
