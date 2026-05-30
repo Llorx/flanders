@@ -14,11 +14,13 @@ function stubContexts() {
     const dirs = new Set<string>();
     const askResponses:AskAnswer[][] = [];
     const askedHeaders:string[] = [];
+    const askedTextPrompts:string[] = [];
+    const askTextResponses:string[] = [];
     const contexts:InstallContexts = {
         fs: {
             readFile(p) { return files.has(p) ? Promise.resolve(files.get(p)!) : Promise.reject(new Error("not found")); },
             writeFile(p, content) { files.set(p, content); return Promise.resolve(); },
-            rename() { return Promise.resolve(); },
+            rename(oldPath, newPath) { if (files.has(oldPath)) { files.set(newPath, files.get(oldPath)!); files.delete(oldPath); } return Promise.resolve(); },
             readdir() { return Promise.resolve([]); },
             stat() { return Promise.reject(new Error("unexpected stat")); },
             exists(p) { return Promise.resolve(files.has(p) || dirs.has(p)); },
@@ -34,7 +36,7 @@ function stubContexts() {
                 const response = askResponses.shift();
                 return Promise.resolve(response ?? []);
             },
-            askText() { return Promise.resolve(""); }
+            askText(prompt) { askedTextPrompts.push(prompt); return Promise.resolve(askTextResponses.length > 0 ? askTextResponses.shift()! : ""); }
         },
         output: {
             write(text) { written.push(text); },
@@ -66,7 +68,7 @@ function stubContexts() {
             }
         }
     };
-    return { contexts, written, errors, files, dirs, askResponses, askedHeaders };
+    return { contexts, written, errors, files, dirs, askResponses, askedHeaders, askedTextPrompts, askTextResponses };
 }
 
 test.describe("Install --project", test => {
@@ -96,14 +98,20 @@ test.describe("Install --project", test => {
             "plan skill file has correct body"(_code, { files }) {
                 Assert.strictEqual(files.get("/myproject/.claude/skills/flanders-plan/SKILL.md"), planSkillBody);
             },
-            "writes exactly 2 files"(_code, { files }) {
-                Assert.strictEqual(files.size, 2);
+            "writes exactly 3 files"(_code, { files }) {
+                Assert.strictEqual(files.size, 3);
+            },
+            "writes config.json"(_code, { files }) {
+                Assert.ok(files.has("/myproject/.flanders/config.json"));
             },
             "stdout includes spec skill path"(_code, { written }) {
                 Assert.ok(written.join("").includes("/myproject/.claude/skills/flanders-spec/SKILL.md"));
             },
             "stdout includes plan skill path"(_code, { written }) {
                 Assert.ok(written.join("").includes("/myproject/.claude/skills/flanders-plan/SKILL.md"));
+            },
+            "stdout includes config path"(_code, { written }) {
+                Assert.ok(written.join("").includes("/myproject/.flanders/config.json"));
             }
         }
     });
@@ -118,9 +126,9 @@ test.describe("Install --project", test => {
             await cmd.dispose();
         },
         ASSERTS: {
-            "outputs exactly 2 lines"(_, { written }) {
+            "outputs exactly 3 lines"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
-                Assert.strictEqual(lines.length, 2);
+                Assert.strictEqual(lines.length, 3);
             },
             "first line includes spec skill path"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
@@ -129,6 +137,10 @@ test.describe("Install --project", test => {
             "second line includes plan skill path"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
                 Assert.ok(lines[1]!.includes("flanders-plan/SKILL.md"));
+            },
+            "third line includes config path"(_, { written }) {
+                const lines = written.join("").split("\n").filter(l => l.length > 0);
+                Assert.ok(lines[2]!.includes(".flanders/config.json"));
             }
         }
     });
@@ -158,8 +170,11 @@ test.describe("Install --global", test => {
             "spec skill file has correct body"(_code, { files }) {
                 Assert.strictEqual(files.get("/home/testuser/.claude/skills/flanders-spec/SKILL.md"), specSkillBody);
             },
-            "writes exactly 2 files"(_code, { files }) {
-                Assert.strictEqual(files.size, 2);
+            "writes exactly 3 files"(_code, { files }) {
+                Assert.strictEqual(files.size, 3);
+            },
+            "writes config.json under homedir"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.flanders/config.json"));
             },
             "stdout includes spec skill path"(_code, { written }) {
                 Assert.ok(written.join("").includes("/home/testuser/.claude/skills/flanders-spec/SKILL.md"));
@@ -225,8 +240,8 @@ test.describe("Install interactive prompt", test => {
             "creates plan skill file under project"(_code, { files }) {
                 Assert.ok(files.has("/proj/.claude/skills/flanders-plan/SKILL.md"));
             },
-            "writes exactly 2 files"(_code, { files }) {
-                Assert.strictEqual(files.size, 2);
+            "writes exactly 3 files"(_code, { files }) {
+                Assert.strictEqual(files.size, 3);
             }
         }
     });
@@ -256,8 +271,8 @@ test.describe("Install interactive prompt", test => {
             "creates plan skill file under homedir"(_code, { files }) {
                 Assert.ok(files.has("/home/testuser/.claude/skills/flanders-plan/SKILL.md"));
             },
-            "writes exactly 2 files"(_code, { files }) {
-                Assert.strictEqual(files.size, 2);
+            "writes exactly 3 files"(_code, { files }) {
+                Assert.strictEqual(files.size, 3);
             }
         }
     });
@@ -832,7 +847,7 @@ test.describe("Install flag validation integration", test => {
             return { ...s, wasAskCalled: () => askCalled };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--worker-model=", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--worker-model=", "--reviewer-model=", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1403,6 +1418,559 @@ test.describe("Install dispose during tool prompts", test => {
         },
         ASSERT(code) {
             Assert.strictEqual(code, 1);
+        }
+    });
+});
+
+type DataListener = (chunk:Buffer|string) => void;
+
+function makeModelScript(opts:{
+    probeStdout?:string;
+    probeExitCode?:number;
+    probeCallCounter?:{ count:number };
+}):ScriptContext {
+    return {
+        spawn(_command:string, args:readonly string[]):SpawnedProcess {
+            if (args[0] === "models") {
+                if (opts.probeCallCounter) opts.probeCallCounter.count++;
+                let exitListener:ExitListener|null = null;
+                let dataListener:DataListener|null = null;
+                return {
+                    on(event:"exit"|"error", listener:never) {
+                        if (event === "exit") {
+                            exitListener = listener;
+                            Promise.resolve().then(() => {
+                                if (opts.probeStdout && dataListener) {
+                                    dataListener(opts.probeStdout);
+                                }
+                            }).then(() => {
+                                exitListener?.(opts.probeExitCode ?? 0, null);
+                            });
+                        }
+                    },
+                    kill() {},
+                    stdout: { on(_e:"data", l:DataListener) { dataListener = l; } },
+                    stderr: { on() {} }
+                };
+            }
+            let exitListener:ExitListener|null = null;
+            return {
+                on(event:"exit"|"error", listener:never) {
+                    if (event === "exit") {
+                        exitListener = listener;
+                        Promise.resolve().then(() => exitListener?.(0, null));
+                    }
+                },
+                kill() {},
+                stdout: { on() {} },
+                stderr: { on() {} }
+            };
+        }
+    };
+}
+
+test.describe("Install model question", test => {
+    test("claude tool uses askText for worker model", {
+        ARRANGE() {
+            const s = stubContexts();
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "askText was called for worker model"(_code, { askedTextPrompts }) {
+                Assert.ok(askedTextPrompts.length >= 1);
+                Assert.strictEqual(askedTextPrompts[0], "Which model should the worker use? (leave empty for the default configured model): ");
+            },
+            "no Worker model header in askChoices"(_code, { askedHeaders }) {
+                Assert.ok(!askedHeaders.includes("Worker model"));
+            }
+        }
+    });
+
+    test("codex tool with successful probe uses askChoice with three options", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: '["gpt-5-codex","gpt-4.1"]',
+                probeExitCode: 0
+            });
+            let capturedOptions:readonly { label:string; description?:string }[] = [];
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
+                for (const q of questions) {
+                    s.askedHeaders.push(q.header);
+                    if (q.header === "Worker model") {
+                        capturedOptions = q.options;
+                    }
+                }
+                const response = s.askResponses.shift();
+                return Promise.resolve(response ?? []);
+            };
+            s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]);
+            return { ...s, getCapturedOptions: () => capturedOptions };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "Worker model header is present"(_code, { askedHeaders }) {
+                Assert.ok(askedHeaders.includes("Worker model"));
+            },
+            "presents exactly 3 options"(_code, { getCapturedOptions }) {
+                Assert.strictEqual(getCapturedOptions().length, 3);
+            },
+            "first option is gpt-5-codex"(_code, { getCapturedOptions }) {
+                Assert.strictEqual(getCapturedOptions()[0]!.label, "gpt-5-codex");
+            },
+            "second option is gpt-4.1"(_code, { getCapturedOptions }) {
+                Assert.strictEqual(getCapturedOptions()[1]!.label, "gpt-4.1");
+            },
+            "third option is the synthetic entry"(_code, { getCapturedOptions }) {
+                Assert.strictEqual(getCapturedOptions()[2]!.label, "default configured model");
+            }
+        }
+    });
+
+    test("both worker and reviewer codex probes once due to cache", {
+        ARRANGE() {
+            const s = stubContexts();
+            const counter = { count: 0 };
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: '["m1"]',
+                probeExitCode: 0,
+                probeCallCounter: counter
+            });
+            s.askResponses.push([{ picked: [{ label: "m1" }] }]);
+            s.askResponses.push([{ picked: [{ label: "m1" }] }]);
+            return { ...s, counter };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "probe invoked exactly once"(_code, { counter }) {
+                Assert.strictEqual(counter.count, 1);
+            }
+        }
+    });
+
+    test("codex probe failure falls back to askText", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeExitCode: 1
+            });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "askText was called for worker model"(_code, { askedTextPrompts }) {
+                Assert.strictEqual(askedTextPrompts[0], "Which model should the worker use? (leave empty for the default configured model): ");
+            },
+            "no Worker model header in askChoices"(_code, { askedHeaders }) {
+                Assert.ok(!askedHeaders.includes("Worker model"));
+            }
+        }
+    });
+
+    test("picking synthetic default configured model persists as empty string", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: '["gpt-5-codex","gpt-4.1"]',
+                probeExitCode: 0
+            });
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
+                for (const q of questions) {
+                    s.askedHeaders.push(q.header);
+                }
+                const response = s.askResponses.shift();
+                return Promise.resolve(response ?? []);
+            };
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.model is empty string"(_code, { files }) {
+                const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(config.worker.model, "");
+            }
+        }
+    });
+
+    test("typing specific model persists exactly byte-for-byte", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askTextResponses.push("gpt-5-codex");
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.model is exact string"(_code, { files }) {
+                const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(config.worker.model, "gpt-5-codex");
+            }
+        }
+    });
+
+    test("probe stdout is not forwarded to OutputContext", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: "probe-secret-data-should-not-appear",
+                probeExitCode: 0
+            });
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
+                for (const q of questions) {
+                    s.askedHeaders.push(q.header);
+                }
+                const response = s.askResponses.shift();
+                return Promise.resolve(response ?? []);
+            };
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "no write contains probe output"(_code, { written }) {
+                Assert.ok(!written.join("").includes("probe-secret-data-should-not-appear"));
+            },
+            "no error contains probe output"(_code, { errors }) {
+                Assert.ok(!errors.join("").includes("probe-secret-data-should-not-appear"));
+            }
+        }
+    });
+
+    test("--worker-model flag skips prompt and persists the value", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=my-model", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.model is the flag value"(_code, { files }) {
+                const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(config.worker.model, "my-model");
+            },
+            "no askText called for worker model"(_code, { askedTextPrompts }) {
+                const workerModelPrompts = askedTextPrompts.filter(p => p.includes("worker"));
+                Assert.strictEqual(workerModelPrompts.length, 0);
+            }
+        }
+    });
+
+    test("Ctrl+C during worker model askText exits non-zero", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts.ask as { askText:typeof s.contexts.ask.askText }).askText = () => {
+                return Promise.reject(new Error("readline closed"));
+            };
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("Ctrl+C during worker model askChoice exits non-zero", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: '["m1"]',
+                probeExitCode: 0
+            });
+            s.askResponses.push([{ picked: [] }]);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("Ctrl+C during reviewer model askText exits non-zero", {
+        ARRANGE() {
+            const s = stubContexts();
+            let askTextCount = 0;
+            (s.contexts.ask as { askText:typeof s.contexts.ask.askText }).askText = () => {
+                askTextCount++;
+                if (askTextCount === 2) {
+                    return Promise.reject(new Error("readline closed"));
+                }
+                return Promise.resolve("");
+            };
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("disposed during model probe returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            let resolveExit:(() => void)|null = null;
+            let cmdRef:Install|null = null;
+            (s.contexts as { script:ScriptContext }).script = {
+                spawn(_command:string, args:readonly string[]):SpawnedProcess {
+                    if (args[0] === "models") {
+                        let exitListener:ExitListener|null = null;
+                        return {
+                            on(event:"exit"|"error", listener:never) {
+                                if (event === "exit") {
+                                    exitListener = listener;
+                                    resolveExit = () => exitListener?.(0, null);
+                                }
+                            },
+                            kill() {},
+                            stdout: { on() {} },
+                            stderr: { on() {} }
+                        };
+                    }
+                    let exitListener:ExitListener|null = null;
+                    return {
+                        on(event:"exit"|"error", listener:never) {
+                            if (event === "exit") {
+                                exitListener = listener;
+                                Promise.resolve().then(() => exitListener?.(0, null));
+                            }
+                        },
+                        kill() {},
+                        stdout: { on() {} },
+                        stderr: { on() {} }
+                    };
+                }
+            };
+            return { ...s, setCmdRef: (cmd:Install) => { cmdRef = cmd; }, getResolveExit: () => resolveExit, getCmdRef: () => cmdRef };
+        },
+        async ACT({ contexts, setCmdRef, getResolveExit }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            setCmdRef(cmd);
+            while (!getResolveExit()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolveExit()!();
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("config persists both worker and reviewer model values", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: '["model-a","model-b"]',
+                probeExitCode: 0
+            });
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
+                for (const q of questions) {
+                    s.askedHeaders.push(q.header);
+                }
+                const response = s.askResponses.shift();
+                return Promise.resolve(response ?? []);
+            };
+            s.askResponses.push([{ picked: [{ label: "model-a" }] }]);
+            s.askResponses.push([{ picked: [{ label: "model-b" }] }]);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.model is model-a"(_code, { files }) {
+                const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(config.worker.model, "model-a");
+            },
+            "config reviewer.model is model-b"(_code, { files }) {
+                const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(config.reviewer.model, "model-b");
+            },
+            "config worker.tool is codex"(_code, { files }) {
+                const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(config.worker.tool, "codex");
+            },
+            "config reviewer.tool is codex"(_code, { files }) {
+                const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(config.reviewer.tool, "codex");
+            }
+        }
+    });
+
+    test("Ctrl+C during reviewer model askChoice exits non-zero", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: '["m1"]',
+                probeExitCode: 0
+            });
+            s.askResponses.push([{ picked: [{ label: "m1" }] }]);
+            s.askResponses.push([{ picked: [] }]);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("reviewer picking default configured model persists as empty string", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: '["gpt-5-codex","gpt-4.1"]',
+                probeExitCode: 0
+            });
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
+                for (const q of questions) {
+                    s.askedHeaders.push(q.header);
+                }
+                const response = s.askResponses.shift();
+                return Promise.resolve(response ?? []);
+            };
+            s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]);
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "config reviewer.model is empty string"(_code, { files }) {
+                const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(config.reviewer.model, "");
+            },
+            "config worker.model is gpt-5-codex"(_code, { files }) {
+                const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(config.worker.model, "gpt-5-codex");
+            }
         }
     });
 });

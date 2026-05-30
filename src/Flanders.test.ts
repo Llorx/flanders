@@ -135,6 +135,7 @@ test.describe("Flanders dispatch", test => {
             const { contexts, written, errors } = stubContexts();
             const files:Record<string, string> = {};
             contexts.fs.writeFile = async (p, content) => { files[p] = content; };
+            contexts.fs.rename = async (oldPath, newPath) => { if (files[oldPath]) { files[newPath] = files[oldPath]; delete files[oldPath]; } };
             contexts.fs.mkdir = async () => {};
             contexts.script.spawn = () => {
                 let exitListener:((code:number|null, signal:string|null) => void)|null = null;
@@ -151,7 +152,7 @@ test.describe("Flanders dispatch", test => {
             return { contexts, written, errors, files };
         },
         async ACT({ contexts }) {
-            const f = new Flanders(["install", "--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const f = new Flanders(["install", "--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
             const code = await f.result();
             await f.dispose();
             return code;
