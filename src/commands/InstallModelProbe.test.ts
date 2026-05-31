@@ -9,15 +9,23 @@ type ExitListener = (code:number|null, signal:string|null) => void;
 type ErrorListener = (e:unknown) => void;
 type DataListener = (chunk:Buffer|string) => void;
 
+type SpawnCall = Readonly<{
+    command:string;
+    args:readonly string[];
+    options:Readonly<Record<string, unknown>>;
+}>;
+
 function makeProbeStub(opts:{
     stdout?:string;
     exitCode?:number|null;
     exitSignal?:string|null;
     spawnError?:boolean;
     emitError?:boolean;
-}):ScriptContext {
-    return {
-        spawn():SpawnedProcess {
+}):{ script:ScriptContext; calls:SpawnCall[] } {
+    const calls:SpawnCall[] = [];
+    const script:ScriptContext = {
+        spawn(command:string, args:readonly string[], options:Record<string, unknown>):SpawnedProcess {
+            calls.push({ command, args, options });
             if (opts.spawnError) {
                 const err = new Error("spawn codex ENOENT") as Error & { code:string };
                 err.code = "ENOENT";
@@ -60,6 +68,7 @@ function makeProbeStub(opts:{
             return proc;
         }
     };
+    return { script, calls };
 }
 
 test.describe("probeModelList", test => {
@@ -84,33 +93,72 @@ test.describe("probeModelList", test => {
         }
     });
 
-    test("codex with exit 0 and JSON array of strings returns the array", {
+    test("codex spawns `codex debug models` with stdio pipe and no --bundled flag", {
         ARRANGE() {
-            return { script: makeProbeStub({ stdout: '["gpt-5-codex","gpt-4.1"]', exitCode: 0 }) };
+            return makeProbeStub({ stdout: '{"models":[{"slug":"m","visibility":"list"}]}', exitCode: 0 });
+        },
+        async ACT({ script }) {
+            await probeModelList("codex", script);
+        },
+        ASSERTS: {
+            "spawns exactly once"(_result, { calls }) {
+                Assert.strictEqual(calls.length, 1);
+            },
+            "uses the codex binary"(_result, { calls }) {
+                Assert.strictEqual(calls[0]!.command, "codex");
+            },
+            "passes exactly the args [debug, models]"(_result, { calls }) {
+                Assert.deepStrictEqual(calls[0]!.args, ["debug", "models"]);
+            },
+            "does not include --bundled"(_result, { calls }) {
+                Assert.strictEqual(calls[0]!.args.includes("--bundled"), false);
+            },
+            "does not use the old `models list --json` form"(_result, { calls }) {
+                Assert.strictEqual(calls[0]!.args.includes("list"), false);
+                Assert.strictEqual(calls[0]!.args.includes("--json"), false);
+            },
+            "passes stdio: pipe"(_result, { calls }) {
+                Assert.strictEqual(calls[0]!.options.stdio, "pipe");
+            }
+        }
+    });
+
+    test("codex returns slugs of only `list`-visibility entries in catalog order", {
+        ARRANGE() {
+            return makeProbeStub({
+                stdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list"},{"slug":"gpt-4.1","visibility":"list"},{"slug":"o3","visibility":"list"}]}',
+                exitCode: 0
+            });
         },
         async ACT({ script }) {
             return await probeModelList("codex", script);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, ["gpt-5-codex", "gpt-4.1"]);
+            Assert.deepStrictEqual(result, ["gpt-5-codex", "gpt-4.1", "o3"]);
         }
     });
 
-    test("codex with exit 0 and JSON array of objects with id returns extracted ids", {
+    test("codex with mixed visibilities excludes everything that is not exactly `list`", {
         ARRANGE() {
-            return { script: makeProbeStub({ stdout: '[{"id":"model-a","name":"A"},{"id":"model-b","name":"B"}]', exitCode: 0 }) };
+            return makeProbeStub({
+                stdout: '{"models":[{"slug":"hidden-a","visibility":"hide"},{"slug":"visible-a","visibility":"list"},{"slug":"internal","visibility":"internal"},{"slug":"visible-b","visibility":"list"},{"slug":"hidden-b","visibility":"hide"}]}',
+                exitCode: 0
+            });
         },
         async ACT({ script }) {
             return await probeModelList("codex", script);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, ["model-a", "model-b"]);
+            Assert.deepStrictEqual(result, ["visible-a", "visible-b"]);
         }
     });
 
-    test("codex with non-zero exit returns null", {
+    test("codex with zero `list`-visibility entries resolves to null", {
         ARRANGE() {
-            return { script: makeProbeStub({ exitCode: 1 }) };
+            return makeProbeStub({
+                stdout: '{"models":[{"slug":"a","visibility":"hide"},{"slug":"b","visibility":"internal"}]}',
+                exitCode: 0
+            });
         },
         async ACT({ script }) {
             return await probeModelList("codex", script);
@@ -120,9 +168,9 @@ test.describe("probeModelList", test => {
         }
     });
 
-    test("codex with spawn failure returns null", {
+    test("codex with empty models array resolves to null", {
         ARRANGE() {
-            return { script: makeProbeStub({ spawnError: true }) };
+            return makeProbeStub({ stdout: '{"models":[]}', exitCode: 0 });
         },
         async ACT({ script }) {
             return await probeModelList("codex", script);
@@ -132,9 +180,12 @@ test.describe("probeModelList", test => {
         }
     });
 
-    test("codex with invalid JSON returns null", {
+    test("codex with entry missing slug resolves to null", {
         ARRANGE() {
-            return { script: makeProbeStub({ stdout: "not json", exitCode: 0 }) };
+            return makeProbeStub({
+                stdout: '{"models":[{"visibility":"list"}]}',
+                exitCode: 0
+            });
         },
         async ACT({ script }) {
             return await probeModelList("codex", script);
@@ -144,9 +195,12 @@ test.describe("probeModelList", test => {
         }
     });
 
-    test("codex with empty JSON array returns null", {
+    test("codex with entry missing visibility resolves to null", {
         ARRANGE() {
-            return { script: makeProbeStub({ stdout: "[]", exitCode: 0 }) };
+            return makeProbeStub({
+                stdout: '{"models":[{"slug":"a"}]}',
+                exitCode: 0
+            });
         },
         async ACT({ script }) {
             return await probeModelList("codex", script);
@@ -156,9 +210,204 @@ test.describe("probeModelList", test => {
         }
     });
 
-    test("codex with signal termination returns null", {
+    test("codex with non-string slug resolves to null", {
         ARRANGE() {
-            return { script: makeProbeStub({ exitCode: null, exitSignal: "SIGTERM" }) };
+            return makeProbeStub({
+                stdout: '{"models":[{"slug":123,"visibility":"list"}]}',
+                exitCode: 0
+            });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with non-string visibility resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({
+                stdout: '{"models":[{"slug":"a","visibility":true}]}',
+                exitCode: 0
+            });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with entry that is not an object resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({
+                stdout: '{"models":["just-a-string"]}',
+                exitCode: 0
+            });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with entry that is null resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({
+                stdout: '{"models":[null]}',
+                exitCode: 0
+            });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with entry that is an array resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({
+                stdout: '{"models":[["slug","list"]]}',
+                exitCode: 0
+            });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with top-level JSON array resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({
+                stdout: '[{"slug":"a","visibility":"list"}]',
+                exitCode: 0
+            });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with top-level JSON scalar resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({ stdout: '"hello"', exitCode: 0 });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with top-level JSON null resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({ stdout: "null", exitCode: 0 });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with models field that is not an array resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({
+                stdout: '{"models":{"slug":"a","visibility":"list"}}',
+                exitCode: 0
+            });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with no models field resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({
+                stdout: '{"other":"value"}',
+                exitCode: 0
+            });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with invalid JSON resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({ stdout: "not json", exitCode: 0 });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with empty stdout and exit 0 resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({ stdout: undefined, exitCode: 0 });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with non-zero exit resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({
+                stdout: '{"models":[{"slug":"a","visibility":"list"}]}',
+                exitCode: 1
+            });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with signal termination (exit code null) resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({ exitCode: null, exitSignal: "SIGTERM" });
+        },
+        async ACT({ script }) {
+            return await probeModelList("codex", script);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+
+    test("codex with spawn failure resolves to null", {
+        ARRANGE() {
+            return makeProbeStub({ spawnError: true });
         },
         async ACT({ script }) {
             return await probeModelList("codex", script);
@@ -170,7 +419,11 @@ test.describe("probeModelList", test => {
 
     test("codex with error event followed by exit settles once as null", {
         ARRANGE() {
-            return { script: makeProbeStub({ emitError: true, exitCode: 0, stdout: '["m1"]' }) };
+            return makeProbeStub({
+                emitError: true,
+                exitCode: 0,
+                stdout: '{"models":[{"slug":"a","visibility":"list"}]}'
+            });
         },
         async ACT({ script }) {
             return await probeModelList("codex", script);
@@ -180,67 +433,7 @@ test.describe("probeModelList", test => {
         }
     });
 
-    test("codex with non-object non-string array returns null", {
-        ARRANGE() {
-            return { script: makeProbeStub({ stdout: "[1,2,3]", exitCode: 0 }) };
-        },
-        async ACT({ script }) {
-            return await probeModelList("codex", script);
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, null);
-        }
-    });
-
-    test("codex with object array missing id field returns null", {
-        ARRANGE() {
-            return { script: makeProbeStub({ stdout: '[{"name":"A"},{"name":"B"}]', exitCode: 0 }) };
-        },
-        async ACT({ script }) {
-            return await probeModelList("codex", script);
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, null);
-        }
-    });
-
-    test("codex with mixed array (string then object) returns null", {
-        ARRANGE() {
-            return { script: makeProbeStub({ stdout: '["a",{"id":"b"}]', exitCode: 0 }) };
-        },
-        async ACT({ script }) {
-            return await probeModelList("codex", script);
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, null);
-        }
-    });
-
-    test("codex with JSON non-array returns null", {
-        ARRANGE() {
-            return { script: makeProbeStub({ stdout: '{"models":["a"]}', exitCode: 0 }) };
-        },
-        async ACT({ script }) {
-            return await probeModelList("codex", script);
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, null);
-        }
-    });
-
-    test("codex with empty stdout and exit 0 returns null", {
-        ARRANGE() {
-            return { script: makeProbeStub({ stdout: undefined, exitCode: 0 }) };
-        },
-        async ACT({ script }) {
-            return await probeModelList("codex", script);
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, null);
-        }
-    });
-
-    test("codex with Buffer chunk returns parsed models", {
+    test("codex with Buffer stdout chunk is decoded and parsed", {
         ARRANGE() {
             const script:ScriptContext = {
                 spawn():SpawnedProcess {
@@ -251,7 +444,7 @@ test.describe("probeModelList", test => {
                             if (event === "exit") {
                                 exitListener = listener;
                                 Promise.resolve().then(() => {
-                                    dataListener?.(Buffer.from('["buf-model"]'));
+                                    dataListener?.(Buffer.from('{"models":[{"slug":"buf-model","visibility":"list"}]}'));
                                 }).then(() => {
                                     exitListener?.(0, null);
                                 });
@@ -274,18 +467,6 @@ test.describe("probeModelList", test => {
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, ["buf-model"]);
-        }
-    });
-
-    test("codex with object where id is non-string returns null", {
-        ARRANGE() {
-            return { script: makeProbeStub({ stdout: '[{"id":123}]', exitCode: 0 }) };
-        },
-        async ACT({ script }) {
-            return await probeModelList("codex", script);
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, null);
         }
     });
 });

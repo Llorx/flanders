@@ -7,7 +7,7 @@ export function probeModelList(tool:"claude"|"codex", script:ScriptContext):Prom
     return new Promise<readonly string[]|null>(resolve => {
         let proc:SpawnedProcess;
         try {
-            proc = script.spawn("codex", ["models", "list", "--json"], { stdio: "pipe" });
+            proc = script.spawn("codex", ["debug", "models"], { stdio: "pipe" });
         } catch {
             resolve(null);
             return;
@@ -32,35 +32,42 @@ export function probeModelList(tool:"claude"|"codex", script:ScriptContext):Prom
                 settle(null);
                 return;
             }
+            let parsed:unknown;
             try {
-                const parsed:unknown = JSON.parse(chunks.join(""));
-                if (!Array.isArray(parsed) || parsed.length === 0) {
+                parsed = JSON.parse(chunks.join(""));
+            } catch {
+                settle(null);
+                return;
+            }
+            if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+                settle(null);
+                return;
+            }
+            const models = (parsed as Record<string, unknown>).models;
+            if (!Array.isArray(models)) {
+                settle(null);
+                return;
+            }
+            const slugs:string[] = [];
+            for (const entry of models) {
+                if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
                     settle(null);
                     return;
                 }
-                const first:unknown = parsed[0];
-                if (typeof first === "string") {
-                    if (parsed.every((v:unknown) => typeof v === "string")) {
-                        settle(parsed as string[]);
-                        return;
-                    }
-                } else if (typeof first === "object" && first !== null) {
-                    const ids:string[] = [];
-                    for (const item of parsed as unknown[]) {
-                        if (typeof item === "object" && item !== null && "id" in item && typeof (item as Record<string, unknown>).id === "string") {
-                            ids.push((item as Record<string, unknown>).id as string);
-                        } else {
-                            settle(null);
-                            return;
-                        }
-                    }
-                    settle(ids);
+                const record = entry as Record<string, unknown>;
+                if (typeof record.slug !== "string" || typeof record.visibility !== "string") {
+                    settle(null);
                     return;
                 }
-                settle(null);
-            } catch {
-                settle(null);
+                if (record.visibility === "list") {
+                    slugs.push(record.slug);
+                }
             }
+            if (slugs.length === 0) {
+                settle(null);
+                return;
+            }
+            settle(slugs);
         });
     });
 }
