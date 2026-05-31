@@ -6454,11 +6454,11 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
                 Assert.ok(promptQueue[1]!.includes("UNIQUE_RULE_ITER2_NOREPLAY"));
             },
             "iter 2 prompt does NOT contain linked contract body"({ promptQueue }) {
-                // promptQueue: [2]=worker iter 2
-                Assert.ok(!promptQueue[2]!.includes("UNIQUE_CONTRACT_ITER2_NOREPLAY"), "linked contract content must NOT be inlined in iter 2");
+                // promptQueue: [0]=detect, [1]=worker iter 1, [2]=reviewer iter 1, [3]=worker iter 2
+                Assert.ok(!promptQueue[3]!.includes("UNIQUE_CONTRACT_ITER2_NOREPLAY"), "linked contract content must NOT be inlined in iter 2");
             },
             "iter 2 prompt does NOT contain linked rule body"({ promptQueue }) {
-                Assert.ok(!promptQueue[2]!.includes("UNIQUE_RULE_ITER2_NOREPLAY"), "linked rule content must NOT be inlined in iter 2");
+                Assert.ok(!promptQueue[3]!.includes("UNIQUE_RULE_ITER2_NOREPLAY"), "linked rule content must NOT be inlined in iter 2");
             }
         }
     });
@@ -6627,6 +6627,157 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             },
             "task Beta iter 2 worker has no --fork-session"({ claudeSpawnedArgs }) {
                 Assert.ok(!claudeSpawnedArgs[7]!.includes("--fork-session"), "iter 2 of task Beta must not have --fork-session");
+            }
+        }
+    });
+});
+
+test.describe("Implement reviewer branch A vs branch B", test => {
+    test("branch A: prepActive=true — reviewer forks from prep and prompt does NOT inline linked content", {
+        ARRANGE() {
+            const s = stubContexts();
+            const plan = planWithLinkedFiles(
+                "`contracts/linked-c.md`.",
+                "`rules/linked-r.md`."
+            );
+            s.files.set(PLAN_PATH, plan);
+            s.files.set("/project/contracts/linked-c.md", "UNIQUE_REVIEWER_CONTRACT_ALPHA");
+            s.files.set("/project/rules/linked-r.md", "UNIQUE_REVIEWER_RULE_ALPHA");
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "READY", sessionId: "prep-rev-a" });
+            s.claudeQueue.push({ text: "worker done", sessionId: "worker-rev-a" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs, promptQueue }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs, promptQueue };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer forks from prep session id"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=prep, [2]=worker, [3]=reviewer
+                Assert.strictEqual(claudeSpawnedArgs[3]![0], "--resume");
+                Assert.strictEqual(claudeSpawnedArgs[3]![1], "prep-rev-a");
+                Assert.ok(claudeSpawnedArgs[3]!.includes("--fork-session"));
+            },
+            "reviewer prompt does NOT contain linked contract body"({ promptQueue }) {
+                // promptQueue: [0]=detect, [1]=prep, [2]=worker, [3]=reviewer
+                const reviewerPrompt = promptQueue[3]!;
+                Assert.ok(!reviewerPrompt.includes("UNIQUE_REVIEWER_CONTRACT_ALPHA"), "linked contract content must NOT be inlined in branch A reviewer");
+            },
+            "reviewer prompt does NOT contain linked rule body"({ promptQueue }) {
+                const reviewerPrompt = promptQueue[3]!;
+                Assert.ok(!reviewerPrompt.includes("UNIQUE_REVIEWER_RULE_ALPHA"), "linked rule content must NOT be inlined in branch A reviewer");
+            }
+        }
+    });
+
+    test("branch B: prepActive=false — reviewer is fresh and prompt inlines linked content", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "codex", model: "", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            const plan = planWithLinkedFiles(
+                "`contracts/linked-c.md`.",
+                "`rules/linked-r.md`."
+            );
+            s.files.set(PLAN_PATH, plan);
+            s.files.set("/project/contracts/linked-c.md", "UNIQUE_REVIEWER_CONTRACT_BETA");
+            s.files.set("/project/rules/linked-r.md", "UNIQUE_REVIEWER_RULE_BETA");
+            s.files.set("/project/contracts/unlinked-global.md", "UNLINKED_REVIEWER_GLOBAL_SNIPPET");
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "worker done", sessionId: "worker-rev-b" });
+            s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, codexSpawnedArgs, promptQueue }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, codexSpawnedArgs, promptQueue };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer has no fork subcommand"({ codexSpawnedArgs }) {
+                Assert.ok(!codexSpawnedArgs[0]!.includes("fork"), "reviewer must not use fork in branch B");
+            },
+            "reviewer has no resume subcommand"({ codexSpawnedArgs }) {
+                Assert.ok(!codexSpawnedArgs[0]!.includes("resume"), "reviewer must not use resume in branch B");
+            },
+            "reviewer prompt contains linked contract body"({ promptQueue }) {
+                // promptQueue: [0]=detect, [1]=worker, [2]=reviewer
+                const reviewerPrompt = promptQueue[2]!;
+                Assert.ok(reviewerPrompt.includes("UNIQUE_REVIEWER_CONTRACT_BETA"), "linked contract content must be inlined in branch B reviewer");
+            },
+            "reviewer prompt contains linked rule body"({ promptQueue }) {
+                const reviewerPrompt = promptQueue[2]!;
+                Assert.ok(reviewerPrompt.includes("UNIQUE_REVIEWER_RULE_BETA"), "linked rule content must be inlined in branch B reviewer");
+            },
+            "reviewer prompt does NOT contain unlinked global file content"({ promptQueue }) {
+                const reviewerPrompt = promptQueue[2]!;
+                Assert.ok(!reviewerPrompt.includes("UNLINKED_REVIEWER_GLOBAL_SNIPPET"), "unlinked file content must NOT be inlined in reviewer");
+            }
+        }
+    });
+
+    test("branch A: across two iterations, both reviewer calls fork from the same prep session id", {
+        ARRANGE() {
+            const s = stubContexts();
+            const plan = planWithLinkedFiles(
+                "`contracts/linked-c.md`.",
+                "`rules/linked-r.md`."
+            );
+            s.files.set(PLAN_PATH, plan);
+            s.files.set("/project/contracts/linked-c.md", "ALPHA_2ITER_CONTRACT");
+            s.files.set("/project/rules/linked-r.md", "ALPHA_2ITER_RULE");
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "READY", sessionId: "prep-rev-2iter" });
+            s.claudeQueue.push({ text: "w1", sessionId: "worker-rev-2iter" });
+            s.claudeQueue.push({ text: "found issues", errorLog: "fix it" });
+            s.claudeQueue.push({ text: "w2" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs, promptQueue }) {
+            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs, promptQueue };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer iter 1 forks from prep"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=prep, [2]=worker1, [3]=reviewer1, [4]=worker2, [5]=reviewer2
+                Assert.strictEqual(claudeSpawnedArgs[3]![1], "prep-rev-2iter");
+                Assert.ok(claudeSpawnedArgs[3]!.includes("--fork-session"));
+            },
+            "reviewer iter 2 forks from same prep"({ claudeSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs[5]![1], "prep-rev-2iter");
+                Assert.ok(claudeSpawnedArgs[5]!.includes("--fork-session"));
+            },
+            "reviewer iter 1 prompt does NOT contain linked contract body"({ promptQueue }) {
+                Assert.ok(!promptQueue[3]!.includes("ALPHA_2ITER_CONTRACT"), "branch A reviewer iter 1 must not inline contract content");
+            },
+            "reviewer iter 1 prompt does NOT contain linked rule body"({ promptQueue }) {
+                Assert.ok(!promptQueue[3]!.includes("ALPHA_2ITER_RULE"), "branch A reviewer iter 1 must not inline rule content");
+            },
+            "reviewer iter 2 prompt does NOT contain linked contract body"({ promptQueue }) {
+                Assert.ok(!promptQueue[5]!.includes("ALPHA_2ITER_CONTRACT"), "branch A reviewer iter 2 must not inline contract content");
+            },
+            "reviewer iter 2 prompt does NOT contain linked rule body"({ promptQueue }) {
+                Assert.ok(!promptQueue[5]!.includes("ALPHA_2ITER_RULE"), "branch A reviewer iter 2 must not inline rule content");
             }
         }
     });

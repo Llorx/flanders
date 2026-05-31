@@ -402,7 +402,7 @@ export class Implement {
                 continue;
             }
             this._setActivity("reviewing");
-            const reviewOk = await this._reviewerStage(plan, task, ws, iteration);
+            const reviewOk = await this._reviewerStage(plan, task, ws, iteration, prepActive);
             /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
             if (this._disposed) {
                 return false;
@@ -577,14 +577,17 @@ export class Implement {
         }
         return true;
     }
-    private async _reviewerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number):Promise<boolean> {
-        const prompt = prompts.reviewer
+    private async _reviewerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, prepActive:boolean):Promise<boolean> {
+        let prompt = prompts.reviewer
             .split(Placeholders.PLAN_PATH).join(plan.path)
             .split(Placeholders.TASK_LINE).join(String(task.line))
             .split(Placeholders.TASK_TITLE).join(task.title)
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
             .split(Placeholders.ERROR_LOG_PATH).join(ws.errorLog);
+        if (!prepActive) {
+            prompt = await this._appendLinkedContent(plan, task, prompt);
+        }
         for (;;) {
             /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
             if (this._disposed) {
@@ -592,7 +595,9 @@ export class Implement {
             }
             await this._workspace!.clearErrorLog();
             try {
-                const { result, capturedOutput } = await this._runAi(this._config!.reviewer.tool, this._config!.reviewer.model, this._config!.reviewer.effort, prompt, null, this._currentPrepSessionId);
+                const { result, capturedOutput } = prepActive
+                    ? await this._runAi(this._config!.reviewer.tool, this._config!.reviewer.model, this._config!.reviewer.effort, prompt, null, this._currentPrepSessionId)
+                    : await this._runAi(this._config!.reviewer.tool, this._config!.reviewer.model, this._config!.reviewer.effort, prompt);
                 this._taskTokens.it += result.inputTokens;
                 this._taskTokens.ot += result.outputTokens;
                 await this._persistMetrics(plan, task.line);
