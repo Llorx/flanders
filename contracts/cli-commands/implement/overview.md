@@ -9,7 +9,7 @@ Execute a plan file end-to-end: implement each open task with a worker AI, valid
 - When `[plan]` is given, it is treated as the path to a plan markdown file under the `plans/` folder.
 - When `[plan]` is omitted:
   - If `plans/` contains exactly one file, that file is selected automatically.
-  - If `plans/` contains more than one file, the command interactively prompts the user to choose one.
+  - If `plans/` contains more than one file, the command exits non-zero with a diagnostic that lists the available plan files and instructs the user to re-run with the `[plan]` argument naming the one to implement.
   - If `plans/` contains no files, the command exits with an error.
 - `--no-git` disables the git integration for the run even when git is available and the current directory is inside a git working tree. See `cli-commands/implement/git-integration.md`.
 
@@ -26,6 +26,7 @@ Execute a plan file end-to-end: implement each open task with a worker AI, valid
 
 ## Outcomes
 - Missing configuration — exit non-zero at startup when neither a project-scope nor a global-scope `.flanders/` is found. The diagnostic points the user at `npx flanders install`.
+- Ambiguous plan selection — exit non-zero at startup when `[plan]` is omitted and `plans/` contains more than one file. The diagnostic lists the available plan files and instructs the user to re-run naming one.
 - Plan validation failure — exit non-zero at startup when the plan file is missing, empty, or contains malformed task lines. The diagnostic names the problem and the path to the file.
 - Git preflight failure — exit non-zero at startup when the git integration is active and the working tree has uncommitted changes other than the selected plan file. See `cli-commands/implement/git-integration.md`.
 - `tasks completed` — printed and exit successfully when every task in the plan was already marked complete at startup.

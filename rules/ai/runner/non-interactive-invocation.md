@@ -7,4 +7,4 @@ A Flanders AI invocation runs a single turn to completion with no human in the l
 - **Subject:** every per-tool adapter — today the Claude adapter (`rules/ai/runner/claude-invocation.md`) and the Codex adapter (`rules/ai/runner/codex-invocation.md`), and any adapter added later. Each adapter realizes this obligation through the specific flags and input handling of its own binary, pinned in that adapter's rule.
 - **Not subject:** the AI runner and the runner's call sites (worker stage, reviewer stage, detect-agent, prep), which never touch a tool's invocation surface directly.
 
-The user-visible consequence of this rule — that an implement run never pauses for the AI to ask the user anything — is stated in `contracts/cli-commands/implement/non-interactive-ai-sessions.md`.
+The user-visible consequence of this rule — that an implement run never pauses for the AI to ask the user anything — is stated in `contracts/cli-commands/implement/non-interactive.md`.
