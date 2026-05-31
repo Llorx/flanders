@@ -6375,3 +6375,259 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
         }
     });
 });
+
+test.describe("Implement worker iter n>1 — resume, no context replay", test => {
+    test("iter 2 with captured session invokes worker with resumeSessionId and no fork parent", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            // prep
+            s.claudeQueue.push(PREP_RESPONSE);
+            // iter 1: worker returns sessionId "w-abc", reviewer FAIL
+            s.claudeQueue.push({ text: "w1", sessionId: "w-abc" });
+            s.claudeQueue.push({ text: "found issues", errorLog: "fix it" });
+            // iter 2: worker, reviewer PASS
+            s.claudeQueue.push({ text: "w2" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "iter 2 worker has --resume w-abc"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=prep, [2]=worker1, [3]=reviewer1, [4]=worker2, [5]=reviewer2
+                Assert.strictEqual(claudeSpawnedArgs[4]![0], "--resume");
+                Assert.strictEqual(claudeSpawnedArgs[4]![1], "w-abc");
+            },
+            "iter 2 worker has no --fork-session"({ claudeSpawnedArgs }) {
+                Assert.ok(!claudeSpawnedArgs[4]!.includes("--fork-session"));
+            }
+        }
+    });
+
+    test("iter 2 prompt does NOT contain linked contract or rule body even after branch B inlined", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "codex", model: "", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            const plan = planWithLinkedFiles(
+                "`contracts/linked-c.md`.",
+                "`rules/linked-r.md`."
+            );
+            s.files.set(PLAN_PATH, plan);
+            s.files.set("/project/contracts/linked-c.md", "UNIQUE_CONTRACT_ITER2_NOREPLAY");
+            s.files.set("/project/rules/linked-r.md", "UNIQUE_RULE_ITER2_NOREPLAY");
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            // detect
+            s.claudeQueue.push({ text: "ok" });
+            // iter 1: worker (branch B, no prep) — inlines content, reviewer FAIL
+            s.claudeQueue.push({ text: "w1", sessionId: "w-branchB" });
+            s.codexQueue.push({ text: "found issues", errorLog: "fix it" });
+            // iter 2: worker resumes, reviewer PASS
+            s.claudeQueue.push({ text: "w2" });
+            s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, promptQueue }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, promptQueue };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "iter 1 prompt contains linked contract body (branch B)"({ promptQueue }) {
+                // promptQueue: [0]=detect, [1]=worker iter 1
+                Assert.ok(promptQueue[1]!.includes("UNIQUE_CONTRACT_ITER2_NOREPLAY"));
+            },
+            "iter 1 prompt contains linked rule body (branch B)"({ promptQueue }) {
+                Assert.ok(promptQueue[1]!.includes("UNIQUE_RULE_ITER2_NOREPLAY"));
+            },
+            "iter 2 prompt does NOT contain linked contract body"({ promptQueue }) {
+                // promptQueue: [2]=worker iter 2
+                Assert.ok(!promptQueue[2]!.includes("UNIQUE_CONTRACT_ITER2_NOREPLAY"), "linked contract content must NOT be inlined in iter 2");
+            },
+            "iter 2 prompt does NOT contain linked rule body"({ promptQueue }) {
+                Assert.ok(!promptQueue[2]!.includes("UNIQUE_RULE_ITER2_NOREPLAY"), "linked rule content must NOT be inlined in iter 2");
+            }
+        }
+    });
+
+    test("iter 2 with null session invokes worker with no resume and no fork", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            // prep
+            s.claudeQueue.push(PREP_RESPONSE);
+            // iter 1: worker returns NO sessionId, reviewer FAIL
+            s.claudeQueue.push({ text: "w1" });
+            s.claudeQueue.push({ text: "found issues", errorLog: "fix it" });
+            // iter 2: worker (no session to resume), reviewer PASS
+            s.claudeQueue.push({ text: "w2" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "iter 2 worker has no --resume"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=prep, [2]=worker1, [3]=reviewer1, [4]=worker2, [5]=reviewer2
+                Assert.ok(!claudeSpawnedArgs[4]!.includes("--resume"), "iter 2 with null session must not have --resume");
+            },
+            "iter 2 worker has no --fork-session"({ claudeSpawnedArgs }) {
+                Assert.ok(!claudeSpawnedArgs[4]!.includes("--fork-session"), "iter 2 with null session must not have --fork-session");
+            }
+        }
+    });
+
+    test("defensive capture: iter 2 emits new session.id, iter 3 uses the new id", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            // prep
+            s.claudeQueue.push(PREP_RESPONSE);
+            // iter 1: worker returns sessionId "w-old", reviewer FAIL
+            s.claudeQueue.push({ text: "w1", sessionId: "w-old" });
+            s.claudeQueue.push({ text: "found issues", errorLog: "fix 1" });
+            // iter 2: worker emits NEW sessionId "w-new", reviewer FAIL
+            s.claudeQueue.push({ text: "w2", sessionId: "w-new" });
+            s.claudeQueue.push({ text: "found issues", errorLog: "fix 2" });
+            // iter 3: worker, reviewer PASS
+            s.claudeQueue.push({ text: "w3" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "iter 2 resumes with w-old"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=prep, [2]=worker1, [3]=reviewer1, [4]=worker2, [5]=reviewer2, [6]=worker3, [7]=reviewer3
+                Assert.strictEqual(claudeSpawnedArgs[4]![0], "--resume");
+                Assert.strictEqual(claudeSpawnedArgs[4]![1], "w-old");
+            },
+            "iter 3 resumes with w-new"({ claudeSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs[6]![0], "--resume");
+                Assert.strictEqual(claudeSpawnedArgs[6]![1], "w-new");
+            },
+            "iter 3 does not use w-old"({ claudeSpawnedArgs }) {
+                Assert.ok(!claudeSpawnedArgs[6]!.includes("w-old"), "iter 3 must use the updated session id, not the old one");
+            }
+        }
+    });
+
+    test("previousIterationBriefing is appended in all iter n>1 cases", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            // prep
+            s.claudeQueue.push(PREP_RESPONSE);
+            // iter 1: worker, reviewer FAIL
+            s.claudeQueue.push({ text: "w1", sessionId: "w-briefing" });
+            s.claudeQueue.push({ text: "found issues", errorLog: "fix it" });
+            // iter 2: worker, reviewer FAIL
+            s.claudeQueue.push({ text: "w2" });
+            s.claudeQueue.push({ text: "found issues", errorLog: "fix again" });
+            // iter 3: worker, reviewer PASS
+            s.claudeQueue.push({ text: "w3" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, promptQueue }) {
+            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, promptQueue };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "iter 1 prompt does not contain briefing"({ promptQueue }) {
+                // promptQueue: [0]=detect, [1]=prep, [2]=worker1
+                Assert.ok(!promptQueue[2]!.includes("This is iteration"), "iter 1 prompt must not contain briefing");
+            },
+            "iter 2 prompt contains iteration 2 briefing"({ promptQueue }) {
+                // promptQueue: [3]=reviewer1, [4]=worker2
+                Assert.ok(promptQueue[4]!.includes("This is iteration 2 for this task"), "iter 2 prompt must contain iteration 2 briefing");
+            },
+            "iter 3 prompt contains iteration 3 briefing"({ promptQueue }) {
+                // promptQueue: [5]=reviewer2, [6]=worker3
+                Assert.ok(promptQueue[6]!.includes("This is iteration 3 for this task"), "iter 3 prompt must contain iteration 3 briefing");
+            }
+        }
+    });
+
+    test("cross-task discard: _currentWorkerSessionId resets to null before iter 1 of new task", {
+        ARRANGE() {
+            const s = stubContexts();
+            const twoTaskPlan = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Task Alpha\n- [ ]{"it":0,"ot":0,"t":0} Task Beta\n';
+            s.files.set(PLAN_PATH, twoTaskPlan);
+            s.claudeQueue.push({ text: "ok" });
+            // Task Alpha: prep, worker (returns sessionId "alpha-ws"), reviewer PASS
+            s.claudeQueue.push({ text: "READY", sessionId: "prep-alpha" });
+            s.claudeQueue.push({ text: "w-alpha", sessionId: "alpha-ws" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            // Task Beta: prep, worker (returns NO sessionId), reviewer FAIL
+            s.claudeQueue.push({ text: "READY", sessionId: "prep-beta" });
+            s.claudeQueue.push({ text: "w-beta-1" });
+            s.claudeQueue.push({ text: "found issues", errorLog: "fix it" });
+            // Task Beta iter 2: worker (no session to resume since iter 1 had null), reviewer PASS
+            s.claudeQueue.push({ text: "w-beta-2" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "task Beta iter 1 worker forks from prep-beta, not alpha-ws"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=prep-alpha, [2]=worker-alpha, [3]=reviewer-alpha, [4]=prep-beta, [5]=worker-beta-1, [6]=reviewer-beta-1, [7]=worker-beta-2, [8]=reviewer-beta-2
+                Assert.strictEqual(claudeSpawnedArgs[5]![0], "--resume");
+                Assert.strictEqual(claudeSpawnedArgs[5]![1], "prep-beta");
+                Assert.ok(claudeSpawnedArgs[5]!.includes("--fork-session"));
+            },
+            "task Beta iter 1 worker does not use alpha-ws"({ claudeSpawnedArgs }) {
+                Assert.ok(!claudeSpawnedArgs[5]!.includes("alpha-ws"), "task Beta must not carry over alpha-ws from task Alpha");
+            },
+            "task Beta iter 2 worker has no --resume (no session captured in iter 1)"({ claudeSpawnedArgs }) {
+                Assert.ok(!claudeSpawnedArgs[7]!.includes("--resume"), "iter 2 of task Beta with null session must not have --resume");
+            },
+            "task Beta iter 2 worker has no --fork-session"({ claudeSpawnedArgs }) {
+                Assert.ok(!claudeSpawnedArgs[7]!.includes("--fork-session"), "iter 2 of task Beta must not have --fork-session");
+            }
+        }
+    });
+});
