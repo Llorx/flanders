@@ -5,7 +5,7 @@ import test from "arrange-act-assert";
 import { Implement } from "./Implement";
 import type { ImplementContexts } from "./Implement";
 import type { FlandersConfig } from "../FlandersConfig";
-import type { OutputContext, SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
+import type { SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { HeaderFields, MetricsFields, TerminalLabel } from "../ui/BottomBlock";
 import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, SEPARATOR_GLYPH } from "../ui/formatters";
@@ -206,10 +206,6 @@ function stubContexts() {
             isWindows() { return false; },
             tmpdir() { return "/tmp"; },
             homedir() { return "/home/test"; }
-        },
-        ask: {
-            askChoices() { return Promise.resolve([]); },
-            askText() { return Promise.resolve(""); }
         },
         output: {
             write(text) { written.push(text); },
@@ -944,134 +940,28 @@ test.describe("Implement config loading", test => {
     });
 });
 
-test.describe("Implement interactive plan prompt routed through block", test => {
+test.describe("Implement ambiguous plan selection", test => {
     const PLAN_A = '# Plan A\n\n- [ ]{"it":0,"ot":0,"t":0} Task A\n';
     const PLAN_B = '# Plan B\n\n- [ ]{"it":0,"ot":0,"t":0} Task B\n';
 
-    function withMultiplePlans(s:ReturnType<typeof stubContexts>) {
-        s.files.set("/project/plans/plan-a.md", PLAN_A);
-        s.files.set("/project/plans/plan-b.md", PLAN_B);
-        const origExists = s.contexts.fs.exists.bind(s.contexts.fs);
-        (s.contexts.fs as any).exists = (p:string) => {
-            if (p === "/project/plans") return Promise.resolve(true);
-            return origExists(p);
-        };
-        (s.contexts.fs as any).readdir = (p:string) => {
-            if (p === "/project/plans") {
-                return Promise.resolve([
-                    { name: "plan-a.md", isFile: true, isDirectory: false },
-                    { name: "plan-b.md", isFile: true, isDirectory: false }
-                ]);
-            }
-            return Promise.resolve([]);
-        };
-    }
-
-    test("valid plan selection writes question text above the block", {
+    test("multiple plans + no [plan] arg emits diagnostic listing each plan and instructions, exits non-zero, never prompts", {
         ARRANGE() {
             const s = stubContexts();
-            withMultiplePlans(s);
-            (s.contexts.ask as any).askChoices = (_questions:any, output?:OutputContext) => {
-                if (output) {
-                    output.write("[?] Plan file: Which one?\n");
-                    output.write("  1) plan-a.md\n");
-                    output.write("  2) plan-b.md\n");
-                }
-                return Promise.resolve([{ picked: [{ label: "plan-a.md" }] }]);
+            s.files.set("/project/plans/plan-a.md", PLAN_A);
+            s.files.set("/project/plans/plan-b.md", PLAN_B);
+            const origExists = s.contexts.fs.exists.bind(s.contexts.fs);
+            (s.contexts.fs as any).exists = (p:string) => {
+                if (p === "/project/plans") return Promise.resolve(true);
+                return origExists(p);
             };
-            s.claudeQueue.push({ text: "ok" });
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 0"(code) {
-                Assert.strictEqual(code, 0);
-            },
-            "block separator is present"(_code, { written }) {
-                Assert.ok(written.join("").includes(SEP.repeat(80)), "block should be present");
-            },
-            "question text appears via writeAbove (preceded by block clear)"(_code, { written }) {
-                const allOutput = written.join("");
-                Assert.ok(allOutput.includes("[?] Plan file: Which one?"), "question text should appear in output");
-                const questionIdx = allOutput.indexOf("[?] Plan file: Which one?");
-                const clearBefore = allOutput.lastIndexOf(CLEAR_SEQ, questionIdx);
-                Assert.ok(clearBefore !== -1, "question should be preceded by block clear");
-            },
-            "option text appears in output"(_code, { written }) {
-                const allOutput = written.join("");
-                Assert.ok(allOutput.includes("plan-a.md"), "first option should appear");
-                Assert.ok(allOutput.includes("plan-b.md"), "second option should appear");
-            }
-        }
-    });
-
-    test("invalid response triggers retry message above the block then succeeds", {
-        ARRANGE() {
-            const s = stubContexts();
-            withMultiplePlans(s);
-            let callCount = 0;
-            (s.contexts.ask as any).askChoices = (_questions:any, output?:OutputContext) => {
-                callCount++;
-                if (output) {
-                    output.write(`[?] attempt ${callCount}\n`);
+            (s.contexts.fs as any).readdir = (p:string) => {
+                if (p === "/project/plans") {
+                    return Promise.resolve([
+                        { name: "plan-a.md", isFile: true, isDirectory: false },
+                        { name: "plan-b.md", isFile: true, isDirectory: false }
+                    ]);
                 }
-                if (callCount === 1) {
-                    return Promise.resolve([{ picked: [] }]);
-                }
-                return Promise.resolve([{ picked: [{ label: "plan-a.md" }] }]);
-            };
-            s.claudeQueue.push({ text: "ok" });
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 0"(code) {
-                Assert.strictEqual(code, 0);
-            },
-            "retry message appears via writeAbove (preceded by block clear)"(_code, { written }) {
-                const allOutput = written.join("");
-                Assert.ok(allOutput.includes("Please pick one of the listed plans by its number."), "retry message should appear");
-                const retryIdx = allOutput.indexOf("Please pick one of the listed plans by its number.");
-                const clearBefore = allOutput.lastIndexOf(CLEAR_SEQ, retryIdx);
-                Assert.ok(clearBefore !== -1, "retry message should be preceded by block clear");
-            },
-            "second attempt question text appears via writeAbove"(_code, { written }) {
-                const allOutput = written.join("");
-                Assert.ok(allOutput.includes("[?] attempt 2"), "second attempt question should appear");
-                const attempt2Idx = allOutput.indexOf("[?] attempt 2");
-                const clearBefore = allOutput.lastIndexOf(CLEAR_SEQ, attempt2Idx);
-                Assert.ok(clearBefore !== -1, "second attempt should be preceded by block clear");
-            },
-            "block separator is present"(_code, { written }) {
-                Assert.ok(written.join("").includes(SEP.repeat(80)), "block should be present");
-            }
-        }
-    });
-
-    test("unexpected error in askChoices during plan selection propagates to outer handler", {
-        ARRANGE() {
-            const s = stubContexts();
-            withMultiplePlans(s);
-            (s.contexts.ask as any).askChoices = () => {
-                return Promise.reject(new Error("unexpected askChoices error"));
+                return Promise.resolve([]);
             };
             return s;
         },
@@ -1085,8 +975,35 @@ test.describe("Implement interactive plan prompt routed through block", test => 
             "exits with code 1"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "error message appears in output"(_code, { written }) {
-                Assert.ok(written.join("").includes("unexpected askChoices error"));
+            "block separator is present"(_code, { written }) {
+                Assert.ok(written.join("").includes(SEP.repeat(80)), "block should be present");
+            },
+            "header entry equals exact literal naming plansFolder"(_code, { written }) {
+                const stripped = written.map(stripAnsi);
+                const entry = stripped.find(e => e.includes("Multiple plan files found"));
+                Assert.ok(entry !== undefined, "a written entry must contain the header");
+                Assert.strictEqual(entry, "Multiple plan files found in /project/plans:\n");
+            },
+            "plan-a.md is listed as an exact line entry"(_code, { written }) {
+                const stripped = written.map(stripAnsi);
+                const entry = stripped.find(e => e.includes("plan-a.md"));
+                Assert.ok(entry !== undefined, "a written entry must contain plan-a.md");
+                Assert.strictEqual(entry, "  plan-a.md\n");
+            },
+            "plan-b.md is listed as an exact line entry"(_code, { written }) {
+                const stripped = written.map(stripAnsi);
+                const entry = stripped.find(e => e.includes("plan-b.md"));
+                Assert.ok(entry !== undefined, "a written entry must contain plan-b.md");
+                Assert.strictEqual(entry, "  plan-b.md\n");
+            },
+            "instruction entry equals exact literal naming the [plan] argument"(_code, { written }) {
+                const stripped = written.map(stripAnsi);
+                const entry = stripped.find(e => e.includes("Re-run"));
+                Assert.ok(entry !== undefined, "a written entry must contain the instruction");
+                Assert.strictEqual(entry, "Re-run with the chosen plan as the [plan] argument.\n");
+            },
+            "footer shows Failed"(_code, { written }) {
+                Assert.ok(stripAnsi(written.join("")).includes("Failed"));
             }
         }
     });

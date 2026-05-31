@@ -207,10 +207,6 @@ function stubContexts(config:FlandersConfig) {
             tmpdir() { return "/tmp"; },
             homedir() { return "/home/test"; }
         },
-        ask: {
-            askChoices() { return Promise.resolve([]); },
-            askText() { return Promise.resolve(""); }
-        },
         output: {
             write() {},
             writeError() {},

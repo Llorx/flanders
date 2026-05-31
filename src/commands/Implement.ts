@@ -1,11 +1,10 @@
 import { AiSession } from "../ai/AiSession";
 import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import { CodexAdapter } from "../ai/CodexAdapter";
-import type { AskContext, FsContext, OutputContext, ScriptContext, TimeContext } from "../contexts";
+import type { FsContext, OutputContext, ScriptContext, TimeContext } from "../contexts";
 import type { ToolAdapter, ToolName } from "../ai/ToolAdapter";
 import type { FlandersConfig } from "../FlandersConfig";
 import { read as readConfig } from "../FlandersConfig";
-import { askChoice } from "../PromptHelper";
 import { isNonEmptyFile, joinPath, listFilesRecursive } from "../fsUtils";
 import { isGitAvailable, isInsideWorkTree, countPendingChangesExcept, addAll, commit } from "../Git";
 import { PlanFile, PlanTask } from "../PlanFile";
@@ -59,7 +58,6 @@ export type ImplementContexts = Readonly<{
     fs:FsContext;
     time:TimeContext;
     platform:PlatformContext;
-    ask:AskContext;
     output:OutputContext;
 }>;
 
@@ -258,49 +256,12 @@ export class Implement {
         if (files.length === 1) {
             return joinPath(plansFolder, files[0]!);
         }
-        return await this._promptPlanChoice(plansFolder, files);
-    }
-    private _askOutput():OutputContext {
-        return {
-            write: text => this._buffered.write(text),
-            /* coverage ignore next 3 */ // — Pass-through callbacks required by OutputContext; askChoices consumers never call writeError, columns, or rows.
-            writeError: text => this._buffered.writeError(text),
-            columns: () => this._contexts.output.columns(),
-            rows: () => this._contexts.output.rows(),
-            /* coverage ignore next */ // — Pass-through required by OutputContext; consumers never call onResize.
-            onResize: listener => this._contexts.output.onResize(listener)
-        };
-    }
-    private async _promptPlanChoice(plansFolder:string, files:readonly string[]):Promise<string|null> {
-        const askOutput = this._askOutput();
-        for (;;) {
-            /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
-            if (this._disposed) {
-                return null;
-            }
-            try {
-                const option = await askChoice(this._contexts.ask, {
-                    header: "Plan file",
-                    question: `Multiple plans found in ${plansFolder}. Which one do you want to implement?`,
-                    options: files.map(f => ({ label: f }))
-                }, askOutput);
-                /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
-                if (this._disposed) {
-                    return null;
-                }
-                return joinPath(plansFolder, option.label);
-            } catch (e) {
-                /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
-                if (this._disposed) {
-                    return null;
-                }
-                if (e instanceof Error && e.name === "AbortError") {
-                    this._buffered.writeError("Please pick one of the listed plans by its number.\n");
-                    continue;
-                }
-                throw e;
-            }
+        this._buffered.writeError(`Multiple plan files found in ${plansFolder}:\n`);
+        for (const f of files) {
+            this._buffered.writeError(`  ${f}\n`);
         }
+        this._buffered.writeError("Re-run with the chosen plan as the [plan] argument.\n");
+        return null;
     }
     private async _detectBuildAndTest(ws:WorkspacePaths):Promise<void> {
         const prompt = prompts.detectBuildAndTest
