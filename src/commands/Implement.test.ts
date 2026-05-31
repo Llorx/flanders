@@ -4,6 +4,7 @@ import test from "arrange-act-assert";
 
 import { Implement } from "./Implement";
 import type { ImplementContexts } from "./Implement";
+import type { FlandersConfig } from "../FlandersConfig";
 import type { OutputContext, SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { HeaderFields, MetricsFields, TerminalLabel } from "../ui/BottomBlock";
@@ -77,6 +78,7 @@ type ScriptResponse = { code:number; stdout:string; stderr:string };
 
 function stubContexts() {
     const files = new Map<string, string>();
+    files.set("/project/.flanders/config.json", JSON.stringify(DEFAULT_CONFIG));
     const rmCalls:string[] = [];
     const written:string[] = [];
     const errors:string[] = [];
@@ -185,6 +187,8 @@ const PLAN_PATH = "/project/plans/test.md";
 const PLAN_ONE_TASK = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Implement feature A\n';
 const WS_ROOT = "/tmp/flanders-ws123";
 const PREP_RESPONSE:ClaudeResponse = { text: "READY", sessionId: "prep-session" };
+const DEFAULT_CONFIG:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } };
+const CONFIG_PATH = "/project/.flanders/config.json";
 
 test.describe("Implement per-iteration logs", test => {
     test("writes all four log files after one successful iteration", {
@@ -756,6 +760,153 @@ test.describe("Implement block present on early routes", test => {
                 Assert.ok(allOutput.includes("commit or stash"), "error text should appear in output");
                 const clearIdx = allOutput.lastIndexOf(CLEAR_SEQ, allOutput.indexOf("commit or stash"));
                 Assert.ok(clearIdx !== -1, "error should be preceded by block clear");
+            }
+        }
+    });
+});
+
+test.describe("Implement config loading", test => {
+    test("missing config at both scopes exits 1 with exact diagnostic and Failed footer", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.delete(CONFIG_PATH);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "error output equals the exact literal string"(_code, { written }) {
+                const strippedEntries = written.map(entry => stripAnsi(entry));
+                const diagnosticEntry = strippedEntries.find(entry => entry.includes("Missing Flanders"));
+                Assert.ok(diagnosticEntry !== undefined, "a written entry must contain the diagnostic");
+                Assert.strictEqual(diagnosticEntry, "Missing Flanders configuration. Run 'npx flanders install'.\n");
+            },
+            "footer shows Failed"(_code, { written }) {
+                const stripped = stripAnsi(written.join(""));
+                Assert.ok(stripped.includes("Failed"));
+            }
+        }
+    });
+
+    test("valid project-scope config proceeds and is stashed on instance", {
+        ARRANGE() {
+            const s = stubContexts();
+            const projectConfig:FlandersConfig = { worker: { tool: "codex", model: "test-model", effort: "high" }, reviewer: { tool: "claude", model: "rev-model", effort: "low" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(projectConfig));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "review", errorLog: "" });
+            return { ...s, projectConfig };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            const config = cmd.config;
+            await cmd.dispose();
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "stashed config equals the parsed file"({ config }, { projectConfig }) {
+                Assert.deepStrictEqual(config, projectConfig);
+            }
+        }
+    });
+
+    test("project config shadows global config", {
+        ARRANGE() {
+            const s = stubContexts();
+            const projectConfig:FlandersConfig = { worker: { tool: "claude", model: "project-sentinel", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } };
+            const globalConfig:FlandersConfig = { worker: { tool: "codex", model: "global-sentinel", effort: "" }, reviewer: { tool: "codex", model: "", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(projectConfig));
+            s.files.set("/home/test/.flanders/config.json", JSON.stringify(globalConfig));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "review", errorLog: "" });
+            return { ...s, projectConfig };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            const config = cmd.config;
+            await cmd.dispose();
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "stashed config uses the project-scope sentinel"({ config }) {
+                Assert.strictEqual(config!.worker.model, "project-sentinel");
+            },
+            "stashed config does not use the global-scope sentinel"({ config }) {
+                Assert.notStrictEqual(config!.worker.model, "global-sentinel");
+            }
+        }
+    });
+
+    test("malformed config exits non-zero with diagnostic containing file path and field name", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(CONFIG_PATH, JSON.stringify({ worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "" } }));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic contains the file path"(_code, { written }) {
+                const allOutput = stripAnsi(written.join(""));
+                Assert.ok(allOutput.includes("/project/.flanders/config.json"), "should contain the config file path");
+            },
+            "diagnostic contains the offending field name"(_code, { written }) {
+                const allOutput = stripAnsi(written.join(""));
+                Assert.ok(allOutput.includes("reviewer.effort"), "should contain the offending field name");
+            }
+        }
+    });
+
+    test("malformed config footer shows Failed", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(CONFIG_PATH, "not valid json{{{");
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "footer shows Failed"(_code, { written }) {
+                const stripped = stripAnsi(written.join(""));
+                Assert.ok(stripped.includes("Failed"));
             }
         }
     });

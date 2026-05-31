@@ -1,6 +1,8 @@
 import { AiSession } from "../ai/AiSession";
 import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import type { AskContext, ClaudeContext, FsContext, OutputContext, ScriptContext, TimeContext } from "../contexts";
+import type { FlandersConfig } from "../FlandersConfig";
+import { read as readConfig } from "../FlandersConfig";
 import { askChoice } from "../PromptHelper";
 import { isNonEmptyFile, joinPath, listFilesRecursive } from "../fsUtils";
 import { isGitAvailable, isInsideWorkTree, countPendingChangesExcept, addAll, commit } from "../Git";
@@ -68,6 +70,7 @@ type RunningScript = { script:ScriptRunner };
 
 export class Implement {
     private _disposed = false;
+    private _config:FlandersConfig|null = null;
     private _contractList:readonly string[] = [];
     private _ruleList:readonly string[] = [];
     private _workspace:Workspace|null = null;
@@ -85,6 +88,8 @@ export class Implement {
     private _taskRateLimitStartedAt:number|null = null;
     private _taskTokens = {it:0, ot:0};
     private _runPromise:Promise<number>;
+    /** Public for testing: the stashed config is otherwise observable only as downstream AI invocation arguments (tool/model/effort), which are not yet wired in this task. */
+    get config():FlandersConfig|null { return this._config; }
     constructor(
         rawArgs:readonly string[],
         private _options:ImplementOptions,
@@ -120,6 +125,16 @@ export class Implement {
                     positional.push(arg);
                 }
             }
+            const config = await readConfig(this._contexts.fs, {
+                projectRoot: this._options.projectRoot,
+                homeDir: this._contexts.platform.homedir()
+            });
+            if (config === null) {
+                this._buffered.writeError("Missing Flanders configuration. Run 'npx flanders install'.\n");
+                this._finalizeBlock("Failed");
+                return 1;
+            }
+            this._config = config;
             const planPath = await this._selectPlan(positional);
             /* coverage ignore next 4 */ // — Defensive: disposed guard between async operations.
             if (this._disposed) {

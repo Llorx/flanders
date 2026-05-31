@@ -203,14 +203,18 @@ test.describe("Flanders dispatch", test => {
         ARRANGE() {
             const { contexts, written, errors } = stubContexts();
             const files:Record<string, string> = {};
+            const configJson = JSON.stringify({ worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } });
             contexts.fs.writeFile = async (p, content) => { files[p] = content; };
             contexts.fs.readFile = async (p) => {
                 if (p === "/proj/plans/plan.md") {
                     return '# Plan\n\n- [x]{"it":0,"ot":0,"t":0} Done task\n';
                 }
+                if (p === "/proj/.flanders/config.json") {
+                    return configJson;
+                }
                 throw new Error("not found: " + p);
             };
-            contexts.fs.exists = async (p) => p === "/proj/plans/plan.md";
+            contexts.fs.exists = async (p) => p === "/proj/plans/plan.md" || p === "/proj/.flanders/config.json";
             contexts.fs.mkdir = async () => {};
             contexts.fs.mkdtemp = async (prefix) => prefix + "ws123";
             contexts.fs.rm = async () => {};
