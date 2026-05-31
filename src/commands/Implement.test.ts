@@ -5888,6 +5888,169 @@ test.describe("Implement adapter routing via getAdapter", test => {
     });
 });
 
+test.describe("Implement detect agent inherits worker triple", test => {
+    test("codex worker with model and effort routes detect through codex adapter with those values", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "codex", model: "gpt-5-codex", effort: "high" }, reviewer: { tool: "claude", model: "rev-model", effort: "low" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.codexQueue.push({ text: "detect" });
+            s.codexQueue.push({ text: "worker output" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, codexSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            return codexSpawnedArgs;
+        },
+        ASSERTS: {
+            "detect is first codex spawn with exec subcommand"(codexSpawnedArgs) {
+                Assert.ok(codexSpawnedArgs.length >= 1, "at least one codex spawn");
+                Assert.strictEqual(codexSpawnedArgs[0]![0], "exec");
+            },
+            "detect spawn carries -m gpt-5-codex"(codexSpawnedArgs) {
+                const detectArgs = codexSpawnedArgs[0]!;
+                const mIndex = detectArgs.indexOf("-m");
+                Assert.ok(mIndex >= 0, "-m flag present on detect spawn");
+                Assert.strictEqual(detectArgs[mIndex + 1], "gpt-5-codex");
+            },
+            "detect spawn carries model_reasoning_effort=high"(codexSpawnedArgs) {
+                const detectArgs = codexSpawnedArgs[0]!;
+                Assert.ok(detectArgs.includes("model_reasoning_effort=high"), "effort override present on detect spawn");
+            }
+        }
+    });
+
+    test("claude worker with empty model and effort routes detect through claude with no flags", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            return claudeSpawnedArgs;
+        },
+        ASSERTS: {
+            "detect spawn does not contain --model flag"(claudeSpawnedArgs) {
+                const detectArgs = claudeSpawnedArgs[0]!;
+                Assert.ok(!detectArgs.includes("--model"), "--model should not appear when model is empty");
+            },
+            "detect spawn does not contain any effort-related arg"(claudeSpawnedArgs) {
+                const detectArgs = claudeSpawnedArgs[0]!;
+                const hasEffort = detectArgs.some((arg:string) => arg.includes("effort"));
+                Assert.ok(!hasEffort, "no effort flag should appear when effort is empty");
+            }
+        }
+    });
+
+    test("detect prompt does not mention or include the reviewer triple", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "codex", model: "worker-model-abc", effort: "high" }, reviewer: { tool: "claude", model: "reviewer-sentinel-model", effort: "reviewer-sentinel-effort" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.codexQueue.push({ text: "detect" });
+            s.codexQueue.push({ text: "worker output" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, promptQueue }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            return promptQueue;
+        },
+        ASSERTS: {
+            "detect prompt does not contain reviewer tool value"(promptQueue) {
+                Assert.ok(!promptQueue[0]!.includes("claude"), "detect prompt must not contain reviewer tool name");
+            },
+            "detect prompt does not contain reviewer model value"(promptQueue) {
+                Assert.ok(!promptQueue[0]!.includes("reviewer-sentinel-model"), "detect prompt must not contain reviewer model");
+            },
+            "detect prompt does not contain reviewer effort value"(promptQueue) {
+                Assert.ok(!promptQueue[0]!.includes("reviewer-sentinel-effort"), "detect prompt must not contain reviewer effort");
+            }
+        }
+    });
+
+    test("detect agent uses worker values even when config JSON contains an extra detect section", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config = JSON.stringify({
+                worker: { tool: "codex", model: "worker-model", effort: "high" },
+                reviewer: { tool: "claude", model: "reviewer-model", effort: "low" },
+                detect: { tool: "claude", model: "detect-model", effort: "detect-effort" }
+            });
+            s.files.set(CONFIG_PATH, config);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.codexQueue.push({ text: "detect" });
+            s.codexQueue.push({ text: "worker output" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, codexSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            return codexSpawnedArgs;
+        },
+        ASSERTS: {
+            "detect uses codex adapter (worker tool) not claude (hypothetical third-section tool)"(codexSpawnedArgs) {
+                Assert.ok(codexSpawnedArgs.length >= 1, "at least one codex spawn for detect");
+                Assert.strictEqual(codexSpawnedArgs[0]![0], "exec");
+            },
+            "detect spawn carries worker-model not third-section model"(codexSpawnedArgs) {
+                const detectArgs = codexSpawnedArgs[0]!;
+                const mIndex = detectArgs.indexOf("-m");
+                Assert.ok(mIndex >= 0, "-m flag present");
+                Assert.strictEqual(detectArgs[mIndex + 1], "worker-model");
+            }
+        }
+    });
+
+    test("exactly one detect call per implement run through the runner", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, promptQueue, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            return { promptQueue, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "4 total runner invocations: detect, prep, worker, reviewer"({ claudeSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs.length, 4);
+            },
+            "exactly one prompt matches the detect pattern"({ promptQueue }) {
+                const detectCount = promptQueue.filter((p:string) => p.includes("build/test detection agent")).length;
+                Assert.strictEqual(detectCount, 1);
+            },
+            "detect prompt is the first runner invocation"({ promptQueue }) {
+                Assert.ok(promptQueue[0]!.includes("build/test detection agent"), "first prompt must be detect");
+            }
+        }
+    });
+});
+
 test.describe("Implement prep-optimization condition", test => {
     test("prepActive=true when worker and reviewer share tool, model, and effort", {
         ARRANGE() {
