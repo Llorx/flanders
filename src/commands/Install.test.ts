@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { Install, parseInstallFlags } from "./Install";
+import { Install, parseInstallFlags, stripYamlFrontmatter } from "./Install";
 import type { InstallContexts } from "./Install";
 import type { AskAnswer, ScriptContext, SpawnedProcess } from "../contexts";
 import { planSkillBody, specSkillBody } from "../skills";
@@ -2379,6 +2379,406 @@ test.describe("Install effort question", test => {
             },
             "no files written"(_code, { files }) {
                 Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+});
+
+test.describe("stripYamlFrontmatter", test => {
+    test("strips a leading YAML frontmatter block", {
+        ARRANGE() {
+            return { body: "---\ndescription: foo\n---\n\nBody content here." };
+        },
+        ACT({ body }) {
+            return stripYamlFrontmatter(body);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "\nBody content here.");
+        }
+    });
+
+    test("returns body unchanged when no leading ---", {
+        ARRANGE() {
+            return { body: "No frontmatter here.\nJust text." };
+        },
+        ACT({ body }) {
+            return stripYamlFrontmatter(body);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "No frontmatter here.\nJust text.");
+        }
+    });
+
+    test("returns body unchanged when no closing ---", {
+        ARRANGE() {
+            return { body: "---\nunclosed frontmatter\nmore text" };
+        },
+        ACT({ body }) {
+            return stripYamlFrontmatter(body);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "---\nunclosed frontmatter\nmore text");
+        }
+    });
+
+    test("handles CRLF line endings", {
+        ARRANGE() {
+            return { body: "---\r\nkey: value\r\n---\r\nBody after CRLF." };
+        },
+        ACT({ body }) {
+            return stripYamlFrontmatter(body);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "Body after CRLF.");
+        }
+    });
+
+    test("preserves body verbatim after frontmatter", {
+        ARRANGE() {
+            return { body: "---\nkey: value\n---\nLine 1\nLine 2\n---\nLine 3" };
+        },
+        ACT({ body }) {
+            return stripYamlFrontmatter(body);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "Line 1\nLine 2\n---\nLine 3");
+        }
+    });
+});
+
+test.describe("Install skills-tool=codex", test => {
+    test("writes exactly two Codex prompt files and zero Claude files", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/myproject" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "creates flanders-plan.md under .codex/prompts"(_code, { files }) {
+                Assert.ok(files.has("/myproject/.codex/prompts/flanders-plan.md"));
+            },
+            "creates flanders-spec.md under .codex/prompts"(_code, { files }) {
+                Assert.ok(files.has("/myproject/.codex/prompts/flanders-spec.md"));
+            },
+            "flanders-plan.md filename is exactly flanders-plan.md"(_code, { files }) {
+                const paths = [...files.keys()].filter(p => p.includes(".codex/prompts/flanders-plan"));
+                Assert.strictEqual(paths.length, 1);
+                Assert.strictEqual(paths[0], "/myproject/.codex/prompts/flanders-plan.md");
+            },
+            "flanders-spec.md filename is exactly flanders-spec.md"(_code, { files }) {
+                const paths = [...files.keys()].filter(p => p.includes(".codex/prompts/flanders-spec"));
+                Assert.strictEqual(paths.length, 1);
+                Assert.strictEqual(paths[0], "/myproject/.codex/prompts/flanders-spec.md");
+            },
+            "no files under .claude/skills"(_code, { files }) {
+                const claudePaths = [...files.keys()].filter(p => p.includes(".claude/skills"));
+                Assert.strictEqual(claudePaths.length, 0);
+            },
+            "writes exactly 3 files total (2 codex + 1 config)"(_code, { files }) {
+                Assert.strictEqual(files.size, 3);
+            }
+        }
+    });
+
+    test("Codex artifacts have YAML frontmatter stripped", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+        },
+        ASSERTS: {
+            "flanders-plan codex artifact does not start with ---"(_, { files }) {
+                const content = files.get("/proj/.codex/prompts/flanders-plan.md")!;
+                Assert.ok(!content.startsWith("---"), "codex artifact must not start with YAML frontmatter");
+            },
+            "flanders-spec codex artifact does not start with ---"(_, { files }) {
+                const content = files.get("/proj/.codex/prompts/flanders-spec.md")!;
+                Assert.ok(!content.startsWith("---"), "codex artifact must not start with YAML frontmatter");
+            },
+            "flanders-plan codex artifact equals stripYamlFrontmatter(planSkillBody)"(_, { files }) {
+                const content = files.get("/proj/.codex/prompts/flanders-plan.md")!;
+                Assert.strictEqual(content, stripYamlFrontmatter(planSkillBody));
+            },
+            "flanders-spec codex artifact equals stripYamlFrontmatter(specSkillBody)"(_, { files }) {
+                const content = files.get("/proj/.codex/prompts/flanders-spec.md")!;
+                Assert.strictEqual(content, stripYamlFrontmatter(specSkillBody));
+            }
+        }
+    });
+
+    test("Codex artifacts with global scope write under homedir", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--global", "--skills-tool=codex", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "creates flanders-plan.md under homedir .codex/prompts"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.codex/prompts/flanders-plan.md"));
+            },
+            "creates flanders-spec.md under homedir .codex/prompts"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.codex/prompts/flanders-spec.md"));
+            }
+        }
+    });
+});
+
+test.describe("Install skills-tool=both", test => {
+    test("writes four skill files (2 Claude + 2 Codex) plus config", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=both", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "creates Claude flanders-spec SKILL.md"(_code, { files }) {
+                Assert.ok(files.has("/proj/.claude/skills/flanders-spec/SKILL.md"));
+            },
+            "creates Claude flanders-plan SKILL.md"(_code, { files }) {
+                Assert.ok(files.has("/proj/.claude/skills/flanders-plan/SKILL.md"));
+            },
+            "creates Codex flanders-spec.md"(_code, { files }) {
+                Assert.ok(files.has("/proj/.codex/prompts/flanders-spec.md"));
+            },
+            "creates Codex flanders-plan.md"(_code, { files }) {
+                Assert.ok(files.has("/proj/.codex/prompts/flanders-plan.md"));
+            },
+            "writes exactly 5 files total (4 skills + 1 config)"(_code, { files }) {
+                Assert.strictEqual(files.size, 5);
+            },
+            "Claude artifact has frontmatter"(_code, { files }) {
+                Assert.ok(files.get("/proj/.claude/skills/flanders-spec/SKILL.md")!.startsWith("---\n"));
+            },
+            "Codex artifact has no frontmatter"(_code, { files }) {
+                Assert.ok(!files.get("/proj/.codex/prompts/flanders-spec.md")!.startsWith("---"));
+            }
+        }
+    });
+});
+
+test.describe("Install skills-tool stdout enumeration", test => {
+    test("with skills-tool=codex, stdout includes every Codex path", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+        },
+        ASSERTS: {
+            "stdout includes flanders-spec.md path"(_, { written }) {
+                Assert.ok(written.join("").includes("/proj/.codex/prompts/flanders-spec.md"));
+            },
+            "stdout includes flanders-plan.md path"(_, { written }) {
+                Assert.ok(written.join("").includes("/proj/.codex/prompts/flanders-plan.md"));
+            },
+            "stdout includes config path"(_, { written }) {
+                Assert.ok(written.join("").includes(".flanders/config.json"));
+            },
+            "outputs exactly 3 lines"(_, { written }) {
+                const lines = written.join("").split("\n").filter(l => l.length > 0);
+                Assert.strictEqual(lines.length, 3);
+            }
+        }
+    });
+
+    test("with skills-tool=both, stdout includes all 4 skill paths plus config", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=both", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+        },
+        ASSERTS: {
+            "stdout includes Claude spec skill path"(_, { written }) {
+                Assert.ok(written.join("").includes("/proj/.claude/skills/flanders-spec/SKILL.md"));
+            },
+            "stdout includes Claude plan skill path"(_, { written }) {
+                Assert.ok(written.join("").includes("/proj/.claude/skills/flanders-plan/SKILL.md"));
+            },
+            "stdout includes Codex spec prompt path"(_, { written }) {
+                Assert.ok(written.join("").includes("/proj/.codex/prompts/flanders-spec.md"));
+            },
+            "stdout includes Codex plan prompt path"(_, { written }) {
+                Assert.ok(written.join("").includes("/proj/.codex/prompts/flanders-plan.md"));
+            },
+            "stdout includes config path"(_, { written }) {
+                Assert.ok(written.join("").includes(".flanders/config.json"));
+            },
+            "outputs exactly 5 lines"(_, { written }) {
+                const lines = written.join("").split("\n").filter(l => l.length > 0);
+                Assert.strictEqual(lines.length, 5);
+            }
+        }
+    });
+});
+
+test.describe("Install validator-host wording preserved in skill bodies", test => {
+    test("planSkillBody contains both required subagent-mechanism substrings", {
+        ARRANGE() {},
+        ACT() {
+            return planSkillBody;
+        },
+        ASSERTS: {
+            "contains 'via the AI tool\\'s subagent mechanism'"(body) {
+                Assert.ok(body.includes("via the AI tool's subagent mechanism"));
+            },
+            "contains tool-specific subagent sentence"(body) {
+                Assert.ok(body.includes("In Claude Code, the host spawns the validator through the Agent tool. In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run."));
+            }
+        }
+    });
+
+    test("specSkillBody contains both required subagent-mechanism substrings", {
+        ARRANGE() {},
+        ACT() {
+            return specSkillBody;
+        },
+        ASSERTS: {
+            "contains 'via the AI tool\\'s subagent mechanism'"(body) {
+                Assert.ok(body.includes("via the AI tool's subagent mechanism"));
+            },
+            "contains tool-specific subagent sentence"(body) {
+                Assert.ok(body.includes("In Claude Code, the host spawns the validator through the Agent tool. In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run."));
+            }
+        }
+    });
+
+    test("deprecated literal 'via the Agent tool' does not appear in either body", {
+        ARRANGE() {},
+        ACT() {
+            return { plan: planSkillBody, spec: specSkillBody };
+        },
+        ASSERTS: {
+            "planSkillBody does not contain deprecated literal"({ plan }) {
+                const matches = plan.split("via the Agent tool").length - 1;
+                Assert.strictEqual(matches, 0);
+            },
+            "specSkillBody does not contain deprecated literal"({ spec }) {
+                const matches = spec.split("via the Agent tool").length - 1;
+                Assert.strictEqual(matches, 0);
+            }
+        }
+    });
+});
+
+test.describe("Install disposed during codex write", test => {
+    test("disposed during codex skill write returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            let writeCount = 0;
+            let cmdRef:Install | null = null;
+            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
+            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = async (p, content) => {
+                await origWriteFile(p, content);
+                writeCount++;
+                if (writeCount === 1 && cmdRef) {
+                    void cmdRef.dispose();
+                }
+            };
+            return { ...s, setCmdRef: (cmd:Install) => { cmdRef = cmd; } };
+        },
+        async ACT({ contexts, setCmdRef }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            setCmdRef(cmd);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "first codex skill file is written"(_code, { files }) {
+                Assert.ok(files.has("/proj/.codex/prompts/flanders-spec.md"));
+            },
+            "second codex skill file is not written"(_code, { files }) {
+                Assert.ok(!files.has("/proj/.codex/prompts/flanders-plan.md"));
+            }
+        }
+    });
+});
+
+test.describe("Install codex mkdir failure", test => {
+    test("codex prompts mkdir failure exits non-zero with path in diagnostic", {
+        ARRANGE() {
+            const s = stubContexts();
+            const origMkdir = s.contexts.fs.mkdir.bind(s.contexts.fs);
+            (s.contexts.fs as { mkdir:typeof s.contexts.fs.mkdir }).mkdir = (p:string, o?:unknown) => {
+                if (p.includes(".codex/prompts")) {
+                    return Promise.reject(new Error(`EACCES: ${p}`));
+                }
+                return origMkdir(p, o as { recursive?:boolean });
+            };
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic names the codex prompts path"(_code, { errors }) {
+                Assert.ok(errors.join("").includes(".codex/prompts"));
+            }
+        }
+    });
+
+    test("codex writeFile failure exits non-zero with path in diagnostic", {
+        ARRANGE() {
+            const s = stubContexts();
+            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
+            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p:string, content:string) => {
+                if (p.includes(".codex/prompts")) {
+                    return Promise.reject(new Error(`EACCES: ${p}`));
+                }
+                return origWriteFile(p, content);
+            };
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--reviewer-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic names the file path"(_code, { errors }) {
+                Assert.ok(errors.join("").includes(".codex/prompts/flanders-spec.md"));
             }
         }
     });

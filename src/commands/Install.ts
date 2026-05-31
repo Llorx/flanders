@@ -23,14 +23,29 @@ export type InstallOptions = Readonly<{
 
 type SkillDef = Readonly<{
     name:string;
-    folder:string;
     body:string;
 }>;
 
 const SKILLS:readonly SkillDef[] = [
-    { name: "flanders-spec", folder: "flanders-spec", body: specSkillBody },
-    { name: "flanders-plan", folder: "flanders-plan", body: planSkillBody }
+    { name: "flanders-spec", body: specSkillBody },
+    { name: "flanders-plan", body: planSkillBody }
 ];
+
+export function stripYamlFrontmatter(body:string):string {
+    if (!body.startsWith("---\n") && !body.startsWith("---\r\n")) {
+        return body;
+    }
+    const newlineAfterOpener = body.indexOf("\n") + 1;
+    const closerIndex = body.indexOf("\n---\n", newlineAfterOpener);
+    if (closerIndex === -1) {
+        const closerCrlf = body.indexOf("\n---\r\n", newlineAfterOpener);
+        if (closerCrlf === -1) {
+            return body;
+        }
+        return body.slice(closerCrlf + "\n---\r\n".length);
+    }
+    return body.slice(closerIndex + "\n---\n".length);
+}
 
 async function promptChoice(ask:AskContext, args:AskChoiceArgs):Promise<ChoiceOption|null> {
     try {
@@ -466,9 +481,9 @@ export class Install {
                 }
                 return 1;
             }
-            const skillsRoot = mode === "global"
-                ? joinPath(contexts.platform.homedir(), ".claude/skills")
-                : joinPath(options.projectRoot, ".claude/skills");
+            const scopeRoot = mode === "global"
+                ? contexts.platform.homedir()
+                : options.projectRoot;
             for (const skill of SKILLS) {
                 /* coverage ignore next 4 */ // — Defensive: skill bodies are compile-time constants that are always non-empty.
                 if (!skill.body) {
@@ -476,25 +491,52 @@ export class Install {
                     return 1;
                 }
             }
+            const writeClaude = skillsTool === "claude" || skillsTool === "both";
+            const writeCodex = skillsTool === "codex" || skillsTool === "both";
             const writtenPaths:string[] = [];
-            for (const skill of SKILLS) {
-                if (this._disposed) {
+            if (writeClaude) {
+                const claudeSkillsRoot = joinPath(scopeRoot, ".claude/skills");
+                for (const skill of SKILLS) {
+                    if (this._disposed) {
+                        return 1;
+                    }
+                    const skillFolder = joinPath(claudeSkillsRoot, skill.name);
+                    try {
+                        await contexts.fs.mkdir(skillFolder, { recursive: true });
+                    } catch {
+                        contexts.output.writeError(`Cannot create destination: ${skillFolder}\n`);
+                        return 1;
+                    }
+                    const filePath = joinPath(skillFolder, "SKILL.md");
+                    try {
+                        await contexts.fs.writeFile(filePath, skill.body);
+                        writtenPaths.push(filePath);
+                    } catch {
+                        contexts.output.writeError(`Cannot write file: ${filePath}\n`);
+                        return 1;
+                    }
+                }
+            }
+            if (writeCodex) {
+                const codexPromptsRoot = joinPath(scopeRoot, ".codex/prompts");
+                try {
+                    await contexts.fs.mkdir(codexPromptsRoot, { recursive: true });
+                } catch {
+                    contexts.output.writeError(`Cannot create destination: ${codexPromptsRoot}\n`);
                     return 1;
                 }
-                const skillFolder = joinPath(skillsRoot, skill.folder);
-                try {
-                    await contexts.fs.mkdir(skillFolder, { recursive: true });
-                } catch {
-                    contexts.output.writeError(`Cannot create destination: ${skillFolder}\n`);
-                    return 1;
-                }
-                const filePath = joinPath(skillFolder, "SKILL.md");
-                try {
-                    await contexts.fs.writeFile(filePath, skill.body);
-                    writtenPaths.push(filePath);
-                } catch {
-                    contexts.output.writeError(`Cannot write file: ${filePath}\n`);
-                    return 1;
+                for (const skill of SKILLS) {
+                    if (this._disposed) {
+                        return 1;
+                    }
+                    const filePath = joinPath(codexPromptsRoot, `${skill.name}.md`);
+                    try {
+                        await contexts.fs.writeFile(filePath, stripYamlFrontmatter(skill.body));
+                        writtenPaths.push(filePath);
+                    } catch {
+                        contexts.output.writeError(`Cannot write file: ${filePath}\n`);
+                        return 1;
+                    }
                 }
             }
             /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
