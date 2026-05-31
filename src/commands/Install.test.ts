@@ -5,6 +5,8 @@ import test from "arrange-act-assert";
 import { Install, parseInstallFlags, stripYamlFrontmatter } from "./Install";
 import type { InstallContexts } from "./Install";
 import type { AskAnswer, ScriptContext, SpawnedProcess } from "../contexts";
+import { read as readConfig } from "../FlandersConfig";
+import type { FlandersConfig } from "../FlandersConfig";
 import { planSkillBody, specSkillBody } from "../skills";
 
 function stubContexts() {
@@ -2780,6 +2782,142 @@ test.describe("Install codex mkdir failure", test => {
             "diagnostic names the file path"(_code, { errors }) {
                 Assert.ok(errors.join("").includes(".codex/prompts/flanders-spec.md"));
             }
+        }
+    });
+});
+
+test.describe("Install config persistence (3.7)", test => {
+    test("config read back via FlandersConfig.read equals expected literal", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(
+                ["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=opus", "--worker-effort=high", "--reviewer-tool=codex", "--reviewer-model=gpt-5", "--reviewer-effort=medium"],
+                { projectRoot: "/proj" },
+                contexts
+            );
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "read-back equals expected FlandersConfig literal"({ config }) {
+                const expected:FlandersConfig = {
+                    worker: { tool: "claude", model: "opus", effort: "high" },
+                    reviewer: { tool: "codex", model: "gpt-5", effort: "medium" }
+                };
+                Assert.deepStrictEqual(config, expected);
+            }
+        }
+    });
+
+    test("global scope writes config at homeDir not projectRoot", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(
+                ["--global", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"],
+                { projectRoot: "/proj" },
+                contexts
+            );
+            await cmd.result();
+            await cmd.dispose();
+        },
+        ASSERTS: {
+            "config exists at homeDir"(_, { files }) {
+                Assert.strictEqual(files.has("/home/testuser/.flanders/config.json"), true);
+            },
+            "config does NOT exist at projectRoot"(_, { files }) {
+                Assert.strictEqual(files.has("/proj/.flanders/config.json"), false);
+            }
+        }
+    });
+
+    test("overwrites pre-existing config with exactly one writeFile", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set("/proj/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "old-model", effort: "old" },
+                reviewer: { tool: "claude", model: "old-rev", effort: "old" }
+            }, null, 2) + "\n");
+            const writeCalls:Array<{ path:string; content:string }> = [];
+            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, content) => {
+                writeCalls.push({ path: p, content });
+                s.files.set(p, content);
+                return Promise.resolve();
+            };
+            return { ...s, writeCalls };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(
+                ["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=new-model", "--worker-effort=high", "--reviewer-tool=claude", "--reviewer-model=new-rev", "--reviewer-effort=low"],
+                { projectRoot: "/proj" },
+                contexts
+            );
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "exactly one writeFile to config path"(_, { writeCalls }) {
+                const configWrites = writeCalls.filter(c => c.path.includes(".flanders/config.json"));
+                Assert.strictEqual(configWrites.length, 1);
+            },
+            "final content matches new answers"(_, { files }) {
+                const content = files.get("/proj/.flanders/config.json")!;
+                Assert.deepStrictEqual(JSON.parse(content), {
+                    worker: { tool: "codex", model: "new-model", effort: "high" },
+                    reviewer: { tool: "claude", model: "new-rev", effort: "low" }
+                });
+            }
+        }
+    });
+
+    test("persisted JSON contains only worker and reviewer keys", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(
+                ["--project", "--skills-tool=both", "--worker-tool=claude", "--reviewer-tool=codex", "--reviewer-effort="],
+                { projectRoot: "/proj" },
+                contexts
+            );
+            await cmd.result();
+            await cmd.dispose();
+        },
+        ASSERT(_, { files }) {
+            const content = files.get("/proj/.flanders/config.json")!;
+            Assert.deepStrictEqual(Object.keys(JSON.parse(content)).sort(), ["reviewer", "worker"]);
+        }
+    });
+
+    test("stdout includes config path on its own line", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(
+                ["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude"],
+                { projectRoot: "/proj" },
+                contexts
+            );
+            await cmd.result();
+            await cmd.dispose();
+        },
+        ASSERT(_, { written }) {
+            const lines = written.join("").split("\n").filter(l => l.length > 0);
+            const configLines = lines.filter(l => l === "/proj/.flanders/config.json");
+            Assert.strictEqual(configLines.length, 1);
         }
     });
 });
