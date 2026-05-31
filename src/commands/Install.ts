@@ -187,35 +187,11 @@ export class Install {
                 return 1;
             }
             const answers = parsed.answers;
-            let mode:"global"|"project";
-            if (answers.scope) {
-                mode = answers.scope;
-            } else {
-                /* coverage ignore next 3 */ // — Defensive: _disposed is false when _run begins synchronously from the constructor.
-                if (this._disposed) {
-                    return 1;
-                }
-                const option = await promptChoice(contexts.ask, {
-                    header: "Install destination",
-                    question: "Where should Flanders skills be installed?",
-                    options: [
-                        { label: "project", description: "Install in .claude/skills/ relative to CWD" },
-                        { label: "global", description: "Install in ~/.claude/skills/" }
-                    ]
-                });
-                if (!option) {
-                    return 1;
-                }
-                if (this._disposed) {
-                    return 1;
-                }
-                mode = option.label as "global"|"project";
-            }
             let skillsTool:"claude"|"codex"|"both";
             if (answers.skillsTool !== undefined) {
                 skillsTool = answers.skillsTool;
             } else {
-                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
+                /* coverage ignore next 3 */ // — Defensive: _disposed is false when _run begins synchronously from the constructor.
                 if (this._disposed) {
                     return 1;
                 }
@@ -235,6 +211,42 @@ export class Install {
                     return 1;
                 }
                 skillsTool = option.label as "claude"|"codex"|"both";
+            }
+            let mode:"global"|"project";
+            if (answers.scope) {
+                mode = answers.scope;
+            } else {
+                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
+                if (this._disposed) {
+                    return 1;
+                }
+                let projectDescription:string;
+                let globalDescription:string;
+                if (skillsTool === "claude") {
+                    projectDescription = "Install in .claude/skills/ relative to CWD";
+                    globalDescription = "Install in ~/.claude/skills/";
+                } else if (skillsTool === "codex") {
+                    projectDescription = "Install in .codex/prompts/ relative to CWD";
+                    globalDescription = "Install in ~/.codex/prompts/";
+                } else {
+                    projectDescription = "Install in .claude/skills/ and .codex/prompts/ relative to CWD";
+                    globalDescription = "Install in ~/.claude/skills/ and ~/.codex/prompts/";
+                }
+                const option = await promptChoice(contexts.ask, {
+                    header: "Install destination",
+                    question: "Where should Flanders skills be installed?",
+                    options: [
+                        { label: "project", description: projectDescription },
+                        { label: "global", description: globalDescription }
+                    ]
+                });
+                if (!option) {
+                    return 1;
+                }
+                if (this._disposed) {
+                    return 1;
+                }
+                mode = option.label as "global"|"project";
             }
             let workerTool:"claude"|"codex";
             if (answers.workerTool !== undefined) {

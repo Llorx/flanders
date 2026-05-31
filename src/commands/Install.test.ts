@@ -220,8 +220,8 @@ test.describe("Install interactive prompt", test => {
     test("prompts when neither flag given and user picks project", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "project" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "project" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             return s;
@@ -251,8 +251,8 @@ test.describe("Install interactive prompt", test => {
     test("prompts when neither flag given and user picks global", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "global" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "global" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             return s;
@@ -283,12 +283,12 @@ test.describe("Install interactive prompt", test => {
         ARRANGE() {
             const s = stubContexts();
             let capturedOptions:readonly { label:string }[] = [];
-            let firstCall = true;
+            let callIndex = 0;
             const origAsk = s.contexts.ask.askChoices;
             (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions) => {
-                if (firstCall) {
+                callIndex++;
+                if (callIndex === 2) {
                     capturedOptions = questions[0]!.options;
-                    firstCall = false;
                 }
                 s.askResponses.push([{ picked: [{ label: questions[0]!.options[0]!.label }] }]);
                 return origAsk.call(s.contexts.ask, questions);
@@ -1227,8 +1227,8 @@ test.describe("Install prompt order", test => {
     test("with no flags, prompts are asked in canonical order", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "project" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "project" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             return s;
@@ -1244,7 +1244,7 @@ test.describe("Install prompt order", test => {
                 Assert.strictEqual(code, 0);
             },
             "headers are in canonical order"(_code, { askedHeaders }) {
-                Assert.deepStrictEqual(askedHeaders, ["Install destination", "Skills tool", "Worker tool", "Reviewer tool"]);
+                Assert.deepStrictEqual(askedHeaders, ["Skills tool", "Install destination", "Worker tool", "Reviewer tool"]);
             }
         }
     });
@@ -1252,8 +1252,8 @@ test.describe("Install prompt order", test => {
     test("with --worker-tool and --reviewer-tool flags, only scope and skills tool are prompted", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "project" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "project" }] }]);
             return s;
         },
         async ACT({ contexts }) {
@@ -1266,8 +1266,8 @@ test.describe("Install prompt order", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "headers are exactly scope and skills tool"(_code, { askedHeaders }) {
-                Assert.deepStrictEqual(askedHeaders, ["Install destination", "Skills tool"]);
+            "headers are exactly skills tool then scope"(_code, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, ["Skills tool", "Install destination"]);
             }
         }
     });
@@ -1326,6 +1326,29 @@ test.describe("Install Ctrl+C during tool prompts", test => {
         },
         async ACT({ contexts }) {
             const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files are written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("Ctrl+C during scope prompt (after skills tool answered) exits non-zero with no files", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [] }]);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1420,6 +1443,204 @@ test.describe("Install dispose during tool prompts", test => {
         },
         ASSERT(code) {
             Assert.strictEqual(code, 1);
+        }
+    });
+
+    test("disposed during scope prompt (after skills tool answered) returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            let resolveScope:((v:readonly AskAnswer[]) => void) | null = null;
+            let callIndex = 0;
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
+                callIndex++;
+                if (callIndex === 2) {
+                    return new Promise<readonly AskAnswer[]>(resolve => {
+                        resolveScope = resolve;
+                    });
+                }
+                return origAsk.call(s.contexts.ask, questions, output);
+            };
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            return { ...s, getResolveScope: () => resolveScope };
+        },
+        async ACT({ contexts, getResolveScope }) {
+            const cmd = new Install([], { projectRoot: "/proj" }, contexts);
+            while (!getResolveScope()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolveScope()!([{ picked: [{ label: "project" }] }]);
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 1);
+        }
+    });
+});
+
+test.describe("Install scope prompt descriptions derived from skills tool", test => {
+    test("skills tool claude (interactive): scope descriptions name .claude/skills/ paths only", {
+        ARRANGE() {
+            const s = stubContexts();
+            let scopeOptions:readonly { label:string; description?:string }[] = [];
+            let callIndex = 0;
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
+                callIndex++;
+                if (callIndex === 2) {
+                    scopeOptions = questions[0]!.options;
+                }
+                return origAsk.call(s.contexts.ask, questions, output);
+            };
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "project" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            return { ...s, getScopeOptions: () => scopeOptions };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "scope prompt offered exactly two options"(_code, { getScopeOptions }) {
+                Assert.strictEqual(getScopeOptions().length, 2);
+            },
+            "project option label is exactly 'project'"(_code, { getScopeOptions }) {
+                Assert.strictEqual(getScopeOptions()[0]!.label, "project");
+            },
+            "global option label is exactly 'global'"(_code, { getScopeOptions }) {
+                Assert.strictEqual(getScopeOptions()[1]!.label, "global");
+            },
+            "project description contains .claude/skills/"(_code, { getScopeOptions }) {
+                Assert.ok(getScopeOptions()[0]!.description!.includes(".claude/skills/"));
+            },
+            "global description contains ~/.claude/skills/"(_code, { getScopeOptions }) {
+                Assert.ok(getScopeOptions()[1]!.description!.includes("~/.claude/skills/"));
+            },
+            "project description does not contain .codex/prompts/"(_code, { getScopeOptions }) {
+                Assert.ok(!getScopeOptions()[0]!.description!.includes(".codex/prompts/"));
+            },
+            "global description does not contain .codex/prompts/"(_code, { getScopeOptions }) {
+                Assert.ok(!getScopeOptions()[1]!.description!.includes(".codex/prompts/"));
+            }
+        }
+    });
+
+    test("skills tool codex (--skills-tool flag): scope descriptions name .codex/prompts/ paths only", {
+        ARRANGE() {
+            const s = stubContexts();
+            let scopeOptions:readonly { label:string; description?:string }[] = [];
+            let callIndex = 0;
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
+                callIndex++;
+                if (callIndex === 1) {
+                    scopeOptions = questions[0]!.options;
+                }
+                return origAsk.call(s.contexts.ask, questions, output);
+            };
+            s.askResponses.push([{ picked: [{ label: "project" }] }]);
+            return { ...s, getScopeOptions: () => scopeOptions };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--skills-tool=codex",
+                "--worker-tool=codex",
+                "--reviewer-tool=codex",
+                "--worker-effort=",
+                "--reviewer-effort="
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "scope prompt offered exactly two options"(_code, { getScopeOptions }) {
+                Assert.strictEqual(getScopeOptions().length, 2);
+            },
+            "project option label is exactly 'project'"(_code, { getScopeOptions }) {
+                Assert.strictEqual(getScopeOptions()[0]!.label, "project");
+            },
+            "global option label is exactly 'global'"(_code, { getScopeOptions }) {
+                Assert.strictEqual(getScopeOptions()[1]!.label, "global");
+            },
+            "project description contains .codex/prompts/"(_code, { getScopeOptions }) {
+                Assert.ok(getScopeOptions()[0]!.description!.includes(".codex/prompts/"));
+            },
+            "global description contains ~/.codex/prompts/"(_code, { getScopeOptions }) {
+                Assert.ok(getScopeOptions()[1]!.description!.includes("~/.codex/prompts/"));
+            },
+            "project description does not contain .claude/skills/"(_code, { getScopeOptions }) {
+                Assert.ok(!getScopeOptions()[0]!.description!.includes(".claude/skills/"));
+            },
+            "global description does not contain .claude/skills/"(_code, { getScopeOptions }) {
+                Assert.ok(!getScopeOptions()[1]!.description!.includes(".claude/skills/"));
+            }
+        }
+    });
+
+    test("skills tool both (interactive): scope descriptions name both .claude/skills/ and .codex/prompts/", {
+        ARRANGE() {
+            const s = stubContexts();
+            let scopeOptions:readonly { label:string; description?:string }[] = [];
+            let callIndex = 0;
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
+                callIndex++;
+                if (callIndex === 2) {
+                    scopeOptions = questions[0]!.options;
+                }
+                return origAsk.call(s.contexts.ask, questions, output);
+            };
+            s.askResponses.push([{ picked: [{ label: "both" }] }]);
+            s.askResponses.push([{ picked: [{ label: "project" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            return { ...s, getScopeOptions: () => scopeOptions };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "scope prompt offered exactly two options"(_code, { getScopeOptions }) {
+                Assert.strictEqual(getScopeOptions().length, 2);
+            },
+            "project option label is exactly 'project'"(_code, { getScopeOptions }) {
+                Assert.strictEqual(getScopeOptions()[0]!.label, "project");
+            },
+            "global option label is exactly 'global'"(_code, { getScopeOptions }) {
+                Assert.strictEqual(getScopeOptions()[1]!.label, "global");
+            },
+            "project description contains .claude/skills/"(_code, { getScopeOptions }) {
+                Assert.ok(getScopeOptions()[0]!.description!.includes(".claude/skills/"));
+            },
+            "project description contains .codex/prompts/"(_code, { getScopeOptions }) {
+                Assert.ok(getScopeOptions()[0]!.description!.includes(".codex/prompts/"));
+            },
+            "global description contains ~/.claude/skills/"(_code, { getScopeOptions }) {
+                Assert.ok(getScopeOptions()[1]!.description!.includes("~/.claude/skills/"));
+            },
+            "global description contains ~/.codex/prompts/"(_code, { getScopeOptions }) {
+                Assert.ok(getScopeOptions()[1]!.description!.includes("~/.codex/prompts/"));
+            }
         }
     });
 });
