@@ -10,7 +10,7 @@ Configure Flanders for the chosen scope and deliver the Flanders skills (`/fland
 - `--project` — install scope is the current working directory. Skills are written to the project's AI-tool skill folders, and the `.flanders/` configuration is written at the project root.
 - `--global` — install scope is the user's home directory. Skills are written to the user-level AI-tool skill folders, and the `.flanders/` configuration is written at the user's home directory.
 
-The scope flags are mutually exclusive; supplying both is a usage error. When neither is passed, the command prompts the user interactively to pick one of the two scopes. The interactive prompt offers exactly those two destinations.
+The scope flags are mutually exclusive; supplying both is a usage error. When neither is passed, the command prompts the user interactively to pick one of the two scopes. The interactive scope prompt is asked after the skills-tool answer is known (see `Interactive prompts`) and offers exactly those two destinations, each labelled with the concrete destination path(s) implied by the selected skills tool.
 
 ### Tool, model, and effort flags
 - `--skills-tool=<value>` — which AI tool(s) the skills are installed for. Value is one of `claude`, `codex`, or `both`.
@@ -26,8 +26,8 @@ Any tool, model, or effort question whose answer was not supplied via flags is p
 ## Interactive prompts
 When run interactively, the command asks the following questions, in order, skipping any question whose answer was provided via flags:
 
-1. Scope — `--project` vs `--global`.
-2. Skills tool — `claude`, `codex`, or `both`.
+1. Skills tool — `claude`, `codex`, or `both`.
+2. Scope — `--project` vs `--global`. The two options are labelled with the concrete destination path(s) implied by the skills tool chosen in question 1: a `claude` skills tool labels the options with `.claude/skills/` (project) and `~/.claude/skills/` (global); a `codex` skills tool labels them with `.codex/prompts/` (project) and `~/.codex/prompts/` (global); a `both` skills tool labels each option with both of its paths. When the skills tool was supplied via `--skills-tool`, the scope prompt uses that flag's value to derive the same labels.
 3. Worker tool — `claude` or `codex`.
 4. Worker model — see `Model selection`.
 5. Worker effort — see `Effort selection`.
