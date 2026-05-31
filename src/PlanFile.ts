@@ -11,6 +11,11 @@ export type PlanTask = Readonly<{
     metrics:TaskMetrics;
 }>;
 
+export type TaskLinkedPaths = Readonly<{
+    contracts:readonly string[];
+    rules:readonly string[];
+}>;
+
 export type PlanParseResult = Readonly<{
     tasks:readonly PlanTask[];
     malformed:readonly Readonly<{ line:number; raw:string }>[];
@@ -106,6 +111,43 @@ export function parsePlan(content:string):PlanParseResult {
     };
 }
 
+const BACKTICK_PATH = /`([^`]+)`/g;
+
+function extractPathsFromLine(text:string):string[] {
+    const paths:string[] = [];
+    let m;
+    while ((m = BACKTICK_PATH.exec(text)) !== null) {
+        paths.push(m[1]!);
+    }
+    return paths;
+}
+
+function taskBodyLines(content:string, taskLineNumber:number):string[] {
+    const lines = content.split(/\r?\n/);
+    const body:string[] = [];
+    for (let i = taskLineNumber; i < lines.length; i++) {
+        const line = lines[i]!;
+        if (TASK_LINE.test(line)) break;
+        body.push(line);
+    }
+    return body;
+}
+
+export function parseLinkedPaths(content:string, taskLineNumber:number):TaskLinkedPaths {
+    const body = taskBodyLines(content, taskLineNumber);
+    let contracts:string[] = [];
+    let rules:string[] = [];
+    for (const line of body) {
+        const trimmed = line.trimStart();
+        if (trimmed.startsWith("Linked contracts:")) {
+            contracts = extractPathsFromLine(trimmed.slice("Linked contracts:".length));
+        } else if (trimmed.startsWith("Linked rules:")) {
+            rules = extractPathsFromLine(trimmed.slice("Linked rules:".length));
+        }
+    }
+    return { contracts, rules };
+}
+
 export class PlanFile {
     private constructor(
         readonly path:string,
@@ -135,6 +177,9 @@ export class PlanFile {
     }
     async markOpen(lineNumber:number, metrics:TaskMetrics):Promise<void> {
         return this._rewriteTaskLine(lineNumber, metrics, "open");
+    }
+    linkedPaths(task:PlanTask):TaskLinkedPaths {
+        return parseLinkedPaths(this._content, task.line);
     }
     planTotals():TaskMetrics {
         const { tasks } = parsePlan(this._content);

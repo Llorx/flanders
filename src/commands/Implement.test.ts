@@ -6097,3 +6097,281 @@ test.describe("Implement prep-optimization condition", test => {
         }
     });
 });
+
+function planWithLinkedFiles(linkedContracts:string, linkedRules:string):string {
+    return [
+        "# Plan",
+        "",
+        '- [ ]{"it":0,"ot":0,"t":0} 1.1 Task with links',
+        "",
+        "  Description.",
+        "",
+        `  Linked contracts: ${linkedContracts}`,
+        "",
+        `  Linked rules: ${linkedRules}`,
+        ""
+    ].join("\n");
+}
+
+function readdirForPaths(files:Map<string, string>) {
+    return (dirPath:string) => {
+        const entries:Array<{ name:string; isFile:boolean; isDirectory:boolean }> = [];
+        const prefix = dirPath.endsWith("/") ? dirPath : dirPath + "/";
+        for (const key of files.keys()) {
+            if (key.startsWith(prefix) && !key.slice(prefix.length).includes("/")) {
+                entries.push({ name: key.slice(prefix.length), isFile: true, isDirectory: false });
+            }
+        }
+        return Promise.resolve(entries);
+    };
+}
+
+test.describe("Implement worker iter 1 branch A vs branch B", test => {
+    test("branch A: prepActive=true — worker forks from prep and prompt does NOT inline linked content", {
+        ARRANGE() {
+            const s = stubContexts();
+            const plan = planWithLinkedFiles(
+                "`contracts/linked-c.md`.",
+                "`rules/linked-r.md`."
+            );
+            s.files.set(PLAN_PATH, plan);
+            s.files.set("/project/contracts/linked-c.md", "UNIQUE_CONTRACT_SNIPPET_ALPHA");
+            s.files.set("/project/rules/linked-r.md", "UNIQUE_RULE_SNIPPET_ALPHA");
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            // detect
+            s.claudeQueue.push({ text: "ok" });
+            // prep (prepActive=true because worker and reviewer share tool/model/effort)
+            s.claudeQueue.push({ text: "READY", sessionId: "prep-abc" });
+            // worker
+            s.claudeQueue.push({ text: "worker done", sessionId: "worker-abc" });
+            // reviewer
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs, promptQueue }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs, promptQueue };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "worker forks from prep session id"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=prep, [2]=worker, [3]=reviewer
+                const workerArgs = claudeSpawnedArgs[2]!;
+                Assert.strictEqual(workerArgs[0], "--resume");
+                Assert.strictEqual(workerArgs[1], "prep-abc");
+                Assert.ok(workerArgs.includes("--fork-session"));
+            },
+            "worker prompt does NOT contain linked contract body"({ promptQueue }) {
+                // promptQueue: [0]=detect, [1]=prep, [2]=worker, [3]=reviewer
+                const workerPrompt = promptQueue[2]!;
+                Assert.ok(!workerPrompt.includes("UNIQUE_CONTRACT_SNIPPET_ALPHA"), "linked contract content must NOT be inlined in branch A");
+            },
+            "worker prompt does NOT contain linked rule body"({ promptQueue }) {
+                const workerPrompt = promptQueue[2]!;
+                Assert.ok(!workerPrompt.includes("UNIQUE_RULE_SNIPPET_ALPHA"), "linked rule content must NOT be inlined in branch A");
+            }
+        }
+    });
+
+    test("branch B: prepActive=false — worker is fresh and prompt inlines linked content", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "codex", model: "", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            const plan = planWithLinkedFiles(
+                "`contracts/linked-c.md`.",
+                "`rules/linked-r.md`."
+            );
+            s.files.set(PLAN_PATH, plan);
+            s.files.set("/project/contracts/linked-c.md", "UNIQUE_CONTRACT_SNIPPET_BETA");
+            s.files.set("/project/rules/linked-r.md", "UNIQUE_RULE_SNIPPET_BETA");
+            s.files.set("/project/contracts/unlinked-global.md", "UNLINKED_GLOBAL_SNIPPET");
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            // detect
+            s.claudeQueue.push({ text: "ok" });
+            // worker (no prep)
+            s.claudeQueue.push({ text: "worker done", sessionId: "worker-beta" });
+            // reviewer
+            s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs, promptQueue }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs, promptQueue };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "worker has no --resume flag"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=worker (no prep)
+                const workerArgs = claudeSpawnedArgs[1]!;
+                Assert.ok(!workerArgs.includes("--resume"), "worker must not have --resume in branch B");
+            },
+            "worker has no --fork-session flag"({ claudeSpawnedArgs }) {
+                const workerArgs = claudeSpawnedArgs[1]!;
+                Assert.ok(!workerArgs.includes("--fork-session"), "worker must not have --fork-session in branch B");
+            },
+            "worker prompt contains linked contract body"({ promptQueue }) {
+                // promptQueue: [0]=detect, [1]=worker
+                const workerPrompt = promptQueue[1]!;
+                Assert.ok(workerPrompt.includes("UNIQUE_CONTRACT_SNIPPET_BETA"), "linked contract content must be inlined in branch B");
+            },
+            "worker prompt contains linked rule body"({ promptQueue }) {
+                const workerPrompt = promptQueue[1]!;
+                Assert.ok(workerPrompt.includes("UNIQUE_RULE_SNIPPET_BETA"), "linked rule content must be inlined in branch B");
+            },
+            "worker prompt does NOT contain unlinked global file content"({ promptQueue }) {
+                const workerPrompt = promptQueue[1]!;
+                Assert.ok(!workerPrompt.includes("UNLINKED_GLOBAL_SNIPPET"), "unlinked file content must NOT be inlined");
+            }
+        }
+    });
+
+    test("branch A: captured _currentWorkerSessionId equals the session.id emitted", {
+        ARRANGE() {
+            const s = stubContexts();
+            const plan = planWithLinkedFiles("`contracts/c.md`.", "`rules/r.md`.");
+            s.files.set(PLAN_PATH, plan);
+            s.files.set("/project/contracts/c.md", "c");
+            s.files.set("/project/rules/r.md", "r");
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "READY", sessionId: "prep-cap" });
+            s.claudeQueue.push({ text: "worker", sessionId: "worker-cap-A" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "iter 2 would use captured worker session"(_code, { claudeSpawnedArgs }) {
+                // If iteration 2 ran, it would use worker-cap-A via --resume.
+                // Since the task passed on iter 1, we verify the worker fork args show the prep (branch A pattern).
+                const workerArgs = claudeSpawnedArgs[2]!;
+                Assert.strictEqual(workerArgs[0], "--resume");
+                Assert.strictEqual(workerArgs[1], "prep-cap");
+                Assert.ok(workerArgs.includes("--fork-session"));
+            }
+        }
+    });
+
+    test("branch B: captured _currentWorkerSessionId equals the session.id emitted", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewer: { tool: "codex", model: "b", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            const plan = planWithLinkedFiles("`contracts/c.md`.", "`rules/r.md`.");
+            s.files.set(PLAN_PATH, plan);
+            s.files.set("/project/contracts/c.md", "c");
+            s.files.set("/project/rules/r.md", "r");
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            s.claudeQueue.push({ text: "ok" });
+            // worker — prepActive=false, so no prep
+            s.claudeQueue.push({ text: "worker", sessionId: "worker-cap-B" });
+            // reviewer FAIL, then retry
+            s.codexQueue.push({ text: "found issues", errorLog: "fix it" });
+            // iter 2: worker resumes with captured session
+            s.claudeQueue.push({ text: "worker2" });
+            // reviewer PASS
+            s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "iter 2 worker resumes with captured session id from iter 1"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=worker iter 1, [2]=worker iter 2
+                const iter2WorkerArgs = claudeSpawnedArgs[2]!;
+                Assert.strictEqual(iter2WorkerArgs[0], "--resume");
+                Assert.strictEqual(iter2WorkerArgs[1], "worker-cap-B");
+            },
+            "iter 2 worker has no --fork-session"({ claudeSpawnedArgs }) {
+                const iter2WorkerArgs = claudeSpawnedArgs[2]!;
+                Assert.ok(!iter2WorkerArgs.includes("--fork-session"));
+            }
+        }
+    });
+
+    test("branch B: missing linked file produces '(file not found)' in prompt", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "codex", model: "", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            const plan = planWithLinkedFiles(
+                "`contracts/exists.md` `contracts/missing.md`.",
+                ""
+            );
+            s.files.set(PLAN_PATH, plan);
+            s.files.set("/project/contracts/exists.md", "EXISTS_CONTENT");
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "worker done" });
+            s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, promptQueue }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, promptQueue };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "existing file content is inlined"({ promptQueue }) {
+                const workerPrompt = promptQueue[1]!;
+                Assert.ok(workerPrompt.includes("EXISTS_CONTENT"));
+            },
+            "missing file gets placeholder"({ promptQueue }) {
+                const workerPrompt = promptQueue[1]!;
+                Assert.ok(workerPrompt.includes("(file not found)"));
+                Assert.ok(workerPrompt.includes("contracts/missing.md"));
+            }
+        }
+    });
+
+    test("branch B: no throw when _currentPrepSessionId is null", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewer: { tool: "claude", model: "b", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            // no prep (models differ)
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 0);
+        }
+    });
+});

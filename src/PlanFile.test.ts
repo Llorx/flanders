@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { parsePlan, PlanFile } from "./PlanFile";
+import { parsePlan, parseLinkedPaths, PlanFile } from "./PlanFile";
 import type { FsContext } from "./contexts";
 
 function mockFs(initialContent:string):{ fs:FsContext; content():string } {
@@ -931,6 +931,138 @@ test.describe("PlanFile.planTotals", test => {
             },
             "t total is 45"(totals) {
                 Assert.strictEqual(totals.t, 45);
+            }
+        }
+    });
+});
+
+test.describe("parseLinkedPaths", test => {
+    test("extracts contract and rule paths from task body", {
+        ARRANGE() {
+            return [
+                '- [ ]{"it":0,"ot":0,"t":0} 1.1 Some task',
+                '',
+                '  Description text.',
+                '',
+                '  Linked contracts: `contracts/foo.md`, `contracts/bar.md`.',
+                '',
+                '  Linked rules: `rules/a.md`, `rules/b.md`.',
+                ''
+            ].join("\n");
+        },
+        ACT(content) {
+            return parseLinkedPaths(content, 1);
+        },
+        ASSERTS: {
+            "contracts array matches"(result) {
+                Assert.deepStrictEqual(result.contracts, ["contracts/foo.md", "contracts/bar.md"]);
+            },
+            "rules array matches"(result) {
+                Assert.deepStrictEqual(result.rules, ["rules/a.md", "rules/b.md"]);
+            }
+        }
+    });
+
+    test("strips trailing parenthetical annotations from paths", {
+        ARRANGE() {
+            return [
+                '- [ ]{"it":0,"ot":0,"t":0} 2.1 Task with annotations',
+                '',
+                '  Linked contracts: `contracts/cli-commands/implement/iteration-loop.md` (Worker stage), `contracts/cli-commands/implement/ai-runner.md`.',
+                '',
+                '  Linked rules: `rules/ai/task-context/worker-iter1-context.md` (every bullet of branches A and B), `rules/ai/task-context/prep-optimization.md` (gating reference).',
+                ''
+            ].join("\n");
+        },
+        ACT(content) {
+            return parseLinkedPaths(content, 1);
+        },
+        ASSERTS: {
+            "contracts array has bare paths"(result) {
+                Assert.deepStrictEqual(result.contracts, [
+                    "contracts/cli-commands/implement/iteration-loop.md",
+                    "contracts/cli-commands/implement/ai-runner.md"
+                ]);
+            },
+            "rules array has bare paths"(result) {
+                Assert.deepStrictEqual(result.rules, [
+                    "rules/ai/task-context/worker-iter1-context.md",
+                    "rules/ai/task-context/prep-optimization.md"
+                ]);
+            }
+        }
+    });
+
+    test("returns empty arrays when no linked lines exist", {
+        ARRANGE() {
+            return [
+                '- [ ]{"it":0,"ot":0,"t":0} 3.1 No links',
+                '',
+                '  Just a description.',
+                ''
+            ].join("\n");
+        },
+        ACT(content) {
+            return parseLinkedPaths(content, 1);
+        },
+        ASSERTS: {
+            "contracts array is empty"(result) {
+                Assert.deepStrictEqual(result.contracts, []);
+            },
+            "rules array is empty"(result) {
+                Assert.deepStrictEqual(result.rules, []);
+            }
+        }
+    });
+
+    test("stops at the next task line", {
+        ARRANGE() {
+            return [
+                '- [ ]{"it":0,"ot":0,"t":0} 1.1 First task',
+                '',
+                '  Linked contracts: `contracts/first.md`.',
+                '',
+                '- [ ]{"it":0,"ot":0,"t":0} 1.2 Second task',
+                '',
+                '  Linked contracts: `contracts/second.md`.',
+                ''
+            ].join("\n");
+        },
+        ACT(content) {
+            return parseLinkedPaths(content, 1);
+        },
+        ASSERTS: {
+            "only first task contracts"(result) {
+                Assert.deepStrictEqual(result.contracts, ["contracts/first.md"]);
+            },
+            "rules array is empty"(result) {
+                Assert.deepStrictEqual(result.rules, []);
+            }
+        }
+    });
+
+    test("PlanFile.linkedPaths delegates to parseLinkedPaths", {
+        ARRANGE() {
+            const content = [
+                '- [ ]{"it":0,"ot":0,"t":0} 1.1 Task',
+                '',
+                '  Linked contracts: `contracts/x.md`.',
+                '  Linked rules: `rules/y.md`.',
+                ''
+            ].join("\n");
+            return mockFs(content);
+        },
+        async ACT({ fs }) {
+            const plan = await PlanFile.load("plan.md", fs);
+            const task = plan.nextOpenTask()!;
+            return plan.linkedPaths(task);
+        },
+        ASSERTS: {
+            "contracts match"(result) {
+                Assert.deepStrictEqual(result.contracts, ["contracts/x.md"]);
+            },
+            "rules match"(result) {
+                Assert.deepStrictEqual(result.rules, ["rules/y.md"]);
             }
         }
     });

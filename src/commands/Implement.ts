@@ -375,7 +375,7 @@ export class Implement {
                 return false;
             }
             this._setActivity("implementing");
-            const workerOk = await this._workerStage(plan, task, ws, iteration);
+            const workerOk = await this._workerStage(plan, task, ws, iteration, prepActive);
             /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
             if (this._disposed) {
                 return false;
@@ -483,7 +483,7 @@ export class Implement {
             return false;
         }
     }
-    private async _workerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number):Promise<boolean> {
+    private async _workerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, prepActive:boolean):Promise<boolean> {
         let prompt = prompts.worker
             .split(Placeholders.PLAN_PATH).join(plan.path)
             .split(Placeholders.TASK_LINE).join(String(task.line))
@@ -492,6 +492,9 @@ export class Implement {
             .split(Placeholders.TEST_SCRIPT_PATH).join(ws.testScript)
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList));
+        if (iteration === 1 && !prepActive) {
+            prompt = await this._appendLinkedContent(plan, task, prompt);
+        }
         if (iteration > 1) {
             const briefing = prompts.previousIterationBriefing
                 .split(Placeholders.ITERATION).join(String(iteration))
@@ -500,7 +503,9 @@ export class Implement {
         }
         try {
             const { result, capturedOutput } = iteration === 1
-                ? await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, null, this._currentPrepSessionId)
+                ? prepActive
+                    ? await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, null, this._currentPrepSessionId)
+                    : await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt)
                 : await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, this._currentWorkerSessionId);
             if (result.sessionId !== null) {
                 this._currentWorkerSessionId = result.sessionId;
@@ -517,6 +522,24 @@ export class Implement {
             await this._writeErrorLog(ws, `worker stage failed: ${this._stringifyError(e)}`);
             return false;
         }
+    }
+    private async _appendLinkedContent(plan:PlanFile, task:PlanTask, prompt:string):Promise<string> {
+        const linked = plan.linkedPaths(task);
+        const allPaths = [...linked.contracts, ...linked.rules];
+        if (allPaths.length === 0) {
+            return prompt;
+        }
+        const sections:string[] = [];
+        for (const relPath of allPaths) {
+            const absPath = joinPath(this._options.projectRoot, relPath);
+            try {
+                const content = await this._contexts.fs.readFile(absPath);
+                sections.push(`## ${relPath}\n\n${content}`);
+            } catch {
+                sections.push(`## ${relPath}\n\n(file not found)`);
+            }
+        }
+        return `${prompt}\n\n## Linked reference content\n\n${sections.join("\n\n")}`;
     }
     private async _buildStage(plan:PlanFile, taskLine:number, ws:WorkspacePaths, iteration:number):Promise<boolean> {
         if (!(await isNonEmptyFile(this._contexts.fs, ws.buildScript))) {
