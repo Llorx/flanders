@@ -13,7 +13,7 @@ The adapter spawns `codex` with at least the following arguments:
 
 - `exec` — the non-interactive subcommand.
 - `--json` — newline-delimited JSON events on stdout (one per state change).
-- `-c approval_policy=never` — disable approval prompts; the adapter operates without a human in the loop.
+- `-c approval_policy=never` — disable approval prompts, realizing the non-interactive invocation required by `rules/ai/runner/non-interactive-invocation.md`.
 - `-c sandbox_mode=danger-full-access` — Flanders runs the worker in the project's own working tree because that is the artefact `implement` is producing; the sandbox is the working tree itself, not a surrounding host.
 - A trailing `-` argument indicating the prompt is to be read from stdin.
 

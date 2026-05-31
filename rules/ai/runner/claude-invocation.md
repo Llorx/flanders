@@ -16,9 +16,9 @@ The adapter spawns `claude` with at least the following arguments:
 - `--input-format stream-json` — the input is itself a stream-json message sequence, with the prompt embedded in the first user message.
 - `--verbose` — required by Claude Code when `--output-format stream-json` is in use; the additional event types do not affect mapping because the adapter keys event interpretation off `type` plus payload fields.
 
-The adapter operates non-interactively, with no human in the loop. It does not pass `--permission-prompt-tool=stdio` or any other approval, permission, or interactive-prompt flag: a Flanders AI invocation never pauses mid-turn to obtain a tool-use approval and never puts a question to the user.
+Per `rules/ai/runner/non-interactive-invocation.md`, the invocation is non-interactive. The Claude adapter realizes this by not passing `--permission-prompt-tool=stdio` or any other approval, permission, or interactive-prompt flag.
 
-The prompt is delivered as a single user message inside the input stream-json on stdin. The adapter closes stdin immediately after writing that message, so Claude knows the single turn has ended and the process terminates on its own once the turn completes. The adapter never keeps stdin open after the prompt: because the call is non-interactive there is no live input channel to maintain, and an open stdin would leave the turn unterminated.
+The prompt is delivered as a single user message inside the input stream-json on stdin. The adapter closes stdin immediately after writing that message, so Claude knows the single turn has ended and the process terminates on its own once the turn completes; the adapter never keeps stdin open after the prompt, since an open stdin would leave the turn unterminated.
 
 When the configured `model` is non-empty, the adapter appends `--model <model>`. When it is the empty string, the flag is not passed and the Claude default applies.
 
@@ -70,7 +70,7 @@ The adapter never inspects `stderr` or the prompt text to decide retryability; t
 
 ### Control-protocol events
 
-Because the adapter runs non-interactively and enables no permission or approval tool, it neither solicits nor processes Claude's control-protocol traffic. Permission requests, tool-use approval prompts, and any interactive question Claude could raise are out of scope: the adapter does not write a control response on stdin and does not forward any question to the user. The five `ToolEvent` variants of `rules/ai/runner/tool-interface.md` are the entire surface the adapter produces; soliciting user input is not among them.
+Per `rules/ai/runner/non-interactive-invocation.md`, the adapter neither solicits nor processes Claude's control-protocol traffic. Claude's permission requests, tool-use approval prompts, and any interactive question it could raise are out of scope: the adapter does not write a control response on stdin and does not forward any question to the user. The five `ToolEvent` variants of `rules/ai/runner/tool-interface.md` are the entire surface the adapter produces; soliciting user input is not among them.
 
 ## Cancellation
 
