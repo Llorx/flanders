@@ -6,7 +6,7 @@ import test from "arrange-act-assert";
 
 import { ClaudeAdapter, ClaudeAdapterContexts, formatToolInput } from "./ClaudeAdapter";
 import type { ToolEvent, ToolAdapterInvokeArgs } from "./ToolAdapter";
-import type { AskAnswer, AskChoiceOptions, AskContext, ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
+import type { ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
 
 type SpawnedProcessSpy = SpawnedProcess & {
     $emit(event:"exit", code:number|null, signal?:string|null):void;
@@ -78,27 +78,17 @@ function timeContext():TimeContext {
     };
 }
 
-function stubAsk():AskContext {
-    return {
-        async askChoices():Promise<readonly AskAnswer[]> { return []; },
-        async askText():Promise<string> { return ""; }
-    };
-}
-
-function makeContexts(overrides?:Partial<{ claude:ReturnType<typeof claudeContext>; time:TimeContext; ask:AskContext }>):{
+function makeContexts(overrides?:Partial<{ claude:ReturnType<typeof claudeContext>; time:TimeContext }>):{
     contexts:ClaudeAdapterContexts;
     claude:ReturnType<typeof claudeContext>;
     time:TimeContext;
-    ask:AskContext;
 } {
     const claude = overrides?.claude ?? claudeContext();
     const time = overrides?.time ?? timeContext();
-    const ask = overrides?.ask ?? stubAsk();
     return {
-        contexts: { claude, time, ask },
+        contexts: { claude, time },
         claude,
-        time,
-        ask
+        time
     };
 }
 
@@ -111,6 +101,14 @@ function baseArgs(overrides?:Partial<ToolAdapterInvokeArgs>):ToolAdapterInvokeAr
         ...overrides
     };
 }
+
+const BASE_ARGV = [
+    "--input-format", "stream-json",
+    "--output-format", "stream-json",
+    "--include-partial-messages",
+    "--verbose",
+    "--print"
+];
 
 test.describe("ClaudeAdapter", test => {
 
@@ -132,14 +130,7 @@ test.describe("ClaudeAdapter", test => {
         },
         ASSERTS: {
             "argv contains expected flags and no --model"(result) {
-                Assert.deepStrictEqual(result.spawnArgs, [
-                    "--input-format", "stream-json",
-                    "--output-format", "stream-json",
-                    "--include-partial-messages",
-                    "--permission-prompt-tool=stdio",
-                    "--verbose",
-                    "--print"
-                ]);
+                Assert.deepStrictEqual(result.spawnArgs, BASE_ARGV);
             },
             "no effort output event emitted"(result) {
                 const effortEvents = result.events.filter(e => e.type === "output" && e.title === "Effort unsupported");
@@ -164,15 +155,7 @@ test.describe("ClaudeAdapter", test => {
             return claude.$spawned[0]!.args;
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [
-                "--model", "claude-opus-4-6",
-                "--input-format", "stream-json",
-                "--output-format", "stream-json",
-                "--include-partial-messages",
-                "--permission-prompt-tool=stdio",
-                "--verbose",
-                "--print"
-            ]);
+            Assert.deepStrictEqual(result, ["--model", "claude-opus-4-6", ...BASE_ARGV]);
         }
     });
 
@@ -194,14 +177,7 @@ test.describe("ClaudeAdapter", test => {
         },
         ASSERTS: {
             "argv has no effort-related tokens"(result) {
-                Assert.deepStrictEqual(result.spawnArgs, [
-                    "--input-format", "stream-json",
-                    "--output-format", "stream-json",
-                    "--include-partial-messages",
-                    "--permission-prompt-tool=stdio",
-                    "--verbose",
-                    "--print"
-                ]);
+                Assert.deepStrictEqual(result.spawnArgs, BASE_ARGV);
             },
             "exactly one Effort unsupported output event"(result) {
                 const effortEvents = result.events.filter(e => e.type === "output" && e.title === "Effort unsupported");
@@ -236,15 +212,7 @@ test.describe("ClaudeAdapter", test => {
             return claude.$spawned[0]!.args;
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [
-                "--resume", "sess-abc",
-                "--input-format", "stream-json",
-                "--output-format", "stream-json",
-                "--include-partial-messages",
-                "--permission-prompt-tool=stdio",
-                "--verbose",
-                "--print"
-            ]);
+            Assert.deepStrictEqual(result, ["--resume", "sess-abc", ...BASE_ARGV]);
         }
     });
 
@@ -264,15 +232,32 @@ test.describe("ClaudeAdapter", test => {
             return claude.$spawned[0]!.args;
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [
-                "--resume", "parent-1", "--fork-session",
-                "--input-format", "stream-json",
-                "--output-format", "stream-json",
-                "--include-partial-messages",
-                "--permission-prompt-tool=stdio",
-                "--verbose",
-                "--print"
-            ]);
+            Assert.deepStrictEqual(result, ["--resume", "parent-1", "--fork-session", ...BASE_ARGV]);
+        }
+    });
+
+    test("stdin is closed immediately after writing the prompt", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            proc.$emit("exit", 0);
+            for await (const _ of iterable) { void _; }
+            return { stdinEnded: proc.$stdinEnded, writeCount: proc.$stdinWrites.length };
+        },
+        ASSERTS: {
+            "stdin was ended"(result) {
+                Assert.strictEqual(result.stdinEnded, true);
+            },
+            "only the prompt was written to stdin"(result) {
+                Assert.strictEqual(result.writeCount, 1);
+            }
         }
     });
 
@@ -512,6 +497,33 @@ test.describe("ClaudeAdapter", test => {
         ASSERT(result) {
             const terminal = result.find(e => e.type === "error");
             Assert.deepStrictEqual(terminal, { type: "error", retryable: true, message: "rate limited" });
+        }
+    });
+
+    test("result 429 with rate_limit_info but non-numeric resetsAt produces retryable error", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "result",
+                is_error: true,
+                api_error_status: 429,
+                error: { message: "rate limited" },
+                rate_limit_info: { status: "rejected" }
+            }) + "\n");
+            proc.$emit("exit", 0);
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return events.find(e => e.type === "error" || e.type === "rate_limit");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { type: "error", retryable: true, message: "rate limited" });
         }
     });
 
@@ -795,6 +807,36 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
+    test("negative search: source file declares no interactive control machinery", {
+        ARRANGE() {
+            const sourcePath = path.resolve(__dirname, "../../src/ai/ClaudeAdapter.ts");
+            return { sourcePath };
+        },
+        ACT({ sourcePath }) {
+            const content = fs.readFileSync(sourcePath, "utf-8");
+            return {
+                permissionFlag: (content.match(/permission-prompt-tool/g) || []).length,
+                controlResponse: (content.match(/control_response/g) || []).length,
+                controlRequest: (content.match(/control_request/g) || []).length,
+                askUserQuestion: (content.match(/AskUserQuestion/g) || []).length
+            };
+        },
+        ASSERTS: {
+            "no permission-prompt-tool flag"(result) {
+                Assert.strictEqual(result.permissionFlag, 0);
+            },
+            "no control_response writes"(result) {
+                Assert.strictEqual(result.controlResponse, 0);
+            },
+            "no control_request handling"(result) {
+                Assert.strictEqual(result.controlRequest, 0);
+            },
+            "no AskUserQuestion forwarding"(result) {
+                Assert.strictEqual(result.askUserQuestion, 0);
+            }
+        }
+    });
+
     test("stderr is forwarded as output event with title stderr", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
@@ -855,84 +897,6 @@ test.describe("ClaudeAdapter", test => {
         },
         ASSERT(_, { getCaptured }) {
             Assert.deepStrictEqual(getCaptured(), { inputTokens: 115, outputTokens: 50 });
-        }
-    });
-
-    test("control_request permission is auto-approved for non-AskUserQuestion tools", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-1",
-                request: { subtype: "can_use_tool", request_id: "req-1", tool_name: "Bash", input: { command: "ls" } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites;
-        },
-        ASSERT(result) {
-            const responses = result.filter(w => w.includes("control_response"));
-            Assert.strictEqual(responses.length, 1);
-            const parsed = JSON.parse(responses[0]!.replace(/\n$/, ""));
-            Assert.strictEqual(parsed.response.response.behavior, "allow");
-        }
-    });
-
-    test("AskUserQuestion control_request routes through AskContext", {
-        ARRANGE() {
-            let askCalled = false;
-            const ask:AskContext = {
-                async askChoices():Promise<readonly AskAnswer[]> {
-                    askCalled = true;
-                    return [{ picked: [{ label: "Yes" }] }];
-                },
-                async askText():Promise<string> { return ""; }
-            };
-            const { contexts, claude } = makeContexts({ ask });
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude, getAskCalled() { return askCalled; } };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-ask",
-                request: {
-                    subtype: "can_use_tool",
-                    request_id: "req-ask",
-                    tool_name: "AskUserQuestion",
-                    input: { questions: [{ question: "Continue?", header: "Q", options: [{ label: "Yes", description: "proceed" }] }] }
-                }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites;
-        },
-        ASSERTS: {
-            "askChoices was called"(_, { getAskCalled }) {
-                Assert.strictEqual(getAskCalled(), true);
-            },
-            "control_response sent with allow and answers"(result) {
-                const responses = result.filter(w => w.includes("control_response"));
-                Assert.strictEqual(responses.length, 1);
-                const parsed = JSON.parse(responses[0]!.replace(/\n$/, ""));
-                Assert.strictEqual(parsed.response.response.behavior, "allow");
-                Assert.deepStrictEqual(parsed.response.response.updatedInput.answers, { "Continue?": "Yes" });
-            }
         }
     });
 
@@ -1075,170 +1039,6 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
-    test("AskUserQuestion with empty questions list auto-approves", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-empty",
-                request: { subtype: "can_use_tool", request_id: "req-empty", tool_name: "AskUserQuestion", input: { questions: [] } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites;
-        },
-        ASSERT(result) {
-            const responses = result.filter(w => w.includes("control_response"));
-            Assert.strictEqual(responses.length, 1);
-            const parsed = JSON.parse(responses[0]!.replace(/\n$/, ""));
-            Assert.strictEqual(parsed.response.response.behavior, "allow");
-        }
-    });
-
-    test("control_request with invalid subtype is ignored", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-x",
-                request: { subtype: "unknown_subtype", request_id: "req-x", tool_name: "Bash" }
-            }) + "\n");
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 0);
-        }
-    });
-
-    test("control_request with missing request_id is ignored", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request: { subtype: "can_use_tool", tool_name: "Bash" }
-            }) + "\n");
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 0);
-        }
-    });
-
-    test("control_request with missing tool_name is ignored", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-y",
-                request: { subtype: "can_use_tool", request_id: "req-y" }
-            }) + "\n");
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 0);
-        }
-    });
-
-    test("control_request with no request body is ignored", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "control_request", request_id: "req-z" }) + "\n");
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 0);
-        }
-    });
-
-    test("AskUserQuestion with askChoices rejection sends deny response", {
-        ARRANGE() {
-            const ask:AskContext = {
-                async askChoices():Promise<readonly AskAnswer[]> { throw new Error("user cancelled"); },
-                async askText():Promise<string> { return ""; }
-            };
-            const { contexts, claude } = makeContexts({ ask });
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-deny",
-                request: {
-                    subtype: "can_use_tool",
-                    request_id: "req-deny",
-                    tool_name: "AskUserQuestion",
-                    input: { questions: [{ question: "Q?", header: "H", options: [{ label: "A" }] }] }
-                }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites;
-        },
-        ASSERT(result) {
-            const responses = result.filter(w => w.includes("control_response"));
-            Assert.strictEqual(responses.length, 1);
-            const parsed = JSON.parse(responses[0]!.replace(/\n$/, ""));
-            Assert.strictEqual(parsed.response.response.behavior, "deny");
-            Assert.strictEqual(parsed.response.response.message, "user cancelled");
-        }
-    });
-
     test("user tool_result with array content extracts text blocks", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
@@ -1264,32 +1064,6 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
-    test("sdk_control_request type is also handled", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "sdk_control_request",
-                request_id: "sdk-1",
-                request: { subtype: "can_use_tool", request_id: "sdk-1", tool_name: "Edit", input: {} }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 1);
-        }
-    });
-
     test("tool_result with non-string non-array content yields empty output", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
@@ -1312,6 +1086,31 @@ test.describe("ClaudeAdapter", test => {
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, { type: "output", title: "Result", subtitle: "", details: "" });
+        }
+    });
+
+    test("tool_result array content with non-text and non-object blocks is skipped", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "user",
+                message: { role: "user", content: [{ type: "tool_result", content: [null, { type: "image" }, { type: "text", text: "kept" }] }] }
+            }) + "\n");
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            proc.$emit("exit", 0);
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return events[0];
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { type: "output", title: "Result", subtitle: "kept", details: "kept" });
         }
     });
 
@@ -1427,242 +1226,6 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
-    test("control_request falls back to tool_input when input absent", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-ti",
-                request: { subtype: "can_use_tool", request_id: "req-ti", tool_name: "Bash", tool_input: { command: "ls" } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result.response.response.updatedInput, { command: "ls" });
-        }
-    });
-
-    test("permission with primitive toolInput wraps to empty object", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-p",
-                request: { subtype: "can_use_tool", request_id: "req-p", tool_name: "Bash", input: "not-object" }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result.response.response.updatedInput, {});
-        }
-    });
-
-    test("AskUserQuestion with null toolInput auto-approves", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-null",
-                request: { subtype: "can_use_tool", request_id: "req-null", tool_name: "AskUserQuestion", input: null }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "allow");
-        }
-    });
-
-    test("AskUserQuestion answer composes labels with extra text", {
-        ARRANGE() {
-            const ask:AskContext = {
-                async askChoices():Promise<readonly AskAnswer[]> {
-                    return [{ picked: [{ label: "Yes" }], extra: "details here" }];
-                },
-                async askText():Promise<string> { return ""; }
-            };
-            const { contexts, claude } = makeContexts({ ask });
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-le",
-                request: {
-                    subtype: "can_use_tool",
-                    request_id: "req-le",
-                    tool_name: "AskUserQuestion",
-                    input: { questions: [{ question: "Q?", header: "H", options: [{ label: "Yes", description: "y" }] }] }
-                }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result.response.response.updatedInput.answers, { "Q?": "Yes: details here" });
-        }
-    });
-
-    test("AskUserQuestion answer uses extra when no labels picked", {
-        ARRANGE() {
-            const ask:AskContext = {
-                async askChoices():Promise<readonly AskAnswer[]> {
-                    return [{ picked: [], extra: "custom text" }];
-                },
-                async askText():Promise<string> { return ""; }
-            };
-            const { contexts, claude } = makeContexts({ ask });
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-ext",
-                request: {
-                    subtype: "can_use_tool",
-                    request_id: "req-ext",
-                    tool_name: "AskUserQuestion",
-                    input: { questions: [{ question: "Q?", header: "H", options: [{ label: "A" }] }] }
-                }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result.response.response.updatedInput.answers, { "Q?": "custom text" });
-        }
-    });
-
-    test("AskUserQuestion answer uses (no answer) when nothing picked or typed", {
-        ARRANGE() {
-            const ask:AskContext = {
-                async askChoices():Promise<readonly AskAnswer[]> {
-                    return [{ picked: [] }];
-                },
-                async askText():Promise<string> { return ""; }
-            };
-            const { contexts, claude } = makeContexts({ ask });
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-na",
-                request: {
-                    subtype: "can_use_tool",
-                    request_id: "req-na",
-                    tool_name: "AskUserQuestion",
-                    input: { questions: [{ question: "Q?", header: "H", options: [{ label: "A" }] }] }
-                }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result.response.response.updatedInput.answers, { "Q?": "(no answer)" });
-        }
-    });
-
-    test("AskUserQuestion rejection with non-Error falls back to String()", {
-        ARRANGE() {
-            const ask:AskContext = {
-                async askChoices():Promise<readonly AskAnswer[]> { throw 42; },
-                async askText():Promise<string> { return ""; }
-            };
-            const { contexts, claude } = makeContexts({ ask });
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-num",
-                request: {
-                    subtype: "can_use_tool",
-                    request_id: "req-num",
-                    tool_name: "AskUserQuestion",
-                    input: { questions: [{ question: "Q?", header: "H", options: [{ label: "A" }] }] }
-                }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "deny");
-            Assert.strictEqual(result.response.response.message, "42");
-        }
-    });
-
     test("async wait path: events emitted after iteration starts", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
@@ -1718,188 +1281,6 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
-    test("extractQuestions: null input auto-approves", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "eq-1",
-                request: { subtype: "can_use_tool", request_id: "eq-1", tool_name: "AskUserQuestion" }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 1);
-        }
-    });
-
-    test("extractQuestions: non-array questions field auto-approves", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "eq-2",
-                request: { subtype: "can_use_tool", request_id: "eq-2", tool_name: "AskUserQuestion", input: { questions: "not-array" } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 1);
-        }
-    });
-
-    test("extractQuestions: non-object entry in questions array is skipped", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "eq-3",
-                request: { subtype: "can_use_tool", request_id: "eq-3", tool_name: "AskUserQuestion", input: { questions: [42, null] } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 1);
-        }
-    });
-
-    test("extractQuestions: entry with non-string question is skipped", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "eq-4",
-                request: { subtype: "can_use_tool", request_id: "eq-4", tool_name: "AskUserQuestion", input: { questions: [{ question: 42, header: "H", options: [{ label: "A" }] }] } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 1);
-        }
-    });
-
-    test("extractQuestions: non-object option is skipped", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "eq-5",
-                request: { subtype: "can_use_tool", request_id: "eq-5", tool_name: "AskUserQuestion", input: { questions: [{ question: "Q?", header: "H", options: ["bad", null] }] } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 1);
-        }
-    });
-
-    test("extractQuestions: option with empty label is skipped", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "eq-6",
-                request: { subtype: "can_use_tool", request_id: "eq-6", tool_name: "AskUserQuestion", input: { questions: [{ question: "Q?", header: "H", options: [{ label: "" }] }] } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 1);
-        }
-    });
-
-    test("extractQuestions: question with no valid options is skipped", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "eq-7",
-                request: { subtype: "can_use_tool", request_id: "eq-7", tool_name: "AskUserQuestion", input: { questions: [{ question: "Q?", header: "H", options: [] }] } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 1);
-        }
-    });
-
     test("usage with absent input_tokens defaults to zero", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
@@ -1917,406 +1298,6 @@ test.describe("ClaudeAdapter", test => {
         },
         ASSERT(_, { getCaptured }) {
             Assert.deepStrictEqual(getCaptured(), { inputTokens: 0, outputTokens: 25 });
-        }
-    });
-
-    test("extractQuestions: non-string header defaults to empty string", {
-        ARRANGE() {
-            let capturedOptions:unknown = null;
-            const ask:AskContext = {
-                async askChoices(opts):Promise<readonly AskAnswer[]> {
-                    capturedOptions = opts;
-                    return [{ picked: [{ label: "Yes" }] }];
-                },
-                async askText():Promise<string> { return ""; }
-            };
-            const { contexts, claude } = makeContexts({ ask });
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude, getCaptured() { return capturedOptions; } };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "eq-h",
-                request: {
-                    subtype: "can_use_tool",
-                    request_id: "eq-h",
-                    tool_name: "AskUserQuestion",
-                    input: { questions: [{ question: "Q?", header: 42, options: [{ label: "Yes" }] }] }
-                }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-        },
-        ASSERT(_, { getCaptured }) {
-            const opts = getCaptured() as AskChoiceOptions[];
-            Assert.strictEqual(opts[0]!.header, "");
-        }
-    });
-
-    test("extractQuestions: non-string label option is skipped (only option makes question invalid)", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "eq-nl",
-                request: {
-                    subtype: "can_use_tool",
-                    request_id: "eq-nl",
-                    tool_name: "AskUserQuestion",
-                    input: { questions: [{ question: "Q?", header: "H", options: [{ label: 42 }] }] }
-                }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return proc.$stdinWrites.filter(w => w.includes("control_response")).length;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, 1);
-        }
-    });
-
-    test("Bash tool with git commit command is denied", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-git",
-                request: { subtype: "can_use_tool", request_id: "req-git", tool_name: "Bash", input: { command: "git commit -m 'test'" } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERTS: {
-            "response behavior is deny"(result) {
-                Assert.strictEqual(result.response.response.behavior, "deny");
-            },
-            "response message mentions git-write"(result) {
-                Assert.strictEqual(result.response.response.message, "git-write operations are not permitted for subagents");
-            }
-        }
-    });
-
-    test("Bash tool with git add command is denied", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-ga",
-                request: { subtype: "can_use_tool", request_id: "req-ga", tool_name: "Bash", input: { command: "git add ." } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "deny");
-        }
-    });
-
-    test("Bash tool with git push command is denied", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-gp",
-                request: { subtype: "can_use_tool", request_id: "req-gp", tool_name: "Bash", input: { command: "git push origin main" } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "deny");
-        }
-    });
-
-    test("Bash tool with git status (read) is allowed", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-gs",
-                request: { subtype: "can_use_tool", request_id: "req-gs", tool_name: "Bash", input: { command: "git status" } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "allow");
-        }
-    });
-
-    test("Bash tool with git diff (read) is allowed", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-gd",
-                request: { subtype: "can_use_tool", request_id: "req-gd", tool_name: "Bash", input: { command: "git diff HEAD" } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "allow");
-        }
-    });
-
-    test("Bash tool with git log (read) is allowed", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-gl",
-                request: { subtype: "can_use_tool", request_id: "req-gl", tool_name: "Bash", input: { command: "git log --oneline" } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "allow");
-        }
-    });
-
-    test("PowerShell tool with git reset command is denied", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-ps",
-                request: { subtype: "can_use_tool", request_id: "req-ps", tool_name: "PowerShell", input: { command: "git reset --hard HEAD" } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "deny");
-        }
-    });
-
-    test("Bash tool with compound git write command is denied", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-comp",
-                request: { subtype: "can_use_tool", request_id: "req-comp", tool_name: "Bash", input: { command: "cd /foo && git add . && git commit -m 'test'" } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "deny");
-        }
-    });
-
-    test("Bash tool with git -C flag and write subcommand is denied", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-cflag",
-                request: { subtype: "can_use_tool", request_id: "req-cflag", tool_name: "Bash", input: { command: "git -C /path add ." } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "deny");
-        }
-    });
-
-    test("Bash tool with non-git command is allowed", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-ng",
-                request: { subtype: "can_use_tool", request_id: "req-ng", tool_name: "Bash", input: { command: "npm test" } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "allow");
-        }
-    });
-
-    test("Bash tool git-write check with non-string command is allowed", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-nc",
-                request: { subtype: "can_use_tool", request_id: "req-nc", tool_name: "Bash", input: { command: 42 } }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "allow");
-        }
-    });
-
-    test("Bash tool git-write check with null toolInput is allowed", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "req-bn",
-                request: { subtype: "can_use_tool", request_id: "req-bn", tool_name: "Bash", input: null }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.response.response.behavior, "allow");
         }
     });
 
@@ -2350,33 +1331,6 @@ test.describe("ClaudeAdapter", test => {
             "exit was emitted before iterable closed"(result) {
                 Assert.strictEqual(result.exitEmittedBeforeIterableClosed, true);
             }
-        }
-    });
-
-    test("AskUserQuestion with string toolInput auto-approves with wrapped input", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
-                type: "control_request",
-                request_id: "eq-8",
-                request: { subtype: "can_use_tool", request_id: "eq-8", tool_name: "AskUserQuestion", input: "string" }
-            }) + "\n");
-            await new Promise<void>(r => setImmediate(r));
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            const responses = proc.$stdinWrites.filter(w => w.includes("control_response"));
-            return JSON.parse(responses[0]!.replace(/\n$/, ""));
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result.response.response.updatedInput, {});
         }
     });
 });

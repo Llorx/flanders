@@ -635,8 +635,7 @@ export class Implement {
         }
         return new ClaudeAdapter({
             claude: this._contexts.claude,
-            time: this._contexts.time,
-            ask: this._contexts.ask
+            time: this._contexts.time
         });
     }
     private async _runAi(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId?:string|null, forkFromSessionId?:string|null) {

@@ -1,15 +1,9 @@
 import type { SpawnOptions } from "child_process";
 
-import type { AskChoiceOptions, AskContext, AskAnswer, ChoiceOption, ScriptContext, TimeContext, SpawnedProcess } from "../contexts";
+import type { ScriptContext, TimeContext, SpawnedProcess } from "../contexts";
 import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent } from "./ToolAdapter";
 
 const TOOL_INPUT_INLINE_MAX = 120;
-
-const GIT_READ_SUBCOMMANDS = new Set([
-    "status", "diff", "log", "show", "blame", "shortlog", "describe",
-    "ls-files", "ls-tree", "cat-file", "rev-parse", "rev-list",
-    "name-rev", "merge-base", "for-each-ref", "version", "help"
-]);
 
 type ClaudeNativeContentBlock = Readonly<{
     type?:string;
@@ -23,22 +17,12 @@ type ClaudeNativeContentBlock = Readonly<{
     is_error?:boolean;
 }>;
 
-type ClaudeControlRequestBody = Readonly<{
-    subtype?:string;
-    request_id?:string;
-    tool_name?:string;
-    input?:unknown;
-    tool_input?:unknown;
-}>;
-
 type ClaudeNativeEvent = Readonly<{
     type?:string;
     subtype?:string;
     is_error?:boolean;
     api_error_status?:number|null;
     session_id?:string;
-    request_id?:string;
-    request?:ClaudeControlRequestBody;
     message?:Readonly<{
         role?:string;
         content?:ReadonlyArray<ClaudeNativeContentBlock>;
@@ -71,28 +55,9 @@ type ClaudeNativeEvent = Readonly<{
     }>;
 }>;
 
-type PermissionResponse =
-    | Readonly<{ behavior:"allow"; updatedInput?:unknown; updated_permissions?:readonly unknown[] }>
-    | Readonly<{ behavior:"deny"; message:string; interrupt?:boolean }>;
-
-type RawQuestion = Readonly<{
-    question?:string;
-    header?:string;
-    multiSelect?:boolean;
-    options?:ReadonlyArray<Readonly<{ label?:string; description?:string }>>;
-}>;
-
-type ExtractedQuestion = Readonly<{
-    question:string;
-    header:string;
-    multiSelect:boolean;
-    options:ReadonlyArray<Readonly<{ label:string; description?:string }>>;
-}>;
-
 export type ClaudeAdapterContexts = Readonly<{
     claude:ScriptContext;
     time:TimeContext;
-    ask:AskContext;
 }>;
 
 export function formatToolInput(input:Readonly<Record<string, unknown>>|undefined):string {
@@ -154,17 +119,6 @@ function toolResultSummary(content:unknown):string {
     return firstLine;
 }
 
-function isGitWriteCommand(command:string):boolean {
-    const re = /\bgit\s+(?:(?:-[a-zA-Z]\s+\S+|--\S+)\s+)*(\w[\w-]*)/g;
-    let m;
-    while ((m = re.exec(command)) !== null) {
-        if (!GIT_READ_SUBCOMMANDS.has(m[1]!)) {
-            return true;
-        }
-    }
-    return false;
-}
-
 export class ClaudeAdapter implements ToolAdapter {
     constructor(private _contexts:ClaudeAdapterContexts) {}
 
@@ -216,6 +170,7 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
             message: { role: "user", content: this._args.prompt }
         };
         proc.stdin?.write(JSON.stringify(initialMessage) + "\n");
+        proc.stdin?.end();
 
         let exitResolve:(() => void)|null = null;
         this._exitPromise = new Promise<void>(resolve => { exitResolve = resolve; });
@@ -300,7 +255,6 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--include-partial-messages",
-            "--permission-prompt-tool=stdio",
             "--verbose",
             "--print"
         );
@@ -325,12 +279,6 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
                 this._capturedSessionId = parsed.session_id;
                 this._queue.push({ type: "session", id: parsed.session_id });
             }
-        }
-
-        if (parsed.type === "control_request" || parsed.type === "sdk_control_request") {
-            this._handleControlRequest(parsed);
-            this._wake();
-            return;
         }
 
         if (parsed.type === "assistant" && parsed.message?.content) {
@@ -436,105 +384,6 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
         return { type: "error", retryable: false, message };
     }
 
-    private _handleControlRequest(parsed:ClaudeNativeEvent):void {
-        const req = parsed.request;
-        if (!req) return;
-        if (req.subtype !== "can_use_tool" && req.subtype !== "permission") return;
-
-        const requestId = parsed.request_id ?? req.request_id;
-        if (typeof requestId !== "string" || requestId.length === 0) return;
-
-        const toolName = req.tool_name;
-        if (typeof toolName !== "string") return;
-
-        const toolInput = req.input ?? req.tool_input;
-
-        if (toolName === "AskUserQuestion") {
-            this._handleAskUserQuestion(requestId, toolInput);
-            return;
-        }
-
-        if (toolName === "Bash" || toolName === "PowerShell") {
-            const command = typeof toolInput === "object" && toolInput !== null
-                ? (toolInput as Record<string, unknown>)["command"]
-                : undefined;
-            if (typeof command === "string" && isGitWriteCommand(command)) {
-                this._sendControlResponse(requestId, {
-                    behavior: "deny",
-                    message: "git-write operations are not permitted for subagents"
-                });
-                return;
-            }
-        }
-
-        const response:PermissionResponse = {
-            behavior: "allow",
-            updatedInput: typeof toolInput === "object" && toolInput !== null ? toolInput : {}
-        };
-        this._sendControlResponse(requestId, response);
-    }
-
-    private _handleAskUserQuestion(requestId:string, toolInput:unknown):void {
-        const questions = extractQuestions(toolInput);
-        if (questions.length === 0) {
-            const response:PermissionResponse = {
-                behavior: "allow",
-                updatedInput: typeof toolInput === "object" && toolInput !== null ? toolInput : {}
-            };
-            this._sendControlResponse(requestId, response);
-            return;
-        }
-
-        const askOptions:AskChoiceOptions[] = questions.map(q => ({
-            header: q.header,
-            question: q.question,
-            options: q.options.map(o => ({ label: o.label, description: o.description } as ChoiceOption)),
-            multiSelect: q.multiSelect
-        }));
-
-        this._contexts.ask.askChoices(askOptions).then((allAnswers:readonly AskAnswer[]) => {
-            const answers:Record<string, string> = {};
-            for (let i = 0; i < questions.length; i++) {
-                const q = questions[i]!;
-                const answer = allAnswers[i]!;
-                const labels = answer.picked.map(p => p.label).join(", ");
-                let composed:string;
-                if (labels && answer.extra) {
-                    composed = `${labels}: ${answer.extra}`;
-                } else if (labels) {
-                    composed = labels;
-                } else if (answer.extra) {
-                    composed = answer.extra;
-                } else {
-                    composed = "(no answer)";
-                }
-                answers[q.question] = composed;
-            }
-            this._sendControlResponse(requestId, {
-                behavior: "allow",
-                updatedInput: { questions, answers }
-            });
-        }, (err:unknown) => {
-            this._sendControlResponse(requestId, {
-                behavior: "deny",
-                message: err instanceof Error ? err.message : String(err)
-            });
-        });
-    }
-
-    private _sendControlResponse(requestId:string, response:PermissionResponse):void {
-        /* coverage ignore next */ // — Defensive: stdin is always available when stdio:"pipe".
-        if (!this._proc?.stdin) return;
-        this._proc.stdin.write(JSON.stringify({
-            type: "control_response",
-            response: {
-                subtype: "success",
-                request_id: requestId,
-                response
-            }
-        }) + "\n");
-    }
-
     private _wake():void {
         if (this._waitResolve) {
             const resolve = this._waitResolve;
@@ -586,45 +435,4 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
             this._abortListener = null;
         }
     }
-}
-
-function extractQuestions(input:unknown):ExtractedQuestion[] {
-    if (typeof input !== "object" || input === null) {
-        return [];
-    }
-    const qs = (input as { [k:string]:unknown })["questions"];
-    if (!Array.isArray(qs)) {
-        return [];
-    }
-    const out:ExtractedQuestion[] = [];
-    for (const raw of qs as RawQuestion[]) {
-        if (typeof raw !== "object" || raw === null) {
-            continue;
-        }
-        const question = typeof raw.question === "string" ? raw.question : "";
-        const header = typeof raw.header === "string" ? raw.header : "";
-        const multiSelect = raw.multiSelect === true;
-        const options:Array<{ label:string; description?:string }> = [];
-        if (Array.isArray(raw.options)) {
-            for (const o of raw.options) {
-                if (typeof o !== "object" || o === null) {
-                    continue;
-                }
-                const label = typeof o.label === "string" ? o.label : "";
-                if (!label) {
-                    continue;
-                }
-                const opt:{ label:string; description?:string } = { label };
-                if (typeof o.description === "string") {
-                    opt.description = o.description;
-                }
-                options.push(opt);
-            }
-        }
-        if (!question || options.length === 0) {
-            continue;
-        }
-        out.push({ question, header, multiSelect, options });
-    }
-    return out;
 }
