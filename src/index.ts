@@ -6,7 +6,6 @@ export type {
     AskChoiceOptions,
     AskContext,
     ChoiceOption,
-    ClaudeContext,
     ScriptContext,
     FsContext,
     FsDirEntry,
@@ -17,5 +16,17 @@ export type {
     SpawnedReadable
 } from "./contexts";
 export type { AiSessionResult, AiSessionOptions, AiSessionContexts } from "./ai/AiSession";
+export type {
+    ToolAdapter,
+    ToolAdapterInvokeArgs,
+    ToolAdapterUsageCallback,
+    ToolEvent,
+    ToolEventDone,
+    ToolEventError,
+    ToolEventOutput,
+    ToolEventRateLimit,
+    ToolEventSession,
+    ToolName
+} from "./ai/ToolAdapter";
 export type { PlatformContext } from "./Workspace";
 /* coverage enable */

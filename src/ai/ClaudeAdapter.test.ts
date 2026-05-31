@@ -6,7 +6,7 @@ import test from "arrange-act-assert";
 
 import { ClaudeAdapter, ClaudeAdapterContexts, formatToolInput } from "./ClaudeAdapter";
 import type { ToolEvent, ToolAdapterInvokeArgs } from "./ToolAdapter";
-import type { AskAnswer, AskChoiceOptions, AskContext, ClaudeContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
+import type { AskAnswer, AskChoiceOptions, AskContext, ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
 
 type SpawnedProcessSpy = SpawnedProcess & {
     $emit(event:"exit", code:number|null, signal?:string|null):void;
@@ -63,7 +63,7 @@ function claudeContext() {
                 processes.push(proc);
                 return proc;
             }
-        } satisfies ClaudeContext)
+        } satisfies ScriptContext)
     };
 }
 

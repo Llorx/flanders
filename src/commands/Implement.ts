@@ -1,7 +1,7 @@
 import { AiSession } from "../ai/AiSession";
 import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import { CodexAdapter } from "../ai/CodexAdapter";
-import type { AskContext, ClaudeContext, FsContext, OutputContext, ScriptContext, TimeContext } from "../contexts";
+import type { AskContext, FsContext, OutputContext, ScriptContext, TimeContext } from "../contexts";
 import type { ToolAdapter, ToolName } from "../ai/ToolAdapter";
 import type { FlandersConfig } from "../FlandersConfig";
 import { read as readConfig } from "../FlandersConfig";
@@ -54,7 +54,7 @@ class LineBufferedBlock {
 }
 
 export type ImplementContexts = Readonly<{
-    claude:ClaudeContext;
+    claude:ScriptContext;
     script:ScriptContext;
     fs:FsContext;
     time:TimeContext;

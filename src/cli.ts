@@ -11,7 +11,6 @@ import type {
     AskChoiceOptions,
     AskContext,
     ChoiceOption,
-    ClaudeContext,
     FsContext,
     FsDirEntry,
     OutputContext,
@@ -54,7 +53,7 @@ const spawnContext = {
         };
         return proc;
     }
-} satisfies ClaudeContext & ScriptContext;
+} satisfies ScriptContext;
 
 const fsContext:FsContext = {
     async readFile(p) {

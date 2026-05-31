@@ -16,14 +16,6 @@ export type SpawnedProcess = {
     }>;
 };
 
-export interface ClaudeContext {
-    spawn(
-        command:string,
-        args:readonly string[],
-        options:SpawnOptions
-    ):SpawnedProcess;
-}
-
 export interface ScriptContext {
     spawn(
         command:string,

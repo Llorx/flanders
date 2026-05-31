@@ -234,15 +234,9 @@ test.describe("Implement per-iteration logs", test => {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            // Claude run 1: detect build/test (no scripts written)
             s.claudeQueue.push({ text: "No build or test scripts needed." });
-            // Claude run 2: prep
             s.claudeQueue.push(PREP_RESPONSE);
-            // Claude run 3: worker
             s.claudeQueue.push({ text: "Worker output for feature A" });
-            // Script run 1: build (skipped — no build script)
-            // Script run 2: test (skipped — no test script)
-            // Claude run 3: reviewer
             s.claudeQueue.push({ text: "Looks good.\n\nPASS", errorLog: "" });
             return s;
         },
@@ -1521,7 +1515,7 @@ async function flush(rounds = 20) {
 }
 
 test.describe("Implement rate-limit footer", test => {
-    test("footer switches to rate-limit state during Claude wait", {
+    test("footer switches to rate-limit state during AI wait", {
         ARRANGE() {
             const { s, time } = rateLimitStub(2, 300);
             s.claudeQueue.push({ text: "ok" });
@@ -1703,7 +1697,7 @@ test.describe("Implement rate-limit footer", test => {
 });
 
 test.describe("Implement cleanup on exit", test => {
-    test("dispose during active Claude session stops timers but block stays visible", {
+    test("dispose during active AI session stops timers but block stays visible", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -1904,7 +1898,7 @@ test.describe("Implement per-task token and time metrics", test => {
         ASSERT(code, { files }) {
             Assert.strictEqual(code, 0);
             const plan = files.get(PLAN_PATH)!;
-            Assert.ok(plan.includes('[x]{"it":180,"ot":80,"t":0}'), `tokens should only come from Claude calls, got: ${plan}`);
+            Assert.ok(plan.includes('[x]{"it":180,"ot":80,"t":0}'), `tokens should only come from AI calls, got: ${plan}`);
         }
     });
 
@@ -2286,7 +2280,7 @@ test.describe("Implement per-task token and time metrics", test => {
         }
     });
 
-    test("setMetrics is called after each Claude call with expected structured data", {
+    test("setMetrics is called after each AI call with expected structured data", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -5036,7 +5030,7 @@ test.describe("Implement test-stage failure", test => {
 });
 
 test.describe("Implement reviewer-stage error", test => {
-    test("reviewer Claude error causes retry", {
+    test("reviewer AI error causes retry", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -5530,8 +5524,8 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
     });
 });
 
-test.describe("Implement Claude stderr forwarding", test => {
-    test("Claude stderr is captured in writeError output", {
+test.describe("Implement AI stderr forwarding", test => {
+    test("AI stderr is captured in writeError output", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);

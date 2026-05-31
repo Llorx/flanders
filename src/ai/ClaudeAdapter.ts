@@ -1,6 +1,6 @@
 import type { SpawnOptions } from "child_process";
 
-import type { AskChoiceOptions, AskContext, AskAnswer, ChoiceOption, ClaudeContext, TimeContext, SpawnedProcess } from "../contexts";
+import type { AskChoiceOptions, AskContext, AskAnswer, ChoiceOption, ScriptContext, TimeContext, SpawnedProcess } from "../contexts";
 import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent } from "./ToolAdapter";
 
 const TOOL_INPUT_INLINE_MAX = 120;
@@ -90,7 +90,7 @@ type ExtractedQuestion = Readonly<{
 }>;
 
 export type ClaudeAdapterContexts = Readonly<{
-    claude:ClaudeContext;
+    claude:ScriptContext;
     time:TimeContext;
     ask:AskContext;
 }>;
