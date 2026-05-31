@@ -349,12 +349,17 @@ export class Implement {
         this._taskRateLimitStartedAt = null;
         this._taskTokens = {it:0, ot:0};
         this._updateMetrics(plan);
-        const prepOk = await this._prepStage(plan, task, ws, taskIndex);
-        if (this._disposed) {
-            return false;
-        }
-        if (!prepOk) {
-            return false;
+        const prepActive = this._config!.worker.tool === this._config!.reviewer.tool
+            && this._config!.worker.model === this._config!.reviewer.model
+            && this._config!.worker.effort === this._config!.reviewer.effort;
+        if (prepActive) {
+            const prepOk = await this._prepStage(plan, task, ws, taskIndex);
+            if (this._disposed) {
+                return false;
+            }
+            if (!prepOk) {
+                return false;
+            }
         }
         let iteration = 0;
         for (;;) {
@@ -493,9 +498,6 @@ export class Implement {
                 .split(Placeholders.ERROR_LOG_PATH).join(ws.errorLog);
             prompt = `${prompt}\n\n${briefing}`;
         }
-        if (iteration === 1 && this._currentPrepSessionId === null) {
-            throw new Error(`Worker iteration 1 for task at line ${task.line} ("${task.title}") requires a prep session id but none was captured`);
-        }
         try {
             const { result, capturedOutput } = iteration === 1
                 ? await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, null, this._currentPrepSessionId)
@@ -553,9 +555,6 @@ export class Implement {
         return true;
     }
     private async _reviewerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number):Promise<boolean> {
-        if (this._currentPrepSessionId === null) {
-            throw new Error(`Reviewer for task at line ${task.line} ("${task.title}") requires a prep session id but none was captured`);
-        }
         const prompt = prompts.reviewer
             .split(Placeholders.PLAN_PATH).join(plan.path)
             .split(Placeholders.TASK_LINE).join(String(task.line))

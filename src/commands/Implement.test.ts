@@ -842,7 +842,6 @@ test.describe("Implement config loading", test => {
             s.files.set(CONFIG_PATH, JSON.stringify(projectConfig));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
-            s.codexQueue.push({ text: "READY", sessionId: "prep-session" });
             s.codexQueue.push({ text: "worker" });
             s.claudeQueue.push({ text: "review", errorLog: "" });
             return { ...s, projectConfig };
@@ -4225,43 +4224,6 @@ test.describe("Implement worker session_id persistence", test => {
         }
     });
 
-    test("null _currentPrepSessionId on worker iteration 1 causes error", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.claudeQueue.push({ text: "ok" });
-            // prep succeeds
-            s.claudeQueue.push({ text: "READY", sessionId: "PREP-S" });
-            return s;
-        },
-        async ACT({ contexts, written, errors }) {
-            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
-            const origPrepStage = (cmd as any)._prepStage.bind(cmd);
-            (cmd as any)._prepStage = async function(...args:unknown[]) {
-                const result = await origPrepStage(...args);
-                (cmd as any)._currentPrepSessionId = null;
-                return result;
-            };
-            const code = await cmd.result();
-            await cmd.dispose();
-            return { code, output: written.join("") + errors.join("") };
-        },
-        ASSERTS: {
-            "exits with code 1"({ code }) {
-                Assert.strictEqual(code, 1);
-            },
-            "error mentions prep session id"({ output }) {
-                Assert.ok(output.includes("requires a prep session id"));
-            },
-            "error names the task title"({ output }) {
-                Assert.ok(output.includes("Implement feature A"));
-            },
-            "worker spawn never happens"(_result, { claudeSpawnedArgs }) {
-                // [0]=detect, [1]=prep — no worker spawn
-                Assert.strictEqual(claudeSpawnedArgs.length, 2);
-            }
-        }
-    });
 });
 
 test.describe("Implement reviewer forks from prep", test => {
@@ -4389,44 +4351,6 @@ test.describe("Implement reviewer forks from prep", test => {
         }
     });
 
-    test("null _currentPrepSessionId on reviewer causes error", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.claudeQueue.push({ text: "ok" });
-            // prep succeeds
-            s.claudeQueue.push({ text: "READY", sessionId: "PREP-REV-NULL" });
-            // worker succeeds
-            s.claudeQueue.push({ text: "w1", sessionId: "WORKER-REV-NULL" });
-            return s;
-        },
-        async ACT({ contexts, written, errors }) {
-            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
-            const origReviewerStage = (cmd as any)._reviewerStage.bind(cmd);
-            (cmd as any)._reviewerStage = async function(...args:unknown[]) {
-                (cmd as any)._currentPrepSessionId = null;
-                return origReviewerStage(...args);
-            };
-            const code = await cmd.result();
-            await cmd.dispose();
-            return { code, output: written.join("") + errors.join("") };
-        },
-        ASSERTS: {
-            "exits with code 1"({ code }) {
-                Assert.strictEqual(code, 1);
-            },
-            "error mentions prep session id"({ output }) {
-                Assert.ok(output.includes("requires a prep session id"));
-            },
-            "error names the task title"({ output }) {
-                Assert.ok(output.includes("Implement feature A"));
-            },
-            "reviewer spawn never happens"(_result, { claudeSpawnedArgs }) {
-                // [0]=detect, [1]=prep, [2]=worker — no reviewer spawn
-                Assert.strictEqual(claudeSpawnedArgs.length, 3);
-            }
-        }
-    });
 });
 
 test.describe("Implement terminal label on exit", test => {
@@ -5741,7 +5665,6 @@ test.describe("Implement adapter routing via getAdapter", test => {
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
-            s.codexQueue.push({ text: "READY", sessionId: "prep-session" });
             s.codexQueue.push({ text: "worker output" });
             s.claudeQueue.push({ text: "review ok", errorLog: "" });
             return s;
@@ -5753,20 +5676,18 @@ test.describe("Implement adapter routing via getAdapter", test => {
             return codexSpawnedArgs;
         },
         ASSERTS: {
-            "worker spawn is third codex spawn and uses fork from prep"(codexSpawnedArgs) {
-                const workerSpawn = codexSpawnedArgs[2];
-                Assert.ok(workerSpawn !== undefined, "third codex spawn (worker) should exist");
-                Assert.strictEqual(workerSpawn[0], "fork");
-                Assert.strictEqual(workerSpawn[1], "prep-session");
+            "worker spawn is second codex spawn"(codexSpawnedArgs) {
+                const workerSpawn = codexSpawnedArgs[1];
+                Assert.ok(workerSpawn !== undefined, "second codex spawn (worker) should exist");
             },
             "worker spawn args contain -m flag with configured model"(codexSpawnedArgs) {
-                const workerSpawn = codexSpawnedArgs[2]!;
+                const workerSpawn = codexSpawnedArgs[1]!;
                 const mIndex = workerSpawn.indexOf("-m");
                 Assert.ok(mIndex >= 0, "-m flag should be present");
                 Assert.strictEqual(workerSpawn[mIndex + 1], "codex-model");
             },
             "worker spawn args contain effort override"(codexSpawnedArgs) {
-                const workerSpawn = codexSpawnedArgs[2]!;
+                const workerSpawn = codexSpawnedArgs[1]!;
                 Assert.ok(workerSpawn.includes("model_reasoning_effort=high"), "effort override should be present");
             }
         }
@@ -5779,7 +5700,6 @@ test.describe("Implement adapter routing via getAdapter", test => {
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
-            s.codexQueue.push({ text: "READY", sessionId: "prep-session" });
             s.codexQueue.push({ text: "worker output" });
             s.claudeQueue.push({ text: "review ok", errorLog: "" });
             return s;
@@ -5811,7 +5731,6 @@ test.describe("Implement adapter routing via getAdapter", test => {
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
-            s.codexQueue.push({ text: "READY", sessionId: "prep-session" });
             s.codexQueue.push({ text: "worker output" });
             s.claudeQueue.push({ text: "review ok", errorLog: "" });
             return s;
@@ -5842,13 +5761,13 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("prep stage uses the worker triple", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewer: { tool: "claude", model: "", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewer: { tool: "codex", model: "w-model", effort: "medium" } };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
             s.codexQueue.push({ text: "READY", sessionId: "prep-session" });
             s.codexQueue.push({ text: "worker output" });
-            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            s.codexQueue.push({ text: "review ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts, codexSpawnedArgs }) {
@@ -5964,6 +5883,216 @@ test.describe("Implement adapter routing via getAdapter", test => {
                 for (const args of claudeSpawnedArgs) {
                     Assert.ok(!args.includes("--model"), `--model should not appear when model is empty, got: ${args.join(" ")}`);
                 }
+            }
+        }
+    });
+});
+
+test.describe("Implement prep-optimization condition", test => {
+    test("prepActive=true when worker and reviewer share tool, model, and effort", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "4 spawns total: detect, prep, worker, reviewer"({ claudeSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs.length, 4);
+            }
+        }
+    });
+
+    test("prepActive=false when tools differ — no prep launched", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "codex", model: "", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs, codexSpawnedArgs, promptQueue }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs, codexSpawnedArgs, promptQueue };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "2 claude spawns: detect and worker"({ claudeSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs.length, 2);
+            },
+            "1 codex spawn: reviewer"({ codexSpawnedArgs }) {
+                Assert.strictEqual(codexSpawnedArgs.length, 1);
+            },
+            "no prompt contains the prep preamble"({ promptQueue }) {
+                for (const p of promptQueue) {
+                    Assert.ok(!p.includes("You are the prep agent"), `unexpected prep prompt found`);
+                }
+            }
+        }
+    });
+
+    test("prepActive=false when effort differs — no prep launched", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "codex", model: "m", effort: "medium" }, reviewer: { tool: "codex", model: "m", effort: "high" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.codexQueue.push({ text: "detect" });
+            s.codexQueue.push({ text: "worker" });
+            s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, codexSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, codexSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "3 codex spawns: detect, worker, reviewer — no prep"({ codexSpawnedArgs }) {
+                Assert.strictEqual(codexSpawnedArgs.length, 3);
+            }
+        }
+    });
+
+    test("prepActive=true when both model and effort are empty strings", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "4 spawns: detect, prep, worker, reviewer"({ claudeSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs.length, 4);
+            }
+        }
+    });
+
+    test("prepActive=true and prep returns no session id causes hard stop", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "READY" });
+            return s;
+        },
+        async ACT({ contexts, written, errors, files }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, output: written.join("") + errors.join(""), files };
+        },
+        ASSERTS: {
+            "exits with code 1"({ code }) {
+                Assert.strictEqual(code, 1);
+            },
+            "error contains Hard stop"({ output }) {
+                Assert.ok(output.includes("Hard stop"));
+            },
+            "error mentions no session id"({ output }) {
+                Assert.ok(output.includes("returned no session id"));
+            },
+            "error.log is written"({ files }) {
+                Assert.ok(files.has(WS_ROOT + "/error.log"));
+            }
+        }
+    });
+
+    test("prepActive=false — worker and reviewer succeed without prep session", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewer: { tool: "codex", model: "b", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs, codexSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs, codexSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "worker spawned via claude"({ claudeSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs.length, 2);
+            },
+            "reviewer spawned via codex"({ codexSpawnedArgs }) {
+                Assert.strictEqual(codexSpawnedArgs.length, 1);
+            },
+            "worker has no --fork-session flag"({ claudeSpawnedArgs }) {
+                Assert.ok(!claudeSpawnedArgs[1]!.includes("--fork-session"));
+            }
+        }
+    });
+
+    test("prepActive=false when model differs — no prep launched", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewer: { tool: "claude", model: "b", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "3 spawns: detect, worker, reviewer — no prep"({ claudeSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs.length, 3);
             }
         }
     });
