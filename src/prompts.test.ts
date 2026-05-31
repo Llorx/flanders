@@ -903,3 +903,101 @@ test.describe("prompts – shared classification constant – source-level invar
         }
     });
 });
+
+test.describe("prompts – foreground execution boundary", test => {
+    test("each subagent prompt cites rules/ai/agents/no-background-commands.md", {
+        ARRANGE() {},
+        ACT() { return prompts; },
+        ASSERTS: {
+            "detectBuildAndTest cites the rule"(p) {
+                Assert.ok(p.detectBuildAndTest.includes("rules/ai/agents/no-background-commands.md"));
+            },
+            "worker cites the rule"(p) {
+                Assert.ok(p.worker.includes("rules/ai/agents/no-background-commands.md"));
+            },
+            "reviewer cites the rule"(p) {
+                Assert.ok(p.reviewer.includes("rules/ai/agents/no-background-commands.md"));
+            },
+            "prep cites the rule"(p) {
+                Assert.ok(p.prep.includes("rules/ai/agents/no-background-commands.md"));
+            }
+        }
+    });
+
+    test("each subagent prompt contains the foreground obligation phrase", {
+        ARRANGE() {},
+        ACT() { return prompts; },
+        ASSERTS: {
+            "detectBuildAndTest contains 'in the foreground'"(p) {
+                Assert.ok(p.detectBuildAndTest.includes("in the foreground"));
+            },
+            "worker contains 'in the foreground'"(p) {
+                Assert.ok(p.worker.includes("in the foreground"));
+            },
+            "reviewer contains 'in the foreground'"(p) {
+                Assert.ok(p.reviewer.includes("in the foreground"));
+            },
+            "prep contains 'in the foreground'"(p) {
+                Assert.ok(p.prep.includes("in the foreground"));
+            }
+        }
+    });
+
+    test("each subagent prompt forbids the run_in_background flag", {
+        ARRANGE() {},
+        ACT() { return prompts; },
+        ASSERTS: {
+            "detectBuildAndTest forbids run_in_background"(p) {
+                Assert.ok(p.detectBuildAndTest.includes("run_in_background"));
+            },
+            "worker forbids run_in_background"(p) {
+                Assert.ok(p.worker.includes("run_in_background"));
+            },
+            "reviewer forbids run_in_background"(p) {
+                Assert.ok(p.reviewer.includes("run_in_background"));
+            },
+            "prep forbids run_in_background"(p) {
+                Assert.ok(p.prep.includes("run_in_background"));
+            }
+        }
+    });
+
+    test("foregroundBoundary is not a member of the prompts export", {
+        ARRANGE() {},
+        ACT() { return prompts; },
+        ASSERT(p) {
+            Assert.strictEqual((p as Record<string, unknown>).foregroundBoundary, undefined);
+        }
+    });
+
+    test("foreground boundary block is byte-equal to the canonical wording in the worker prompt", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERT(template) {
+            const start = template.indexOf("Foreground execution boundary:");
+            const end = template.indexOf("\n\n", start);
+            const foreground = template.substring(start, end);
+            Assert.strictEqual(foreground, "Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. You must not start any command in the background and must not end your turn while a command you spawned is still running. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example `run_in_background: true`), shell-level detachment (a trailing `&`, `nohup`, `setsid`, `disown`, `start`, `Start-Process`, `Start-Job`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.");
+        }
+    });
+
+    test("foreground boundary block is byte-equal to the canonical wording in the reviewer prompt", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERT(template) {
+            const start = template.indexOf("Foreground execution boundary:");
+            const end = template.indexOf("\n\n", start);
+            const foreground = template.substring(start, end === -1 ? undefined : end);
+            Assert.strictEqual(foreground, "Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. You must not start any command in the background and must not end your turn while a command you spawned is still running. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example `run_in_background: true`), shell-level detachment (a trailing `&`, `nohup`, `setsid`, `disown`, `start`, `Start-Process`, `Start-Job`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.");
+        }
+    });
+
+    test("distinctive boundary fragment appears exactly once in the prompts source file", {
+        ARRANGE() {},
+        ACT() { return readFileSync(join(__dirname, "..", "src", "prompts.ts"), "utf-8"); },
+        ASSERT(source) {
+            const matchCount = (source.match(/keep your turn active until that command finishes/g) ?? []).length;
+            Assert.strictEqual(matchCount, 1);
+        }
+    });
+});
