@@ -1,6 +1,8 @@
 import { AiSession } from "../ai/AiSession";
 import { ClaudeAdapter } from "../ai/ClaudeAdapter";
+import { CodexAdapter } from "../ai/CodexAdapter";
 import type { AskContext, ClaudeContext, FsContext, OutputContext, ScriptContext, TimeContext } from "../contexts";
+import type { ToolAdapter, ToolName } from "../ai/ToolAdapter";
 import type { FlandersConfig } from "../FlandersConfig";
 import { read as readConfig } from "../FlandersConfig";
 import { askChoice } from "../PromptHelper";
@@ -88,7 +90,7 @@ export class Implement {
     private _taskRateLimitStartedAt:number|null = null;
     private _taskTokens = {it:0, ot:0};
     private _runPromise:Promise<number>;
-    /** Public for testing: the stashed config is otherwise observable only as downstream AI invocation arguments (tool/model/effort), which are not yet wired in this task. */
+    /** Public for testing: the stashed config is otherwise observable only as downstream AI invocation arguments (tool/model/effort). */
     get config():FlandersConfig|null { return this._config; }
     constructor(
         rawArgs:readonly string[],
@@ -305,7 +307,7 @@ export class Implement {
             .split(Placeholders.BUILD_SCRIPT_PATH).join(ws.buildScript)
             .split(Placeholders.TEST_SCRIPT_PATH).join(ws.testScript)
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList));
-        await this._runClaude(prompt);
+        await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt);
     }
     private _setActivity(activity:Activity):void {
         /* coverage ignore next */ // — Defensive: _setActivity is only called within _runTask which always sets _currentTask.
@@ -453,7 +455,7 @@ export class Implement {
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList));
         try {
-            const { result, capturedOutput } = await this._runClaude(prompt);
+            const { result, capturedOutput } = await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt);
             this._taskTokens.it += result.inputTokens;
             this._taskTokens.ot += result.outputTokens;
             await this._persistMetrics(plan, task.line);
@@ -496,8 +498,8 @@ export class Implement {
         }
         try {
             const { result, capturedOutput } = iteration === 1
-                ? await this._runClaude(prompt, null, this._currentPrepSessionId)
-                : await this._runClaude(prompt, this._currentWorkerSessionId);
+                ? await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, null, this._currentPrepSessionId)
+                : await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, this._currentWorkerSessionId);
             if (result.sessionId !== null) {
                 this._currentWorkerSessionId = result.sessionId;
             }
@@ -568,7 +570,7 @@ export class Implement {
             }
             await this._workspace!.clearErrorLog();
             try {
-                const { result, capturedOutput } = await this._runClaude(prompt, null, this._currentPrepSessionId);
+                const { result, capturedOutput } = await this._runAi(this._config!.reviewer.tool, this._config!.reviewer.model, this._config!.reviewer.effort, prompt, null, this._currentPrepSessionId);
                 this._taskTokens.it += result.inputTokens;
                 this._taskTokens.ot += result.outputTokens;
                 await this._persistMetrics(plan, task.line);
@@ -597,8 +599,21 @@ export class Implement {
         }
         return items.join("\n");
     }
-    private async _runClaude(prompt:string, initialSessionId?:string|null, forkFromSessionId?:string|null) {
-        /* coverage ignore next 3 */ // — Defensive: disposed guard; _runClaude is only called from methods that already checked _disposed.
+    private _getAdapter(tool:ToolName):ToolAdapter {
+        if (tool === "codex") {
+            return new CodexAdapter({
+                script: this._contexts.script,
+                time: this._contexts.time
+            });
+        }
+        return new ClaudeAdapter({
+            claude: this._contexts.claude,
+            time: this._contexts.time,
+            ask: this._contexts.ask
+        });
+    }
+    private async _runAi(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId?:string|null, forkFromSessionId?:string|null) {
+        /* coverage ignore next 3 */ // — Defensive: disposed guard; _runAi is only called from methods that already checked _disposed.
         if (this._disposed) {
             throw new Error("Implement disposed");
         }
@@ -618,16 +633,12 @@ export class Implement {
             /* coverage ignore next */ // — Pass-through required by OutputContext; AiSession never calls onResize.
             onResize: listener => this._contexts.output.onResize(listener)
         };
-        const adapter = new ClaudeAdapter({
-            claude: this._contexts.claude,
-            time: this._contexts.time,
-            ask: this._contexts.ask
-        });
+        const adapter = this._getAdapter(tool);
         const session = new AiSession({
             adapter,
             prompt,
-            model: "",
-            effort: "",
+            model,
+            effort,
             ...(initialSessionId != null ? { resumeSessionId: initialSessionId } : null),
             ...(forkFromSessionId != null ? { forkParentSessionId: forkFromSessionId } : null),
             onLongWaitStart: (kind, endTimeMs) => {

@@ -74,7 +74,19 @@ function rateLimitEvent(nowMs:number, retryAfterSeconds:number):string {
 }
 
 type ClaudeResponse = { text:string; inputTokens?:number; outputTokens?:number; sessionId?:string; error?:true; stderr?:string; errorLog?:string };
+type CodexResponse = { text:string; sessionId?:string; error?:true; errorLog?:string };
 type ScriptResponse = { code:number; stdout:string; stderr:string };
+
+function codexResultEvents(text:string, sessionId?:string):string {
+    let out = "";
+    if (sessionId) {
+        out += JSON.stringify({ type: "item.completed", session_id: sessionId, item: { type: "message", role: "assistant", content: [{ type: "text", text }] } }) + "\n";
+    } else {
+        out += JSON.stringify({ type: "item.completed", item: { type: "message", role: "assistant", content: [{ type: "text", text }] } }) + "\n";
+    }
+    out += JSON.stringify({ type: "turn.completed" }) + "\n";
+    return out;
+}
 
 function stubContexts() {
     const files = new Map<string, string>();
@@ -84,11 +96,13 @@ function stubContexts() {
     const errors:string[] = [];
 
     const claudeQueue:ClaudeResponse[] = [];
+    const codexQueue:CodexResponse[] = [];
     const promptQueue:string[] = [];
     const scriptQueue:ScriptResponse[] = [];
     const gitQueue:ScriptResponse[] = [];
     const gitSpawns:Array<{command:string; args:readonly string[]}> = [];
     const claudeSpawnedArgs:string[][] = [];
+    const codexSpawnedArgs:string[][] = [];
 
     const contexts:ImplementContexts = {
         claude: {
@@ -125,6 +139,31 @@ function stubContexts() {
         script: {
             spawn(command:string, args:readonly string[]) {
                 const proc = fakeProcess();
+                if (command === "codex") {
+                    codexSpawnedArgs.push([...args]);
+                    const origStdin = proc.stdin!;
+                    (proc as any).stdin = {
+                        write(chunk:string) { origStdin.write(chunk); promptQueue.push(chunk); },
+                        end() { origStdin.end(); }
+                    };
+                    const response = codexQueue.shift();
+                    if (!response) {
+                        setImmediate(() => proc.$emit("error", new Error("codex queue exhausted")));
+                        return proc;
+                    }
+                    setImmediate(() => {
+                        if (response.error) {
+                            proc.$emit("error", new Error("spawn error"));
+                        } else {
+                            if (response.errorLog !== undefined) {
+                                files.set(WS_ROOT + "/error.log", response.errorLog);
+                            }
+                            proc.$emitStdout(codexResultEvents(response.text, response.sessionId));
+                            proc.$emit("exit", 0);
+                        }
+                    });
+                    return proc;
+                }
                 const isGit = command === "git";
                 if (isGit) {
                     gitSpawns.push({ command, args: [...args] });
@@ -180,7 +219,7 @@ function stubContexts() {
             onResize() { return () => {}; }
         }
     };
-    return { contexts, files, rmCalls, written, errors, claudeQueue, promptQueue, scriptQueue, gitQueue, gitSpawns, claudeSpawnedArgs };
+    return { contexts, files, rmCalls, written, errors, claudeQueue, codexQueue, promptQueue, scriptQueue, gitQueue, gitSpawns, claudeSpawnedArgs, codexSpawnedArgs };
 }
 
 const PLAN_PATH = "/project/plans/test.md";
@@ -802,9 +841,9 @@ test.describe("Implement config loading", test => {
             const projectConfig:FlandersConfig = { worker: { tool: "codex", model: "test-model", effort: "high" }, reviewer: { tool: "claude", model: "rev-model", effort: "low" } };
             s.files.set(CONFIG_PATH, JSON.stringify(projectConfig));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.claudeQueue.push({ text: "detect" });
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker" });
+            s.codexQueue.push({ text: "detect" });
+            s.codexQueue.push({ text: "READY", sessionId: "prep-session" });
+            s.codexQueue.push({ text: "worker" });
             s.claudeQueue.push({ text: "review", errorLog: "" });
             return { ...s, projectConfig };
         },
@@ -5689,6 +5728,242 @@ test.describe("Implement .bat script path on Windows", test => {
                 const t = scriptSpawns.find((s:{ command:string; args:readonly string[] }) => s.args.some((a:string) => a.includes("test.bat")));
                 Assert.ok(t, "test.bat should have been spawned");
                 Assert.strictEqual(t!.args[0], "/c");
+            }
+        }
+    });
+});
+
+test.describe("Implement adapter routing via getAdapter", test => {
+    test("worker.tool=codex routes worker stage through codex binary", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "codex", model: "codex-model", effort: "high" }, reviewer: { tool: "claude", model: "rev-model", effort: "low" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.codexQueue.push({ text: "detect" });
+            s.codexQueue.push({ text: "READY", sessionId: "prep-session" });
+            s.codexQueue.push({ text: "worker output" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, codexSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            return codexSpawnedArgs;
+        },
+        ASSERTS: {
+            "worker spawn is third codex spawn and uses fork from prep"(codexSpawnedArgs) {
+                const workerSpawn = codexSpawnedArgs[2];
+                Assert.ok(workerSpawn !== undefined, "third codex spawn (worker) should exist");
+                Assert.strictEqual(workerSpawn[0], "fork");
+                Assert.strictEqual(workerSpawn[1], "prep-session");
+            },
+            "worker spawn args contain -m flag with configured model"(codexSpawnedArgs) {
+                const workerSpawn = codexSpawnedArgs[2]!;
+                const mIndex = workerSpawn.indexOf("-m");
+                Assert.ok(mIndex >= 0, "-m flag should be present");
+                Assert.strictEqual(workerSpawn[mIndex + 1], "codex-model");
+            },
+            "worker spawn args contain effort override"(codexSpawnedArgs) {
+                const workerSpawn = codexSpawnedArgs[2]!;
+                Assert.ok(workerSpawn.includes("model_reasoning_effort=high"), "effort override should be present");
+            }
+        }
+    });
+
+    test("reviewer.tool=claude routes reviewer stage through claude binary", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "codex", model: "", effort: "" }, reviewer: { tool: "claude", model: "rev-model", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.codexQueue.push({ text: "detect" });
+            s.codexQueue.push({ text: "READY", sessionId: "prep-session" });
+            s.codexQueue.push({ text: "worker output" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            return claudeSpawnedArgs;
+        },
+        ASSERTS: {
+            "reviewer spawn args contain --print flag"(claudeSpawnedArgs) {
+                Assert.strictEqual(claudeSpawnedArgs.length, 1, "exactly one claude spawn (reviewer)");
+                Assert.ok(claudeSpawnedArgs[0]!.includes("--print"), "--print flag should be present");
+            },
+            "reviewer spawn args contain --model flag with configured model"(claudeSpawnedArgs) {
+                const args = claudeSpawnedArgs[0]!;
+                const modelIndex = args.indexOf("--model");
+                Assert.ok(modelIndex >= 0, "--model flag should be present");
+                Assert.strictEqual(args[modelIndex + 1], "rev-model");
+            }
+        }
+    });
+
+    test("detect agent uses the worker triple, not the reviewer triple", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewer: { tool: "claude", model: "r-model", effort: "low" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.codexQueue.push({ text: "detect" });
+            s.codexQueue.push({ text: "READY", sessionId: "prep-session" });
+            s.codexQueue.push({ text: "worker output" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, codexSpawnedArgs, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            return { codexSpawnedArgs, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "detect is the first codex spawn"({ codexSpawnedArgs }) {
+                Assert.ok(codexSpawnedArgs.length >= 1, "at least one codex spawn");
+                Assert.strictEqual(codexSpawnedArgs[0]![0], "exec");
+            },
+            "detect spawn carries the worker model"({ codexSpawnedArgs }) {
+                const detectArgs = codexSpawnedArgs[0]!;
+                const mIndex = detectArgs.indexOf("-m");
+                Assert.ok(mIndex >= 0, "-m flag present on detect spawn");
+                Assert.strictEqual(detectArgs[mIndex + 1], "w-model");
+            },
+            "no claude spawn for detect"({ claudeSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs.length, 1, "only one claude spawn (reviewer), not detect");
+            }
+        }
+    });
+
+    test("prep stage uses the worker triple", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewer: { tool: "claude", model: "", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.codexQueue.push({ text: "detect" });
+            s.codexQueue.push({ text: "READY", sessionId: "prep-session" });
+            s.codexQueue.push({ text: "worker output" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, codexSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            return codexSpawnedArgs;
+        },
+        ASSERTS: {
+            "prep is the second codex spawn"(codexSpawnedArgs) {
+                Assert.ok(codexSpawnedArgs.length >= 2, "at least two codex spawns");
+            },
+            "prep spawn carries the worker model"(codexSpawnedArgs) {
+                const prepArgs = codexSpawnedArgs[1]!;
+                const mIndex = prepArgs.indexOf("-m");
+                Assert.ok(mIndex >= 0, "-m flag present on prep spawn");
+                Assert.strictEqual(prepArgs[mIndex + 1], "w-model");
+            }
+        }
+    });
+
+    test("session id is still captured from the worker via the runner", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "READY", sessionId: "prep-session" });
+            s.claudeQueue.push({ text: "worker iter 1", sessionId: "worker-sess-1" });
+            s.claudeQueue.push({ text: "violations", errorLog: "found a problem" });
+            s.claudeQueue.push({ text: "worker iter 2", sessionId: "worker-sess-2" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "worker iter 2 resumes the captured session from iter 1"({ claudeSpawnedArgs }) {
+                const workerIter2Args = claudeSpawnedArgs[4];
+                Assert.ok(workerIter2Args !== undefined, "fifth claude spawn (worker iter 2) should exist");
+                Assert.ok(workerIter2Args.includes("--resume"), "--resume flag should be present");
+                Assert.ok(workerIter2Args.includes("worker-sess-1"), "session id from iter 1 should be used");
+            }
+        }
+    });
+
+    test("all-claude config routes all stages through claude binary", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "w-model", effort: "" }, reviewer: { tool: "claude", model: "r-model", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "READY", sessionId: "prep-session" });
+            s.claudeQueue.push({ text: "worker output" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs, codexSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            return { claudeSpawnedArgs, codexSpawnedArgs };
+        },
+        ASSERTS: {
+            "all four AI stages go through claude"({ claudeSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs.length, 4);
+            },
+            "no codex spawns"({ codexSpawnedArgs }) {
+                Assert.strictEqual(codexSpawnedArgs.length, 0);
+            },
+            "detect spawn carries the worker model"({ claudeSpawnedArgs }) {
+                const detectArgs = claudeSpawnedArgs[0]!;
+                const modelIndex = detectArgs.indexOf("--model");
+                Assert.ok(modelIndex >= 0, "--model flag present on detect spawn");
+                Assert.strictEqual(detectArgs[modelIndex + 1], "w-model");
+            },
+            "reviewer spawn carries the reviewer model"({ claudeSpawnedArgs }) {
+                const reviewerArgs = claudeSpawnedArgs[3]!;
+                const modelIndex = reviewerArgs.indexOf("--model");
+                Assert.ok(modelIndex >= 0, "--model flag present on reviewer spawn");
+                Assert.strictEqual(reviewerArgs[modelIndex + 1], "r-model");
+            }
+        }
+    });
+
+    test("empty model and effort do not pass flags to the binary", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            return claudeSpawnedArgs;
+        },
+        ASSERTS: {
+            "no --model flag on any spawn"(claudeSpawnedArgs) {
+                for (const args of claudeSpawnedArgs) {
+                    Assert.ok(!args.includes("--model"), `--model should not appear when model is empty, got: ${args.join(" ")}`);
+                }
             }
         }
     });
