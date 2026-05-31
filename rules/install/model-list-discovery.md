@@ -12,7 +12,7 @@ When `install` asks the user for a model identifier for the worker or the review
 For each tool, the probe is a specific subprocess invocation. The probe runs at most once per tool per `install` run, even if the same tool is asked about twice (worker and reviewer); the result is cached for the second question.
 
 - **`claude`** — the Claude Code CLI does not expose a model list as a CLI command. The probe is skipped and the free-text fallback is used.
-- **`codex`** — invoke `codex` in a mode that lists models supported by the user's account. The exact command is whatever the Codex CLI documents as its "list models" entry at the time of the run; if no such command exists at run time, the probe falls back. The probe redirects stdout/stderr away from the user's terminal; on exit code 0, the captured stdout is parsed as a newline- or JSON-delimited list of model identifiers. Any parse failure or non-zero exit is treated as "no list available".
+- **`codex`** — invoke `codex debug models` (no `--bundled`, so the catalog is refreshed for the user's account rather than read from the binary's bundled snapshot). The probe redirects stdout/stderr away from the user's terminal. On exit code 0, the captured stdout is parsed as a JSON object of the shape `{"models":[{"slug":"…","visibility":"…"}, …]}`; the list is the `slug` of every entry whose `visibility` is `"list"`, in catalog order. Entries with any other `visibility` (for example `"hide"`, used for internal models) are excluded, mirroring Codex's own `/model` picker. Any parse failure, a payload with no `"list"`-visible entries, or a non-zero exit is treated as "no list available". If a future Codex CLI removes `codex debug models`, the probe's non-zero exit drives the same free-text fallback, and this rule must be updated to pin the replacement command.
 
 When `claude` ever does expose a model list in the future, this rule must be updated to add the corresponding probe; until then, the entry above is authoritative.
 
@@ -25,15 +25,6 @@ When the probe yields an empty list, or the probe is skipped, or the probe fails
 ## Equivalence between the two modes
 
 The two modes never produce different persisted values for the same user intent: picking `default configured model` in the list form and leaving the free-text input empty must both resolve to `""`. Picking a specific model identifier (whether by list selection or by typing it verbatim into the free-text input) persists the exact identifier string the user selected or typed, with no trimming, no case folding, no further validation.
-
-## Effort question
-
-The effort question is rendered analogously, but the probe is not per tool — effort values are a closed, tool-specific set documented by each tool's CLI:
-
-- **`claude`** — the effort values exposed by Claude Code, at the time of the run, as the discrete set selectable for its model invocations. Until that set is finalized, the question falls back to free-text with placeholder `leave empty for the default configured effort`.
-- **`codex`** — the effort values exposed by Codex CLI (today: `minimal`, `low`, `medium`, `high`, `xhigh`; `xhigh` is model-dependent and remains in the list — the runner does not pre-filter by model). Rendered as a selectable list with the additional `default configured effort` entry, mirroring the model question.
-
-Empty answer or `default configured effort` resolves to `""` in `.flanders/config.json`.
 
 ## Failure signals
 
