@@ -16,7 +16,9 @@ The adapter spawns `claude` with at least the following arguments:
 - `--input-format stream-json` — the input is itself a stream-json message sequence, with the prompt embedded in the first user message.
 - `--verbose` — required by Claude Code when `--output-format stream-json` is in use; the additional event types do not affect mapping because the adapter keys event interpretation off `type` plus payload fields.
 
-The prompt is delivered as a single user message inside the input stream-json on stdin. The adapter closes stdin after writing the prompt so Claude knows the turn has ended.
+The adapter operates non-interactively, with no human in the loop. It does not pass `--permission-prompt-tool=stdio` or any other approval, permission, or interactive-prompt flag: a Flanders AI invocation never pauses mid-turn to obtain a tool-use approval and never puts a question to the user.
+
+The prompt is delivered as a single user message inside the input stream-json on stdin. The adapter closes stdin immediately after writing that message, so Claude knows the single turn has ended and the process terminates on its own once the turn completes. The adapter never keeps stdin open after the prompt: because the call is non-interactive there is no live input channel to maintain, and an open stdin would leave the turn unterminated.
 
 When the configured `model` is non-empty, the adapter appends `--model <model>`. When it is the empty string, the flag is not passed and the Claude default applies.
 
@@ -66,6 +68,10 @@ Every Claude invocation ends with exactly one `result` event. The adapter maps i
 
 The adapter never inspects `stderr` or the prompt text to decide retryability; the structured `result` event is authoritative.
 
+### Control-protocol events
+
+Because the adapter runs non-interactively and enables no permission or approval tool, it neither solicits nor processes Claude's control-protocol traffic. Permission requests, tool-use approval prompts, and any interactive question Claude could raise are out of scope: the adapter does not write a control response on stdin and does not forward any question to the user. The five `ToolEvent` variants of `rules/ai/runner/tool-interface.md` are the entire surface the adapter produces; soliciting user input is not among them.
+
 ## Cancellation
 
 When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `claude` process, stops consuming the stream, awaits the child's termination, and ends the iterable. The child must not outlive the adapter call — leaking the spawned process is a violation regardless of how the cancellation came in.
@@ -74,6 +80,9 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `claude` 
 
 - The adapter spawns `claude` without `--print` or without `--output-format stream-json`, polluting the parser with TUI escapes or with a non-streaming payload.
 - The adapter inlines the prompt as an argv argument instead of streaming it through stdin.
+- The adapter passes `--permission-prompt-tool=stdio` or any other approval, permission, or interactive-prompt flag, turning a non-interactive call into one that can pause for input.
+- The adapter keeps stdin open after writing the prompt — for example to hold a control channel — so the turn never ends and the spawned `claude` process never exits.
+- The adapter processes a `control_request` / permission event, writes a `control_response` on stdin, or forwards a question to the user, instead of running the turn to completion without human interaction.
 - The adapter passes `--model ""` (empty string) instead of omitting the flag when the configured model is empty. Likewise for effort.
 - The adapter writes Claude's native output to the user's terminal directly, instead of emitting `output` events and letting the runner forward them.
 - The adapter classifies the retryable / non-retryable decision by parsing `result.error.message` text instead of the structured `is_error` / `api_error_status` / `subtype` fields.
