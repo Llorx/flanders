@@ -1654,7 +1654,7 @@ function makeModelScript(opts:{
 }):ScriptContext {
     return {
         spawn(_command:string, args:readonly string[]):SpawnedProcess {
-            if (args[0] === "models") {
+            if (args[0] === "debug" && args[1] === "models") {
                 if (opts.probeCallCounter) opts.probeCallCounter.count++;
                 let exitListener:ExitListener|null = null;
                 let dataListener:DataListener|null = null;
@@ -1722,7 +1722,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '["gpt-5-codex","gpt-4.1"]',
+                probeStdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list"},{"slug":"gpt-4.1","visibility":"list"}]}',
                 probeExitCode: 0
             });
             let capturedOptions:readonly { label:string; description?:string }[] = [];
@@ -1773,7 +1773,7 @@ test.describe("Install model question", test => {
             const s = stubContexts();
             const counter = { count: 0 };
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '["m1"]',
+                probeStdout: '{"models":[{"slug":"m1","visibility":"list"}]}',
                 probeExitCode: 0,
                 probeCallCounter: counter
             });
@@ -1828,7 +1828,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '["gpt-5-codex","gpt-4.1"]',
+                probeStdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list"},{"slug":"gpt-4.1","visibility":"list"}]}',
                 probeExitCode: 0
             });
             const origAsk = s.contexts.ask.askChoices;
@@ -1972,7 +1972,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '["m1"]',
+                probeStdout: '{"models":[{"slug":"m1","visibility":"list"}]}',
                 probeExitCode: 0
             });
             s.askResponses.push([{ picked: [] }]);
@@ -2030,7 +2030,7 @@ test.describe("Install model question", test => {
             let cmdRef:Install|null = null;
             (s.contexts as { script:ScriptContext }).script = {
                 spawn(_command:string, args:readonly string[]):SpawnedProcess {
-                    if (args[0] === "models") {
+                    if (args[0] === "debug" && args[1] === "models") {
                         let exitListener:ExitListener|null = null;
                         return {
                             on(event:"exit"|"error", listener:never) {
@@ -2086,7 +2086,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '["model-a","model-b"]',
+                probeStdout: '{"models":[{"slug":"model-a","visibility":"list"},{"slug":"model-b","visibility":"list"}]}',
                 probeExitCode: 0
             });
             const origAsk = s.contexts.ask.askChoices;
@@ -2134,7 +2134,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '["m1"]',
+                probeStdout: '{"models":[{"slug":"m1","visibility":"list"}]}',
                 probeExitCode: 0
             });
             s.askResponses.push([{ picked: [{ label: "m1" }] }]);
@@ -2161,7 +2161,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '["gpt-5-codex","gpt-4.1"]',
+                probeStdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list"},{"slug":"gpt-4.1","visibility":"list"}]}',
                 probeExitCode: 0
             });
             const origAsk = s.contexts.ask.askChoices;
