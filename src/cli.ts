@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "child_process";
+import { spawn as nodeSpawn } from "child_process";
 import * as fs from "fs";
 import { promises as fsp } from "fs";
 import * as os from "os";
@@ -14,46 +14,34 @@ import type {
     FsContext,
     FsDirEntry,
     OutputContext,
-    ScriptContext,
-    SpawnedProcess,
     TimeContext,
     TimeoutHandle
 } from "./contexts";
 import { Flanders } from "./Flanders";
+import { ShellScriptContext } from "./ShellScriptContext";
+import type { KillPrimitive, RawSpawnedChild, RawSpawner } from "./ShellScriptContext";
 import type { PlatformContext } from "./Workspace";
 
-const spawnContext = {
-    spawn(command:string, args:readonly string[], options) {
-        const child = spawn(command, [...args], options);
-        const proc:SpawnedProcess = {
-            on(event, listener) {
-                child.on(event, listener as (...a:unknown[]) => void);
-            },
-            kill(signal) {
-                child.kill(signal);
-            },
-            stdout: child.stdout ? {
-                on(event, listener) {
-                    child.stdout!.on(event, listener);
-                }
-            } : undefined,
-            stderr: child.stderr ? {
-                on(event, listener) {
-                    child.stderr!.on(event, listener);
-                }
-            } : undefined,
-            stdin: child.stdin ? {
-                write(chunk) {
-                    child.stdin!.write(chunk);
-                },
-                end() {
-                    child.stdin!.end();
-                }
-            } : undefined
-        };
-        return proc;
-    }
-} satisfies ScriptContext;
+const rawSpawn:RawSpawner = (command, args, options) => {
+    const child = nodeSpawn(command, [...args], options);
+    const raw:RawSpawnedChild = {
+        pid: child.pid ?? 0,
+        stdout: child.stdout,
+        stderr: child.stderr,
+        stdin: child.stdin,
+        on(event, listener) {
+            child.on(event, listener as (...a:unknown[]) => void);
+        },
+        kill(signal) {
+            child.kill(signal);
+        }
+    };
+    return raw;
+};
+
+const killPrimitive:KillPrimitive = (pid, signal) => {
+    process.kill(pid, signal);
+};
 
 const fsContext:FsContext = {
     async readFile(p) {
@@ -148,6 +136,8 @@ const platformContext:PlatformContext = {
         return os.homedir();
     }
 };
+
+const spawnContext = new ShellScriptContext(rawSpawn, killPrimitive, platformContext);
 
 const ask = (() => {
     let rl:readline.Interface|null = null;
