@@ -52,6 +52,12 @@ type CodexNativeEvent = Readonly<{
     item?:CodexNativeItem;
     message?:string;
     thread_id?:string;
+    usage?:Readonly<{
+        input_tokens?:number;
+        cached_input_tokens?:number;
+        output_tokens?:number;
+        reasoning_output_tokens?:number;
+    }>;
 }>;
 
 export type CodexAdapterContexts = Readonly<{
@@ -292,6 +298,12 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
             this._handleItemCompleted(parsed.item);
         } else if (parsed.type === "turn.completed") {
             this._sawTurnCompleted = true;
+            if (parsed.usage && this._args.onUsage) {
+                this._args.onUsage({
+                    inputTokens: parsed.usage.input_tokens ?? 0,
+                    outputTokens: parsed.usage.output_tokens ?? 0
+                });
+            }
         } else if (parsed.type === "error") {
             this._handleErrorEvent(parsed);
         }

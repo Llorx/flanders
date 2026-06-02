@@ -612,6 +612,108 @@ test.describe("CodexAdapter", test => {
         });
     });
 
+    test.describe("turn.completed usage reporting", test => {
+
+        test("usage with input_tokens and output_tokens invokes onUsage once with those values and ignores cached_input_tokens and reasoning_output_tokens", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const captured:Array<{ inputTokens:number; outputTokens:number }> = [];
+                const args = baseArgs({ onUsage(usage) { captured.push(usage); } });
+                return { adapter, args, script, captured };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "turn.completed",
+                        usage: {
+                            input_tokens: 100,
+                            cached_input_tokens: 30,
+                            output_tokens: 50,
+                            reasoning_output_tokens: 10
+                        }
+                    }) + "\n");
+                    proc.$emit("exit", 0, null);
+                });
+            },
+            ASSERTS: {
+                "onUsage is called exactly once"(_result, { captured }) {
+                    Assert.strictEqual(captured.length, 1);
+                },
+                "onUsage receives input_tokens and output_tokens with no double-counting of cached_input_tokens or reasoning_output_tokens"(_result, { captured }) {
+                    Assert.deepStrictEqual(captured[0], { inputTokens: 100, outputTokens: 50 });
+                },
+                "done is still emitted after turn.completed and exit 0"(result) {
+                    Assert.deepStrictEqual(result, [{ type: "done" }]);
+                }
+            }
+        });
+
+        test("absent input_tokens and output_tokens fields default to zero", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const captured:Array<{ inputTokens:number; outputTokens:number }> = [];
+                const args = baseArgs({ onUsage(usage) { captured.push(usage); } });
+                return { adapter, args, script, captured };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "turn.completed",
+                        usage: {}
+                    }) + "\n");
+                    proc.$emit("exit", 0, null);
+                });
+            },
+            ASSERT(_result, { captured }) {
+                Assert.deepStrictEqual(captured, [{ inputTokens: 0, outputTokens: 0 }]);
+            }
+        });
+
+        test("turn.completed without a usage object does not invoke onUsage", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const captured:Array<{ inputTokens:number; outputTokens:number }> = [];
+                const args = baseArgs({ onUsage(usage) { captured.push(usage); } });
+                return { adapter, args, script, captured };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, emitTurnCompletedAndExit);
+            },
+            ASSERTS: {
+                "onUsage is not invoked"(_result, { captured }) {
+                    Assert.deepStrictEqual(captured, []);
+                },
+                "done is still emitted"(result) {
+                    Assert.deepStrictEqual(result, [{ type: "done" }]);
+                }
+            }
+        });
+
+        test("turn.completed carrying usage without an onUsage callback does not throw and still drives the normal terminal behavior", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "turn.completed",
+                        usage: { input_tokens: 100, output_tokens: 50 }
+                    }) + "\n");
+                    proc.$emit("exit", 0, null);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [{ type: "done" }]);
+            }
+        });
+    });
+
     test.describe("session id tracking (thread.started carries thread_id)", test => {
 
         test("first thread_id emits session event", {
