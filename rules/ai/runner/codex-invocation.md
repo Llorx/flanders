@@ -31,25 +31,41 @@ When the Codex CLI on the host does not support `codex resume` or `codex fork` (
 
 ## Native event format
 
-The Codex CLI's `--json` output is a sequence of newline-delimited JSON events that mirror the `ThreadEvent` family exposed by the Codex TypeScript SDK. The adapter parses each line and routes the object based on its top-level `type`. The relevant event types and their mapping are listed below; every native event Codex emits is either mapped or filtered as documented here.
+The Codex CLI's `exec --json` output is a sequence of newline-delimited JSON events from the `ThreadEvent` family exposed by the Codex TypeScript SDK. The adapter parses each line and routes the object based on its top-level `type`. The event types it acts on are:
+
+- `thread.started` — carries the run's `thread_id` string. This is the session identifier the adapter surfaces and the value reused for `codex resume` / `codex fork`.
+- `turn.started` — turn boundary marker; filtered.
+- `item.started` — an item that is still in progress (its `status` is `in_progress`); filtered. Only `item.completed` items map to output.
+- `item.completed` — carries a completed `item`; the item's own `type` drives the output mapping below.
+- `turn.completed` — carries a `usage` object and marks the end of the turn (see Token usage and the terminal-event rules below).
+- `error` — carries a `message` string (see the error classification below).
+
+Every native event Codex emits is either mapped or filtered as documented here. Any `type` not listed above is filtered.
 
 ## Mapping to `ToolEvent`
 
 ### `output` events
 
-| Native shape | Emitted `ToolEvent` |
-|---|---|
-| `type: "item.completed"` for an assistant text item | `{ type: "output", title: "Assistant", subtitle: "", details: <text> }` |
-| `type: "item.completed"` for a tool-call item | `{ type: "output", title: <tool name>, subtitle: <one-line summary of tool arguments>, details: <tool output or empty> }` |
-| `type: "item.completed"` for a reasoning item | `{ type: "output", title: "Thinking", subtitle: "", details: <reasoning text> }` |
-| `type: "turn.completed"` | filtered (not emitted; only used as the terminal-event marker) |
-| Any other `type` not listed | filtered |
+The adapter inspects each `item.completed` event's `item.type` and maps it as follows:
 
-The "one-line summary" of a tool call's arguments is built by taking the most identifying field of the arguments object (for example, `file` for read/write operations, `command` for shell commands, `pattern` for searches) and truncating it to a single line. When no obvious identifying field exists, the subtitle is the empty string.
+| `item.type` | Emitted `ToolEvent` |
+|---|---|
+| `agent_message` | `{ type: "output", title: "Assistant", subtitle: "", details: <item.text> }` |
+| `command_execution` | `{ type: "output", title: "command", subtitle: <one-line summary of item.command>, details: <item.aggregated_output> }` |
+| `reasoning` | `{ type: "output", title: "Thinking", subtitle: "", details: <reasoning text> }` |
+| any other `item.type` | filtered |
+
+The assistant text is the flat `item.text` string on the `agent_message` item; the adapter does not look for a `content` array of role-tagged blocks. A `command_execution` item carries the executed `command`, its `aggregated_output`, an `exit_code`, and a `status`; the adapter renders `aggregated_output` as the details and never relays it to the terminal directly.
+
+The "one-line summary" of a `command_execution` is built by taking its `command` string and truncating it to a single line. When the field is absent or empty, the subtitle is the empty string.
 
 ### `session` event
 
-Codex surfaces the session id either on the initial events emitted at the start of the run or as a field carried by other events. The adapter emits `{ type: "session", id: <session_id> }` the first time it observes a non-empty session id. Subsequent appearances of the same id are silently absorbed. A new id within the same invocation is treated as authoritative and emits a single new `session` event with it.
+The session id is the `thread_id` string carried by the `thread.started` event. The adapter emits `{ type: "session", id: <thread_id> }` the first time it observes a non-empty `thread_id`. Subsequent appearances of the same id are silently absorbed. A new id within the same invocation is treated as authoritative and emits a single new `session` event with it.
+
+### Token usage
+
+The `turn.completed` event carries a `usage` object with the integer fields `input_tokens`, `cached_input_tokens`, `output_tokens`, and `reasoning_output_tokens`. The adapter reports the invocation's token usage to the runner as `inputTokens = input_tokens` and `outputTokens = output_tokens`. `cached_input_tokens` and `reasoning_output_tokens` are informational sub-counts already contained within `input_tokens` and `output_tokens` respectively; the adapter does not add them to the totals, so no token is counted twice.
 
 ### Terminal events from `type: "error"` and process exit
 
@@ -96,6 +112,11 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `codex` p
 - The adapter collapses multiple `-c` overrides into a single string or reuses the same `-c` for multiple keys.
 - The adapter retries on a message whose text does not contain any of the explicit retryable substrings above and whose process did not exit by signal or unexpectedly mid-turn.
 - The adapter writes Codex's native output to the user's terminal directly, instead of emitting `output` events.
+- The adapter reads the session id from a field other than `thread.started`'s `thread_id`, so no `session` event is emitted and continuity (resume / fork) is lost.
+- The adapter looks for the assistant text in a `content` array of role-tagged blocks instead of the flat `item.text` on the `agent_message` item, capturing nothing.
+- The adapter emits an `output` event for an `item.started` event instead of filtering it and emitting only on `item.completed`.
+- The adapter ignores the `usage` object on `turn.completed` and reports no token usage to the runner, so the displayed token figures stay at zero.
+- The adapter adds `cached_input_tokens` to `input_tokens` or `reasoning_output_tokens` to `output_tokens`, double-counting the sub-totals into the reported figures.
 - The adapter adds a new retryable substring to its matcher without adding it to this rule first.
 - The adapter emits a `rate_limit` event without a parsed duration, instead of falling back to a retryable `error`.
 - The adapter parses a duration with a unit other than seconds or minutes (for example, hours) and treats the number as the same unit it expected.
