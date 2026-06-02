@@ -4,7 +4,7 @@ import * as path from "path";
 
 import test from "arrange-act-assert";
 
-import { CodexAdapter, CodexAdapterContexts, formatCodexToolArgs } from "./CodexAdapter";
+import { CodexAdapter, CodexAdapterContexts, formatCodexCommand } from "./CodexAdapter";
 import type { ToolEvent, ToolAdapterInvokeArgs } from "./ToolAdapter";
 import type { ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
 
@@ -257,9 +257,9 @@ test.describe("CodexAdapter", test => {
         });
     });
 
-    test.describe("event mapping", test => {
+    test.describe("event mapping (codex-cli 0.135.0 schema)", test => {
 
-        test("assistant text item emits output with title Assistant", {
+        test("agent_message item emits output with title Assistant and flat text", {
             ARRANGE() {
                 const { contexts, script } = makeContexts();
                 const adapter = new CodexAdapter(contexts);
@@ -270,7 +270,7 @@ test.describe("CodexAdapter", test => {
                 return await collectEvents(adapter, args, script, proc => {
                     proc.$emitStdout(JSON.stringify({
                         type: "item.completed",
-                        item: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Hello world" }] }
+                        item: { type: "agent_message", text: "hi" }
                     }) + "\n");
                     emitTurnCompletedAndExit(proc);
                 });
@@ -280,12 +280,38 @@ test.describe("CodexAdapter", test => {
                     type: "output",
                     title: "Assistant",
                     subtitle: "",
-                    details: "Hello world"
+                    details: "hi"
                 });
             }
         });
 
-        test("tool call item emits output with tool name and summary", {
+        test("agent_message with absent text yields empty details", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "item.completed",
+                        item: { type: "agent_message" }
+                    }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result[0], {
+                    type: "output",
+                    title: "Assistant",
+                    subtitle: "",
+                    details: ""
+                });
+            }
+        });
+
+        test("command_execution emits output with command title and one-line summary subtitle", {
             ARRANGE() {
                 const { contexts, script } = makeContexts();
                 const adapter = new CodexAdapter(contexts);
@@ -297,10 +323,11 @@ test.describe("CodexAdapter", test => {
                     proc.$emitStdout(JSON.stringify({
                         type: "item.completed",
                         item: {
-                            type: "function_call",
-                            name: "shell",
-                            arguments: JSON.stringify({ command: "ls -la" }),
-                            output: "file1.txt\nfile2.txt"
+                            type: "command_execution",
+                            command: "pwsh -Command Get-Location",
+                            aggregated_output: "C:\\x",
+                            exit_code: 0,
+                            status: "succeeded"
                         }
                     }) + "\n");
                     emitTurnCompletedAndExit(proc);
@@ -309,14 +336,14 @@ test.describe("CodexAdapter", test => {
             ASSERT(result) {
                 Assert.deepStrictEqual(result[0], {
                     type: "output",
-                    title: "shell",
-                    subtitle: "ls -la",
-                    details: "file1.txt\nfile2.txt"
+                    title: "command",
+                    subtitle: "pwsh -Command Get-Location",
+                    details: "C:\\x"
                 });
             }
         });
 
-        test("reasoning item emits output with title Thinking", {
+        test("command_execution with absent command yields empty subtitle", {
             ARRANGE() {
                 const { contexts, script } = makeContexts();
                 const adapter = new CodexAdapter(contexts);
@@ -327,7 +354,112 @@ test.describe("CodexAdapter", test => {
                 return await collectEvents(adapter, args, script, proc => {
                     proc.$emitStdout(JSON.stringify({
                         type: "item.completed",
-                        item: { type: "reasoning", content: [{ type: "text", text: "Let me think..." }] }
+                        item: { type: "command_execution", aggregated_output: "out" }
+                    }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result[0], {
+                    type: "output",
+                    title: "command",
+                    subtitle: "",
+                    details: "out"
+                });
+            }
+        });
+
+        test("command_execution with empty command string yields empty subtitle", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "item.completed",
+                        item: { type: "command_execution", command: "", aggregated_output: "" }
+                    }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result[0], {
+                    type: "output",
+                    title: "command",
+                    subtitle: "",
+                    details: ""
+                });
+            }
+        });
+
+        test("command_execution with absent aggregated_output yields empty details", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "item.completed",
+                        item: { type: "command_execution", command: "ls" }
+                    }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result[0], {
+                    type: "output",
+                    title: "command",
+                    subtitle: "ls",
+                    details: ""
+                });
+            }
+        });
+
+        test("command_execution with command longer than 120 chars truncates subtitle to first 117 + ...", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                const longCommand = "a".repeat(200);
+                return { adapter, args, script, longCommand };
+            },
+            async ACT({ adapter, args, script, longCommand }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "item.completed",
+                        item: { type: "command_execution", command: longCommand, aggregated_output: "" }
+                    }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result[0], {
+                    type: "output",
+                    title: "command",
+                    subtitle: "a".repeat(117) + "...",
+                    details: ""
+                });
+            }
+        });
+
+        test("reasoning item emits output with title Thinking and flat text", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "item.completed",
+                        item: { type: "reasoning", text: "Let me think..." }
                     }) + "\n");
                     emitTurnCompletedAndExit(proc);
                 });
@@ -339,6 +471,128 @@ test.describe("CodexAdapter", test => {
                     subtitle: "",
                     details: "Let me think..."
                 });
+            }
+        });
+
+        test("reasoning item with absent text yields empty details", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "item.completed",
+                        item: { type: "reasoning" }
+                    }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result[0], {
+                    type: "output",
+                    title: "Thinking",
+                    subtitle: "",
+                    details: ""
+                });
+            }
+        });
+
+        test("unknown item.type is filtered (no output event emitted)", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "item.completed",
+                        item: { type: "some_unknown_item_type", text: "ignored" }
+                    }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [{ type: "done" }]);
+            }
+        });
+
+        test("item.completed without item field is filtered", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({ type: "item.completed" }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [{ type: "done" }]);
+            }
+        });
+
+        test("turn.started event produces no output event", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({ type: "turn.started" }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [{ type: "done" }]);
+            }
+        });
+
+        test("item.started event produces no output event", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "item.started",
+                        item: { type: "agent_message", text: "in progress", status: "in_progress" }
+                    }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [{ type: "done" }]);
+            }
+        });
+
+        test("unknown top-level event type is filtered", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({ type: "response.created", something: true }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [{ type: "done" }]);
             }
         });
 
@@ -356,29 +610,11 @@ test.describe("CodexAdapter", test => {
                 Assert.deepStrictEqual(result, [{ type: "done" }]);
             }
         });
-
-        test("unknown event type is filtered", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts();
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "response.created", something: true }) + "\n");
-                    emitTurnCompletedAndExit(proc);
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [{ type: "done" }]);
-            }
-        });
     });
 
-    test.describe("session id tracking", test => {
+    test.describe("session id tracking (thread.started carries thread_id)", test => {
 
-        test("first session id emits session event", {
+        test("first thread_id emits session event", {
             ARRANGE() {
                 const { contexts, script } = makeContexts();
                 const adapter = new CodexAdapter(contexts);
@@ -387,55 +623,76 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "item.completed", session_id: "sess-1", item: { type: "message", role: "assistant", content: [{ text: "hi" }] } }) + "\n");
+                    proc.$emitStdout(JSON.stringify({ type: "thread.started", thread_id: "T1" }) + "\n");
                     emitTurnCompletedAndExit(proc);
                 });
             },
             ASSERT(result) {
-                Assert.deepStrictEqual(result[0], { type: "session", id: "sess-1" });
-            }
-        });
-
-        test("duplicate session id is absorbed", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts();
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "item.completed", session_id: "sess-1", item: { type: "message", role: "assistant", content: [{ text: "hi" }] } }) + "\n");
-                    proc.$emitStdout(JSON.stringify({ type: "item.completed", session_id: "sess-1", item: { type: "message", role: "assistant", content: [{ text: "again" }] } }) + "\n");
-                    emitTurnCompletedAndExit(proc);
-                });
-            },
-            ASSERT(result) {
-                const sessionEvents = result.filter(e => e.type === "session");
-                Assert.strictEqual(sessionEvents.length, 1);
-            }
-        });
-
-        test("different session id replaces and emits new session event", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts();
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "item.completed", session_id: "sess-1", item: { type: "message", role: "assistant", content: [{ text: "hi" }] } }) + "\n");
-                    proc.$emitStdout(JSON.stringify({ type: "item.completed", session_id: "sess-2", item: { type: "message", role: "assistant", content: [{ text: "new" }] } }) + "\n");
-                    emitTurnCompletedAndExit(proc);
-                });
-            },
-            ASSERT(result) {
-                const sessionEvents = result.filter(e => e.type === "session");
-                Assert.deepStrictEqual(sessionEvents, [
-                    { type: "session", id: "sess-1" },
-                    { type: "session", id: "sess-2" }
+                Assert.deepStrictEqual(result, [
+                    { type: "session", id: "T1" },
+                    { type: "done" }
                 ]);
+            }
+        });
+
+        test("duplicate thread_id is absorbed", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({ type: "thread.started", thread_id: "T1" }) + "\n");
+                    proc.$emitStdout(JSON.stringify({ type: "thread.started", thread_id: "T1" }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result.filter(e => e.type === "session"), [
+                    { type: "session", id: "T1" }
+                ]);
+            }
+        });
+
+        test("different thread_id within the same invocation emits a new session event", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({ type: "thread.started", thread_id: "T1" }) + "\n");
+                    proc.$emitStdout(JSON.stringify({ type: "thread.started", thread_id: "T2" }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result.filter(e => e.type === "session"), [
+                    { type: "session", id: "T1" },
+                    { type: "session", id: "T2" }
+                ]);
+            }
+        });
+
+        test("empty thread_id does not emit a session event", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({ type: "thread.started", thread_id: "" }) + "\n");
+                    emitTurnCompletedAndExit(proc);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result.filter(e => e.type === "session"), []);
             }
         });
     });
@@ -861,103 +1118,58 @@ test.describe("CodexAdapter", test => {
         }
     });
 
-    test.describe("formatCodexToolArgs", test => {
+    test.describe("formatCodexCommand", test => {
 
-        test("extracts command field", {
+        test("returns empty string for undefined", {
             ARRANGE() { return {}; },
-            ACT() { return formatCodexToolArgs(JSON.stringify({ command: "ls -la" })); },
-            ASSERT(result) { Assert.strictEqual(result, "ls -la"); }
-        });
-
-        test("extracts file field", {
-            ARRANGE() { return {}; },
-            ACT() { return formatCodexToolArgs(JSON.stringify({ file: "/path/to/file.ts" })); },
-            ASSERT(result) { Assert.strictEqual(result, "/path/to/file.ts"); }
-        });
-
-        test("returns empty for undefined", {
-            ARRANGE() { return {}; },
-            ACT() { return formatCodexToolArgs(undefined); },
+            ACT() { return formatCodexCommand(undefined); },
             ASSERT(result) { Assert.strictEqual(result, ""); }
         });
 
-        test("returns empty for invalid json", {
+        test("returns empty string for empty string input", {
             ARRANGE() { return {}; },
-            ACT() { return formatCodexToolArgs("not json"); },
+            ACT() { return formatCodexCommand(""); },
             ASSERT(result) { Assert.strictEqual(result, ""); }
         });
 
-        test("returns empty when no identifying field", {
+        test("returns the input unchanged when it is a single short line", {
             ARRANGE() { return {}; },
-            ACT() { return formatCodexToolArgs(JSON.stringify({ foo: "bar" })); },
-            ASSERT(result) { Assert.strictEqual(result, ""); }
+            ACT() { return formatCodexCommand("pwsh -Command Get-Location"); },
+            ASSERT(result) { Assert.strictEqual(result, "pwsh -Command Get-Location"); }
         });
 
-        test("truncates long values", {
-            ARRANGE() {
-                const longCommand = "a".repeat(200);
-                return { longCommand };
-            },
-            ACT({ longCommand }) { return formatCodexToolArgs(JSON.stringify({ command: longCommand })); },
-            ASSERT(result) {
-                Assert.strictEqual(result.length, 120);
-                Assert.ok(result.endsWith("..."));
-            }
-        });
-
-        test("takes only first line of multiline value", {
+        test("takes only the first line of a multi-line command", {
             ARRANGE() { return {}; },
-            ACT() { return formatCodexToolArgs(JSON.stringify({ command: "line1\nline2\nline3" })); },
+            ACT() { return formatCodexCommand("line1\nline2\nline3"); },
             ASSERT(result) { Assert.strictEqual(result, "line1"); }
         });
-    });
 
-    test("formatCodexToolArgs returns empty for JSON-parsed non-object", {
-        ARRANGE() { return {}; },
-        ACT() { return formatCodexToolArgs(JSON.stringify(42)); },
-        ASSERT(result) { Assert.strictEqual(result, ""); }
-    });
+        test("returns a 120-char input unchanged (boundary, no truncation)", {
+            ARRANGE() {
+                const command = "a".repeat(120);
+                return { command };
+            },
+            ACT({ command }) { return formatCodexCommand(command); },
+            ASSERT(result, { command }) { Assert.strictEqual(result, command); }
+        });
 
-    test("function_call with missing name falls back to Tool", {
-        ARRANGE() {
-            const { contexts, script } = makeContexts();
-            const adapter = new CodexAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, script };
-        },
-        async ACT({ adapter, args, script }) {
-            return await collectEvents(adapter, args, script, proc => {
-                proc.$emitStdout(JSON.stringify({
-                    type: "item.completed",
-                    item: { type: "function_call", arguments: JSON.stringify({ command: "ls" }), output: "result" }
-                }) + "\n");
-                emitTurnCompletedAndExit(proc);
-            });
-        },
-        ASSERT(result) {
-            Assert.strictEqual((result[0] as {title:string}).title, "Tool");
-        }
-    });
+        test("truncates a 121-char input to first 117 chars followed by ...", {
+            ARRANGE() {
+                const command = "a".repeat(121);
+                return { command };
+            },
+            ACT({ command }) { return formatCodexCommand(command); },
+            ASSERT(result) { Assert.strictEqual(result, "a".repeat(117) + "..."); }
+        });
 
-    test("function_call with missing output falls back to empty string", {
-        ARRANGE() {
-            const { contexts, script } = makeContexts();
-            const adapter = new CodexAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, script };
-        },
-        async ACT({ adapter, args, script }) {
-            return await collectEvents(adapter, args, script, proc => {
-                proc.$emitStdout(JSON.stringify({
-                    type: "item.completed",
-                    item: { type: "function_call", name: "shell" }
-                }) + "\n");
-                emitTurnCompletedAndExit(proc);
-            });
-        },
-        ASSERT(result) {
-            Assert.strictEqual((result[0] as {details:string}).details, "");
-        }
+        test("truncates a 200-char input to first 117 chars followed by ...", {
+            ARRANGE() {
+                const command = "a".repeat(200);
+                return { command };
+            },
+            ACT({ command }) { return formatCodexCommand(command); },
+            ASSERT(result) { Assert.strictEqual(result, "a".repeat(117) + "..."); }
+        });
     });
 
     test("error event without message field falls back to unknown error", {
@@ -975,27 +1187,6 @@ test.describe("CodexAdapter", test => {
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result[0], { type: "error", retryable: false, message: "unknown error" });
-        }
-    });
-
-    test("extractItemText returns empty when item has no content", {
-        ARRANGE() {
-            const { contexts, script } = makeContexts();
-            const adapter = new CodexAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, script };
-        },
-        async ACT({ adapter, args, script }) {
-            return await collectEvents(adapter, args, script, proc => {
-                proc.$emitStdout(JSON.stringify({
-                    type: "item.completed",
-                    item: { type: "message", role: "assistant" }
-                }) + "\n");
-                emitTurnCompletedAndExit(proc);
-            });
-        },
-        ASSERT(result) {
-            Assert.strictEqual((result[0] as {details:string}).details, "");
         }
     });
 
@@ -1150,7 +1341,7 @@ test.describe("CodexAdapter", test => {
             const proc = script.$processes[0]!;
             proc.$emitStdout(JSON.stringify({
                 type: "item.completed",
-                item: { type: "message", role: "assistant", content: [{ text: "hi" }] }
+                item: { type: "agent_message", text: "hi" }
             }) + "\n");
             const first = await iter.next();
             const events:ToolEvent[] = first.done ? [] : [first.value];
@@ -1160,8 +1351,13 @@ test.describe("CodexAdapter", test => {
             return { events, kills: proc.$kills };
         },
         ASSERTS: {
-            "collects only first event"(result) {
-                Assert.strictEqual(result.events.length, 1);
+            "collects only the first event"(result) {
+                Assert.deepStrictEqual(result.events, [{
+                    type: "output",
+                    title: "Assistant",
+                    subtitle: "",
+                    details: "hi"
+                }]);
             },
             "child receives SIGINT from return"(result) {
                 Assert.deepStrictEqual(result.kills, ["SIGINT"]);
@@ -1183,7 +1379,7 @@ test.describe("CodexAdapter", test => {
             const pendingNext = iter.next();
             proc.$emitStdout(JSON.stringify({
                 type: "item.completed",
-                item: { type: "message", role: "assistant", content: [{ text: "delayed" }] }
+                item: { type: "agent_message", text: "delayed" }
             }) + "\n");
             const first = await pendingNext;
             emitTurnCompletedAndExit(proc);
@@ -1197,8 +1393,13 @@ test.describe("CodexAdapter", test => {
             return events;
         },
         ASSERTS: {
-            "first event is the delayed output"(result) {
-                Assert.strictEqual((result[0] as {title:string}).title, "Assistant");
+            "first event is the delayed assistant output"(result) {
+                Assert.deepStrictEqual(result[0], {
+                    type: "output",
+                    title: "Assistant",
+                    subtitle: "",
+                    details: "delayed"
+                });
             },
             "ends with done"(result) {
                 Assert.deepStrictEqual(result[result.length - 1], { type: "done" });
@@ -1216,12 +1417,16 @@ test.describe("CodexAdapter", test => {
         async ACT({ adapter, args, script }) {
             return await collectEvents(adapter, args, script, proc => {
                 emitErrorAndExit(proc, "unauthorized");
-                proc.$emitStdout(JSON.stringify({ type: "item.completed", item: { type: "message", role: "assistant", content: [{ text: "late" }] } }) + "\n");
+                proc.$emitStdout(JSON.stringify({
+                    type: "item.completed",
+                    item: { type: "agent_message", text: "late" }
+                }) + "\n");
             });
         },
         ASSERT(result) {
-            Assert.strictEqual(result.length, 1);
-            Assert.strictEqual(result[0]!.type, "error");
+            Assert.deepStrictEqual(result, [
+                { type: "error", retryable: false, message: "unauthorized" }
+            ]);
         }
     });
 
@@ -1260,6 +1465,38 @@ test.describe("CodexAdapter", test => {
             "no process.stdout"(result) { Assert.strictEqual(result.stdoutMatches, 0); },
             "no process.stderr"(result) { Assert.strictEqual(result.stderrMatches, 0); },
             "no console.*"(result) { Assert.strictEqual(result.consoleMatches, 0); }
+        }
+    });
+
+    test("CodexAdapter source uses the 0.135.0 schema field names", {
+        ARRANGE() {
+            const filePath = path.resolve(__dirname, "..", "..", "src", "ai", "CodexAdapter.ts");
+            const content = fs.readFileSync(filePath, "utf-8");
+            return { content };
+        },
+        ACT({ content }) {
+            return {
+                sessionIdMatches: (content.match(/session_id/g) ?? []).length,
+                contentArrayMatches: (content.match(/CodexNativeContentBlock|extractItemText/g) ?? []).length,
+                functionCallMatches: (content.match(/"function_call"/g) ?? []).length,
+                messageItemTypeMatches: (content.match(/"message"/g) ?? []).length,
+                jsonArgumentsParseMatches: (content.match(/JSON\.parse\(argsStr/g) ?? []).length,
+                threadIdMatches: (content.match(/thread_id/g) ?? []).length,
+                agentMessageMatches: (content.match(/"agent_message"/g) ?? []).length,
+                commandExecutionMatches: (content.match(/"command_execution"/g) ?? []).length,
+                reasoningMatches: (content.match(/"reasoning"/g) ?? []).length
+            };
+        },
+        ASSERTS: {
+            "no session_id references remain"(result) { Assert.strictEqual(result.sessionIdMatches, 0); },
+            "no content-array helper remains"(result) { Assert.strictEqual(result.contentArrayMatches, 0); },
+            "no function_call literal remains"(result) { Assert.strictEqual(result.functionCallMatches, 0); },
+            "no \"message\" item-type literal remains"(result) { Assert.strictEqual(result.messageItemTypeMatches, 0); },
+            "no JSON.parse on a JSON argsStr remains"(result) { Assert.strictEqual(result.jsonArgumentsParseMatches, 0); },
+            "thread_id is referenced"(result) { Assert.ok(result.threadIdMatches > 0); },
+            "agent_message item type is matched"(result) { Assert.ok(result.agentMessageMatches > 0); },
+            "command_execution item type is matched"(result) { Assert.ok(result.commandExecutionMatches > 0); },
+            "reasoning item type is matched"(result) { Assert.ok(result.reasoningMatches > 0); }
         }
     });
 });

@@ -52,10 +52,9 @@ function claudeResultEvents(text:string, inputTokens = 0, outputTokens = 0, sess
 function codexResultEvents(text:string, sessionId?:string):string {
     let out = "";
     if (sessionId) {
-        out += JSON.stringify({ type: "item.completed", session_id: sessionId, item: { type: "message", role: "assistant", content: [{ type: "text", text }] } }) + "\n";
-    } else {
-        out += JSON.stringify({ type: "item.completed", item: { type: "message", role: "assistant", content: [{ type: "text", text }] } }) + "\n";
+        out += JSON.stringify({ type: "thread.started", thread_id: sessionId }) + "\n";
     }
+    out += JSON.stringify({ type: "item.completed", item: { type: "agent_message", text } }) + "\n";
     out += JSON.stringify({ type: "turn.completed" }) + "\n";
     return out;
 }

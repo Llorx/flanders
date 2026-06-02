@@ -3,7 +3,7 @@ import type { SpawnOptions } from "child_process";
 import type { ScriptContext, SpawnedProcess, TimeContext } from "../contexts";
 import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent } from "./ToolAdapter";
 
-const TOOL_ARG_INLINE_MAX = 120;
+const COMMAND_INLINE_MAX = 120;
 
 const RATE_LIMIT_SUBSTRINGS = [
     "rate limit",
@@ -38,25 +38,20 @@ const TRANSPORT_SUBSTRINGS = [
     "eai_again"
 ];
 
-type CodexNativeContentBlock = Readonly<{
-    type?:string;
-    text?:string;
-}>;
-
 type CodexNativeItem = Readonly<{
     type?:string;
-    role?:string;
-    content?:ReadonlyArray<CodexNativeContentBlock>;
-    name?:string;
-    arguments?:string;
-    output?:string;
+    text?:string;
+    command?:string;
+    aggregated_output?:string;
+    exit_code?:number;
+    status?:string;
 }>;
 
 type CodexNativeEvent = Readonly<{
     type?:string;
     item?:CodexNativeItem;
     message?:string;
-    session_id?:string;
+    thread_id?:string;
 }>;
 
 export type CodexAdapterContexts = Readonly<{
@@ -64,38 +59,13 @@ export type CodexAdapterContexts = Readonly<{
     time:TimeContext;
 }>;
 
-export function formatCodexToolArgs(argsStr:string|undefined):string {
-    if (!argsStr) return "";
-    let parsed:Record<string, unknown>;
-    try {
-        parsed = JSON.parse(argsStr) as Record<string, unknown>;
-    } catch {
-        return "";
+export function formatCodexCommand(command:string|undefined):string {
+    if (!command) return "";
+    const firstLine = command.split("\n")[0]!;
+    if (firstLine.length > COMMAND_INLINE_MAX) {
+        return firstLine.slice(0, COMMAND_INLINE_MAX - 3) + "...";
     }
-    if (typeof parsed !== "object" || parsed === null) return "";
-    for (const key of ["command", "file", "file_path", "path", "pattern", "url", "query"]) {
-        const val = parsed[key];
-        if (typeof val === "string") {
-            /* coverage ignore next */ // Unreachable: split() on a non-empty string always yields ≥1 element; ?? is a defensive fallback.
-            const firstLine = val.split("\n")[0] ?? "";
-            if (firstLine.length > TOOL_ARG_INLINE_MAX) {
-                return firstLine.slice(0, TOOL_ARG_INLINE_MAX - 3) + "...";
-            }
-            return firstLine;
-        }
-    }
-    return "";
-}
-
-function extractItemText(item:CodexNativeItem):string {
-    if (!item.content || !Array.isArray(item.content)) return "";
-    let text = "";
-    for (const block of item.content) {
-        if (typeof block.text === "string") {
-            text += block.text;
-        }
-    }
-    return text;
+    return firstLine;
 }
 
 function isRateLimitMessage(message:string):boolean {
@@ -313,14 +283,9 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
 
         this._receivedAnyEvent = true;
 
-        if (parsed.session_id) {
-            if (this._capturedSessionId === null) {
-                this._capturedSessionId = parsed.session_id;
-                this._queue.push({ type: "session", id: parsed.session_id });
-            } else if (this._capturedSessionId !== parsed.session_id) {
-                this._capturedSessionId = parsed.session_id;
-                this._queue.push({ type: "session", id: parsed.session_id });
-            }
+        if (parsed.thread_id && parsed.thread_id !== this._capturedSessionId) {
+            this._capturedSessionId = parsed.thread_id;
+            this._queue.push({ type: "session", id: parsed.thread_id });
         }
 
         if (parsed.type === "item.completed" && parsed.item) {
@@ -335,26 +300,26 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
     }
 
     private _handleItemCompleted(item:CodexNativeItem):void {
-        if (item.type === "message" && item.role === "assistant") {
+        if (item.type === "agent_message") {
             this._queue.push({
                 type: "output",
                 title: "Assistant",
                 subtitle: "",
-                details: extractItemText(item)
+                details: typeof item.text === "string" ? item.text : ""
             });
-        } else if (item.type === "function_call") {
+        } else if (item.type === "command_execution") {
             this._queue.push({
                 type: "output",
-                title: typeof item.name === "string" ? item.name : "Tool",
-                subtitle: formatCodexToolArgs(item.arguments),
-                details: typeof item.output === "string" ? item.output : ""
+                title: "command",
+                subtitle: formatCodexCommand(item.command),
+                details: typeof item.aggregated_output === "string" ? item.aggregated_output : ""
             });
         } else if (item.type === "reasoning") {
             this._queue.push({
                 type: "output",
                 title: "Thinking",
                 subtitle: "",
-                details: extractItemText(item)
+                details: typeof item.text === "string" ? item.text : ""
             });
         }
     }
