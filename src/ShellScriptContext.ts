@@ -80,10 +80,11 @@ export class ShellScriptContext implements ScriptContext {
 
     private _shellLaunch(command:string, args:readonly string[], options:SpawnOpts, isWindows:boolean):RawSpawnedChild {
         const escapedArgs = args.map(a => isWindows ? this._escapeWindowsArg(a) : this._escapePosixArg(a));
+        const commandLine = [command, ...escapedArgs].join(" ");
         const spawnOptions:SpawnOpts = isWindows
             ? { ...options, shell: true }
             : { ...options, shell: true, detached: true };
-        return this._rawSpawn(command, escapedArgs, spawnOptions);
+        return this._rawSpawn(commandLine, [], spawnOptions);
     }
 
     private _escapePosixArg(arg:string):string {

@@ -202,7 +202,50 @@ test.describe("ShellScriptContext", test => {
             }
         });
 
-        test("passes the command name through unchanged so the shell resolves it", {
+        test("uses the bare command name as the command line when there are no args", {
+            ARRANGE() {
+                const fake = makeFakeChild(1000);
+                const { spawner, calls } = makeSpawner(() => fake.child);
+                const ctx = new ShellScriptContext(spawner, makeKillRecorder().kill, posixPlatform());
+                return { ctx, calls };
+            },
+            ACT({ ctx }) {
+                ctx.spawn("echo", [], {});
+            },
+            ASSERTS: {
+                "the command line is only the command name"(_result, { calls }) {
+                    Assert.strictEqual(calls[0]!.command, "echo");
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                }
+            }
+        });
+
+        test("passes an empty raw args array while shell is enabled for an argument-bearing spawn", {
+            ARRANGE() {
+                const fake = makeFakeChild(1000);
+                const { spawner, calls } = makeSpawner(() => fake.child);
+                const ctx = new ShellScriptContext(spawner, makeKillRecorder().kill, posixPlatform());
+                return { ctx, calls };
+            },
+            ACT({ ctx }) {
+                ctx.spawn("echo", ["hello world"], {});
+            },
+            ASSERTS: {
+                "the escaped argument is assembled into the command line"(_result, { calls }) {
+                    Assert.strictEqual(calls[0]!.command, "echo 'hello world'");
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                },
+                "the same raw spawn call has shell enabled"(_result, { calls }) {
+                    Assert.strictEqual(calls[0]!.options.shell, true);
+                }
+            }
+        });
+
+        test("places the command name verbatim at the head so the shell resolves it", {
             ARRANGE() {
                 const fake = makeFakeChild(1000);
                 const { spawner, calls } = makeSpawner(() => fake.child);
@@ -212,8 +255,13 @@ test.describe("ShellScriptContext", test => {
             ACT({ ctx }) {
                 ctx.spawn("codex.cmd", ["--version"], {});
             },
-            ASSERT(_result, { calls }) {
-                Assert.strictEqual(calls[0]!.command, "codex.cmd");
+            ASSERTS: {
+                "the assembled command line starts with the verbatim command name"(_result, { calls }) {
+                    Assert.strictEqual(calls[0]!.command, `codex.cmd ^"--version^"`);
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                }
             }
         });
     });
@@ -229,8 +277,13 @@ test.describe("ShellScriptContext", test => {
             ACT({ ctx }) {
                 ctx.spawn("echo", ["hello world", "second arg"], {});
             },
-            ASSERT(_result, { calls }) {
-                Assert.deepStrictEqual(calls[0]!.args, ["'hello world'", "'second arg'"]);
+            ASSERTS: {
+                "the command line contains the single-quoted arguments"(_result, { calls }) {
+                    Assert.strictEqual(calls[0]!.command, "echo 'hello world' 'second arg'");
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                }
             }
         });
 
@@ -244,8 +297,13 @@ test.describe("ShellScriptContext", test => {
             ACT({ ctx }) {
                 ctx.spawn("echo", ["it's 'mine'"], {});
             },
-            ASSERT(_result, { calls }) {
-                Assert.deepStrictEqual(calls[0]!.args, ["'it'\\''s '\\''mine'\\'''"]);
+            ASSERTS: {
+                "the command line contains the escaped single quotes"(_result, { calls }) {
+                    Assert.strictEqual(calls[0]!.command, "echo 'it'\\''s '\\''mine'\\'''");
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                }
             }
         });
 
@@ -259,8 +317,13 @@ test.describe("ShellScriptContext", test => {
             ACT({ ctx }) {
                 ctx.spawn("echo", ["a&b|c;d>e<f $x `cmd` *glob*"], {});
             },
-            ASSERT(_result, { calls }) {
-                Assert.deepStrictEqual(calls[0]!.args, ["'a&b|c;d>e<f $x `cmd` *glob*'"]);
+            ASSERTS: {
+                "the command line contains the metacharacters inside one single-quoted argument"(_result, { calls }) {
+                    Assert.strictEqual(calls[0]!.command, "echo 'a&b|c;d>e<f $x `cmd` *glob*'");
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                }
             }
         });
 
@@ -274,8 +337,13 @@ test.describe("ShellScriptContext", test => {
             ACT({ ctx }) {
                 ctx.spawn("echo", [""], {});
             },
-            ASSERT(_result, { calls }) {
-                Assert.deepStrictEqual(calls[0]!.args, ["''"]);
+            ASSERTS: {
+                "the command line contains the empty quoted argument"(_result, { calls }) {
+                    Assert.strictEqual(calls[0]!.command, "echo ''");
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                }
             }
         });
     });
@@ -291,8 +359,13 @@ test.describe("ShellScriptContext", test => {
             ACT({ ctx }) {
                 ctx.spawn("echo", ["hello"], {});
             },
-            ASSERT(_result, { calls }) {
-                Assert.deepStrictEqual(calls[0]!.args, [`^"hello^"`]);
+            ASSERTS: {
+                "the command line contains the caret-escaped quoted argument"(_result, { calls }) {
+                    Assert.strictEqual(calls[0]!.command, `echo ^"hello^"`);
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                }
             }
         });
 
@@ -306,8 +379,13 @@ test.describe("ShellScriptContext", test => {
             ACT({ ctx }) {
                 ctx.spawn("echo", ["a&b|c<d>e^f(g)h!i%j"], {});
             },
-            ASSERT(_result, { calls }) {
-                Assert.deepStrictEqual(calls[0]!.args, [`^"a^&b^|c^<d^>e^^f^(g^)h^!i^%j^"`]);
+            ASSERTS: {
+                "the command line contains the caret-escaped metacharacters"(_result, { calls }) {
+                    Assert.strictEqual(calls[0]!.command, `echo ^"a^&b^|c^<d^>e^^f^(g^)h^!i^%j^"`);
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                }
             }
         });
 
@@ -321,8 +399,13 @@ test.describe("ShellScriptContext", test => {
             ACT({ ctx }) {
                 ctx.spawn("echo", [`a"b`], {});
             },
-            ASSERT(_result, { calls }) {
-                Assert.deepStrictEqual(calls[0]!.args, [`^"a\\^"b^"`]);
+            ASSERTS: {
+                "the command line contains the escaped embedded quote"(_result, { calls }) {
+                    Assert.strictEqual(calls[0]!.command, `echo ^"a\\^"b^"`);
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                }
             }
         });
 
@@ -336,11 +419,16 @@ test.describe("ShellScriptContext", test => {
             ACT({ ctx }) {
                 ctx.spawn("echo", [`a\\"b`], {});
             },
-            ASSERT(_result, { calls }) {
-                // Input: a\"b — 1 backslash before the quote.
-                // Step 1: doubles the 1 backslash to 2 and prefixes the quote with one more, then escapes the quote: a\\\"b
-                // Step 4: wraps and caret-escapes the surrounding quotes and the inner escaped quote: ^"a\\\^"b^"
-                Assert.deepStrictEqual(calls[0]!.args, [`^"a\\\\\\^"b^"`]);
+            ASSERTS: {
+                "the command line contains the doubled backslash before the escaped quote"(_result, { calls }) {
+                    // Input: a\"b — 1 backslash before the quote.
+                    // Step 1: doubles the 1 backslash to 2 and prefixes the quote with one more, then escapes the quote: a\\\"b
+                    // Step 4: wraps and caret-escapes the surrounding quotes and the inner escaped quote: ^"a\\\^"b^"
+                    Assert.strictEqual(calls[0]!.command, `echo ^"a\\\\\\^"b^"`);
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                }
             }
         });
 
@@ -354,11 +442,16 @@ test.describe("ShellScriptContext", test => {
             ACT({ ctx }) {
                 ctx.spawn("echo", [`C:\\path\\`], {});
             },
-            ASSERT(_result, { calls }) {
-                // Input: C:\path\ (one trailing backslash)
-                // Step 2: doubles the trailing backslash run -> C:\path\\
-                // Step 3+4: wraps and caret-escapes the outer quotes -> ^"C:\path\\^"
-                Assert.deepStrictEqual(calls[0]!.args, [`^"C:\\path\\\\^"`]);
+            ASSERTS: {
+                "the command line contains doubled trailing backslashes before the closing quote"(_result, { calls }) {
+                    // Input: C:\path\ (one trailing backslash)
+                    // Step 2: doubles the trailing backslash run -> C:\path\\
+                    // Step 3+4: wraps and caret-escapes the outer quotes -> ^"C:\path\\^"
+                    Assert.strictEqual(calls[0]!.command, `echo ^"C:\\path\\\\^"`);
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                }
             }
         });
 
@@ -372,11 +465,16 @@ test.describe("ShellScriptContext", test => {
             ACT({ ctx }) {
                 ctx.spawn("echo", [`hi & "x"`], {});
             },
-            ASSERT(_result, { calls }) {
-                // Input: hi & "x"
-                // Step 1: escapes the inner quotes -> hi & \"x\"
-                // Step 4: wraps then caret-escapes & and the three quote runs -> ^"hi ^& \^"x\^"^"
-                Assert.deepStrictEqual(calls[0]!.args, [`^"hi ^& \\^"x\\^"^"`]);
+            ASSERTS: {
+                "the command line contains spaces, quotes, and metacharacters as one escaped argument"(_result, { calls }) {
+                    // Input: hi & "x"
+                    // Step 1: escapes the inner quotes -> hi & \"x\"
+                    // Step 4: wraps then caret-escapes & and the three quote runs -> ^"hi ^& \^"x\^"^"
+                    Assert.strictEqual(calls[0]!.command, `echo ^"hi ^& \\^"x\\^"^"`);
+                },
+                "the raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[0]!.args, []);
+                }
             }
         });
     });
@@ -605,11 +703,11 @@ test.describe("ShellScriptContext", test => {
                 "the raw spawner was called twice (once for the command, once for taskkill)"(_result, { calls }) {
                     Assert.strictEqual(calls.length, 2);
                 },
-                "the second call's command is taskkill"(_result, { calls }) {
-                    Assert.strictEqual(calls[1]!.command, "taskkill");
+                "the second call's command is the assembled taskkill command line"(_result, { calls }) {
+                    Assert.strictEqual(calls[1]!.command, `taskkill ^"/pid^" ^"7777^" ^"/t^" ^"/f^"`);
                 },
-                "the second call's args are the caret-escaped /pid <pid> /t /f"(_result, { calls }) {
-                    Assert.deepStrictEqual(calls[1]!.args, [`^"/pid^"`, `^"7777^"`, `^"/t^"`, `^"/f^"`]);
+                "the second call's raw args array is empty"(_result, { calls }) {
+                    Assert.deepStrictEqual(calls[1]!.args, []);
                 },
                 "the taskkill invocation has shell enabled"(_result, { calls }) {
                     Assert.strictEqual(calls[1]!.options.shell, true);
