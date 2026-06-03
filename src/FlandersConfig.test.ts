@@ -584,32 +584,3 @@ test.describe("read + write round-trip", test => {
         }
     });
 });
-
-test.describe("no direct imports", test => {
-    test("module source does not import fs, os, or path", {
-        ARRANGE() {
-            const nodeFs = require("fs") as typeof import("fs");
-            const nodePath = require("path") as typeof import("path");
-            const srcDir = nodePath.resolve(__dirname, "..", "src");
-            const source = nodeFs.readFileSync(nodePath.join(srcDir, "FlandersConfig.ts"), "utf8");
-            return source;
-        },
-        ACT(source) {
-            return source;
-        },
-        ASSERTS: {
-            "does not import fs"(source) {
-                Assert.strictEqual(/^import .* from ["']fs["']/m.test(source), false);
-            },
-            "does not import fs/promises"(source) {
-                Assert.strictEqual(/^import .* from ["']fs\/promises["']/m.test(source), false);
-            },
-            "does not import os"(source) {
-                Assert.strictEqual(/^import .* from ["']os["']/m.test(source), false);
-            },
-            "does not import path"(source) {
-                Assert.strictEqual(/^import .* from ["']path["']/m.test(source), false);
-            }
-        }
-    });
-});

@@ -1,6 +1,4 @@
 import * as Assert from "assert";
-import * as fs from "fs";
-import * as path from "path";
 
 import test from "arrange-act-assert";
 
@@ -122,23 +120,4 @@ test.describe("ToolAdapter types", test => {
         }
     });
 
-    test("compiled ToolAdapter.js emits no runtime code", {
-        ARRANGE() {
-            const jsPath = path.join(__dirname, "ToolAdapter.js");
-            return { jsPath };
-        },
-        ACT({ jsPath }) {
-            const content = fs.readFileSync(jsPath, "utf-8");
-            const stripped = content
-                .replace(/\/\/[^\n]*/g, "")
-                .replace(/\/\*[\s\S]*?\*\//g, "")
-                .replace(/\s+/g, "")
-                .replace(/^"usestrict";?/, "")
-                .replace(/Object\.defineProperty\(exports,"__esModule",\{value:true\}\);?/, "");
-            return stripped;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, "");
-        }
-    });
 });

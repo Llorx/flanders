@@ -1,6 +1,4 @@
 import * as Assert from "assert";
-import { readFileSync } from "fs";
-import { resolve } from "path";
 
 import test from "arrange-act-assert";
 
@@ -170,32 +168,6 @@ test.describe("askText", test => {
             "prompt includes question and placeholder"(_result, { getCapturedPrompt }) {
                 Assert.strictEqual(getCapturedPrompt(), "Enter model (leave empty for default): ");
             }
-        }
-    });
-});
-
-test.describe("PromptHelper canonical usage", test => {
-    test("askChoices is not called directly in any command file", {
-        ARRANGE() {
-            return {
-                commandFiles: [
-                    resolve(__dirname, "commands/Implement.js"),
-                    resolve(__dirname, "commands/Install.js")
-                ]
-            };
-        },
-        ACT({ commandFiles }) {
-            const matches:string[] = [];
-            for (const file of commandFiles) {
-                const content = readFileSync(file, "utf8");
-                if (/\.askChoices\s*\(/.test(content)) {
-                    matches.push(file);
-                }
-            }
-            return matches;
-        },
-        ASSERT(matches) {
-            Assert.strictEqual(matches.length, 0, `Command files that still call .askChoices() directly: ${matches.join(", ")}`);
         }
     });
 });

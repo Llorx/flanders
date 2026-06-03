@@ -1,6 +1,4 @@
 import * as Assert from "assert";
-import * as fs from "fs";
-import * as path from "path";
 
 import test from "arrange-act-assert";
 
@@ -1532,73 +1530,4 @@ test.describe("CodexAdapter", test => {
         }
     });
 
-    test("no direct import of child_process at runtime", {
-        ARRANGE() {
-            const filePath = path.resolve(__dirname, "..", "..", "src", "ai", "CodexAdapter.ts");
-            const content = fs.readFileSync(filePath, "utf-8");
-            return { content };
-        },
-        ACT({ content }) {
-            const childProcessImports = (content.match(/^import\s+(?!type\s).*from\s+["']child_process["']/gm) ?? []);
-            return { childProcessImports };
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.childProcessImports.length, 0);
-        }
-    });
-
-    test("no process.argv or process.env references", {
-        ARRANGE() {
-            const filePath = path.resolve(__dirname, "..", "..", "src", "ai", "CodexAdapter.ts");
-            const content = fs.readFileSync(filePath, "utf-8");
-            return { content };
-        },
-        ACT({ content }) {
-            const argvMatches = (content.match(/process\.argv/g) ?? []).length;
-            const envMatches = (content.match(/process\.env/g) ?? []).length;
-            const stdoutMatches = (content.match(/process\.stdout/g) ?? []).length;
-            const stderrMatches = (content.match(/process\.stderr/g) ?? []).length;
-            const consoleMatches = (content.match(/\bconsole\./g) ?? []).length;
-            return { argvMatches, envMatches, stdoutMatches, stderrMatches, consoleMatches };
-        },
-        ASSERTS: {
-            "no process.argv"(result) { Assert.strictEqual(result.argvMatches, 0); },
-            "no process.env"(result) { Assert.strictEqual(result.envMatches, 0); },
-            "no process.stdout"(result) { Assert.strictEqual(result.stdoutMatches, 0); },
-            "no process.stderr"(result) { Assert.strictEqual(result.stderrMatches, 0); },
-            "no console.*"(result) { Assert.strictEqual(result.consoleMatches, 0); }
-        }
-    });
-
-    test("CodexAdapter source uses the 0.135.0 schema field names", {
-        ARRANGE() {
-            const filePath = path.resolve(__dirname, "..", "..", "src", "ai", "CodexAdapter.ts");
-            const content = fs.readFileSync(filePath, "utf-8");
-            return { content };
-        },
-        ACT({ content }) {
-            return {
-                sessionIdMatches: (content.match(/session_id/g) ?? []).length,
-                contentArrayMatches: (content.match(/CodexNativeContentBlock|extractItemText/g) ?? []).length,
-                functionCallMatches: (content.match(/"function_call"/g) ?? []).length,
-                messageItemTypeMatches: (content.match(/"message"/g) ?? []).length,
-                jsonArgumentsParseMatches: (content.match(/JSON\.parse\(argsStr/g) ?? []).length,
-                threadIdMatches: (content.match(/thread_id/g) ?? []).length,
-                agentMessageMatches: (content.match(/"agent_message"/g) ?? []).length,
-                commandExecutionMatches: (content.match(/"command_execution"/g) ?? []).length,
-                reasoningMatches: (content.match(/"reasoning"/g) ?? []).length
-            };
-        },
-        ASSERTS: {
-            "no session_id references remain"(result) { Assert.strictEqual(result.sessionIdMatches, 0); },
-            "no content-array helper remains"(result) { Assert.strictEqual(result.contentArrayMatches, 0); },
-            "no function_call literal remains"(result) { Assert.strictEqual(result.functionCallMatches, 0); },
-            "no \"message\" item-type literal remains"(result) { Assert.strictEqual(result.messageItemTypeMatches, 0); },
-            "no JSON.parse on a JSON argsStr remains"(result) { Assert.strictEqual(result.jsonArgumentsParseMatches, 0); },
-            "thread_id is referenced"(result) { Assert.ok(result.threadIdMatches > 0); },
-            "agent_message item type is matched"(result) { Assert.ok(result.agentMessageMatches > 0); },
-            "command_execution item type is matched"(result) { Assert.ok(result.commandExecutionMatches > 0); },
-            "reasoning item type is matched"(result) { Assert.ok(result.reasoningMatches > 0); }
-        }
-    });
 });

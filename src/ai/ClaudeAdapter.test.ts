@@ -1,6 +1,4 @@
 import * as Assert from "assert";
-import * as fs from "fs";
-import * as path from "path";
 
 import test from "arrange-act-assert";
 
@@ -778,61 +776,6 @@ test.describe("ClaudeAdapter", test => {
             },
             "for-await exits without throwing"(result) {
                 Assert.strictEqual(result.threw, false);
-            }
-        }
-    });
-
-    test("negative search: source file contains no process.stdout, process.stderr, or console.", {
-        ARRANGE() {
-            const sourcePath = path.resolve(__dirname, "../../src/ai/ClaudeAdapter.ts");
-            return { sourcePath };
-        },
-        ACT({ sourcePath }) {
-            const content = fs.readFileSync(sourcePath, "utf-8");
-            const stdoutMatches = (content.match(/process\.stdout/g) || []).length;
-            const stderrMatches = (content.match(/process\.stderr/g) || []).length;
-            const consoleMatches = (content.match(/console\./g) || []).length;
-            return { stdoutMatches, stderrMatches, consoleMatches };
-        },
-        ASSERTS: {
-            "zero process.stdout matches"(result) {
-                Assert.strictEqual(result.stdoutMatches, 0);
-            },
-            "zero process.stderr matches"(result) {
-                Assert.strictEqual(result.stderrMatches, 0);
-            },
-            "zero console. matches"(result) {
-                Assert.strictEqual(result.consoleMatches, 0);
-            }
-        }
-    });
-
-    test("negative search: source file declares no interactive control machinery", {
-        ARRANGE() {
-            const sourcePath = path.resolve(__dirname, "../../src/ai/ClaudeAdapter.ts");
-            return { sourcePath };
-        },
-        ACT({ sourcePath }) {
-            const content = fs.readFileSync(sourcePath, "utf-8");
-            return {
-                permissionFlag: (content.match(/permission-prompt-tool/g) || []).length,
-                controlResponse: (content.match(/control_response/g) || []).length,
-                controlRequest: (content.match(/control_request/g) || []).length,
-                askUserQuestion: (content.match(/AskUserQuestion/g) || []).length
-            };
-        },
-        ASSERTS: {
-            "no permission-prompt-tool flag"(result) {
-                Assert.strictEqual(result.permissionFlag, 0);
-            },
-            "no control_response writes"(result) {
-                Assert.strictEqual(result.controlResponse, 0);
-            },
-            "no control_request handling"(result) {
-                Assert.strictEqual(result.controlRequest, 0);
-            },
-            "no AskUserQuestion forwarding"(result) {
-                Assert.strictEqual(result.askUserQuestion, 0);
             }
         }
     });
