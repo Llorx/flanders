@@ -1,10 +1,35 @@
 import * as Assert from "assert";
-import { readFileSync } from "fs";
-import { join } from "path";
 
 import test from "arrange-act-assert";
 
 import { prompts } from "./prompts";
+
+const EXPECTED_CLAIM_CLASSIFICATION =
+`Classify every claim by ONE question: what kind of signal would soundly observe a plausible regression of the claim? Place the claim in exactly one of these three branches, and name the concrete observer the branch requires — an automated failure, an asserting test, or reviewer inspection.
+
+- **Toolchain-guarded** — a plausible regression triggers an automated failure signal WITHOUT any new test being added: a build error, a type error, a linker error, a linter or other static-analysis error from a checker the project actually runs, an existing test failing, or a runtime crash on a code path the test suite already exercises. The evidence is a \`file:line\` citation in the change plus the name of the automated failure a regression would trigger. A linter signal qualifies only when the project actually runs that linter as part of its build or test flow.
+- **Test-guarded** — no toolchain signal observes the regression, but the property is observable through the public behavioral surface a test may inspect per \`rules/testing/assert-via-public-surface.md\`: return values, fired callbacks, side effects recorded on injected dependencies, externally observable state, or an artifact the test legitimately constructs and reads back. The evidence is the test's \`file:line\`, the asserting call, and a one-sentence regression argument. "The behavior is correct in the current code" is never sufficient on its own here.
+- **Review-adjudicated** — no toolchain signal observes the regression AND the property cannot be observed through the test surface without reading the subject's source as text or piercing its encapsulation. Source-text structural invariants and semantic-judgment properties are verified by the adversarial reviewer's per-iteration inspection of the working tree. The evidence is a \`file:line\` citation plus the explicit statement that the reviewer verifies the property by inspection because it has neither an automated signal nor a test-surface observation. Do not fabricate a test that reads the module's own source as text to guard such a claim.
+
+Literal content, absence of a pattern, order, and count are classified by observability. When the property is observable through the public surface, it is test-guarded and needs an exact-match, zero-match or recorded-call, positional, or counting assertion that would fail under the regression. When the property is observable only by reading the subject's source as text, it is review-adjudicated. Semantic-judgment properties are always review-adjudicated.
+
+A claim that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") needs N independent guards; evidence covering only K of N facts (K < N) leaves the uncovered facts unguarded even when they currently hold. An enumerated-minimum guard list is a floor, never a ceiling.
+
+When a test-guarded regression argument cannot be soundly constructed — the asserting call would still pass under a regression the claim forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
+
+const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per `rules/ai/agents/evidence/scope-driven-self-audit.md`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (relative path inside `rules/`), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape are classified by observability: a test-observable absence needs a search-based or recorded-call assertion that confirms zero matches over the observable surface, while a source-text structural absence or semantic-judgment absence is review-adjudicated and must not be guarded by a test that reads source as text. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per `rules/ai/agents/evidence/enumerated-claim-coverage.md`.";
+
+function claimClassificationBlock(template: string, endMarker: string) {
+    const start = template.indexOf("Classify every claim by ONE question:");
+    const end = template.indexOf(endMarker, start);
+    return template.substring(start, end);
+}
+
+function workerRuleClaimsParagraph(template: string) {
+    const start = template.indexOf("For every in-scope rule");
+    const end = template.indexOf("\n\n   **Contract claims**", start);
+    return template.substring(start, end);
+}
 
 test.describe("prompts – prep", test => {
     test("is a non-empty string", {
@@ -210,28 +235,50 @@ test.describe("prompts – worker – acceptance-criteria classification taxonom
         }
     });
 
-    test("contains all six taxonomy elements", {
+    test("contains the three classification branches", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERTS: {
             "regression-signal question"(template) {
-                Assert.ok(template.includes("would a plausible regression of the claim trigger an automated failure signal"));
+                Assert.ok(template.includes("what kind of signal would soundly observe a plausible regression of the claim?"));
             },
-            "toolchain-guarded yes branch"(template) {
-                Assert.ok(template.includes("the toolchain already guards the claim"));
+            "toolchain-guarded branch is named"(template) {
+                Assert.ok(template.includes("**Toolchain-guarded**"));
             },
-            "no-implicit-guard no branch"(template) {
-                Assert.ok(template.includes("the claim has no implicit guard"));
+            "toolchain-guarded branch includes linter signal"(template) {
+                Assert.ok(template.includes("a linter or other static-analysis error from a checker the project actually runs"));
             },
-            "four always-guard shapes"(template) {
-                Assert.ok(template.includes("Four shapes that always fall in the no-implicit-guard branch"));
+            "test-guarded branch is named"(template) {
+                Assert.ok(template.includes("**Test-guarded**"));
+            },
+            "test-guarded branch cites the public behavioral surface rule"(template) {
+                Assert.ok(template.includes("public behavioral surface a test may inspect per `rules/testing/assert-via-public-surface.md`"));
+            },
+            "review-adjudicated branch is named"(template) {
+                Assert.ok(template.includes("**Review-adjudicated**"));
+            },
+            "review-adjudicated branch covers source-text and semantic properties"(template) {
+                Assert.ok(template.includes("Source-text structural invariants and semantic-judgment properties are verified by the adversarial reviewer's per-iteration inspection of the working tree."));
+            },
+            "review-adjudicated branch forbids source-reading tests"(template) {
+                Assert.ok(template.includes("Do not fabricate a test that reads the module's own source as text to guard such a claim."));
             },
             "N-facts-need-N-guards rule"(template) {
                 Assert.ok(template.includes("needs N independent guards"));
             },
-            "regression-argument soundness step"(template) {
-                Assert.ok(template.includes("When a regression argument cannot be soundly constructed"));
+            "test-guarded regression-argument soundness step"(template) {
+                Assert.ok(template.includes("When a test-guarded regression argument cannot be soundly constructed"));
             }
+        }
+    });
+
+    test("classification block is byte-equal to the canonical wording in the worker prompt", {
+        ARRANGE() {},
+        ACT() {
+            return claimClassificationBlock(prompts.worker, "\n\n   **Rule claims**");
+        },
+        ASSERT(block) {
+            Assert.strictEqual(block, EXPECTED_CLAIM_CLASSIFICATION);
         }
     });
 
@@ -247,6 +294,18 @@ test.describe("prompts – worker – acceptance-criteria classification taxonom
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERTS: {
+            "no old automated-signal yes branch"(template) {
+                Assert.strictEqual(template.includes("the toolchain already guards the claim"), false);
+            },
+            "no old no-implicit-guard no branch"(template) {
+                Assert.strictEqual(template.includes("the claim has no implicit guard"), false);
+            },
+            "no old always-test-guard shapes sentence"(template) {
+                Assert.strictEqual(template.includes("Four shapes that always fall in the no-implicit-guard branch"), false);
+            },
+            "no old verified-by-inspection-never-satisfies sentence"(template) {
+                Assert.strictEqual(template.includes("\"verified by inspection\" never satisfies"), false);
+            },
             "no 'For behavioral or observable criteria'"(template) {
                 Assert.strictEqual(template.includes("For behavioral or observable criteria"), false);
             },
@@ -280,21 +339,26 @@ test.describe("prompts – worker – acceptance-criteria classification taxonom
         }
     });
 
-    test("four no-implicit-guard shape labels appear in order", {
+    test("special shape guidance is classified by observability", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
-        ASSERT(template) {
-            const positions = [
-                template.indexOf("literal content ("),
-                template.indexOf("absence of a pattern ("),
-                template.indexOf("order ("),
-                template.indexOf("count (")
-            ];
-            Assert.deepStrictEqual(positions, [...positions].sort((a, b) => a - b));
+        ASSERTS: {
+            "the four shape labels are named together"(template) {
+                Assert.ok(template.includes("Literal content, absence of a pattern, order, and count are classified by observability."));
+            },
+            "public-surface shapes are test-guarded"(template) {
+                Assert.ok(template.includes("When the property is observable through the public surface, it is test-guarded"));
+            },
+            "source-text shapes are review-adjudicated"(template) {
+                Assert.ok(template.includes("When the property is observable only by reading the subject's source as text, it is review-adjudicated."));
+            },
+            "semantic-judgment properties are review-adjudicated"(template) {
+                Assert.ok(template.includes("Semantic-judgment properties are always review-adjudicated."));
+            }
         }
     });
 
-    test("contains the regression-argument-soundness conclusion", {
+    test("contains the test-guarded regression-argument-soundness conclusion", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERT(template) {
@@ -426,6 +490,14 @@ test.describe("prompts – worker – three-section Evidence Report", test => {
         ACT() { return prompts.worker; },
         ASSERT(template) {
             Assert.ok(template.includes("For every in-scope rule"));
+        }
+    });
+
+    test("rule section routes absence claims by observability", {
+        ARRANGE() {},
+        ACT() { return workerRuleClaimsParagraph(prompts.worker); },
+        ASSERT(paragraph) {
+            Assert.strictEqual(paragraph, EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH);
         }
     });
 
@@ -562,40 +634,59 @@ test.describe("prompts – reviewer", test => {
 });
 
 test.describe("prompts – reviewer – acceptance-criteria classification taxonomy", test => {
-    test("contains all six taxonomy elements", {
+    test("contains the three classification branches", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
             "regression-signal question"(template) {
-                Assert.ok(template.includes("would a plausible regression of the claim trigger an automated failure signal"));
+                Assert.ok(template.includes("what kind of signal would soundly observe a plausible regression of the claim?"));
             },
-            "toolchain-guarded yes branch"(template) {
-                Assert.ok(template.includes("the toolchain already guards the claim"));
+            "toolchain-guarded branch is named"(template) {
+                Assert.ok(template.includes("**Toolchain-guarded**"));
             },
-            "no-implicit-guard no branch"(template) {
-                Assert.ok(template.includes("the claim has no implicit guard"));
+            "toolchain-guarded branch includes linter signal"(template) {
+                Assert.ok(template.includes("a linter or other static-analysis error from a checker the project actually runs"));
             },
-            "four always-guard shapes"(template) {
-                Assert.ok(template.includes("Four shapes that always fall in the no-implicit-guard branch"));
+            "test-guarded branch is named"(template) {
+                Assert.ok(template.includes("**Test-guarded**"));
+            },
+            "test-guarded branch cites the public behavioral surface rule"(template) {
+                Assert.ok(template.includes("public behavioral surface a test may inspect per `rules/testing/assert-via-public-surface.md`"));
+            },
+            "review-adjudicated branch is named"(template) {
+                Assert.ok(template.includes("**Review-adjudicated**"));
+            },
+            "review-adjudicated branch covers source-text and semantic properties"(template) {
+                Assert.ok(template.includes("Source-text structural invariants and semantic-judgment properties are verified by the adversarial reviewer's per-iteration inspection of the working tree."));
+            },
+            "review-adjudicated branch forbids source-reading tests"(template) {
+                Assert.ok(template.includes("Do not fabricate a test that reads the module's own source as text to guard such a claim."));
             },
             "N-facts-need-N-guards rule"(template) {
                 Assert.ok(template.includes("needs N independent guards"));
             },
-            "regression-argument soundness step"(template) {
-                Assert.ok(template.includes("When a regression argument cannot be soundly constructed"));
+            "test-guarded regression-argument soundness step"(template) {
+                Assert.ok(template.includes("When a test-guarded regression argument cannot be soundly constructed"));
             }
         }
     });
 
-    test("shares the taxonomy constant with the worker prompt", {
+    test("shares the exact taxonomy block with the worker prompt", {
         ARRANGE() {},
-        ACT() { return prompts; },
+        ACT() {
+            const workerBlock = claimClassificationBlock(prompts.worker, "\n\n   **Rule claims**");
+            const reviewerBlock = claimClassificationBlock(prompts.reviewer, "\n\n## Review protocol");
+            return { workerBlock, reviewerBlock };
+        },
         ASSERTS: {
-            "distinctive taxonomy text in worker"(p) {
-                Assert.ok(p.worker.includes("would a plausible regression of the claim trigger an automated failure signal"));
+            "worker block is byte-equal to the canonical wording"(blocks) {
+                Assert.strictEqual(blocks.workerBlock, EXPECTED_CLAIM_CLASSIFICATION);
             },
-            "distinctive taxonomy text in reviewer"(p) {
-                Assert.ok(p.reviewer.includes("would a plausible regression of the claim trigger an automated failure signal"));
+            "reviewer block is byte-equal to the canonical wording"(blocks) {
+                Assert.strictEqual(blocks.reviewerBlock, EXPECTED_CLAIM_CLASSIFICATION);
+            },
+            "reviewer block matches the worker block"(blocks) {
+                Assert.strictEqual(blocks.reviewerBlock, blocks.workerBlock);
             }
         }
     });
@@ -604,6 +695,18 @@ test.describe("prompts – reviewer – acceptance-criteria classification taxon
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
+            "no old automated-signal yes branch"(template) {
+                Assert.strictEqual(template.includes("the toolchain already guards the claim"), false);
+            },
+            "no old no-implicit-guard no branch"(template) {
+                Assert.strictEqual(template.includes("the claim has no implicit guard"), false);
+            },
+            "no old always-test-guard shapes sentence"(template) {
+                Assert.strictEqual(template.includes("Four shapes that always fall in the no-implicit-guard branch"), false);
+            },
+            "no old verified-by-inspection-never-satisfies sentence"(template) {
+                Assert.strictEqual(template.includes("\"verified by inspection\" never satisfies"), false);
+            },
             "no 'Observable behavior (e.g.,'"(template) {
                 Assert.strictEqual(template.includes("Observable behavior (e.g.,"), false);
             },
@@ -658,21 +761,26 @@ test.describe("prompts – reviewer – acceptance-criteria classification taxon
         }
     });
 
-    test("four no-implicit-guard shape labels appear in order", {
+    test("special shape guidance is classified by observability", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
-        ASSERT(template) {
-            const positions = [
-                template.indexOf("literal content ("),
-                template.indexOf("absence of a pattern ("),
-                template.indexOf("order ("),
-                template.indexOf("count (")
-            ];
-            Assert.deepStrictEqual(positions, [...positions].sort((a, b) => a - b));
+        ASSERTS: {
+            "the four shape labels are named together"(template) {
+                Assert.ok(template.includes("Literal content, absence of a pattern, order, and count are classified by observability."));
+            },
+            "public-surface shapes are test-guarded"(template) {
+                Assert.ok(template.includes("When the property is observable through the public surface, it is test-guarded"));
+            },
+            "source-text shapes are review-adjudicated"(template) {
+                Assert.ok(template.includes("When the property is observable only by reading the subject's source as text, it is review-adjudicated."));
+            },
+            "semantic-judgment properties are review-adjudicated"(template) {
+                Assert.ok(template.includes("Semantic-judgment properties are always review-adjudicated."));
+            }
         }
     });
 
-    test("contains the regression-argument-soundness conclusion", {
+    test("contains the test-guarded regression-argument-soundness conclusion", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERT(template) {
@@ -885,25 +993,6 @@ test.describe("prompts – reviewer – git-status change-set enumeration", test
     });
 });
 
-test.describe("prompts – shared classification constant – source-level invariants", test => {
-    test("old constant name does not appear in the prompts source file", {
-        ARRANGE() {},
-        ACT() { return readFileSync(join(__dirname, "..", "src", "prompts.ts"), "utf-8"); },
-        ASSERT(source) {
-            Assert.strictEqual(source.includes("acceptanceCriteriaClassification"), false);
-        }
-    });
-
-    test("claim-flavored distinctive text appears exactly once in the source file", {
-        ARRANGE() {},
-        ACT() { return readFileSync(join(__dirname, "..", "src", "prompts.ts"), "utf-8"); },
-        ASSERT(source) {
-            const matchCount = (source.match(/every claim by ONE question/g) ?? []).length;
-            Assert.strictEqual(matchCount, 1);
-        }
-    });
-});
-
 test.describe("prompts – foreground execution boundary", test => {
     test("each subagent prompt cites rules/ai/agents/no-background-commands.md", {
         ARRANGE() {},
@@ -989,15 +1078,6 @@ test.describe("prompts – foreground execution boundary", test => {
             const end = template.indexOf("\n\n", start);
             const foreground = template.substring(start, end === -1 ? undefined : end);
             Assert.strictEqual(foreground, "Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. You must not start any command in the background and must not end your turn while a command you spawned is still running. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example `run_in_background: true`), shell-level detachment (a trailing `&`, `nohup`, `setsid`, `disown`, `start`, `Start-Process`, `Start-Job`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.");
-        }
-    });
-
-    test("distinctive boundary fragment appears exactly once in the prompts source file", {
-        ARRANGE() {},
-        ACT() { return readFileSync(join(__dirname, "..", "src", "prompts.ts"), "utf-8"); },
-        ASSERT(source) {
-            const matchCount = (source.match(/keep your turn active until that command finishes/g) ?? []).length;
-            Assert.strictEqual(matchCount, 1);
         }
     });
 });
