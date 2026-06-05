@@ -5,7 +5,7 @@ The footer's waiting state is reserved for retry waits long enough to be worth s
 ## Who this applies to
 
 - **Subject:** the bottom-fixed UI block, specifically its footer line.
-- **Scope:** the transition between the normal `Working` footer state and the waiting footer state defined by the UI contract.
+- **Scope:** the transition between the normal `Working` footer state and the waiting footer state defined by the UI contract, for the prep and worker AI waits. The adversarial review stage is out of this scope: it does not use the global waiting footer state. A reviewer's rate-limit wait during the review stage is surfaced as that reviewer's `waiting` status inside the reviewing footer line (see `cli-commands/implement/ui.md`, `Footer line — reviewing state`), not by switching the whole footer into the global waiting state.
 
 ## When the waiting state is shown
 

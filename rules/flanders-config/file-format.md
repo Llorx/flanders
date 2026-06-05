@@ -25,19 +25,24 @@ The file is a UTF-8 JSON object parseable by Node.js's built-in `JSON.parse`. It
     "model": "<model-identifier>" | "",
     "effort": "<effort-level>" | ""
   },
-  "reviewer": {
-    "tool": "claude" | "codex",
-    "model": "<model-identifier>" | "",
-    "effort": "<effort-level>" | ""
-  }
+  "reviewers": [
+    {
+      "tool": "claude" | "codex",
+      "model": "<model-identifier>" | "",
+      "effort": "<effort-level>" | ""
+    }
+  ]
 }
 ```
 
-- `tool` — exactly one of the two string literals `"claude"` or `"codex"`. No other value is accepted.
-- `model` — the model identifier the user supplied at install time, or an empty string `""` to mean "default configured model" (the runner does not pass an explicit model flag to the CLI).
-- `effort` — the reasoning-effort identifier the user supplied at install time, or an empty string `""` to mean "default configured effort" (the runner does not pass an explicit effort flag to the CLI).
+- `worker` — a single object describing the worker role.
+- `reviewers` — a JSON array of one or more reviewer objects, in the order the user configured them. The array is never empty.
+- Inside `worker` and each `reviewers` entry:
+  - `tool` — exactly one of the two string literals `"claude"` or `"codex"`. No other value is accepted.
+  - `model` — the model identifier the user supplied at install time, or an empty string `""` to mean "default configured model" (the runner does not pass an explicit model flag to the CLI).
+  - `effort` — the reasoning-effort identifier the user supplied at install time, or an empty string `""` to mean "default configured effort" (the runner does not pass an explicit effort flag to the CLI).
 
-Both objects (`worker` and `reviewer`) are mandatory. Every field inside them is mandatory. Missing fields are a malformed configuration.
+The `worker` object and the `reviewers` array are both mandatory, `reviewers` holds at least one entry, and every field inside `worker` and inside each reviewer entry is mandatory. A missing top-level key, an empty `reviewers` array, or a missing inner field is a malformed configuration.
 
 ## Writes
 
@@ -45,7 +50,7 @@ Both objects (`worker` and `reviewer`) are mandatory. Every field inside them is
 
 ## Reads
 
-A reader parses the file with `JSON.parse`. On any parse error, missing top-level key (`worker` or `reviewer`), missing inner field, or value outside the allowed shape above, the reader treats the configuration as malformed and exits non-zero with a diagnostic that names the offending field and the path to the file. The reader does not silently fill in defaults for missing fields — a malformed file is a hard error, not an opportunity for inference.
+A reader parses the file with `JSON.parse`. On any parse error, missing top-level key (`worker` or `reviewers`), a `reviewers` value that is not a non-empty array, missing inner field, or value outside the allowed shape above, the reader treats the configuration as malformed and exits non-zero with a diagnostic that names the offending field and the path to the file. The reader does not silently fill in defaults for missing fields — a malformed file is a hard error, not an opportunity for inference.
 
 ## Why one file and not several
 
@@ -56,7 +61,7 @@ A reader parses the file with `JSON.parse`. On any parse error, missing top-leve
 ## Failure signals
 
 - `install` writes any file inside `.flanders/` other than `config.json`.
-- `install` writes a `config.json` that is not parseable by `JSON.parse`, or that is missing any of the required fields, or whose `tool` value is neither `"claude"` nor `"codex"`.
+- `install` writes a `config.json` that is not parseable by `JSON.parse`, or that is missing any of the required fields, or that serializes `reviewers` as an empty array or as anything other than an array, or whose `tool` value is neither `"claude"` nor `"codex"`.
 - A reader silently substitutes a default for a missing or invalid field instead of failing with a diagnostic.
-- A reader merges fields across scopes (for example, taking `worker` from the global file and `reviewer` from the project file).
+- A reader merges fields across scopes (for example, taking `worker` from the global file and `reviewers` from the project file).
 - A reader parses `.flanders/` directory entries other than `config.json`.

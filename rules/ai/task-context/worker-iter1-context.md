@@ -25,7 +25,7 @@ In branch A, the captured `session_id` represents the fork — distinct from the
 
 ## Why this split
 
-Branch A only works when worker and reviewer share tool, model, and effort (the strict triple-equality condition of `prep-optimization.md`). When they do not share them, the prep would not be reusable across worker and reviewer anyway, so it is not launched. In that case, inlining the linked content into the worker prompt is the cheapest way to give the worker access to it without duplicating an in-context load that no other caller will reuse.
+The prep is built with the worker's own tool, model, and effort, so whenever the prep ran the worker's first iteration can always fork it. The prep runs when at least one reviewer also shares the worker's triple, so its loaded context is reused by the worker and by every matching reviewer (per `prep-optimization.md`). When no reviewer matches the worker, the prep is not launched at all, and inlining the linked content into the worker prompt is the cheapest way to give the worker access to it without paying for an in-context load that no caller would reuse.
 
 ## Failure signals
 

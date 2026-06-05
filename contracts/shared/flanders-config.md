@@ -15,11 +15,12 @@ The folder persists the answers the user supplied to the `install` command that 
 - The AI tool the `implement` command's worker uses: one of `claude` or `codex`.
 - The model identifier the worker tool invokes, or the explicit marker "default configured model" when none was supplied.
 - The reasoning-effort identifier the worker tool invokes, or the explicit marker "default configured effort" when none was supplied.
-- The AI tool the `implement` command's adversarial reviewer uses: one of `claude` or `codex`.
-- The model identifier the reviewer tool invokes, or the explicit marker "default configured model" when none was supplied.
-- The reasoning-effort identifier the reviewer tool invokes, or the explicit marker "default configured effort" when none was supplied.
+- The ordered list of adversarial reviewers the `implement` command runs. The list holds one or more reviewers, in the order the user configured them, and each reviewer carries its own three fields:
+  - The AI tool that reviewer uses: one of `claude` or `codex`.
+  - The model identifier that reviewer's tool invokes, or the explicit marker "default configured model" when none was supplied.
+  - The reasoning-effort identifier that reviewer's tool invokes, or the explicit marker "default configured effort" when none was supplied.
 
-All these fields are persisted on every successful `install` run. Install-time-only answers (such as the skills-tool selection) are not persisted, because no downstream command consumes them.
+All these fields are persisted on every successful `install` run. The reviewer list always contains at least one reviewer. Install-time-only answers (such as the skills-tool selection) are not persisted, because no downstream command consumes them.
 
 ## Precedence at read time
 When a Flanders command reads the configuration, it resolves it as follows:

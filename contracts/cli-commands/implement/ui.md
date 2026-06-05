@@ -65,7 +65,7 @@ While the waiting footer state is active, the tokens and time values on this lin
 ## Footer line — normal state
 The footer line shows a single label, `Working`, accompanied by a smooth animated indicator. The animation is a continuous motion that gives the user a clear visual cue that the program is alive and progressing — for example, a spinner cycling through a sequence of glyphs, or a wave that moves a single highlighted character across the label. The animation runs at 5 frames per second. The label and the animated indicator are both rendered in orange.
 
-The `Working` label and its animation are present from the very first instant the command starts and persist across every phase — argv parsing, plan validation, git preflight, the `tasks completed` noop case, and the iteration loop — until the command is about to exit, at which point the footer line transitions to the terminal label defined in `Cleanup on exit`.
+The `Working` label and its animation are present from the very first instant the command starts and persist across every phase — argv parsing, plan validation, git preflight, the `tasks completed` noop case, and the iteration loop — until the command is about to exit, at which point the footer line transitions to the terminal label defined in `Cleanup on exit`. The one phase during which the footer does not show the `Working` label is the adversarial review stage, when it shows the reviewing state defined in `Footer line — reviewing state` instead.
 
 ## Footer line — waiting state
 While the runner is waiting for a retry, the footer line transitions to a label that conveys wait status to the user. The exact label content, wait information shown, and which retries trigger this state are defined by rules.
@@ -73,6 +73,31 @@ While the runner is waiting for a retry, the footer line transitions to a label 
 While the waiting state is active, the working animation is suspended.
 
 When the wait ends and normal AI work resumes, the footer line transitions back to the `Working` state and the animation restarts.
+
+The waiting state described here covers the worker-side AI waits (the prep and worker stages). It does not apply during the adversarial review stage; a reviewer's rate-limit wait is surfaced instead as that reviewer's `waiting` status inside the reviewing footer line (see `Footer line — reviewing state`).
+
+## Footer line — reviewing state
+While the adversarial review stage is running — the same phase during which the header activity field shows `reviewing` — the footer line replaces the `Working` label and its animation with a per-reviewer status line that reports every configured reviewer and its current state on a single line. The working animation is suspended for the duration of the review stage.
+
+The line begins with the literal prefix `review: ` followed by one entry per configured reviewer, in the order the reviewers were configured, separated by `, `. Each entry has the shape:
+
+    <tool> (<model> <effort>): <state>
+
+- **`<tool>`** — the reviewer's configured tool name, `claude` or `codex`.
+- **`(<model> <effort>)`** — the reviewer's model/effort descriptor. The model token is the reviewer's configured model, or the literal `default` when the configured model is the default configured model. The effort token is the reviewer's configured effort, or the literal `default` when the configured effort is the default configured effort. The effort token is appended after a single space only when the configured effort string differs from the configured model string; when the two configured strings are equal — including the common case where both are the default — only the model token is shown, so a reviewer left fully on defaults renders as `(default)` rather than `(default default)`.
+- **`<state>`** — one of:
+  - `running` — the reviewer's invocation is in progress.
+  - `waiting` — the reviewer's invocation is in a rate-limit wait. A short transient-error backoff does not move a reviewer into `waiting`; it stays `running` (consistent with `rules/ui/waiting-footer-applies-to-long-waits-only.md`).
+  - `ok` — the reviewer finished and recorded no violations.
+  - `fail` — the reviewer finished and recorded one or more violations.
+
+The line is rendered in the same orange as the rest of the footer line.
+
+### Compaction
+The reviewing footer line is compacted to fit the terminal width. The compaction decision is recomputed on every redraw against the current state and the current terminal width, never frozen at the width of the last state change (see `rules/ui/state-driven-redraw.md`). The tiers, applied in order, are:
+1. **Full form** — every entry shown as `<tool> (<model> <effort>): <state>`.
+2. **Compact form** — when the full form does not fit, the `(<model> <effort>)` descriptor is dropped from every entry, leaving `review: <tool>: <state>, …`.
+3. **Truncation** — when the compact form also does not fit, the line is truncated with an ellipsis at the end.
 
 ## Per-task completion snapshot
 Whenever a task is accepted at the commit/check stage (see `cli-commands/implement/iteration-loop.md`) and its checkbox is flipped to `[x]`, Flanders emits a snapshot of that task into the output region before work on the next task begins. The snapshot is emitted for every accepted task, including the last task in the plan; the run's final `all tasks completed` (or `tasks completed`) message is printed after the last snapshot.
@@ -103,10 +128,10 @@ Metrics line fields:
 - The time figure of each pair — blue.
 - The `│` separator between the two pairs — dim.
 
-The footer line keeps the orange rendering defined in `Footer line — normal state`; the horizontal separators (both the one inside the bottom-fixed block and the ones framing each per-task completion snapshot) use the terminal default color.
+The footer line keeps the orange rendering defined in `Footer line — normal state`, including while it shows the reviewing-state line defined in `Footer line — reviewing state`; the horizontal separators (both the one inside the bottom-fixed block and the ones framing each per-task completion snapshot) use the terminal default color.
 
 ## Resizing
-On any redraw of the bottom-fixed block — whether triggered by a change in any of its fields, by an animation tick, by a transition into or out of the waiting state, or by a terminal resize — the block recomputes the truncation and compact-form decisions of its header and metrics lines against the current state and the current terminal width. Truncation and compact-form choices are never frozen with the width the terminal had at the time of the last field change. On terminal resize, the block additionally redraws at the new geometry so it remains anchored to the bottom of the terminal and spans the new terminal width. Output already written into the output region above is not retroactively reflowed; subsequent output flows according to the new width.
+On any redraw of the bottom-fixed block — whether triggered by a change in any of its fields, by an animation tick, by a transition into or out of the waiting state, by a transition into or out of the reviewing state, or by a terminal resize — the block recomputes the truncation and compact-form decisions of its header line, its metrics line, and its footer line while the footer is in the reviewing state, against the current state and the current terminal width. Truncation and compact-form choices are never frozen with the width the terminal had at the time of the last field change. On terminal resize, the block additionally redraws at the new geometry so it remains anchored to the bottom of the terminal and spans the new terminal width. Output already written into the output region above is not retroactively reflowed; subsequent output flows according to the new width.
 
 ## Cleanup on exit
 The bottom-fixed block is never removed when the command exits. It stays on screen as the last thing the user sees, and the user's shell prompt resumes on the line immediately below the block. All prior output remains accessible through the terminal's standard scrollback exactly as during the run.
