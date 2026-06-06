@@ -1,5 +1,5 @@
 import type { AskContext, ChoiceOption, FsContext, OutputContext, ScriptContext } from "../contexts";
-import type { FlandersConfig } from "../FlandersConfig";
+import type { FlandersConfig, FlandersRole } from "../FlandersConfig";
 import { write as writeConfig } from "../FlandersConfig";
 import { askChoice, askText } from "../PromptHelper";
 import type { AskChoiceArgs, AskTextArgs } from "../PromptHelper";
@@ -70,15 +70,19 @@ async function promptText(ask:AskContext, args:AskTextArgs):Promise<string|null>
     }
 }
 
+type ReviewerFlagAnswers = Readonly<{
+    tool?:"claude"|"codex";
+    model?:string;
+    effort?:string;
+}>;
+
 export type ResolvedAnswers = Readonly<{
     scope?:"project"|"global";
     skillsTool?:"claude"|"codex"|"both";
     workerTool?:"claude"|"codex";
     workerModel?:string;
     workerEffort?:string;
-    reviewerTool?:"claude"|"codex";
-    reviewerModel?:string;
-    reviewerEffort?:string;
+    reviewers?:readonly ReviewerFlagAnswers[];
 }>;
 
 function extractFlagValue(rawArgs:readonly string[], flag:string):string|undefined {
@@ -100,6 +104,8 @@ function validateClosedSet(value:string, allowed:readonly string[], flagName:str
 
 const CODEX_EFFORT_LEVELS:readonly string[] = ["minimal", "low", "medium", "high", "xhigh"];
 
+const REVIEWER_INDEXED_RE = /^--reviewer-(\d+)-(tool|model|effort)=/;
+
 export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; answers:ResolvedAnswers}>|Readonly<{ok:false; diagnostic:string}> {
     const hasGlobal = rawArgs.includes("--global");
     const hasProject = rawArgs.includes("--project");
@@ -112,9 +118,7 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
         workerTool?:"claude"|"codex";
         workerModel?:string;
         workerEffort?:string;
-        reviewerTool?:"claude"|"codex";
-        reviewerModel?:string;
-        reviewerEffort?:string;
+        reviewers?:readonly ReviewerFlagAnswers[];
     } = {};
     if (hasProject) answers.scope = "project";
     if (hasGlobal) answers.scope = "global";
@@ -142,23 +146,73 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
         }
         answers.workerEffort = workerEffort;
     }
-    const reviewerTool = extractFlagValue(rawArgs, "--reviewer-tool");
-    if (reviewerTool !== undefined) {
-        const error = validateClosedSet(reviewerTool, ["claude", "codex"], "--reviewer-tool");
+    const reviewerIndices = new Map<number, { tool?:"claude"|"codex"; model?:string; effort?:string }>();
+    const reviewer1Tool = extractFlagValue(rawArgs, "--reviewer-tool");
+    const reviewer1Model = extractFlagValue(rawArgs, "--reviewer-model");
+    const reviewer1Effort = extractFlagValue(rawArgs, "--reviewer-effort");
+    if (reviewer1Tool !== undefined) {
+        const error = validateClosedSet(reviewer1Tool, ["claude", "codex"], "--reviewer-tool");
         if (error) return { ok: false, diagnostic: error };
-        answers.reviewerTool = reviewerTool as "claude"|"codex";
+        if (!reviewerIndices.has(1)) reviewerIndices.set(1, {});
+        reviewerIndices.get(1)!.tool = reviewer1Tool as "claude"|"codex";
     }
-    const reviewerModel = extractFlagValue(rawArgs, "--reviewer-model");
-    if (reviewerModel !== undefined) {
-        answers.reviewerModel = reviewerModel;
+    if (reviewer1Model !== undefined) {
+        if (!reviewerIndices.has(1)) reviewerIndices.set(1, {});
+        reviewerIndices.get(1)!.model = reviewer1Model;
     }
-    const reviewerEffort = extractFlagValue(rawArgs, "--reviewer-effort");
-    if (reviewerEffort !== undefined) {
-        if (reviewerEffort !== "" && answers.reviewerTool === "codex") {
-            const error = validateClosedSet(reviewerEffort, CODEX_EFFORT_LEVELS, "--reviewer-effort");
+    if (reviewer1Effort !== undefined) {
+        const tool1 = reviewerIndices.get(1)?.tool;
+        if (reviewer1Effort !== "" && tool1 === "codex") {
+            const error = validateClosedSet(reviewer1Effort, CODEX_EFFORT_LEVELS, "--reviewer-effort");
             if (error) return { ok: false, diagnostic: error };
         }
-        answers.reviewerEffort = reviewerEffort;
+        if (!reviewerIndices.has(1)) reviewerIndices.set(1, {});
+        reviewerIndices.get(1)!.effort = reviewer1Effort;
+    }
+    // First pass: collect every indexed reviewer flag without effort-against-tool validation,
+    // since the tool flag may appear after the effort flag in argv (`rules/install/effort-set-discovery.md`
+    // requires the codex closed set to be enforced regardless of argv order).
+    for (const arg of rawArgs) {
+        const match = arg.match(REVIEWER_INDEXED_RE);
+        if (!match) continue;
+        const idx = Number(match[1]);
+        if (idx < 2) {
+            return { ok: false, diagnostic: `Invalid reviewer flag: "${arg}". Reviewer 1 uses --reviewer-tool/-model/-effort; --reviewer-N-* requires N >= 2.\n` };
+        }
+        const field = match[2]!;
+        const value = arg.slice(arg.indexOf("=") + 1);
+        if (!reviewerIndices.has(idx)) reviewerIndices.set(idx, {});
+        const entry = reviewerIndices.get(idx)!;
+        if (field === "tool") {
+            const error = validateClosedSet(value, ["claude", "codex"], `--reviewer-${idx}-tool`);
+            if (error) return { ok: false, diagnostic: error };
+            entry.tool = value as "claude"|"codex";
+        } else if (field === "model") {
+            entry.model = value;
+        } else {
+            entry.effort = value;
+        }
+    }
+    // Second pass: validate every collected effort against its now-known tool.
+    for (const [idx, entry] of reviewerIndices) {
+        if (entry.effort !== undefined && entry.effort !== "" && entry.tool === "codex") {
+            const error = validateClosedSet(entry.effort, CODEX_EFFORT_LEVELS, `--reviewer-${idx}-effort`);
+            if (error) return { ok: false, diagnostic: error };
+        }
+    }
+    if (reviewerIndices.size > 0) {
+        const sortedIndices = [...reviewerIndices.keys()].sort((a, b) => a - b);
+        const maxIdx = sortedIndices[sortedIndices.length - 1]!;
+        for (let i = 1; i <= maxIdx; i++) {
+            if (!reviewerIndices.has(i)) {
+                return { ok: false, diagnostic: `Reviewer flag indices are not contiguous: missing reviewer ${i}. Indexed reviewer flags must form a contiguous run starting at reviewer 1.\n` };
+            }
+        }
+        const list:ReviewerFlagAnswers[] = [];
+        for (let i = 1; i <= maxIdx; i++) {
+            list.push(reviewerIndices.get(i)!);
+        }
+        answers.reviewers = list;
     }
     return { ok: true, answers };
 }
@@ -178,6 +232,127 @@ export class Install {
     }
     result():Promise<number> {
         return this._runPromise;
+    }
+    private async _resolveRoleModel(roleLabel:string, headerLabel:string, tool:"claude"|"codex", suppliedModel:string|undefined, contexts:InstallContexts):Promise<string|null> {
+        if (suppliedModel !== undefined) {
+            return suppliedModel;
+        }
+        /* coverage ignore next 3 */ // — Defensive: callers already checked _disposed; no await between previous guard and this entry.
+        if (this._disposed) {
+            return null;
+        }
+        if (!this._modelProbeCache.has(tool)) {
+            const models = await probeModelList(tool, contexts.script);
+            if (this._disposed) {
+                return null;
+            }
+            this._modelProbeCache.set(tool, models);
+        }
+        const probeResult = this._modelProbeCache.get(tool)!;
+        if (probeResult && probeResult.length > 0) {
+            const options:ChoiceOption[] = probeResult.map(m => ({ label: m }));
+            options.push({ label: "default configured model" });
+            const option = await promptChoice(contexts.ask, {
+                header: headerLabel,
+                question: `Which model should ${roleLabel} use?`,
+                options
+            });
+            if (!option) {
+                return null;
+            }
+            /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptChoice return and this check.
+            if (this._disposed) {
+                return null;
+            }
+            return option.label === "default configured model" ? "" : option.label;
+        }
+        const text = await promptText(contexts.ask, {
+            question: `Which model should ${roleLabel} use?`,
+            placeholder: "leave empty for the default configured model"
+        });
+        if (text === null) {
+            return null;
+        }
+        /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptText return and this check.
+        if (this._disposed) {
+            return null;
+        }
+        return text;
+    }
+    private async _resolveRoleEffort(roleLabel:string, headerLabel:string, tool:"claude"|"codex", suppliedEffort:string|undefined, contexts:InstallContexts):Promise<string|null> {
+        if (suppliedEffort !== undefined) {
+            return suppliedEffort;
+        }
+        /* coverage ignore next 3 */ // — Defensive: callers already checked _disposed; no await between previous guard and this entry.
+        if (this._disposed) {
+            return null;
+        }
+        if (tool === "codex") {
+            const options:ChoiceOption[] = CODEX_EFFORT_LEVELS.map(e => ({ label: e }));
+            options.push({ label: "default configured effort" });
+            const option = await promptChoice(contexts.ask, {
+                header: headerLabel,
+                question: `What effort level should ${roleLabel} use?`,
+                options
+            });
+            if (!option) {
+                return null;
+            }
+            /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptChoice return and this check.
+            if (this._disposed) {
+                return null;
+            }
+            return option.label === "default configured effort" ? "" : option.label;
+        }
+        const text = await promptText(contexts.ask, {
+            question: `What effort level should ${roleLabel} use?`,
+            placeholder: "leave empty for the default configured effort"
+        });
+        if (text === null) {
+            return null;
+        }
+        /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptText return and this check.
+        if (this._disposed) {
+            return null;
+        }
+        return text;
+    }
+    private async _resolveReviewer(idx:number, supplied:ReviewerFlagAnswers|undefined, contexts:InstallContexts):Promise<FlandersRole|null> {
+        const ordinal = idx === 1 ? "" : ` ${idx}`;
+        const roleLabel = `reviewer${ordinal}`;
+        let tool:"claude"|"codex";
+        if (supplied?.tool !== undefined) {
+            tool = supplied.tool;
+        } else {
+            /* coverage ignore next 3 */ // — Defensive: callers already checked _disposed; no await between previous guard and this entry.
+            if (this._disposed) {
+                return null;
+            }
+            const option = await promptChoice(contexts.ask, {
+                header: `Reviewer${ordinal} tool`,
+                question: `Which AI tool should ${roleLabel} use?`,
+                options: [
+                    { label: "claude", description: "Use Claude Code" },
+                    { label: "codex", description: "Use Codex CLI" }
+                ]
+            });
+            if (!option) {
+                return null;
+            }
+            if (this._disposed) {
+                return null;
+            }
+            tool = option.label as "claude"|"codex";
+        }
+        const model = await this._resolveRoleModel(roleLabel, `Reviewer${ordinal} model`, tool, supplied?.model, contexts);
+        if (model === null) {
+            return null;
+        }
+        const effort = await this._resolveRoleEffort(roleLabel, `Reviewer${ordinal} effort`, tool, supplied?.effort, contexts);
+        if (effort === null) {
+            return null;
+        }
+        return { tool, model, effort };
     }
     private async _run(rawArgs:readonly string[], options:InstallOptions, contexts:InstallContexts):Promise<number> {
         try {
@@ -272,201 +447,54 @@ export class Install {
                 }
                 workerTool = option.label as "claude"|"codex";
             }
-            let workerModel:string;
-            if (answers.workerModel !== undefined) {
-                workerModel = answers.workerModel;
-            } else {
-                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
-                if (this._disposed) {
-                    return 1;
-                }
-                if (!this._modelProbeCache.has(workerTool)) {
-                    const models = await probeModelList(workerTool, contexts.script);
-                    if (this._disposed) {
-                        return 1;
-                    }
-                    this._modelProbeCache.set(workerTool, models);
-                }
-                const probeResult = this._modelProbeCache.get(workerTool)!;
-                if (probeResult && probeResult.length > 0) {
-                    const options:ChoiceOption[] = probeResult.map(m => ({ label: m }));
-                    options.push({ label: "default configured model" });
-                    const option = await promptChoice(contexts.ask, {
-                        header: "Worker model",
-                        question: "Which model should the worker use?",
-                        options
-                    });
-                    if (!option) {
-                        return 1;
-                    }
-                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptChoice return and this check.
-                    if (this._disposed) {
-                        return 1;
-                    }
-                    workerModel = option.label === "default configured model" ? "" : option.label;
-                } else {
-                    const text = await promptText(contexts.ask, {
-                        question: "Which model should the worker use?",
-                        placeholder: "leave empty for the default configured model"
-                    });
-                    if (text === null) {
-                        return 1;
-                    }
-                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptText return and this check.
-                    if (this._disposed) {
-                        return 1;
-                    }
-                    workerModel = text;
-                }
+            const workerModel = await this._resolveRoleModel("the worker", "Worker model", workerTool, answers.workerModel, contexts);
+            if (workerModel === null) {
+                return 1;
             }
-            let workerEffort:string;
-            if (answers.workerEffort !== undefined) {
-                workerEffort = answers.workerEffort;
-            } else {
-                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
-                if (this._disposed) {
-                    return 1;
-                }
-                if (workerTool === "codex") {
-                    const options:ChoiceOption[] = CODEX_EFFORT_LEVELS.map(e => ({ label: e }));
-                    options.push({ label: "default configured effort" });
-                    const option = await promptChoice(contexts.ask, {
-                        header: "Worker effort",
-                        question: "What effort level should the worker use?",
-                        options
-                    });
-                    if (!option) {
-                        return 1;
-                    }
-                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptChoice return and this check.
-                    if (this._disposed) {
-                        return 1;
-                    }
-                    workerEffort = option.label === "default configured effort" ? "" : option.label;
-                } else {
-                    const text = await promptText(contexts.ask, {
-                        question: "What effort level should the worker use?",
-                        placeholder: "leave empty for the default configured effort"
-                    });
-                    if (text === null) {
-                        return 1;
-                    }
-                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptText return and this check.
-                    if (this._disposed) {
-                        return 1;
-                    }
-                    workerEffort = text;
-                }
+            const workerEffort = await this._resolveRoleEffort("the worker", "Worker effort", workerTool, answers.workerEffort, contexts);
+            if (workerEffort === null) {
+                return 1;
             }
-            let reviewerTool:"claude"|"codex";
-            if (answers.reviewerTool !== undefined) {
-                reviewerTool = answers.reviewerTool;
+            const suppliedReviewers = answers.reviewers;
+            const reviewers:FlandersRole[] = [];
+            if (suppliedReviewers && suppliedReviewers.length > 0) {
+                for (let i = 0; i < suppliedReviewers.length; i++) {
+                    const reviewer = await this._resolveReviewer(i + 1, suppliedReviewers[i]!, contexts);
+                    if (reviewer === null) {
+                        return 1;
+                    }
+                    reviewers.push(reviewer);
+                }
             } else {
-                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
-                if (this._disposed) {
-                    return 1;
-                }
-                const option = await promptChoice(contexts.ask, {
-                    header: "Reviewer tool",
-                    question: "Which AI tool should the reviewer use?",
-                    options: [
-                        { label: "claude", description: "Use Claude Code" },
-                        { label: "codex", description: "Use Codex CLI" }
-                    ]
-                });
-                if (!option) {
-                    return 1;
-                }
-                if (this._disposed) {
-                    return 1;
-                }
-                reviewerTool = option.label as "claude"|"codex";
-            }
-            let reviewerModel:string;
-            if (answers.reviewerModel !== undefined) {
-                reviewerModel = answers.reviewerModel;
-            } else {
-                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
-                if (this._disposed) {
-                    return 1;
-                }
-                if (!this._modelProbeCache.has(reviewerTool)) {
-                    const models = await probeModelList(reviewerTool, contexts.script);
-                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip during a synchronous Map.set following the await.
+                let idx = 1;
+                for (;;) {
+                    const reviewer = await this._resolveReviewer(idx, undefined, contexts);
+                    if (reviewer === null) {
+                        return 1;
+                    }
+                    reviewers.push(reviewer);
+                    /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard inside _resolveReviewer and this point.
                     if (this._disposed) {
                         return 1;
                     }
-                    this._modelProbeCache.set(reviewerTool, models);
-                }
-                const probeResult = this._modelProbeCache.get(reviewerTool)!;
-                if (probeResult && probeResult.length > 0) {
-                    const options:ChoiceOption[] = probeResult.map(m => ({ label: m }));
-                    options.push({ label: "default configured model" });
-                    const option = await promptChoice(contexts.ask, {
-                        header: "Reviewer model",
-                        question: "Which model should the reviewer use?",
-                        options
+                    const more = await promptChoice(contexts.ask, {
+                        header: "Configure another reviewer?",
+                        question: "Configure another reviewer?",
+                        options: [
+                            { label: "no", description: "Stop adding reviewers" },
+                            { label: "yes", description: "Configure another reviewer in the ordered list" }
+                        ]
                     });
-                    if (!option) {
+                    if (!more) {
                         return 1;
                     }
-                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptChoice return and this check.
                     if (this._disposed) {
                         return 1;
                     }
-                    reviewerModel = option.label === "default configured model" ? "" : option.label;
-                } else {
-                    const text = await promptText(contexts.ask, {
-                        question: "Which model should the reviewer use?",
-                        placeholder: "leave empty for the default configured model"
-                    });
-                    if (text === null) {
-                        return 1;
+                    if (more.label === "no") {
+                        break;
                     }
-                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptText return and this check.
-                    if (this._disposed) {
-                        return 1;
-                    }
-                    reviewerModel = text;
-                }
-            }
-            let reviewerEffort:string;
-            if (answers.reviewerEffort !== undefined) {
-                reviewerEffort = answers.reviewerEffort;
-            } else {
-                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
-                if (this._disposed) {
-                    return 1;
-                }
-                if (reviewerTool === "codex") {
-                    const options:ChoiceOption[] = CODEX_EFFORT_LEVELS.map(e => ({ label: e }));
-                    options.push({ label: "default configured effort" });
-                    const option = await promptChoice(contexts.ask, {
-                        header: "Reviewer effort",
-                        question: "What effort level should the reviewer use?",
-                        options
-                    });
-                    if (!option) {
-                        return 1;
-                    }
-                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptChoice return and this check.
-                    if (this._disposed) {
-                        return 1;
-                    }
-                    reviewerEffort = option.label === "default configured effort" ? "" : option.label;
-                } else {
-                    const text = await promptText(contexts.ask, {
-                        question: "What effort level should the reviewer use?",
-                        placeholder: "leave empty for the default configured effort"
-                    });
-                    if (text === null) {
-                        return 1;
-                    }
-                    /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptText return and this check.
-                    if (this._disposed) {
-                        return 1;
-                    }
-                    reviewerEffort = text;
+                    idx++;
                 }
             }
             const selectedTools = new Set<"claude"|"codex">();
@@ -477,7 +505,9 @@ export class Install {
                 selectedTools.add(skillsTool);
             }
             selectedTools.add(workerTool);
-            selectedTools.add(reviewerTool);
+            for (const r of reviewers) {
+                selectedTools.add(r.tool);
+            }
             /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
             if (this._disposed) {
                 return 1;
@@ -557,7 +587,7 @@ export class Install {
             }
             const config:FlandersConfig = {
                 worker: { tool: workerTool, model: workerModel, effort: workerEffort },
-                reviewer: { tool: reviewerTool, model: reviewerModel, effort: reviewerEffort }
+                reviewers
             };
             const configWrittenPath = await writeConfig(contexts.fs, {
                 scope: mode,

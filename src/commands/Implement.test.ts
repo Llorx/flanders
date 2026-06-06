@@ -109,8 +109,9 @@ function stubContexts() {
                 claudeSpawnedArgs.push([...args]);
                 const proc = fakeProcess();
                 const origStdin = proc.stdin!;
+                let capturedPrompt = "";
                 (proc as any).stdin = {
-                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { promptQueue.push(p.message.content); } } catch {} },
+                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; promptQueue.push(p.message.content); } } catch {} },
                     end() { origStdin.end(); }
                 };
                 const response = claudeQueue.shift();
@@ -123,7 +124,9 @@ function stubContexts() {
                         proc.$emit("error", new Error("spawn error"));
                     } else {
                         if (response.errorLog !== undefined) {
-                            files.set(WS_ROOT + "/error.log", response.errorLog);
+                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            files.set(target, response.errorLog);
                         }
                         if (response.stderr) {
                             proc.$emitStderr(response.stderr);
@@ -141,8 +144,9 @@ function stubContexts() {
                 if (command === "codex") {
                     codexSpawnedArgs.push([...args]);
                     const origStdin = proc.stdin!;
+                    let capturedPrompt = "";
                     (proc as any).stdin = {
-                        write(chunk:string) { origStdin.write(chunk); promptQueue.push(chunk); },
+                        write(chunk:string) { origStdin.write(chunk); capturedPrompt += chunk; promptQueue.push(chunk); },
                         end() { origStdin.end(); }
                     };
                     const response = codexQueue.shift();
@@ -155,7 +159,9 @@ function stubContexts() {
                             proc.$emit("error", new Error("spawn error"));
                         } else {
                             if (response.errorLog !== undefined) {
-                                files.set(WS_ROOT + "/error.log", response.errorLog);
+                                const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                                const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                                files.set(target, response.errorLog);
                             }
                             proc.$emitStdout(codexResultEvents(response.text, response.sessionId));
                             proc.$emit("exit", 0);
@@ -221,7 +227,7 @@ const PLAN_PATH = "/project/plans/test.md";
 const PLAN_ONE_TASK = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Implement feature A\n';
 const WS_ROOT = "/tmp/flanders-ws123";
 const PREP_RESPONSE:ClaudeResponse = { text: "READY", sessionId: "prep-session" };
-const DEFAULT_CONFIG:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } };
+const DEFAULT_CONFIG:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
 const CONFIG_PATH = "/project/.flanders/config.json";
 
 test.describe("Implement per-iteration logs", test => {
@@ -245,9 +251,9 @@ test.describe("Implement per-iteration logs", test => {
             Assert.strictEqual(code, 0);
             Assert.ok(files.has(WS_ROOT + "/worker.1.log"), "worker.1.log should exist");
             Assert.ok(files.get(WS_ROOT + "/worker.1.log")!.includes("Worker output for feature A"), "worker.1.log should contain worker output");
-            Assert.ok(files.has(WS_ROOT + "/reviewer.1.log"), "reviewer.1.log should exist");
-            Assert.ok(files.get(WS_ROOT + "/reviewer.1.log")!.includes("Looks good."));
-            Assert.ok(files.get(WS_ROOT + "/reviewer.1.log")!.includes("Verdict: PASS"));
+            Assert.ok(files.has(WS_ROOT + "/reviewer.1.1.log"), "reviewer.1.1.log should exist");
+            Assert.ok(files.get(WS_ROOT + "/reviewer.1.1.log")!.includes("Looks good."));
+            Assert.ok(files.get(WS_ROOT + "/reviewer.1.1.log")!.includes("Verdict: PASS"));
         }
     });
 
@@ -382,10 +388,10 @@ test.describe("Implement per-iteration logs", test => {
         },
         ASSERT(code, { files }) {
             Assert.strictEqual(code, 0);
-            const rev1 = files.get(WS_ROOT + "/reviewer.1.log")!;
+            const rev1 = files.get(WS_ROOT + "/reviewer.1.1.log")!;
             Assert.ok(rev1.includes("Missing edge case."));
             Assert.ok(rev1.includes("Verdict: FAIL needs error handling"));
-            const rev2 = files.get(WS_ROOT + "/reviewer.2.log")!;
+            const rev2 = files.get(WS_ROOT + "/reviewer.2.1.log")!;
             Assert.ok(rev2.includes("Verdict: PASS"));
         }
     });
@@ -422,7 +428,7 @@ test.describe("Implement per-iteration logs", test => {
                 Assert.ok(files.has(WS_ROOT + "/worker.5.log"), "iteration 5 worker log preserved");
             },
             "iteration 5 reviewer log is preserved"(_code, { files }) {
-                Assert.ok(files.has(WS_ROOT + "/reviewer.5.log"), "iteration 5 reviewer log preserved");
+                Assert.ok(files.has(WS_ROOT + "/reviewer.5.1.log"), "iteration 5 reviewer log preserved");
             },
             "workspace folder is not removed on dispose"(_code, { rmCalls }) {
                 Assert.ok(!rmCalls.includes(WS_ROOT), "fs.rm should not be called with workspace root");
@@ -827,7 +833,7 @@ test.describe("Implement config loading", test => {
     test("valid project-scope config proceeds and is stashed on instance", {
         ARRANGE() {
             const s = stubContexts();
-            const projectConfig:FlandersConfig = { worker: { tool: "codex", model: "test-model", effort: "high" }, reviewer: { tool: "claude", model: "rev-model", effort: "low" } };
+            const projectConfig:FlandersConfig = { worker: { tool: "codex", model: "test-model", effort: "high" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "low" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(projectConfig));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -855,8 +861,8 @@ test.describe("Implement config loading", test => {
     test("project config shadows global config", {
         ARRANGE() {
             const s = stubContexts();
-            const projectConfig:FlandersConfig = { worker: { tool: "claude", model: "project-sentinel", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } };
-            const globalConfig:FlandersConfig = { worker: { tool: "codex", model: "global-sentinel", effort: "" }, reviewer: { tool: "codex", model: "", effort: "" } };
+            const projectConfig:FlandersConfig = { worker: { tool: "claude", model: "project-sentinel", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
+            const globalConfig:FlandersConfig = { worker: { tool: "codex", model: "global-sentinel", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(projectConfig));
             s.files.set("/home/test/.flanders/config.json", JSON.stringify(globalConfig));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -889,7 +895,7 @@ test.describe("Implement config loading", test => {
     test("malformed config exits non-zero with diagnostic containing file path and field name", {
         ARRANGE() {
             const s = stubContexts();
-            s.files.set(CONFIG_PATH, JSON.stringify({ worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "" } }));
+            s.files.set(CONFIG_PATH, JSON.stringify({ worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "" }] }));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             return s;
         },
@@ -909,7 +915,7 @@ test.describe("Implement config loading", test => {
             },
             "diagnostic contains the offending field name"(_code, { written }) {
                 const allOutput = stripAnsi(written.join(""));
-                Assert.ok(allOutput.includes("reviewer.effort"), "should contain the offending field name");
+                Assert.ok(allOutput.includes("reviewers[0].effort"), "should contain the offending field name");
             }
         }
     });
@@ -1393,8 +1399,9 @@ function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
         spawnCount++;
         const proc = fakeProcess();
         const origStdin = proc.stdin!;
+        let capturedPrompt = "";
         (proc as any).stdin = {
-            write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { s.promptQueue.push(p.message.content); } } catch {} },
+            write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; s.promptQueue.push(p.message.content); } } catch {} },
             end() { origStdin.end(); }
         };
         if (spawnCount === rateLimitOnSpawn) {
@@ -1410,7 +1417,9 @@ function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
             }
             setImmediate(() => {
                 if (response.errorLog !== undefined) {
-                    s.files.set(WS_ROOT + "/error.log", response.errorLog);
+                    const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                    const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                    s.files.set(target, response.errorLog);
                 }
                 if (response.stderr) {
                     proc.$emitStderr(response.stderr);
@@ -1882,6 +1891,12 @@ test.describe("Implement per-task token and time metrics", test => {
             (s.contexts.claude as { spawn:typeof s.contexts.claude.spawn }).spawn = () => {
                 spawnCount++;
                 const proc = fakeProcess();
+                const origStdin = proc.stdin!;
+                let capturedPrompt = "";
+                (proc as any).stdin = {
+                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; } } catch {} },
+                    end() { origStdin.end(); }
+                };
                 if (spawnCount === 3) {
                     time.advance(1000);
                     setImmediate(() => {
@@ -1894,7 +1909,9 @@ test.describe("Implement per-task token and time metrics", test => {
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
                         if (response.errorLog !== undefined) {
-                            s.files.set(WS_ROOT + "/error.log", response.errorLog);
+                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            s.files.set(target, response.errorLog);
                         }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
                         proc.$emit("exit", 0);
@@ -2003,6 +2020,12 @@ test.describe("Implement per-task token and time metrics", test => {
             (s.contexts.claude as { spawn:typeof s.contexts.claude.spawn }).spawn = () => {
                 spawnCount++;
                 const proc = fakeProcess();
+                const origStdin = proc.stdin!;
+                let capturedPrompt = "";
+                (proc as any).stdin = {
+                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; } } catch {} },
+                    end() { origStdin.end(); }
+                };
                 if (spawnCount === 3 || spawnCount === 5) {
                     const seconds = spawnCount === 3 ? 5 : 3;
                     time.advance(1000);
@@ -2015,7 +2038,9 @@ test.describe("Implement per-task token and time metrics", test => {
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
                         if (response.errorLog !== undefined) {
-                            s.files.set(WS_ROOT + "/error.log", response.errorLog);
+                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            s.files.set(target, response.errorLog);
                         }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
                         proc.$emit("exit", 0);
@@ -2048,10 +2073,10 @@ test.describe("Implement per-task token and time metrics", test => {
             // prep (1s) → 2000
             // worker rate-limited (1s spawn + 5s wait) → 8000
             // worker retry (1s) → 9000
-            // reviewer rate-limited (1s spawn + 3s wait) → 13000
+            // reviewer rate-limited (1s spawn + 3s wait) → 13000  (reviewer wait does NOT freeze metrics time)
             // reviewer retry (1s) → 14000
-            // active = (14000 - 1000 - 8000) / 1000 = 5
-            Assert.ok(plan.includes('"t":5}'), `t should exclude both rate-limit windows, got: ${plan}`);
+            // active = (14000 - 1000 - 5000) / 1000 = 8 — only the worker rate-limit is subtracted
+            Assert.ok(plan.includes('"t":8}'), `t should exclude only worker rate-limit (reviewer waits do not freeze metrics), got: ${plan}`);
         }
     });
 
@@ -2065,6 +2090,12 @@ test.describe("Implement per-task token and time metrics", test => {
             (s.contexts.claude as { spawn:typeof s.contexts.claude.spawn }).spawn = () => {
                 spawnCount++;
                 const proc = fakeProcess();
+                const origStdin = proc.stdin!;
+                let capturedPrompt = "";
+                (proc as any).stdin = {
+                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; } } catch {} },
+                    end() { origStdin.end(); }
+                };
                 if (spawnCount === 1) {
                     time.advance(1000);
                     setImmediate(() => {
@@ -2076,7 +2107,9 @@ test.describe("Implement per-task token and time metrics", test => {
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
                         if (response.errorLog !== undefined) {
-                            s.files.set(WS_ROOT + "/error.log", response.errorLog);
+                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            s.files.set(target, response.errorLog);
                         }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
                         proc.$emit("exit", 0);
@@ -2297,10 +2330,18 @@ test.describe("Implement per-task token and time metrics", test => {
             (s.contexts.claude as any).spawn = () => {
                 spawnCount++;
                 const proc = fakeProcess();
+                const origStdin = proc.stdin!;
+                let capturedPrompt = "";
+                (proc as any).stdin = {
+                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; } } catch {} },
+                    end() { origStdin.end(); }
+                };
                 if (spawnCount === 4) {
                     new Promise<void>(r => { releaseReviewer = r; }).then(() => {
                         setImmediate(() => {
-                            s.files.set(WS_ROOT + "/error.log", "");
+                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            s.files.set(target, "");
                             proc.$emitStdout(claudeResultEvents("PASS", 800, 300));
                             proc.$emit("exit", 0);
                         });
@@ -2309,7 +2350,9 @@ test.describe("Implement per-task token and time metrics", test => {
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
                         if (response.errorLog !== undefined) {
-                            s.files.set(WS_ROOT + "/error.log", response.errorLog);
+                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            s.files.set(target, response.errorLog);
                         }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
                         proc.$emit("exit", 0);
@@ -3856,10 +3899,10 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
         },
         ASSERT(code, { files }) {
             Assert.strictEqual(code, 0);
-            const rev1 = files.get(WS_ROOT + "/reviewer.1.log")!;
-            Assert.ok(rev1.includes("Verdict: FAIL missing test for edge case"), "reviewer.1.log should contain FAIL verdict");
-            const rev2 = files.get(WS_ROOT + "/reviewer.2.log")!;
-            Assert.ok(rev2.includes("Verdict: PASS"), "reviewer.2.log should contain PASS verdict");
+            const rev1 = files.get(WS_ROOT + "/reviewer.1.1.log")!;
+            Assert.ok(rev1.includes("Verdict: FAIL missing test for edge case"), "reviewer.1.1.log should contain FAIL verdict");
+            const rev2 = files.get(WS_ROOT + "/reviewer.2.1.log")!;
+            Assert.ok(rev2.includes("Verdict: PASS"), "reviewer.2.1.log should contain PASS verdict");
         }
     });
 });
@@ -4219,44 +4262,53 @@ test.describe("Implement reviewer forks from prep", test => {
         }
     });
 
-    test("reviewer session_id is not stored on the Implement instance", {
+    test("reviewer session_id is not stored as worker or prep session — observed via iter-2 --resume args", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
             s.claudeQueue.push({ text: "READY", sessionId: "PREP-NOSAVE" });
-            // iter 1: worker, reviewer returns a sessionId, FAIL
+            // iter 1: worker emits its own session id; reviewer emits a DIFFERENT id AND FAILs (forces iter 2)
             s.claudeQueue.push({ text: "w1", sessionId: "WORKER-NOSAVE" });
             s.claudeQueue.push({ text: "found issues", sessionId: "REVIEWER-SESS-1", errorLog: "not ready" });
-            // iter 2: worker, reviewer returns a different sessionId, PASS
+            // iter 2: worker resumes; reviewer emits yet another id and PASSes
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", sessionId: "REVIEWER-SESS-2", errorLog: "" });
             return s;
         },
-        async ACT({ contexts }) {
+        async ACT({ contexts, claudeSpawnedArgs }) {
             const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
-            const workerSessionId = (cmd as any)._currentWorkerSessionId;
-            const prepSessionId = (cmd as any)._currentPrepSessionId;
             await cmd.dispose();
-            return { code, workerSessionId, prepSessionId };
+            // claudeSpawnedArgs positions: [0]=detect, [1]=prep, [2]=worker-iter1,
+            // [3]=reviewer-iter1, [4]=worker-iter2, [5]=reviewer-iter2.
+            return { code, claudeSpawnedArgs };
         },
         ASSERTS: {
             "exits with code 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "iter 1 reviewer session id not stored as worker session"({ workerSessionId }) {
-                Assert.notStrictEqual(workerSessionId, "REVIEWER-SESS-1");
+            "iter 2 worker resumes the iter-1 worker session id (never a reviewer's id)"({ claudeSpawnedArgs }) {
+                const iter2WorkerArgs = claudeSpawnedArgs[4]!;
+                Assert.strictEqual(iter2WorkerArgs[0], "--resume");
+                Assert.strictEqual(iter2WorkerArgs[1], "WORKER-NOSAVE");
             },
-            "iter 2 reviewer session id not stored as worker session"({ workerSessionId }) {
-                Assert.notStrictEqual(workerSessionId, "REVIEWER-SESS-2");
+            "iter 2 reviewer forks from the prep session id (never a reviewer's id)"({ claudeSpawnedArgs }) {
+                const iter2ReviewerArgs = claudeSpawnedArgs[5]!;
+                Assert.strictEqual(iter2ReviewerArgs[0], "--resume");
+                Assert.strictEqual(iter2ReviewerArgs[1], "PREP-NOSAVE");
+                Assert.ok(iter2ReviewerArgs.includes("--fork-session"));
             },
-            "iter 1 reviewer session id not stored as prep session"({ prepSessionId }) {
-                Assert.notStrictEqual(prepSessionId, "REVIEWER-SESS-1");
-            },
-            "iter 2 reviewer session id not stored as prep session"({ prepSessionId }) {
-                Assert.notStrictEqual(prepSessionId, "REVIEWER-SESS-2");
+            "no reviewer session id appears in any spawn's --resume position after the reviewer that emitted it"({ claudeSpawnedArgs }) {
+                // For each spawn, --resume's argument must not be any reviewer's session id.
+                const forbiddenIds = new Set(["REVIEWER-SESS-1", "REVIEWER-SESS-2"]);
+                for (const args of claudeSpawnedArgs) {
+                    const resumeIdx = args.indexOf("--resume");
+                    if (resumeIdx === -1) continue;
+                    const resumeArg = args[resumeIdx + 1];
+                    Assert.ok(resumeArg !== undefined && !forbiddenIds.has(resumeArg), `--resume ${resumeArg} pointed at a reviewer's session id`);
+                }
             }
         }
     });
@@ -4796,7 +4848,7 @@ test.describe("Implement prep stage", test => {
         }
     });
 
-    test("_currentPrepSessionId captures stub sessionId and resets per task", {
+    test("prep session id is captured per task and reset between tasks — observed via per-task worker fork args", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_TWO_TASKS);
@@ -4809,37 +4861,39 @@ test.describe("Implement prep stage", test => {
             s.claudeQueue.push({ text: "READY", sessionId: "prep-sess-2" });
             s.claudeQueue.push({ text: "worker2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            const capturedPrepSessionIds:Array<string|null> = [];
-            return { ...s, capturedPrepSessionIds };
+            return s;
         },
-        async ACT({ contexts, capturedPrepSessionIds }) {
+        async ACT({ contexts, claudeSpawnedArgs }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
-            const origPrepStage = (cmd as any)._prepStage.bind(cmd);
-            (cmd as any)._prepStage = async function(...args:unknown[]) {
-                capturedPrepSessionIds.push((cmd as any)._currentPrepSessionId);
-                const result = await origPrepStage(...args);
-                capturedPrepSessionIds.push((cmd as any)._currentPrepSessionId);
-                return result;
-            };
             const code = await cmd.result();
             await cmd.dispose();
-            return code;
+            // claudeSpawnedArgs positions:
+            //   [0]=detect,
+            //   [1]=task-1 prep, [2]=task-1 worker, [3]=task-1 reviewer,
+            //   [4]=task-2 prep, [5]=task-2 worker, [6]=task-2 reviewer.
+            return { code, claudeSpawnedArgs };
         },
         ASSERTS: {
-            "exits with code 0"(code) {
+            "exits with code 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "field is null at start of task 1 prep"(_code, { capturedPrepSessionIds }) {
-                Assert.strictEqual(capturedPrepSessionIds[0], null);
+            "task-1 worker forks from task-1 prep session id (capture)"({ claudeSpawnedArgs }) {
+                const args = claudeSpawnedArgs[2]!;
+                Assert.strictEqual(args[0], "--resume");
+                Assert.strictEqual(args[1], "prep-sess-1");
+                Assert.ok(args.includes("--fork-session"));
             },
-            "field has prep-sess-1 after task 1 prep"(_code, { capturedPrepSessionIds }) {
-                Assert.strictEqual(capturedPrepSessionIds[1], "prep-sess-1");
+            "task-2 worker forks from task-2 prep session id, NOT task-1's (reset between tasks)"({ claudeSpawnedArgs }) {
+                const args = claudeSpawnedArgs[5]!;
+                Assert.strictEqual(args[0], "--resume");
+                Assert.strictEqual(args[1], "prep-sess-2");
+                Assert.ok(args.includes("--fork-session"));
             },
-            "field is null at start of task 2 prep"(_code, { capturedPrepSessionIds }) {
-                Assert.strictEqual(capturedPrepSessionIds[2], null);
-            },
-            "field has prep-sess-2 after task 2 prep"(_code, { capturedPrepSessionIds }) {
-                Assert.strictEqual(capturedPrepSessionIds[3], "prep-sess-2");
+            "task-2 reviewer forks from task-2 prep session id, NOT task-1's"({ claudeSpawnedArgs }) {
+                const args = claudeSpawnedArgs[6]!;
+                Assert.strictEqual(args[0], "--resume");
+                Assert.strictEqual(args[1], "prep-sess-2");
+                Assert.ok(args.includes("--fork-session"));
             }
         }
     });
@@ -4993,12 +5047,14 @@ test.describe("Implement error.log verdict protocol", test => {
             "exits 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "error.log is empty"(_code, { files }) {
-                const errorLog = files.get(WS_ROOT + "/error.log")!;
-                Assert.strictEqual(errorLog, "");
+            "aggregate error.log is absent (deleted before, never rewritten on pass)"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/error.log"), false);
             },
-            "reviewer.1.log contains Verdict: PASS"(_code, { files }) {
-                const rev1 = files.get(WS_ROOT + "/reviewer.1.log")!;
+            "per-reviewer error.1.log is empty (reviewer reported clean)"(_code, { files }) {
+                Assert.strictEqual(files.get(WS_ROOT + "/error.1.log")!, "");
+            },
+            "reviewer.1.1.log contains Verdict: PASS"(_code, { files }) {
+                const rev1 = files.get(WS_ROOT + "/reviewer.1.1.log")!;
                 Assert.ok(rev1.includes("Verdict: PASS"));
             }
         }
@@ -5028,12 +5084,12 @@ test.describe("Implement error.log verdict protocol", test => {
             "exits 0 after retry"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "reviewer.1.log contains FAIL verdict with violations"(_code, { files }) {
-                const rev1 = files.get(WS_ROOT + "/reviewer.1.log")!;
+            "reviewer.1.1.log contains FAIL verdict with violations"(_code, { files }) {
+                const rev1 = files.get(WS_ROOT + "/reviewer.1.1.log")!;
                 Assert.ok(rev1.includes("Verdict: FAIL missing test for edge case"));
             },
-            "reviewer.2.log contains PASS verdict"(_code, { files }) {
-                const rev2 = files.get(WS_ROOT + "/reviewer.2.log")!;
+            "reviewer.2.1.log contains PASS verdict"(_code, { files }) {
+                const rev2 = files.get(WS_ROOT + "/reviewer.2.1.log")!;
                 Assert.ok(rev2.includes("Verdict: PASS"));
             }
         }
@@ -5064,7 +5120,7 @@ test.describe("Implement error.log verdict protocol", test => {
                 Assert.strictEqual(code, 0);
             },
             "error.log does not contain reviewer rejected:"(_code, { files }) {
-                const errorLog = files.get(WS_ROOT + "/error.log")!;
+                const errorLog = files.get(WS_ROOT + "/error.log") ?? "";
                 Assert.ok(!errorLog.includes("reviewer rejected:"));
             }
         }
@@ -5091,8 +5147,8 @@ test.describe("Implement error.log verdict protocol", test => {
             "exits 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "reviewer.1.log contains Verdict: PASS"(_code, { files }) {
-                const rev1 = files.get(WS_ROOT + "/reviewer.1.log")!;
+            "reviewer.1.1.log contains Verdict: PASS"(_code, { files }) {
+                const rev1 = files.get(WS_ROOT + "/reviewer.1.1.log")!;
                 Assert.ok(rev1.includes("Verdict: PASS"));
             }
         }
@@ -5118,9 +5174,9 @@ test.describe("Implement error.log verdict protocol", test => {
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "reviewer prompt contains hydrated error.log path"({ promptQueue }) {
+            "reviewer prompt contains hydrated per-reviewer error.<n>.log path"({ promptQueue }) {
                 const reviewerPrompt = promptQueue[3]!;
-                Assert.ok(reviewerPrompt.includes(WS_ROOT + "/error.log"));
+                Assert.ok(reviewerPrompt.includes(WS_ROOT + "/error.1.log"));
             },
             "placeholder is fully replaced"({ promptQueue }) {
                 const reviewerPrompt = promptQueue[3]!;
@@ -5149,8 +5205,8 @@ test.describe("Implement error.log verdict protocol", test => {
             "exits 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "reviewer.1.log shows PASS"(_code, { files }) {
-                const rev1 = files.get(WS_ROOT + "/reviewer.1.log")!;
+            "reviewer.1.1.log shows PASS"(_code, { files }) {
+                const rev1 = files.get(WS_ROOT + "/reviewer.1.1.log")!;
                 Assert.ok(rev1.includes("Verdict: PASS"));
             }
         }
@@ -5213,7 +5269,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
                 Assert.strictEqual(claudeSpawnedArgs.length, 5);
             },
             "reviewer log contains the last invocation output"({ files }) {
-                const log = files.get(WS_ROOT + "/reviewer.1.log")!;
+                const log = files.get(WS_ROOT + "/reviewer.1.1.log")!;
                 Assert.ok(log.includes("Verdict: PASS"), "reviewer log should reflect the invocation that produced the verdict");
             }
         }
@@ -5370,7 +5426,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
                 Assert.strictEqual(code, 0);
             },
             "reviewer log shows PASS"({ files }) {
-                const log = files.get(WS_ROOT + "/reviewer.1.log")!;
+                const log = files.get(WS_ROOT + "/reviewer.1.1.log")!;
                 Assert.ok(log.includes("Verdict: PASS"));
             }
         }
@@ -5399,8 +5455,8 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "reviewer.1.log shows FAIL with content"({ files }) {
-                const log = files.get(WS_ROOT + "/reviewer.1.log")!;
+            "reviewer.1.1.log shows FAIL with content"({ files }) {
+                const log = files.get(WS_ROOT + "/reviewer.1.1.log")!;
                 Assert.ok(log.includes("Verdict: FAIL missing edge case\nincorrect return type"));
             },
             "error.log survives until next iteration clears it"({ rmCalls }) {
@@ -5571,7 +5627,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("worker.tool=codex routes worker stage through codex binary", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "codex", model: "codex-model", effort: "high" }, reviewer: { tool: "claude", model: "rev-model", effort: "low" } };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "codex-model", effort: "high" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "low" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -5606,7 +5662,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("reviewer.tool=claude routes reviewer stage through claude binary", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "codex", model: "", effort: "" }, reviewer: { tool: "claude", model: "rev-model", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -5637,7 +5693,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("detect agent uses the worker triple, not the reviewer triple", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewer: { tool: "claude", model: "r-model", effort: "low" } };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewers: [{ tool: "claude", model: "r-model", effort: "low" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -5671,7 +5727,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("prep stage uses the worker triple", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewer: { tool: "codex", model: "w-model", effort: "medium" } };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewers: [{ tool: "codex", model: "w-model", effort: "medium" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -5733,7 +5789,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("all-claude config routes all stages through claude binary", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "w-model", effort: "" }, reviewer: { tool: "claude", model: "r-model", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "w-model", effort: "" }, reviewers: [{ tool: "claude", model: "r-model", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect" });
@@ -5773,7 +5829,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("empty model and effort do not pass flags to the binary", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect" });
@@ -5802,7 +5858,7 @@ test.describe("Implement detect agent inherits worker triple", test => {
     test("codex worker with model and effort routes detect through codex adapter with those values", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "codex", model: "gpt-5-codex", effort: "high" }, reviewer: { tool: "claude", model: "rev-model", effort: "low" } };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "gpt-5-codex", effort: "high" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "low" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -5837,7 +5893,7 @@ test.describe("Implement detect agent inherits worker triple", test => {
     test("claude worker with empty model and effort routes detect through claude with no flags", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect" });
@@ -5868,7 +5924,7 @@ test.describe("Implement detect agent inherits worker triple", test => {
     test("detect prompt does not mention or include the reviewer triple", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "codex", model: "worker-model-abc", effort: "high" }, reviewer: { tool: "claude", model: "reviewer-sentinel-model", effort: "reviewer-sentinel-effort" } };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "worker-model-abc", effort: "high" }, reviewers: [{ tool: "claude", model: "reviewer-sentinel-model", effort: "reviewer-sentinel-effort" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -5900,7 +5956,7 @@ test.describe("Implement detect agent inherits worker triple", test => {
             const s = stubContexts();
             const config = JSON.stringify({
                 worker: { tool: "codex", model: "worker-model", effort: "high" },
-                reviewer: { tool: "claude", model: "reviewer-model", effort: "low" },
+                reviewers: [{ tool: "claude", model: "reviewer-model", effort: "low" }],
                 detect: { tool: "claude", model: "detect-model", effort: "detect-effort" }
             });
             s.files.set(CONFIG_PATH, config);
@@ -5965,7 +6021,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=true when worker and reviewer share tool, model, and effort", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -5993,7 +6049,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=false when tools differ — no prep launched", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "codex", model: "", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -6028,7 +6084,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=false when effort differs — no prep launched", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "codex", model: "m", effort: "medium" }, reviewer: { tool: "codex", model: "m", effort: "high" } };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "m", effort: "medium" }, reviewers: [{ tool: "codex", model: "m", effort: "high" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -6055,7 +6111,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=true when both model and effort are empty strings", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "claude", model: "", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -6113,7 +6169,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=false — worker and reviewer succeed without prep session", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewer: { tool: "codex", model: "b", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "codex", model: "b", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -6146,7 +6202,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=false when model differs — no prep launched", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewer: { tool: "claude", model: "b", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "claude", model: "b", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -6253,7 +6309,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
     test("branch B: prepActive=false — worker is fresh and prompt inlines linked content", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "codex", model: "", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
                 "`contracts/linked-c.md`.",
@@ -6345,7 +6401,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
     test("branch B: captured _currentWorkerSessionId equals the session.id emitted", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewer: { tool: "codex", model: "b", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "codex", model: "b", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles("`contracts/c.md`.", "`rules/r.md`.");
             s.files.set(PLAN_PATH, plan);
@@ -6389,7 +6445,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
     test("branch B: missing linked file produces '(file not found)' in prompt", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "codex", model: "", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
                 "`contracts/exists.md` `contracts/missing.md`.",
@@ -6428,7 +6484,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
     test("branch B: no throw when _currentPrepSessionId is null", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewer: { tool: "claude", model: "b", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "claude", model: "b", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -6489,7 +6545,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
     test("iter 2 prompt does NOT contain linked contract or rule body even after branch B inlined", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "codex", model: "", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
                 "`contracts/linked-c.md`.",
@@ -6754,7 +6810,7 @@ test.describe("Implement reviewer branch A vs branch B", test => {
     test("branch B: prepActive=false — reviewer is fresh and prompt inlines linked content", {
         ARRANGE() {
             const s = stubContexts();
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewer: { tool: "codex", model: "", effort: "" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
                 "`contracts/linked-c.md`.",
@@ -6851,6 +6907,761 @@ test.describe("Implement reviewer branch A vs branch B", test => {
             },
             "reviewer iter 2 prompt does NOT contain linked rule body"({ promptQueue }) {
                 Assert.ok(!promptQueue[5]!.includes("ALPHA_2ITER_RULE"), "branch A reviewer iter 2 must not inline rule content");
+            }
+        }
+    });
+});
+
+test.describe("Implement multiple parallel reviewers", test => {
+    test("two reviewers, mixed config — per-reviewer branch A/B coexists in one review round", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "" }, // matches worker → branch A (fork prep)
+                    { tool: "codex", model: "", effort: "" }   // differs from worker → branch B (fresh + inline)
+                ]
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            const plan = planWithLinkedFiles(
+                "`contracts/linked-c.md`.",
+                "`rules/linked-r.md`."
+            );
+            s.files.set(PLAN_PATH, plan);
+            s.files.set("/project/contracts/linked-c.md", "MIXED_CONTRACT_SNIPPET");
+            s.files.set("/project/rules/linked-r.md", "MIXED_RULE_SNIPPET");
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            // detect, prep (captures PREP-MIXED), worker — 3 claude spawns
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "READY", sessionId: "PREP-MIXED" });
+            s.claudeQueue.push({ text: "worker done", sessionId: "WORKER-MIXED" });
+            // reviewer 1 (claude, matches worker → branch A, forks prep)
+            s.claudeQueue.push({ text: "reviewer 1 ok", errorLog: "" });
+            // reviewer 2 (codex, does not match worker → branch B, fresh)
+            s.codexQueue.push({ text: "reviewer 2 ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, promptQueue, claudeSpawnedArgs, codexSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, promptQueue, claudeSpawnedArgs, codexSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer 1 prompt references error.1.log"({ promptQueue }) {
+                // promptQueue: [0]=detect, [1]=prep, [2]=worker, [3]=reviewer-claude, [4]=reviewer-codex
+                Assert.ok(promptQueue[3]!.includes("/error.1.log"));
+            },
+            "reviewer 2 prompt references error.2.log"({ promptQueue }) {
+                Assert.ok(promptQueue[4]!.includes("/error.2.log"));
+            },
+            "branch A: claude reviewer args[0] is --resume"({ claudeSpawnedArgs }) {
+                // claudeSpawnedArgs: [0]=detect, [1]=prep, [2]=worker, [3]=reviewer-claude
+                Assert.strictEqual(claudeSpawnedArgs[3]![0], "--resume");
+            },
+            "branch A: claude reviewer args[1] equals the prep session id"({ claudeSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs[3]![1], "PREP-MIXED");
+            },
+            "branch A: claude reviewer args include --fork-session"({ claudeSpawnedArgs }) {
+                Assert.ok(claudeSpawnedArgs[3]!.includes("--fork-session"));
+            },
+            "branch B: codex reviewer does NOT use the fork subcommand"({ codexSpawnedArgs }) {
+                Assert.ok(!codexSpawnedArgs[0]!.includes("fork"));
+            },
+            "branch B: codex reviewer does NOT use the resume subcommand"({ codexSpawnedArgs }) {
+                Assert.ok(!codexSpawnedArgs[0]!.includes("resume"));
+            },
+            "branch A: claude reviewer prompt does NOT inline linked contract body"({ promptQueue }) {
+                Assert.ok(!promptQueue[3]!.includes("MIXED_CONTRACT_SNIPPET"), "branch A must not inline linked contract content");
+            },
+            "branch A: claude reviewer prompt does NOT inline linked rule body"({ promptQueue }) {
+                Assert.ok(!promptQueue[3]!.includes("MIXED_RULE_SNIPPET"), "branch A must not inline linked rule content");
+            },
+            "branch B: codex reviewer prompt DOES inline linked contract body"({ promptQueue }) {
+                Assert.ok(promptQueue[4]!.includes("MIXED_CONTRACT_SNIPPET"), "branch B must inline linked contract content");
+            },
+            "branch B: codex reviewer prompt DOES inline linked rule body"({ promptQueue }) {
+                Assert.ok(promptQueue[4]!.includes("MIXED_RULE_SNIPPET"), "branch B must inline linked rule content");
+            }
+        }
+    });
+
+    test("two reviewers both PASS — aggregate verdict is empty and error.log is absent", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "" },
+                    { tool: "codex", model: "", effort: "" }
+                ]
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker done" });
+            s.claudeQueue.push({ text: "reviewer 1 ok", errorLog: "" });
+            s.codexQueue.push({ text: "reviewer 2 ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "aggregate error.log is absent on pass"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/error.log"), false);
+            },
+            "reviewer.1.1.log contains Verdict: PASS"(_code, { files }) {
+                Assert.ok(files.get(WS_ROOT + "/reviewer.1.1.log")!.includes("Verdict: PASS"));
+            },
+            "reviewer.1.2.log contains Verdict: PASS"(_code, { files }) {
+                Assert.ok(files.get(WS_ROOT + "/reviewer.1.2.log")!.includes("Verdict: PASS"));
+            }
+        }
+    });
+
+    test("two reviewers, one FAIL and one PASS — aggregate is concat in reviewer order with newline separator", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "" },
+                    { tool: "codex", model: "", effort: "" }
+                ]
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            // Capture every write to the aggregate error.log path before iteration 2 overwrites it.
+            const errorLogWrites:string[] = [];
+            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
+            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
+                if (p === WS_ROOT + "/error.log") errorLogWrites.push(c);
+                return origWriteFile(p, c);
+            };
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            // iter 1: worker + reviewer 1 (FAIL) + reviewer 2 (PASS)
+            s.claudeQueue.push({ text: "worker done" });
+            s.claudeQueue.push({ text: "reviewer 1 fail", errorLog: "violation from reviewer 1" });
+            s.codexQueue.push({ text: "reviewer 2 ok", errorLog: "" });
+            // iter 2: worker + reviewer 1 (PASS) + reviewer 2 (PASS)
+            s.claudeQueue.push({ text: "worker iter2" });
+            s.claudeQueue.push({ text: "reviewer 1 ok", errorLog: "" });
+            s.codexQueue.push({ text: "reviewer 2 ok", errorLog: "" });
+            return { ...s, errorLogWrites };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0 after retry"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer 1 iter1 wrote violation"(_code, { files }) {
+                Assert.ok(files.get(WS_ROOT + "/reviewer.1.1.log")!.includes("Verdict: FAIL violation from reviewer 1"));
+            },
+            "reviewer 2 iter1 was PASS"(_code, { files }) {
+                Assert.ok(files.get(WS_ROOT + "/reviewer.1.2.log")!.includes("Verdict: PASS"));
+            },
+            "aggregate error.log was written exactly once (iteration-1 failure)"(_code, { errorLogWrites }) {
+                Assert.strictEqual(errorLogWrites.length, 1);
+            },
+            "aggregate equals exactly the reviewer-1 violation (reviewer 2 contributed empty, trim drops trailing newline)"(_code, { errorLogWrites }) {
+                Assert.strictEqual(errorLogWrites[0], "violation from reviewer 1");
+            }
+        }
+    });
+
+    test("two reviewers BOTH FAIL — aggregate equals reviewer-1\\nreviewer-2 (newline separator and reviewer order)", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "" },
+                    { tool: "codex", model: "", effort: "" }
+                ]
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            const errorLogWrites:string[] = [];
+            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
+            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
+                if (p === WS_ROOT + "/error.log") errorLogWrites.push(c);
+                return origWriteFile(p, c);
+            };
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            // iter 1: both reviewers FAIL with distinct violations
+            s.claudeQueue.push({ text: "worker done" });
+            s.claudeQueue.push({ text: "rev1 fail", errorLog: "A1" });
+            s.codexQueue.push({ text: "rev2 fail", errorLog: "B2" });
+            // iter 2: both reviewers PASS
+            s.claudeQueue.push({ text: "worker iter2" });
+            s.claudeQueue.push({ text: "rev1 ok", errorLog: "" });
+            s.codexQueue.push({ text: "rev2 ok", errorLog: "" });
+            return { ...s, errorLogWrites };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0 after retry"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "aggregate error.log was written exactly once (iter 1 failure)"(_code, { errorLogWrites }) {
+                Assert.strictEqual(errorLogWrites.length, 1);
+            },
+            "aggregate equals exactly 'A1\\nB2' (newline separator, reviewer order)"(_code, { errorLogWrites }) {
+                Assert.strictEqual(errorLogWrites[0], "A1\nB2");
+            }
+        }
+    });
+
+    test("two reviewers, both files whitespace-only — aggregate trims to empty, verdict is PASS, no aggregate write", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "" },
+                    { tool: "codex", model: "", effort: "" }
+                ]
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            const errorLogWrites:string[] = [];
+            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
+            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
+                if (p === WS_ROOT + "/error.log") errorLogWrites.push(c);
+                return origWriteFile(p, c);
+            };
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker done" });
+            // Both reviewers produce whitespace-only content — aggregate "  \n  \n  \n  " trims to ""
+            s.claudeQueue.push({ text: "rev1 ok", errorLog: "  \n  " });
+            s.codexQueue.push({ text: "rev2 ok", errorLog: "  \n  " });
+            return { ...s, errorLogWrites };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0 (whitespace-only files trim to empty → PASS)"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "aggregate error.log was never written (no failure)"(_code, { errorLogWrites }) {
+                Assert.strictEqual(errorLogWrites.length, 0);
+            }
+        }
+    });
+
+    test("absent per-reviewer error.<n>.log relaunches only that reviewer", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "" },
+                    { tool: "claude", model: "", effort: "" }
+                ]
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker done" });
+            // reviewer 1: writes error.1.log (PASS)
+            s.claudeQueue.push({ text: "reviewer 1 ok", errorLog: "" });
+            // reviewer 2: does NOT write its file (absent) — must relaunch
+            s.claudeQueue.push({ text: "reviewer 2 no verdict" });
+            // reviewer 2 relaunch: writes error.2.log (PASS)
+            s.claudeQueue.push({ text: "reviewer 2 ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "6 claude spawns: detect, prep, worker, reviewer1, reviewer2, reviewer2-relaunch"({ claudeSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs.length, 6);
+            }
+        }
+    });
+
+    test("dispose mid-review aborts every in-flight reviewer session", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "" },
+                    { tool: "claude", model: "", effort: "" }
+                ]
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker done" });
+            // Two reviewer spawns that never complete (held processes)
+            const killed:number[] = [];
+            const heldProcs:FakeProcess[] = [];
+            let reviewerSpawnIdx = 0;
+            const origSpawn = s.contexts.claude.spawn;
+            (s.contexts.claude as { spawn:typeof s.contexts.claude.spawn }).spawn = (cmd, args, opts) => {
+                if (s.claudeSpawnedArgs.length >= 3) {
+                    s.claudeSpawnedArgs.push([...args]);
+                    const proc = fakeProcess();
+                    (proc as { stdin:{write:(c:string) => void; end:() => void} }).stdin = { write() {}, end() {} };
+                    const myIdx = reviewerSpawnIdx++;
+                    (proc as { kill:typeof proc.kill }).kill = () => { killed.push(myIdx); proc.$emit("exit", null, "SIGINT"); };
+                    heldProcs.push(proc);
+                    return proc;
+                }
+                return origSpawn.call(s.contexts.claude, cmd, args, opts);
+            };
+            return { ...s, killed, getHeldCount: () => heldProcs.length };
+        },
+        async ACT({ contexts, getHeldCount }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            while (getHeldCount() < 2) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            await cmd.dispose();
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "both reviewer processes received kill (SIGINT)"(_code, { killed }) {
+                Assert.deepStrictEqual(killed.sort(), [0, 1]);
+            }
+        }
+    });
+
+    test("rate-limit on one reviewer: state transitions running→waiting→running→ok, no global waiting, metrics not frozen", {
+        ARRANGE() {
+            const s = stubContexts();
+            const time = controllableTime();
+            (s.contexts as any).time = time.ctx;
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                // Reviewer differs from worker → branch B (no prep). Distinct model/effort lets the test
+                // verify the reviewing footer renders the configured per-reviewer fields verbatim.
+                reviewers: [
+                    { tool: "claude", model: "claude-opus-4-1", effort: "high" }
+                ]
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            type FooterSnapshot = { kind:string; reviewers?:Array<{tool:string; model:string; effort:string; state:string}> };
+            const footerCalls:FooterSnapshot[] = [];
+            const origSetFooter = BottomBlock.prototype.setFooter;
+            BottomBlock.prototype.setFooter = function(state) {
+                if (state.kind === "reviewing") {
+                    footerCalls.push({ kind: state.kind, reviewers: state.reviewers.map(r => ({ tool: r.tool, model: r.model, effort: r.effort, state: r.state })) });
+                } else {
+                    footerCalls.push({ kind: state.kind });
+                }
+                origSetFooter.call(this, state);
+            };
+            let spawnCount = 0;
+            (s.contexts.claude as any).spawn = () => {
+                spawnCount++;
+                const proc = fakeProcess();
+                const origStdin = proc.stdin!;
+                let capturedPrompt = "";
+                (proc as any).stdin = {
+                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; s.promptQueue.push(p.message.content); } } catch {} },
+                    end() { origStdin.end(); }
+                };
+                if (spawnCount === 3) {
+                    // First reviewer call (after detect + worker, no prep because branch B): rate-limit.
+                    time.advance(1000);
+                    setImmediate(() => {
+                        proc.$emitStdout(rateLimitEvent(time.ctx.now(), 5) + "\n");
+                        proc.$emit("exit", 0);
+                    });
+                } else {
+                    time.advance(1000);
+                    const response = s.claudeQueue.shift()!;
+                    setImmediate(() => {
+                        if (response.errorLog !== undefined) {
+                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            s.files.set(target, response.errorLog);
+                        }
+                        proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
+                        proc.$emit("exit", 0);
+                    });
+                }
+                return proc;
+            };
+            s.claudeQueue.push({ text: "ok", inputTokens: 5, outputTokens: 5 });
+            s.claudeQueue.push({ text: "worker", inputTokens: 50, outputTokens: 25 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25, errorLog: "" });
+            return { s, time, footerCalls, origSetFooter };
+        },
+        async ACT({ s, time, origSetFooter }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+                await flush();
+                time.advance(5000);
+                await flush();
+                const code = await cmd.result();
+                await cmd.dispose();
+                return code;
+            } finally {
+                BottomBlock.prototype.setFooter = origSetFooter;
+            }
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer rate-limit wait does NOT subtract from t (metrics not frozen)"({}, { s }) {
+                const plan = s.files.get(PLAN_PATH)!;
+                // detect (1s, branch B no prep) → 1000 (task starts here)
+                // worker (1s) → 2000
+                // reviewer rate-limit (1s spawn + 5s wait) → 8000
+                // reviewer retry (1s) → 9000
+                // active = (9000 - 1000 - 0) / 1000 = 8 (reviewer wait is NOT subtracted)
+                Assert.ok(plan.includes('"t":8}'), `t should NOT exclude reviewer rate-limit wait, got: ${plan}`);
+            },
+            "no global waiting footer state was set during the reviewer rate-limit"({}, { footerCalls }) {
+                Assert.ok(!footerCalls.some(c => c.kind === "waiting"), `expected no global waiting state, got kinds: ${footerCalls.map(c => c.kind).join(", ")}`);
+            },
+            "at least one reviewing footer snapshot was emitted"({}, { footerCalls }) {
+                Assert.ok(footerCalls.some(c => c.kind === "reviewing"));
+            },
+            "every reviewing snapshot renders the configured tool/model/effort verbatim"({}, { footerCalls }) {
+                const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
+                for (const snap of reviewingSnapshots) {
+                    Assert.strictEqual(snap.reviewers!.length, 1);
+                    Assert.strictEqual(snap.reviewers![0]!.tool, "claude");
+                    Assert.strictEqual(snap.reviewers![0]!.model, "claude-opus-4-1");
+                    Assert.strictEqual(snap.reviewers![0]!.effort, "high");
+                }
+            },
+            "the FIRST reviewing snapshot has reviewer state = running (initial)"({}, { footerCalls }) {
+                const first = footerCalls.find(c => c.kind === "reviewing");
+                Assert.strictEqual(first!.reviewers![0]!.state, "running");
+            },
+            "at least one reviewing snapshot has reviewer state = waiting (during rate-limit)"({}, { footerCalls }) {
+                const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
+                Assert.ok(reviewingSnapshots.some(s => s.reviewers![0]!.state === "waiting"), `expected at least one 'waiting' snapshot, got states: ${reviewingSnapshots.map(s => s.reviewers![0]!.state).join(", ")}`);
+            },
+            "after the waiting state, there is at least one running snapshot before the final ok"({}, { footerCalls }) {
+                const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
+                const waitingIdx = reviewingSnapshots.findIndex(s => s.reviewers![0]!.state === "waiting");
+                Assert.ok(waitingIdx >= 0, "precondition: must have a waiting snapshot");
+                const tailStates = reviewingSnapshots.slice(waitingIdx + 1).map(s => s.reviewers![0]!.state);
+                Assert.ok(tailStates.includes("running"), `expected 'running' after 'waiting', got tail states: ${tailStates.join(", ")}`);
+            },
+            "the FINAL reviewing snapshot has reviewer state = ok (verdict)"({}, { footerCalls }) {
+                const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
+                const last = reviewingSnapshots[reviewingSnapshots.length - 1]!;
+                Assert.strictEqual(last.reviewers![0]!.state, "ok");
+            },
+            "state transition order: running → waiting → running → ok"({}, { footerCalls }) {
+                const states = footerCalls.filter(c => c.kind === "reviewing").map(s => s.reviewers![0]!.state);
+                const compressed:string[] = [];
+                for (const st of states) {
+                    if (compressed[compressed.length - 1] !== st) compressed.push(st);
+                }
+                Assert.deepStrictEqual(compressed, ["running", "waiting", "running", "ok"]);
+            }
+        }
+    });
+
+    test("FAIL verdict surfaces as reviewer state = fail in the final reviewing snapshot", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "" }]
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            type FooterSnapshot = { kind:string; reviewers?:Array<{state:string}> };
+            const footerCalls:FooterSnapshot[] = [];
+            const origSetFooter = BottomBlock.prototype.setFooter;
+            BottomBlock.prototype.setFooter = function(state) {
+                if (state.kind === "reviewing") {
+                    footerCalls.push({ kind: state.kind, reviewers: state.reviewers.map(r => ({ state: r.state })) });
+                } else {
+                    footerCalls.push({ kind: state.kind });
+                }
+                origSetFooter.call(this, state);
+            };
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            // iter 1: reviewer FAIL
+            s.claudeQueue.push({ text: "w1" });
+            s.claudeQueue.push({ text: "reviewer fail", errorLog: "violation" });
+            // iter 2: reviewer PASS
+            s.claudeQueue.push({ text: "w2" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return { ...s, footerCalls, origSetFooter };
+        },
+        async ACT({ contexts, origSetFooter }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+                const code = await cmd.result();
+                await cmd.dispose();
+                return code;
+            } finally {
+                BottomBlock.prototype.setFooter = origSetFooter;
+            }
+        },
+        ASSERTS: {
+            "exits 0 after iter-2 PASS"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "at least one reviewing snapshot shows reviewer state = fail (the iter-1 verdict)"(_code, { footerCalls }) {
+                const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
+                Assert.ok(reviewingSnapshots.some(s => s.reviewers![0]!.state === "fail"), `expected at least one 'fail' snapshot, got states: ${reviewingSnapshots.map(s => s.reviewers![0]!.state).join(", ")}`);
+            },
+            "the iter-2 final reviewing snapshot is 'ok' (the iter-2 verdict)"(_code, { footerCalls }) {
+                const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
+                const last = reviewingSnapshots[reviewingSnapshots.length - 1]!;
+                Assert.strictEqual(last.reviewers![0]!.state, "ok");
+            }
+        }
+    });
+
+    test("transient retryable error on a reviewer leaves the reviewer at running (no waiting state)", {
+        ARRANGE() {
+            const s = stubContexts();
+            const time = controllableTime();
+            (s.contexts as any).time = time.ctx;
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "" }]
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            type FooterSnapshot = { kind:string; reviewers?:Array<{state:string}> };
+            const footerCalls:FooterSnapshot[] = [];
+            const origSetFooter = BottomBlock.prototype.setFooter;
+            BottomBlock.prototype.setFooter = function(state) {
+                if (state.kind === "reviewing") {
+                    footerCalls.push({ kind: state.kind, reviewers: state.reviewers.map(r => ({ state: r.state })) });
+                } else {
+                    footerCalls.push({ kind: state.kind });
+                }
+                origSetFooter.call(this, state);
+            };
+            let spawnCount = 0;
+            (s.contexts.claude as any).spawn = () => {
+                spawnCount++;
+                const proc = fakeProcess();
+                const origStdin = proc.stdin!;
+                let capturedPrompt = "";
+                (proc as any).stdin = {
+                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; s.promptQueue.push(p.message.content); } } catch {} },
+                    end() { origStdin.end(); }
+                };
+                if (spawnCount === 4) {
+                    // First reviewer call: transient 503 (retryable, NOT a rate_limit).
+                    time.advance(1000);
+                    setImmediate(() => {
+                        proc.$emitStdout(JSON.stringify({
+                            type: "result",
+                            is_error: true,
+                            api_error_status: 503,
+                            error: { message: "service unavailable" }
+                        }) + "\n");
+                        proc.$emit("exit", 1);
+                    });
+                } else {
+                    time.advance(1000);
+                    const response = s.claudeQueue.shift()!;
+                    setImmediate(() => {
+                        if (response.errorLog !== undefined) {
+                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            s.files.set(target, response.errorLog);
+                        }
+                        proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
+                        proc.$emit("exit", 0);
+                    });
+                }
+                return proc;
+            };
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker done" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return { ...s, footerCalls, origSetFooter, time };
+        },
+        async ACT({ contexts, time, origSetFooter }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+                await flush();
+                time.advance(1100); // wait past the 1s transient backoff
+                await flush();
+                const code = await cmd.result();
+                await cmd.dispose();
+                return code;
+            } finally {
+                BottomBlock.prototype.setFooter = origSetFooter;
+            }
+        },
+        ASSERTS: {
+            "exits 0 after transient retry"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "no reviewing snapshot has reviewer state = waiting during a transient backoff"({}, { footerCalls }) {
+                const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
+                Assert.ok(!reviewingSnapshots.some(s => s.reviewers![0]!.state === "waiting"), `transient backoff must not surface as 'waiting'; got states: ${reviewingSnapshots.map(s => s.reviewers![0]!.state).join(", ")}`);
+            },
+            "no global waiting footer state during the transient backoff"({}, { footerCalls }) {
+                Assert.ok(!footerCalls.some(c => c.kind === "waiting"));
+            },
+            "the final reviewing snapshot is ok (after the transient retry succeeded)"({}, { footerCalls }) {
+                const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
+                const last = reviewingSnapshots[reviewingSnapshots.length - 1]!;
+                Assert.strictEqual(last.reviewers![0]!.state, "ok");
+            }
+        }
+    });
+
+    test("reviewer that finishes early flips to ok WHILE another reviewer is still in flight", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "" },
+                    { tool: "claude", model: "", effort: "" }
+                ]
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            type FooterSnapshot = { kind:string; reviewers?:Array<{state:string}> };
+            const footerCalls:FooterSnapshot[] = [];
+            const origSetFooter = BottomBlock.prototype.setFooter;
+            BottomBlock.prototype.setFooter = function(state) {
+                if (state.kind === "reviewing") {
+                    footerCalls.push({ kind: state.kind, reviewers: state.reviewers.map(r => ({ state: r.state })) });
+                } else {
+                    footerCalls.push({ kind: state.kind });
+                }
+                origSetFooter.call(this, state);
+            };
+            let releaseReviewer2:(() => void)|null = null;
+            const reviewer2HeldGate = new Promise<void>(resolve => {
+                releaseReviewer2 = resolve;
+            });
+            (s.contexts.claude as any).spawn = (_command:string, args:readonly string[]) => {
+                s.claudeSpawnedArgs.push([...args]);
+                const proc = fakeProcess();
+                const origStdin = proc.stdin!;
+                let capturedPrompt = "";
+                (proc as any).stdin = {
+                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; s.promptQueue.push(p.message.content); } } catch {} },
+                    end() { origStdin.end(); }
+                };
+                // The reviewer 2 prompt is the only one whose error log placeholder is `error.2.log`.
+                // For that prompt we hold the spawn open until the test fires the gate. Every other
+                // spawn (detect, prep, worker, reviewer 1) completes immediately.
+                setImmediate(() => {
+                    const promptIsReviewer2 = capturedPrompt.includes("/error.2.log");
+                    if (promptIsReviewer2) {
+                        // Hold reviewer 2 in flight until the test releases the gate.
+                        reviewer2HeldGate.then(() => {
+                            // After release, reviewer 2 produces an empty error.2.log and exits.
+                            s.files.set(WS_ROOT + "/error.2.log", "");
+                            proc.$emitStdout(claudeResultEvents("rev2 ok"));
+                            proc.$emit("exit", 0);
+                        });
+                        return;
+                    }
+                    const response = s.claudeQueue.shift()!;
+                    if (response.errorLog !== undefined) {
+                        const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                        const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                        s.files.set(target, response.errorLog);
+                    }
+                    proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
+                    proc.$emit("exit", 0);
+                });
+                return proc;
+            };
+            s.claudeQueue.push({ text: "ok" });                       // detect
+            s.claudeQueue.push(PREP_RESPONSE);                        // prep
+            s.claudeQueue.push({ text: "worker done" });              // worker
+            s.claudeQueue.push({ text: "rev1 ok", errorLog: "" });    // reviewer 1 — fast PASS
+            return { ...s, footerCalls, origSetFooter, getRelease: () => releaseReviewer2! };
+        },
+        async ACT({ contexts, origSetFooter, getRelease, footerCalls }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+                // Spin until reviewer 1 has emitted its ok snapshot AND reviewer 2 is still pending.
+                let snapshotWhileR2InFlight:Array<{state:string}>|null = null;
+                for (let i = 0; i < 200; i++) {
+                    await new Promise(r => setImmediate(r));
+                    const lastReviewing = [...footerCalls].reverse().find(c => c.kind === "reviewing");
+                    if (lastReviewing
+                        && lastReviewing.reviewers![0]!.state === "ok"
+                        && lastReviewing.reviewers![1]!.state === "running") {
+                        snapshotWhileR2InFlight = lastReviewing.reviewers!;
+                        break;
+                    }
+                }
+                // Now release reviewer 2 so the run can complete.
+                getRelease()();
+                const code = await cmd.result();
+                await cmd.dispose();
+                return { code, snapshotWhileR2InFlight };
+            } finally {
+                BottomBlock.prototype.setFooter = origSetFooter;
+            }
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer 1 flipped to ok while reviewer 2 was still running"({ snapshotWhileR2InFlight }) {
+                Assert.notStrictEqual(snapshotWhileR2InFlight, null);
+                Assert.deepStrictEqual(snapshotWhileR2InFlight, [{ state: "ok" }, { state: "running" }]);
+            },
+            "final reviewing snapshot is ['ok','ok'] after reviewer 2 completes"({}, { footerCalls }) {
+                const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
+                const last = reviewingSnapshots[reviewingSnapshots.length - 1]!;
+                Assert.deepStrictEqual(last.reviewers, [{ state: "ok" }, { state: "ok" }]);
             }
         }
     });

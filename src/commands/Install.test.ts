@@ -224,6 +224,7 @@ test.describe("Install interactive prompt", test => {
             s.askResponses.push([{ picked: [{ label: "project" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "no" }] }]);
             return s;
         },
         async ACT({ contexts }) {
@@ -255,6 +256,7 @@ test.describe("Install interactive prompt", test => {
             s.askResponses.push([{ picked: [{ label: "global" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "no" }] }]);
             return s;
         },
         async ACT({ contexts }) {
@@ -670,9 +672,7 @@ test.describe("parseInstallFlags", test => {
                     workerTool: "codex",
                     workerModel: "gpt-4",
                     workerEffort: "high",
-                    reviewerTool: "claude",
-                    reviewerModel: "opus",
-                    reviewerEffort: ""
+                    reviewers: [{ tool: "claude", model: "opus", effort: "" }]
                 }
             });
         }
@@ -1231,6 +1231,7 @@ test.describe("Install prompt order", test => {
             s.askResponses.push([{ picked: [{ label: "project" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "no" }] }]);
             return s;
         },
         async ACT({ contexts }) {
@@ -1244,7 +1245,7 @@ test.describe("Install prompt order", test => {
                 Assert.strictEqual(code, 0);
             },
             "headers are in canonical order"(_code, { askedHeaders }) {
-                Assert.deepStrictEqual(askedHeaders, ["Skills tool", "Install destination", "Worker tool", "Reviewer tool"]);
+                Assert.deepStrictEqual(askedHeaders, ["Skills tool", "Install destination", "Worker tool", "Reviewer tool", "Configure another reviewer?"]);
             }
         }
     });
@@ -1499,6 +1500,7 @@ test.describe("Install scope prompt descriptions derived from skills tool", test
             s.askResponses.push([{ picked: [{ label: "project" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "no" }] }]);
             return { ...s, getScopeOptions: () => scopeOptions };
         },
         async ACT({ contexts }) {
@@ -1608,6 +1610,7 @@ test.describe("Install scope prompt descriptions derived from skills tool", test
             s.askResponses.push([{ picked: [{ label: "project" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
             s.askResponses.push([{ picked: [{ label: "claude" }] }]);
+            s.askResponses.push([{ picked: [{ label: "no" }] }]);
             return { ...s, getScopeOptions: () => scopeOptions };
         },
         async ACT({ contexts }) {
@@ -2117,7 +2120,7 @@ test.describe("Install model question", test => {
             },
             "config reviewer.model is model-b"(_code, { files }) {
                 const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
-                Assert.strictEqual(config.reviewer.model, "model-b");
+                Assert.strictEqual(config.reviewers[0].model, "model-b");
             },
             "config worker.tool is codex"(_code, { files }) {
                 const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
@@ -2125,7 +2128,7 @@ test.describe("Install model question", test => {
             },
             "config reviewer.tool is codex"(_code, { files }) {
                 const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
-                Assert.strictEqual(config.reviewer.tool, "codex");
+                Assert.strictEqual(config.reviewers[0].tool, "codex");
             }
         }
     });
@@ -2188,7 +2191,7 @@ test.describe("Install model question", test => {
             },
             "config reviewer.model is empty string"(_code, { files }) {
                 const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
-                Assert.strictEqual(config.reviewer.model, "");
+                Assert.strictEqual(config.reviewers[0].model, "");
             },
             "config worker.model is gpt-5-codex"(_code, { files }) {
                 const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
@@ -2529,7 +2532,7 @@ test.describe("Install effort question", test => {
             },
             "config reviewer.effort is medium"(_code, { files }) {
                 const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
-                Assert.strictEqual(config.reviewer.effort, "medium");
+                Assert.strictEqual(config.reviewers[0].effort, "medium");
             },
             "Reviewer effort header present"(_code, { askedHeaders }) {
                 Assert.ok(askedHeaders.includes("Reviewer effort"));
@@ -2577,7 +2580,7 @@ test.describe("Install effort question", test => {
             },
             "config reviewer.effort is empty string"(_code, { files }) {
                 const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
-                Assert.strictEqual(config.reviewer.effort, "");
+                Assert.strictEqual(config.reviewers[0].effort, "");
             }
         }
     });
@@ -3030,7 +3033,7 @@ test.describe("Install config persistence (3.7)", test => {
             "read-back equals expected FlandersConfig literal"({ config }) {
                 const expected:FlandersConfig = {
                     worker: { tool: "claude", model: "opus", effort: "high" },
-                    reviewer: { tool: "codex", model: "gpt-5", effort: "medium" }
+                    reviewers: [{ tool: "codex", model: "gpt-5", effort: "medium" }]
                 };
                 Assert.deepStrictEqual(config, expected);
             }
@@ -3065,7 +3068,7 @@ test.describe("Install config persistence (3.7)", test => {
             const s = stubContexts();
             s.files.set("/proj/.flanders/config.json", JSON.stringify({
                 worker: { tool: "claude", model: "old-model", effort: "old" },
-                reviewer: { tool: "claude", model: "old-rev", effort: "old" }
+                reviewers: [{ tool: "claude", model: "old-rev", effort: "old" }]
             }, null, 2) + "\n");
             const writeCalls:Array<{ path:string; content:string }> = [];
             (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, content) => {
@@ -3097,13 +3100,13 @@ test.describe("Install config persistence (3.7)", test => {
                 const content = files.get("/proj/.flanders/config.json")!;
                 Assert.deepStrictEqual(JSON.parse(content), {
                     worker: { tool: "codex", model: "new-model", effort: "high" },
-                    reviewer: { tool: "claude", model: "new-rev", effort: "low" }
+                    reviewers: [{ tool: "claude", model: "new-rev", effort: "low" }]
                 });
             }
         }
     });
 
-    test("persisted JSON contains only worker and reviewer keys", {
+    test("persisted JSON contains only worker and reviewers keys", {
         ARRANGE() {
             return stubContexts();
         },
@@ -3118,7 +3121,7 @@ test.describe("Install config persistence (3.7)", test => {
         },
         ASSERT(_, { files }) {
             const content = files.get("/proj/.flanders/config.json")!;
-            Assert.deepStrictEqual(Object.keys(JSON.parse(content)).sort(), ["reviewer", "worker"]);
+            Assert.deepStrictEqual(Object.keys(JSON.parse(content)).sort(), ["reviewers", "worker"]);
         }
     });
 
@@ -3139,6 +3142,414 @@ test.describe("Install config persistence (3.7)", test => {
             const lines = written.join("").split("\n").filter(l => l.length > 0);
             const configLines = lines.filter(l => l === "/proj/.flanders/config.json");
             Assert.strictEqual(configLines.length, 1);
+        }
+    });
+});
+
+test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
+    test("--reviewer-2-tool with no reviewer-1 flags is rejected as a gap", {
+        ARRANGE() {
+            return { args: ["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-2-tool=claude"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERTS: {
+            "returns ok:false"(result) {
+                Assert.strictEqual(result.ok, false);
+            },
+            "diagnostic names the gap"(result) {
+                if (result.ok) {
+                    throw new Error("expected failure");
+                }
+                Assert.ok(result.diagnostic.includes("missing reviewer 1"));
+            }
+        }
+    });
+
+    test("--reviewer-3-tool with --reviewer-tool but no reviewer-2 is rejected", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-3-tool=codex"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERTS: {
+            "returns ok:false"(result) {
+                Assert.strictEqual(result.ok, false);
+            },
+            "diagnostic names the missing reviewer 2"(result) {
+                if (result.ok) {
+                    throw new Error("expected failure");
+                }
+                Assert.ok(result.diagnostic.includes("missing reviewer 2"));
+            }
+        }
+    });
+
+    test("--reviewer-1-tool is rejected (reviewer 1 uses unindexed flags)", {
+        ARRANGE() {
+            return { args: ["--reviewer-1-tool=claude"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: `Invalid reviewer flag: "--reviewer-1-tool=claude". Reviewer 1 uses --reviewer-tool/-model/-effort; --reviewer-N-* requires N >= 2.\n`
+            });
+        }
+    });
+
+    test("--reviewer-2-tool=bad returns a closed-set diagnostic", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=bad"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERTS: {
+            "returns ok:false"(result) {
+                Assert.strictEqual(result.ok, false);
+            },
+            "diagnostic names --reviewer-2-tool and the bad value"(result) {
+                if (result.ok) {
+                    throw new Error("expected failure");
+                }
+                Assert.strictEqual(result.diagnostic, `Invalid value for --reviewer-2-tool: "bad". Allowed values: claude, codex.\n`);
+            }
+        }
+    });
+
+    test("--reviewer-2-effort=ludicrous with --reviewer-2-tool=codex is rejected", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=codex", "--reviewer-2-effort=ludicrous"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERTS: {
+            "returns ok:false"(result) {
+                Assert.strictEqual(result.ok, false);
+            },
+            "diagnostic names --reviewer-2-effort"(result) {
+                if (result.ok) {
+                    throw new Error("expected failure");
+                }
+                Assert.strictEqual(result.diagnostic, `Invalid value for --reviewer-2-effort: "ludicrous". Allowed values: minimal, low, medium, high, xhigh.\n`);
+            }
+        }
+    });
+
+    test("--reviewer-2-effort=ludicrous BEFORE --reviewer-2-tool=codex is still rejected (argv order independent)", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-effort=ludicrous", "--reviewer-2-tool=codex"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: `Invalid value for --reviewer-2-effort: "ludicrous". Allowed values: minimal, low, medium, high, xhigh.\n`
+            });
+        }
+    });
+
+    test("--reviewer-2-effort=high BEFORE --reviewer-2-tool=codex is still accepted (argv order independent)", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-effort=high", "--reviewer-2-tool=codex"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { reviewers: [{ tool: "claude" }, { tool: "codex", effort: "high" }] }
+            });
+        }
+    });
+
+    test("--reviewer-2-effort=high BEFORE --reviewer-2-tool=claude is accepted (claude takes free-text efforts)", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-effort=ludicrous", "--reviewer-2-tool=claude"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { reviewers: [{ tool: "claude" }, { tool: "claude", effort: "ludicrous" }] }
+            });
+        }
+    });
+
+    test("--reviewer-model alone (without --reviewer-tool) is accepted", {
+        ARRANGE() {
+            return { args: ["--reviewer-model=opus"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { reviewers: [{ model: "opus" }] }
+            });
+        }
+    });
+
+    test("--reviewer-effort alone (without --reviewer-tool) is accepted", {
+        ARRANGE() {
+            return { args: ["--reviewer-effort=high"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { reviewers: [{ effort: "high" }] }
+            });
+        }
+    });
+
+    test("contiguous --reviewer-tool and --reviewer-2-tool produces a 2-element reviewers list", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=codex", "--reviewer-2-model=gpt-5", "--reviewer-2-effort=high"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { reviewers: [{ tool: "claude" }, { tool: "codex", model: "gpt-5", effort: "high" }] }
+            });
+        }
+    });
+
+    test("two reviewer flags via --reviewer-N-* produce both entries in order", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project",
+                "--skills-tool=claude",
+                "--worker-tool=claude",
+                "--reviewer-tool=claude",
+                "--reviewer-2-tool=codex",
+                "--reviewer-2-effort="
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "config has two reviewers in configured order"(_code, { files }) {
+                const cfg = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(cfg.reviewers.length, 2);
+                Assert.strictEqual(cfg.reviewers[0].tool, "claude");
+                Assert.strictEqual(cfg.reviewers[1].tool, "codex");
+            },
+            "Configure another reviewer? is NOT prompted when any reviewer flag is present"(_code, { askedHeaders }) {
+                Assert.ok(!askedHeaders.includes("Configure another reviewer?"));
+            }
+        }
+    });
+
+    test("--reviewer-2-tool with no --reviewer-2-model still prompts reviewer 2 model", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askTextResponses.push("opus");
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project",
+                "--skills-tool=claude",
+                "--worker-tool=claude",
+                "--worker-model=",
+                "--worker-effort=",
+                "--reviewer-tool=claude",
+                "--reviewer-model=",
+                "--reviewer-effort=",
+                "--reviewer-2-tool=claude",
+                "--reviewer-2-effort="
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer 2 model is asked through askText"(_code, { askedTextPrompts }) {
+                Assert.ok(askedTextPrompts.some(p => p.includes("reviewer 2")));
+            },
+            "config has reviewer 2 model = opus"(_code, { files }) {
+                const cfg = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(cfg.reviewers[1].model, "opus");
+            }
+        }
+    });
+
+    test("tool availability check covers every reviewer's tool", {
+        ARRANGE() {
+            const s = stubContexts();
+            const spawnedCommands:string[] = [];
+            (s.contexts as { script:ScriptContext }).script = {
+                spawn(command:string):SpawnedProcess {
+                    spawnedCommands.push(command);
+                    let exitListener:ExitListener|null = null;
+                    const proc:SpawnedProcess = {
+                        on(event:"exit"|"error", listener:never) {
+                            if (event === "exit") {
+                                exitListener = listener;
+                                Promise.resolve().then(() => exitListener?.(0, null));
+                            }
+                        },
+                        kill() {},
+                        stdout: { on() {} },
+                        stderr: { on() {} }
+                    };
+                    return proc;
+                }
+            };
+            return { ...s, spawnedCommands };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project",
+                "--skills-tool=claude",
+                "--worker-tool=claude",
+                "--reviewer-tool=claude",
+                "--reviewer-2-tool=codex",
+                "--reviewer-2-effort="
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "codex was probed (covered by reviewer 2)"(_code, { spawnedCommands }) {
+                Assert.ok(spawnedCommands.includes("codex"));
+            }
+        }
+    });
+});
+
+test.describe("Install interactive Configure another reviewer? loop", test => {
+    test("yes on first ask configures reviewer 2 and persists both reviewers", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // skills
+            s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
+            s.askResponses.push([{ picked: [{ label: "yes" }] }]); // Configure another?
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 2 tool
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // Configure another?
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "config has two reviewers in configured order"(_code, { files }) {
+                const cfg = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(cfg.reviewers.length, 2);
+                Assert.strictEqual(cfg.reviewers[0].tool, "claude");
+                Assert.strictEqual(cfg.reviewers[1].tool, "claude");
+            },
+            "Configure another reviewer? is asked exactly twice (yes then no)"(_code, { askedHeaders }) {
+                const count = askedHeaders.filter(h => h === "Configure another reviewer?").length;
+                Assert.strictEqual(count, 2);
+            },
+            "Reviewer tool headers include reviewer 1 and reviewer 2"(_code, { askedHeaders }) {
+                Assert.ok(askedHeaders.includes("Reviewer tool"));
+                Assert.ok(askedHeaders.includes("Reviewer 2 tool"));
+            }
+        }
+    });
+
+    test("Ctrl+C during Configure another reviewer? prompt exits non-zero", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // skills
+            s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
+            s.askResponses.push([{ picked: [] }]); // Configure another? -> Ctrl+C
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no config is written"(_code, { files }) {
+                Assert.strictEqual(files.has("/proj/.flanders/config.json"), false);
+            }
+        }
+    });
+
+    test("disposed during Configure another reviewer? prompt returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // skills
+            s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
+            let resolveAnotherPrompt:((v:readonly AskAnswer[]) => void) | null = null;
+            let callIndex = 0;
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
+                callIndex++;
+                if (callIndex === 5) {
+                    return new Promise<readonly AskAnswer[]>(resolve => {
+                        resolveAnotherPrompt = resolve;
+                    });
+                }
+                return origAsk.call(s.contexts.ask, questions, output);
+            };
+            return { ...s, getResolvePrompt: () => resolveAnotherPrompt };
+        },
+        async ACT({ contexts, getResolvePrompt }) {
+            const cmd = new Install([], { projectRoot: "/proj" }, contexts);
+            while (!getResolvePrompt()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolvePrompt()!([{ picked: [{ label: "no" }] }]);
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 1);
         }
     });
 });

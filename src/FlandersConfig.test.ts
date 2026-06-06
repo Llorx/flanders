@@ -26,12 +26,12 @@ function stubFs() {
 
 const VALID_CONFIG:FlandersConfig = {
     worker: { tool: "claude", model: "claude-opus-4-6", effort: "high" },
-    reviewer: { tool: "codex", model: "gpt-5-codex", effort: "" }
+    reviewers: [{ tool: "codex", model: "gpt-5-codex", effort: "" }]
 };
 
 const SECOND_CONFIG:FlandersConfig = {
     worker: { tool: "codex", model: "", effort: "" },
-    reviewer: { tool: "claude", model: "", effort: "" }
+    reviewers: [{ tool: "claude", model: "", effort: "" }]
 };
 
 test.describe("read", test => {
@@ -40,11 +40,11 @@ test.describe("read", test => {
             const s = stubFs();
             const projectConfig:FlandersConfig = {
                 worker: { tool: "claude", model: "project-sentinel", effort: "" },
-                reviewer: { tool: "claude", model: "", effort: "" }
+                reviewers: [{ tool: "claude", model: "", effort: "" }]
             };
             const globalConfig:FlandersConfig = {
                 worker: { tool: "codex", model: "global-sentinel", effort: "" },
-                reviewer: { tool: "codex", model: "", effort: "" }
+                reviewers: [{ tool: "codex", model: "", effort: "" }]
             };
             s.files.set("/project/.flanders/config.json", JSON.stringify(projectConfig, null, 2));
             s.files.set("/home/.flanders/config.json", JSON.stringify(globalConfig, null, 2));
@@ -63,7 +63,7 @@ test.describe("read", test => {
             const s = stubFs();
             const globalConfig:FlandersConfig = {
                 worker: { tool: "codex", model: "global-only", effort: "" },
-                reviewer: { tool: "codex", model: "", effort: "" }
+                reviewers: [{ tool: "codex", model: "", effort: "" }]
             };
             s.files.set("/home/.flanders/config.json", JSON.stringify(globalConfig, null, 2));
             return s;
@@ -112,7 +112,7 @@ test.describe("read", test => {
     test("throws when worker is missing", {
         ARRANGE() {
             const s = stubFs();
-            s.files.set("/project/.flanders/config.json", JSON.stringify({ reviewer: { tool: "claude", model: "", effort: "" } }));
+            s.files.set("/project/.flanders/config.json", JSON.stringify({ reviewers: [{ tool: "claude", model: "", effort: "" }] }));
             return s;
         },
         async ACT({ fs }) {
@@ -128,7 +128,7 @@ test.describe("read", test => {
         }
     });
 
-    test("throws when reviewer is missing", {
+    test("throws when reviewers is missing", {
         ARRANGE() {
             const s = stubFs();
             s.files.set("/project/.flanders/config.json", JSON.stringify({ worker: { tool: "claude", model: "", effort: "" } }));
@@ -143,7 +143,98 @@ test.describe("read", test => {
             }
         },
         ASSERT(error) {
-            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewer"`);
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewers"`);
+        }
+    });
+
+    test("throws when reviewers is not an array", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: { tool: "claude", model: "", effort: "" }
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            try {
+                await read(fs, { projectRoot: "/project", homeDir: "/home" });
+                return null;
+            } catch (e) {
+                return e as Error;
+            }
+        },
+        ASSERT(error) {
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewers"`);
+        }
+    });
+
+    test("throws when reviewers is an empty array", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: []
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            try {
+                await read(fs, { projectRoot: "/project", homeDir: "/home" });
+                return null;
+            } catch (e) {
+                return e as Error;
+            }
+        },
+        ASSERT(error) {
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: field "reviewers" must be a non-empty array`);
+        }
+    });
+
+    test("throws when reviewers entry is not an object", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: ["not an object"]
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            try {
+                await read(fs, { projectRoot: "/project", homeDir: "/home" });
+                return null;
+            } catch (e) {
+                return e as Error;
+            }
+        },
+        ASSERT(error) {
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewers[0]"`);
+        }
+    });
+
+    test("throws when reviewers[1] is missing tool", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "" },
+                    { model: "", effort: "" }
+                ]
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            try {
+                await read(fs, { projectRoot: "/project", homeDir: "/home" });
+                return null;
+            } catch (e) {
+                return e as Error;
+            }
+        },
+        ASSERT(error) {
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewers[1].tool"`);
         }
     });
 
@@ -152,7 +243,7 @@ test.describe("read", test => {
             const s = stubFs();
             s.files.set("/project/.flanders/config.json", JSON.stringify({
                 worker: { model: "", effort: "" },
-                reviewer: { tool: "claude", model: "", effort: "" }
+                reviewers: [{ tool: "claude", model: "", effort: "" }]
             }));
             return s;
         },
@@ -174,7 +265,7 @@ test.describe("read", test => {
             const s = stubFs();
             s.files.set("/project/.flanders/config.json", JSON.stringify({
                 worker: { tool: "cursor", model: "", effort: "" },
-                reviewer: { tool: "claude", model: "", effort: "" }
+                reviewers: [{ tool: "claude", model: "", effort: "" }]
             }));
             return s;
         },
@@ -198,7 +289,7 @@ test.describe("read", test => {
             const s = stubFs();
             s.files.set("/project/.flanders/config.json", JSON.stringify({
                 worker: { tool: "claude", effort: "" },
-                reviewer: { tool: "claude", model: "", effort: "" }
+                reviewers: [{ tool: "claude", model: "", effort: "" }]
             }));
             return s;
         },
@@ -220,7 +311,7 @@ test.describe("read", test => {
             const s = stubFs();
             s.files.set("/project/.flanders/config.json", JSON.stringify({
                 worker: { tool: "claude", model: "" },
-                reviewer: { tool: "claude", model: "", effort: "" }
+                reviewers: [{ tool: "claude", model: "", effort: "" }]
             }));
             return s;
         },
@@ -237,12 +328,12 @@ test.describe("read", test => {
         }
     });
 
-    test("throws when reviewer.tool is invalid value", {
+    test("throws when reviewers[0].tool is invalid value", {
         ARRANGE() {
             const s = stubFs();
             s.files.set("/project/.flanders/config.json", JSON.stringify({
                 worker: { tool: "claude", model: "", effort: "" },
-                reviewer: { tool: "gemini", model: "", effort: "" }
+                reviewers: [{ tool: "gemini", model: "", effort: "" }]
             }));
             return s;
         },
@@ -255,16 +346,16 @@ test.describe("read", test => {
             }
         },
         ASSERT(error) {
-            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: invalid value for "reviewer.tool": "gemini"`);
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: invalid value for "reviewers[0].tool": "gemini"`);
         }
     });
 
-    test("throws when reviewer.model is missing", {
+    test("throws when reviewers[0].model is missing", {
         ARRANGE() {
             const s = stubFs();
             s.files.set("/project/.flanders/config.json", JSON.stringify({
                 worker: { tool: "claude", model: "", effort: "" },
-                reviewer: { tool: "claude", effort: "" }
+                reviewers: [{ tool: "claude", effort: "" }]
             }));
             return s;
         },
@@ -277,16 +368,16 @@ test.describe("read", test => {
             }
         },
         ASSERT(error) {
-            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewer.model"`);
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewers[0].model"`);
         }
     });
 
-    test("throws when reviewer.effort is missing", {
+    test("throws when reviewers[0].effort is missing", {
         ARRANGE() {
             const s = stubFs();
             s.files.set("/project/.flanders/config.json", JSON.stringify({
                 worker: { tool: "claude", model: "", effort: "" },
-                reviewer: { tool: "claude", model: "" }
+                reviewers: [{ tool: "claude", model: "" }]
             }));
             return s;
         },
@@ -299,7 +390,7 @@ test.describe("read", test => {
             }
         },
         ASSERT(error) {
-            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewer.effort"`);
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewers[0].effort"`);
         }
     });
 
@@ -365,7 +456,7 @@ test.describe("read", test => {
             const s = stubFs();
             const cfg:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
-                reviewer: { tool: "codex", model: "", effort: "" }
+                reviewers: [{ tool: "codex", model: "", effort: "" }]
             };
             s.files.set("/project/.flanders/config.json", JSON.stringify(cfg));
             return s;
@@ -380,11 +471,11 @@ test.describe("read", test => {
             "worker.effort is empty string"(result) {
                 Assert.strictEqual(result!.worker.effort, "");
             },
-            "reviewer.model is empty string"(result) {
-                Assert.strictEqual(result!.reviewer.model, "");
+            "reviewers[0].model is empty string"(result) {
+                Assert.strictEqual(result!.reviewers[0]!.model, "");
             },
-            "reviewer.effort is empty string"(result) {
-                Assert.strictEqual(result!.reviewer.effort, "");
+            "reviewers[0].effort is empty string"(result) {
+                Assert.strictEqual(result!.reviewers[0]!.effort, "");
             }
         }
     });
@@ -394,7 +485,7 @@ test.describe("read", test => {
             const s = stubFs();
             s.files.set("/project/.flanders/config.json", JSON.stringify({
                 worker: [],
-                reviewer: { tool: "claude", model: "", effort: "" }
+                reviewers: [{ tool: "claude", model: "", effort: "" }]
             }));
             return s;
         },
@@ -411,12 +502,12 @@ test.describe("read", test => {
         }
     });
 
-    test("throws when reviewer is null", {
+    test("throws when reviewers entry is null", {
         ARRANGE() {
             const s = stubFs();
             s.files.set("/project/.flanders/config.json", JSON.stringify({
                 worker: { tool: "claude", model: "", effort: "" },
-                reviewer: null
+                reviewers: [null]
             }));
             return s;
         },
@@ -429,7 +520,29 @@ test.describe("read", test => {
             }
         },
         ASSERT(error) {
-            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewer"`);
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewers[0]"`);
+        }
+    });
+
+    test("throws when reviewers entry is nested array", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [[]]
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            try {
+                await read(fs, { projectRoot: "/project", homeDir: "/home" });
+                return null;
+            } catch (e) {
+                return e as Error;
+            }
+        },
+        ASSERT(error) {
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewers[0]"`);
         }
     });
 
@@ -438,7 +551,7 @@ test.describe("read", test => {
             const s = stubFs();
             s.files.set("/project/.flanders/config.json", JSON.stringify({
                 worker: { tool: 42, model: "", effort: "" },
-                reviewer: { tool: "claude", model: "", effort: "" }
+                reviewers: [{ tool: "claude", model: "", effort: "" }]
             }));
             return s;
         },
@@ -452,6 +565,39 @@ test.describe("read", test => {
         },
         ASSERT(error) {
             Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "worker.tool"`);
+        }
+    });
+
+    test("accepts a multi-reviewer array", {
+        ARRANGE() {
+            const s = stubFs();
+            const cfg:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "opus", effort: "high" },
+                    { tool: "codex", model: "gpt-5", effort: "medium" },
+                    { tool: "claude", model: "", effort: "" }
+                ]
+            };
+            s.files.set("/project/.flanders/config.json", JSON.stringify(cfg));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await read(fs, { projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERTS: {
+            "preserves three reviewers"(result) {
+                Assert.strictEqual(result!.reviewers.length, 3);
+            },
+            "reviewers[0] equals first entry"(result) {
+                Assert.deepStrictEqual(result!.reviewers[0], { tool: "claude", model: "opus", effort: "high" });
+            },
+            "reviewers[1] equals second entry"(result) {
+                Assert.deepStrictEqual(result!.reviewers[1], { tool: "codex", model: "gpt-5", effort: "medium" });
+            },
+            "reviewers[2] equals third entry"(result) {
+                Assert.deepStrictEqual(result!.reviewers[2], { tool: "claude", model: "", effort: "" });
+            }
         }
     });
 });
@@ -468,6 +614,20 @@ test.describe("write", test => {
         ASSERT(_fs, { files }) {
             const content = files.get("/project/.flanders/config.json")!;
             Assert.deepStrictEqual(JSON.parse(content), VALID_CONFIG);
+        }
+    });
+
+    test("top-level keys are exactly worker and reviewers", {
+        ARRANGE() {
+            return stubFs();
+        },
+        async ACT({ fs }) {
+            await write(fs, { scope: "project", projectRoot: "/project", homeDir: "/home", config: VALID_CONFIG });
+            return fs;
+        },
+        ASSERT(_fs, { files }) {
+            const content = files.get("/project/.flanders/config.json")!;
+            Assert.deepStrictEqual(Object.keys(JSON.parse(content)).sort(), ["reviewers", "worker"]);
         }
     });
 
@@ -581,6 +741,26 @@ test.describe("read + write round-trip", test => {
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, VALID_CONFIG);
+        }
+    });
+
+    test("write then read preserves a multi-reviewer ordered list", {
+        ARRANGE() {
+            return stubFs();
+        },
+        async ACT({ fs }) {
+            const cfg:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "opus", effort: "high" },
+                    { tool: "codex", model: "gpt-5", effort: "medium" }
+                ]
+            };
+            await write(fs, { scope: "project", projectRoot: "/project", homeDir: "/home", config: cfg });
+            return { result: await read(fs, { projectRoot: "/project", homeDir: "/home" }), expected: cfg };
+        },
+        ASSERT({ result, expected }) {
+            Assert.deepStrictEqual(result, expected);
         }
     });
 });

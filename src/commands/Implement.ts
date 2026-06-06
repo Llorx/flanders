@@ -3,7 +3,7 @@ import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import { CodexAdapter } from "../ai/CodexAdapter";
 import type { FsContext, OutputContext, ScriptContext, TimeContext } from "../contexts";
 import type { ToolAdapter, ToolName } from "../ai/ToolAdapter";
-import type { FlandersConfig } from "../FlandersConfig";
+import type { FlandersConfig, FlandersRole } from "../FlandersConfig";
 import { read as readConfig } from "../FlandersConfig";
 import { isNonEmptyFile, joinPath, listFilesRecursive } from "../fsUtils";
 import { isGitAvailable, isInsideWorkTree, countPendingChangesExcept, addAll, commit } from "../Git";
@@ -11,7 +11,7 @@ import { PlanFile, PlanTask } from "../PlanFile";
 import { Placeholders, prompts } from "../prompts";
 import { ScriptRunner } from "../ScriptRunner";
 import { BottomBlock } from "../ui/BottomBlock";
-import type { Activity, TerminalLabel } from "../ui/BottomBlock";
+import type { Activity, ReviewerEntry, ReviewerState, TerminalLabel } from "../ui/BottomBlock";
 import { formatSnapshotBlock } from "../ui/formatters";
 import { PlatformContext, Workspace, WorkspacePaths } from "../Workspace";
 
@@ -68,6 +68,13 @@ export type ImplementOptions = Readonly<{
 type RunningSession = { session:AiSession };
 type RunningScript = { script:ScriptRunner };
 
+type RunAiCallbacks = {
+    onLongWaitStart:(kind:"rate-limit", endTimeMs:number) => void;
+    onLongWaitEnd:() => void;
+    register:(session:AiSession) => void;
+    unregister:(session:AiSession) => void;
+};
+
 export class Implement {
     private _disposed = false;
     private _config:FlandersConfig|null = null;
@@ -80,6 +87,8 @@ export class Implement {
     private _currentPrepSessionId:string|null = null;
     private _activeSession:RunningSession|null = null;
     private _activeScript:RunningScript|null = null;
+    private _activeReviewerSessions:Set<AiSession> = new Set();
+    private _reviewerStates:ReviewerEntry[]|null = null;
     private _currentIndexLabel = "";
     private _currentIteration = 0;
     private _currentTask:PlanTask|null = null;
@@ -300,6 +309,13 @@ export class Implement {
             plan: { tokens: planTotals.it + planTotals.ot, seconds: planTotals.t }
         });
     }
+    private _reviewerMatchesWorker(reviewer:FlandersRole):boolean {
+        const w = this._config!.worker;
+        return reviewer.tool === w.tool && reviewer.model === w.model && reviewer.effort === w.effort;
+    }
+    private _prepActive():boolean {
+        return this._config!.reviewers.some(r => this._reviewerMatchesWorker(r));
+    }
     private async _runTask(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, indexLabel:string, taskIndex:number, gitActive:boolean):Promise<boolean> {
         this._currentTask = task;
         this._currentIndexLabel = indexLabel;
@@ -310,9 +326,7 @@ export class Implement {
         this._taskRateLimitStartedAt = null;
         this._taskTokens = {it:0, ot:0};
         this._updateMetrics(plan);
-        const prepActive = this._config!.worker.tool === this._config!.reviewer.tool
-            && this._config!.worker.model === this._config!.reviewer.model
-            && this._config!.worker.effort === this._config!.reviewer.effort;
+        const prepActive = this._prepActive();
         if (prepActive) {
             const prepOk = await this._prepStage(plan, task, ws, taskIndex);
             if (this._disposed) {
@@ -368,6 +382,7 @@ export class Implement {
             if (this._disposed) {
                 return false;
             }
+            this._block!.setFooter({ kind: "working" });
             if (!reviewOk) {
                 continue;
             }
@@ -538,47 +553,117 @@ export class Implement {
         }
         return true;
     }
+    private _setReviewerState(reviewerIdx:number, state:ReviewerState):void {
+        /* coverage ignore next */ // — Defensive: _reviewerStates is initialized at the start of _reviewerStage before any reviewer launches.
+        if (!this._reviewerStates) return;
+        const entry = this._reviewerStates[reviewerIdx];
+        /* coverage ignore next */ // — Defensive: callers always pass a valid in-range reviewerIdx.
+        if (!entry) return;
+        this._reviewerStates[reviewerIdx] = { tool: entry.tool, model: entry.model, effort: entry.effort, state };
+        this._renderReviewingFooter();
+    }
+    private _renderReviewingFooter():void {
+        /* coverage ignore next */ // — Defensive: callers always check that _reviewerStates is populated; _block/finalized guards cover disposal races.
+        if (!this._block || this._block.isFinalized() || !this._reviewerStates) return;
+        this._block.setFooter({ kind: "reviewing", reviewers: this._reviewerStates.slice() });
+    }
     private async _reviewerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, prepActive:boolean):Promise<boolean> {
+        const reviewers = this._config!.reviewers;
+        this._reviewerStates = reviewers.map<ReviewerEntry>(r => ({ tool: r.tool, model: r.model, effort: r.effort, state: "running" }));
+        this._renderReviewingFooter();
+        for (let i = 0; i < reviewers.length; i++) {
+            await this._workspace!.clearReviewerErrorLog(i + 1);
+        }
+        await this._workspace!.clearErrorLog();
+        let failureCaught:unknown = null;
+        const launches = reviewers.map((reviewer, idx) => this._runOneReviewerToVerdict(plan, task, ws, iteration, prepActive, reviewer, idx).catch(e => {
+            if (failureCaught === null) {
+                failureCaught = e;
+            }
+        }));
+        await Promise.all(launches);
+        /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
+        if (this._disposed) {
+            return false;
+        }
+        if (failureCaught !== null) {
+            await this._persistMetrics(plan, task.line);
+            this._updateMetrics(plan);
+            await this._writeErrorLog(ws, `reviewer stage failed: ${this._stringifyError(failureCaught)}`);
+            return false;
+        }
+        const perFile:string[] = [];
+        for (let i = 0; i < reviewers.length; i++) {
+            perFile.push(await this._workspace!.readReviewerErrorLog(i + 1));
+        }
+        const aggregate = perFile.join("\n").replace(/^\s+|\s+$/g, "");
+        if (aggregate.length === 0) {
+            return true;
+        }
+        await this._workspace!.writeErrorLog(aggregate);
+        return false;
+    }
+    private async _runOneReviewerToVerdict(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, prepActive:boolean, reviewer:FlandersRole, idx:number):Promise<void> {
+        const reviewerNum = idx + 1;
+        const matchesWorker = this._reviewerMatchesWorker(reviewer);
+        const useBranchA = prepActive && matchesWorker;
         let prompt = prompts.reviewer
             .split(Placeholders.PLAN_PATH).join(plan.path)
             .split(Placeholders.TASK_LINE).join(String(task.line))
             .split(Placeholders.TASK_TITLE).join(task.title)
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
-            .split(Placeholders.ERROR_LOG_PATH).join(ws.errorLog);
-        if (!prepActive) {
+            .split(Placeholders.ERROR_LOG_PATH).join(ws.reviewerErrorLog(reviewerNum));
+        if (!useBranchA) {
             prompt = await this._appendLinkedContent(plan, task, prompt);
         }
+        const aggregateOutput:string[] = [];
         for (;;) {
             /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
             if (this._disposed) {
-                return false;
+                return;
             }
-            await this._workspace!.clearErrorLog();
-            try {
-                const { result, capturedOutput } = prepActive
-                    ? await this._runAi(this._config!.reviewer.tool, this._config!.reviewer.model, this._config!.reviewer.effort, prompt, null, this._currentPrepSessionId)
-                    : await this._runAi(this._config!.reviewer.tool, this._config!.reviewer.model, this._config!.reviewer.effort, prompt);
-                this._taskTokens.it += result.inputTokens;
-                this._taskTokens.ot += result.outputTokens;
-                await this._persistMetrics(plan, task.line);
-                this._updateMetrics(plan);
-                if (!await this._workspace!.errorLogExists()) {
-                    await this._writeLog(ws.reviewerLog(iteration), capturedOutput);
-                    continue;
+            this._setReviewerState(idx, "running");
+            const callbacks:RunAiCallbacks = {
+                onLongWaitStart: () => {
+                    /* coverage ignore next */ // — Defensive: disposed guard during long-wait callback.
+                    if (this._disposed) return;
+                    this._setReviewerState(idx, "waiting");
+                },
+                onLongWaitEnd: () => {
+                    /* coverage ignore next */ // — Defensive: disposed guard during long-wait callback.
+                    if (this._disposed) return;
+                    this._setReviewerState(idx, "running");
+                },
+                register: (session) => {
+                    this._activeReviewerSessions.add(session);
+                },
+                unregister: (session) => {
+                    this._activeReviewerSessions.delete(session);
                 }
-                const trimmedViolations = (await this._workspace!.readErrorLog()).trim();
-                const reviewPassed = trimmedViolations.length === 0;
-                await this._writeLog(ws.reviewerLog(iteration), reviewPassed
-                    ? `${capturedOutput}\n\nVerdict: PASS`
-                    : `${capturedOutput}\n\nVerdict: FAIL ${trimmedViolations}`);
-                return reviewPassed;
-            } catch (e) {
-                await this._persistMetrics(plan, task.line);
-                this._updateMetrics(plan);
-                await this._writeErrorLog(ws, `reviewer stage failed: ${this._stringifyError(e)}`);
-                return false;
+            };
+            const { result, capturedOutput } = useBranchA
+                ? await this._runAiWith(reviewer.tool, reviewer.model, reviewer.effort, prompt, null, this._currentPrepSessionId, callbacks)
+                : await this._runAiWith(reviewer.tool, reviewer.model, reviewer.effort, prompt, null, null, callbacks);
+            this._taskTokens.it += result.inputTokens;
+            this._taskTokens.ot += result.outputTokens;
+            await this._persistMetrics(plan, task.line);
+            this._updateMetrics(plan);
+            aggregateOutput.push(capturedOutput);
+            if (!await this._workspace!.reviewerErrorLogExists(reviewerNum)) {
+                await this._writeLog(ws.reviewerOutputLog(iteration, reviewerNum), aggregateOutput.join("\n---\n"));
+                continue;
             }
+            const trimmed = (await this._workspace!.readReviewerErrorLog(reviewerNum)).trim();
+            // Flip per-reviewer footer state to ok/fail the instant this reviewer's own verdict
+            // file is present — before writing the per-reviewer log — so the UI advances per
+            // reviewer rather than waiting for the slowest reviewer in the round.
+            this._setReviewerState(idx, trimmed.length === 0 ? "ok" : "fail");
+            const verdictLine = trimmed.length === 0
+                ? "Verdict: PASS"
+                : `Verdict: FAIL ${trimmed}`;
+            await this._writeLog(ws.reviewerOutputLog(iteration, reviewerNum), `${aggregateOutput.join("\n---\n")}\n\n${verdictLine}`);
+            return;
         }
     }
     private _formatPathList(items:readonly string[]):string {
@@ -599,8 +684,39 @@ export class Implement {
             time: this._contexts.time
         });
     }
-    private async _runAi(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId?:string|null, forkFromSessionId?:string|null) {
-        /* coverage ignore next 3 */ // — Defensive: disposed guard; _runAi is only called from methods that already checked _disposed.
+    private _defaultRunAiCallbacks():RunAiCallbacks {
+        return {
+            onLongWaitStart: (kind, endTimeMs) => {
+                /* coverage ignore next */ // — Defensive: rate-limit callback after dispose is a no-op.
+                if (this._disposed) return;
+                if (this._currentTask !== null) {
+                    this._taskRateLimitStartedAt = this._contexts.time.now();
+                }
+                this._block!.setFooter({ kind: "waiting", waitKind: kind, endTime: endTimeMs });
+            },
+            onLongWaitEnd: () => {
+                if (this._taskRateLimitStartedAt !== null) {
+                    this._taskRateLimitMs += this._contexts.time.now() - this._taskRateLimitStartedAt;
+                    this._taskRateLimitStartedAt = null;
+                }
+                if (this._disposed) return;
+                this._block!.setFooter({ kind: "working" });
+            },
+            register: (session) => {
+                this._activeSession = { session };
+            },
+            unregister: (session) => {
+                if (this._activeSession?.session === session) {
+                    this._activeSession = null;
+                }
+            }
+        };
+    }
+    private _runAi(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId?:string|null, forkFromSessionId?:string|null) {
+        return this._runAiWith(tool, model, effort, prompt, initialSessionId ?? null, forkFromSessionId ?? null, this._defaultRunAiCallbacks());
+    }
+    private async _runAiWith(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId:string|null, forkFromSessionId:string|null, callbacks:RunAiCallbacks) {
+        /* coverage ignore next 3 */ // — Defensive: disposed guard; _runAiWith is only called from methods that already checked _disposed.
         if (this._disposed) {
             throw new Error("Implement disposed");
         }
@@ -628,35 +744,18 @@ export class Implement {
             effort,
             ...(initialSessionId != null ? { resumeSessionId: initialSessionId } : null),
             ...(forkFromSessionId != null ? { forkParentSessionId: forkFromSessionId } : null),
-            onLongWaitStart: (kind, endTimeMs) => {
-                /* coverage ignore next */ // — Defensive: rate-limit callback after dispose is a no-op.
-                if (this._disposed) return;
-                if (this._currentTask !== null) {
-                    this._taskRateLimitStartedAt = this._contexts.time.now();
-                }
-                this._block!.setFooter({ kind: "waiting", waitKind: kind, endTime: endTimeMs });
-            },
-            onLongWaitEnd: () => {
-                if (this._taskRateLimitStartedAt !== null) {
-                    this._taskRateLimitMs += this._contexts.time.now() - this._taskRateLimitStartedAt;
-                    this._taskRateLimitStartedAt = null;
-                }
-                if (this._disposed) return;
-                this._block!.setFooter({ kind: "working" });
-            }
+            onLongWaitStart: callbacks.onLongWaitStart,
+            onLongWaitEnd: callbacks.onLongWaitEnd
         }, {
             time: this._contexts.time,
             output: capturingOutput
         });
-        const running = { session };
-        this._activeSession = running;
+        callbacks.register(session);
         try {
             const result = await session.run();
             return { result, capturedOutput };
         } finally {
-            if (this._activeSession === running) {
-                this._activeSession = null;
-            }
+            callbacks.unregister(session);
             await session.dispose();
         }
     }
@@ -728,8 +827,10 @@ export class Implement {
         const activeSession = this._activeSession?.session;
         /* coverage ignore next */ // — Defensive: _activeScript is always null when dispose runs after result(); non-null path requires mid-execution dispose.
         const activeScript = this._activeScript?.script;
+        const reviewerSessions = [...this._activeReviewerSessions];
         this._activeSession = null;
         this._activeScript = null;
+        this._activeReviewerSessions.clear();
         const closers:Promise<unknown>[] = [];
         if (activeSession) {
             closers.push(activeSession.dispose());
@@ -737,6 +838,9 @@ export class Implement {
         /* coverage ignore next 3 */ // — Defensive: activeScript is null in all covered dispose paths.
         if (activeScript) {
             closers.push(activeScript.dispose());
+        }
+        for (const session of reviewerSessions) {
+            closers.push(session.dispose());
         }
         await Promise.allSettled(closers);
         try {
@@ -758,4 +862,3 @@ export class Implement {
         }
     }
 }
-

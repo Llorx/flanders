@@ -1,9 +1,11 @@
 import type { FsContext } from "./contexts";
 import { joinPath } from "./fsUtils";
 
+export type FlandersRole = Readonly<{ tool:"claude"|"codex"; model:string; effort:string }>;
+
 export type FlandersConfig = Readonly<{
-    worker:Readonly<{ tool:"claude"|"codex"; model:string; effort:string }>;
-    reviewer:Readonly<{ tool:"claude"|"codex"; model:string; effort:string }>;
+    worker:FlandersRole;
+    reviewers:readonly FlandersRole[];
 }>;
 
 type ReadArgs = Readonly<{
@@ -37,11 +39,21 @@ function validate(raw:unknown, filePath:string):FlandersConfig {
     if (!("worker" in obj) || typeof obj["worker"] !== "object" || obj["worker"] === null || Array.isArray(obj["worker"])) {
         throw new Error(`Malformed config at ${filePath}: missing or invalid field "worker"`);
     }
-    if (!("reviewer" in obj) || typeof obj["reviewer"] !== "object" || obj["reviewer"] === null || Array.isArray(obj["reviewer"])) {
-        throw new Error(`Malformed config at ${filePath}: missing or invalid field "reviewer"`);
+    if (!("reviewers" in obj) || !Array.isArray(obj["reviewers"])) {
+        throw new Error(`Malformed config at ${filePath}: missing or invalid field "reviewers"`);
+    }
+    const reviewers = obj["reviewers"] as unknown[];
+    if (reviewers.length === 0) {
+        throw new Error(`Malformed config at ${filePath}: field "reviewers" must be a non-empty array`);
     }
     validateRole(obj["worker"] as Record<string, unknown>, "worker", filePath);
-    validateRole(obj["reviewer"] as Record<string, unknown>, "reviewer", filePath);
+    for (let i = 0; i < reviewers.length; i++) {
+        const entry = reviewers[i];
+        if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+            throw new Error(`Malformed config at ${filePath}: missing or invalid field "reviewers[${i}]"`);
+        }
+        validateRole(entry as Record<string, unknown>, `reviewers[${i}]`, filePath);
+    }
     return raw as FlandersConfig;
 }
 

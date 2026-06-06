@@ -112,8 +112,9 @@ function stubContexts(config:FlandersConfig) {
                 claudeSpawnedArgs.push([...args]);
                 const proc = fakeProcess();
                 const origStdin = proc.stdin!;
+                let capturedPrompt = "";
                 (proc as any).stdin = {
-                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { promptQueue.push(p.message.content); } } catch {} },
+                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; promptQueue.push(p.message.content); } } catch {} },
                     end() { origStdin.end(); }
                 };
                 const response = claudeQueue.shift();
@@ -126,7 +127,9 @@ function stubContexts(config:FlandersConfig) {
                         proc.$emit("error", new Error("spawn error"));
                     } else {
                         if (response.errorLog !== undefined) {
-                            files.set(WS_ROOT + "/error.log", response.errorLog);
+                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            files.set(target, response.errorLog);
                         }
                         if (response.stderr) {
                             proc.$emitStderr(response.stderr);
@@ -144,8 +147,9 @@ function stubContexts(config:FlandersConfig) {
                 if (command === "codex") {
                     codexSpawnedArgs.push([...args]);
                     const origStdin = proc.stdin!;
+                    let capturedPrompt = "";
                     (proc as any).stdin = {
-                        write(chunk:string) { origStdin.write(chunk); promptQueue.push(chunk); },
+                        write(chunk:string) { origStdin.write(chunk); capturedPrompt += chunk; promptQueue.push(chunk); },
                         end() { origStdin.end(); }
                     };
                     const response = codexQueue.shift();
@@ -158,7 +162,9 @@ function stubContexts(config:FlandersConfig) {
                             proc.$emit("error", new Error("spawn error"));
                         } else {
                             if (response.errorLog !== undefined) {
-                                files.set(WS_ROOT + "/error.log", response.errorLog);
+                                const m = capturedPrompt.match(/error\.(\d+)\.log/);
+                                const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                                files.set(target, response.errorLog);
                             }
                             proc.$emitStdout(codexResultEvents(response.text, response.sessionId));
                             proc.$emit("exit", 0);
@@ -243,7 +249,7 @@ type E2eResult = {
 test.describe("Implement e2e: both tools and both prep-optimization branches", test => {
     test("shape 1: claude/claude (branch A) — prep active, worker and reviewer fork from prep", {
         ARRANGE() {
-            const config:FlandersConfig = { worker: { tool: "claude", model: "m1", effort: "high" }, reviewer: { tool: "claude", model: "m1", effort: "high" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "m1", effort: "high" }, reviewers: [{ tool: "claude", model: "m1", effort: "high" }] };
             const s = stubContexts(config);
             s.files.set(PLAN_PATH, LINKED_PLAN);
             setLinkedFiles(s.files);
@@ -303,7 +309,7 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
 
     test("shape 2: codex/codex (branch A) — prep active, all spawns use codex binary", {
         ARRANGE() {
-            const config:FlandersConfig = { worker: { tool: "codex", model: "m2", effort: "low" }, reviewer: { tool: "codex", model: "m2", effort: "low" } };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "m2", effort: "low" }, reviewers: [{ tool: "codex", model: "m2", effort: "low" }] };
             const s = stubContexts(config);
             s.files.set(PLAN_PATH, LINKED_PLAN);
             setLinkedFiles(s.files);
@@ -361,7 +367,7 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
 
     test("shape 3: claude/codex (branch B) — prep skipped, prompts inline linked content", {
         ARRANGE() {
-            const config:FlandersConfig = { worker: { tool: "claude", model: "m3", effort: "mid" }, reviewer: { tool: "codex", model: "m3", effort: "mid" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "m3", effort: "mid" }, reviewers: [{ tool: "codex", model: "m3", effort: "mid" }] };
             const s = stubContexts(config);
             s.files.set(PLAN_PATH, LINKED_PLAN);
             setLinkedFiles(s.files);
@@ -417,7 +423,7 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
 
     test("shape 4: claude/claude different effort (branch B) — prep skipped, prompts inline linked content", {
         ARRANGE() {
-            const config:FlandersConfig = { worker: { tool: "claude", model: "m4", effort: "high" }, reviewer: { tool: "claude", model: "m4", effort: "low" } };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "m4", effort: "high" }, reviewers: [{ tool: "claude", model: "m4", effort: "low" }] };
             const s = stubContexts(config);
             s.files.set(PLAN_PATH, LINKED_PLAN);
             setLinkedFiles(s.files);
