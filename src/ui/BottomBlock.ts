@@ -42,9 +42,13 @@ export type TerminalLabel = "Done" | "Hard stop" | "Interrupted" | "Failed";
 
 const FRAMES = ["⣋", "⣙", "⣹", "⣸", "⣼", "⣴", "⣦", "⣧", "⣇", "⣏"];
 const FRAME_MS = 200;
-const CURSOR_UP_3 = "\x1b[3A";
 const CLEAR_TO_END = "\x1b[J";
 const CR = "\r";
+const ANSI_SGR_PATTERN = /\x1b\[[0-9;]*m/g;
+
+function visibleLength(line:string):number {
+    return line.replace(ANSI_SGR_PATTERN, "").length;
+}
 
 export class BottomBlock {
     private _mounted = false;
@@ -57,6 +61,7 @@ export class BottomBlock {
     private _animTimer:TimeoutHandle|null = null;
     private _countdownTimer:TimeoutHandle|null = null;
     private _unsubResize:(() => void)|null = null;
+    private _prevLineWidths:readonly number[]|null = null;
 
     constructor(private _io:BottomBlockIO, private _time:TimeContext) {}
 
@@ -189,7 +194,17 @@ export class BottomBlock {
     }
 
     private _clearBlock():void {
-        this._io.write(CURSOR_UP_3 + CR + CLEAR_TO_END);
+        /* coverage ignore next */ // — Defensive: _clearBlock is only invoked after _drawBlock has populated _prevLineWidths, so the null path is unreachable in practice; preserved per the task spec ("writes nothing at all when there is no previously recorded render").
+        if (!this._prevLineWidths) return;
+        const cols = Math.max(1, this._io.columns());
+        let rows = 0;
+        for (const w of this._prevLineWidths) {
+            rows += Math.max(1, Math.ceil(w / cols));
+        }
+        const upRows = rows - 1;
+        /* coverage ignore next */ // — Defensive: each of the 4 recorded lines contributes >=1 row, so upRows >= 3 in practice; this single ignored line preserves the spec's "emits no cursor-up sequence when that count is 0" path without hiding the reachable cursor-up construction below from coverage.
+        if (upRows <= 0) { this._io.write(CR + CLEAR_TO_END); return; }
+        this._io.write(`\x1b[${upRows}A` + CR + CLEAR_TO_END);
     }
 
     private _drawBlock():void {
@@ -199,6 +214,12 @@ export class BottomBlock {
         const metrics = this._renderMetrics(cols);
         const footer = this._renderFooter(cols);
         this._io.write(separator + "\n" + header + "\n" + metrics + "\n" + footer);
+        this._prevLineWidths = [
+            cols,
+            visibleLength(header),
+            visibleLength(metrics),
+            visibleLength(footer)
+        ];
     }
 
     private _renderHeader(cols:number):string {

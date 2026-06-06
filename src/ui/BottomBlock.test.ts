@@ -1222,4 +1222,98 @@ test.describe("BottomBlock", test => {
             Assert.strictEqual(footerPlain, `Waiting rate limit — ${formatDateTime(new Date(120000))} — 1 minutes`);
         }
     });
+
+    test("clearBlock emits \\x1b[3A\\r\\x1b[J when every previous line fits in a single physical row", {
+        ARRANGE() {
+            const io = stubIO(80);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.mount();
+            io.reset();
+            return { io, block };
+        },
+        ACT({ io, block }) {
+            block.setHeader({ indexLabel: "1/1" });
+            return io.writes[0];
+        },
+        ASSERT(clearWrite) {
+            Assert.strictEqual(clearWrite, "\x1b[3A\r\x1b[J");
+        }
+    });
+
+    test("clearBlock cursor-up reflects the reflowed physical row count after a shrink resize", {
+        ARRANGE() {
+            const io = stubIO(80);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.mount();
+            io.reset();
+            io.setCols(5);
+            return { io };
+        },
+        ACT({ io }) {
+            io.emitResize();
+            return io.writes[0];
+        },
+        ASSERT(clearWrite) {
+            Assert.strictEqual(clearWrite, "\x1b[19A\r\x1b[J");
+        }
+    });
+
+    test("clearBlock counts only the visible length of each previous line — ANSI SGR escapes do not inflate the row count", {
+        ARRANGE() {
+            const ioColored = stubIO(80);
+            const ioPlain = stubIO(80);
+            const timeColored = fakeTime();
+            const timePlain = fakeTime();
+            const blockColored = makeBlock(ioColored, timeColored);
+            const blockPlain = makeBlock(ioPlain, timePlain);
+            blockColored.mount();
+            blockPlain.mount();
+            blockColored.setHeader({ indexLabel: "abcd" });
+            blockPlain.setHeader({ title: "abcd" });
+            ioColored.reset();
+            ioPlain.reset();
+            ioColored.setCols(2);
+            ioPlain.setCols(2);
+            return { ioColored, ioPlain };
+        },
+        ACT({ ioColored, ioPlain }) {
+            ioColored.emitResize();
+            ioPlain.emitResize();
+            return { coloredClear: ioColored.writes[0], plainClear: ioPlain.writes[0] };
+        },
+        ASSERTS: {
+            "colored header clear cursor-up matches its visible length only"(result) {
+                Assert.strictEqual(result.coloredClear, "\x1b[47A\r\x1b[J");
+            },
+            "plain-text header produces the exact same cursor-up as the colored equivalent"(result) {
+                Assert.strictEqual(result.plainClear, "\x1b[47A\r\x1b[J");
+            }
+        }
+    });
+
+    test("first paint emits no cursor-up because no previous render is recorded", {
+        ARRANGE() {
+            const io = stubIO(20);
+            const time = fakeTime();
+            return { io, time };
+        },
+        ACT({ io, time }) {
+            const block = makeBlock(io, time);
+            block.mount();
+            return { writes: [...io.writes], output: io.output };
+        },
+        ASSERTS: {
+            "mount emits exactly one write so no clear preceded the first draw"(result) {
+                Assert.strictEqual(result.writes.length, 1);
+            },
+            "the single write begins with the separator at the current width and not a cursor-up CSI"(result) {
+                Assert.ok(result.writes[0]!.startsWith(SEP.repeat(20)));
+            },
+            "the first-paint output contains no cursor-up CSI sequence in any form (parameterless \\x1b[A or parameterised \\x1b[<n>A)"(result) {
+                Assert.ok(!/\x1b\[\d*A/.test(result.output), "first paint must not contain any CSI cursor-up sequence");
+            }
+        }
+    });
 });
