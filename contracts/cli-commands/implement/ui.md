@@ -131,14 +131,16 @@ Metrics line fields:
 The footer line keeps the orange rendering defined in `Footer line — normal state`, including while it shows the reviewing-state line defined in `Footer line — reviewing state`; the horizontal separators (both the one inside the bottom-fixed block and the ones framing each per-task completion snapshot) use the terminal default color.
 
 ## Resizing
-On any redraw of the bottom-fixed block — whether triggered by a change in any of its fields, by an animation tick, by a transition into or out of the waiting state, by a transition into or out of the reviewing state, or by a terminal resize — the block recomputes the fit of every one of its lines against the current state and the current terminal width: the header line, the metrics line, and the footer line in whichever state it currently occupies (normal, waiting, or reviewing).
+The bottom-fixed block always occupies exactly four terminal rows — the separator, the header, the metrics, and the footer, one row each. No line ever wraps onto a second row, and a redraw never leaves rows from a previous draw on screen: the block is, at every moment, exactly these four rows.
 
-Each line recomputes its fit by applying its own fallback ladder, in order, until the line fits the current width:
+Each line is fitted to the current terminal width before it is drawn, by applying its fallback ladder in order until it fits:
 1. The line's full form.
 2. Any compact form the line defines — for example, the metrics line's abbreviated `t:`/`p:` labels, or the reviewing footer's dropped per-reviewer `(<model> <effort>)` descriptors. A line that defines no compact form skips this step.
 3. Truncation with an ellipsis at the end when no form fits.
 
-These fit choices are recomputed on every redraw and are never frozen with the width the terminal had at the time of the last field change. On terminal resize, the block additionally redraws at the new geometry so it remains anchored to the bottom of the terminal and spans the new terminal width. Output already written into the output region above is not retroactively reflowed; subsequent output flows according to the new width.
+The separator spans the full terminal width; the header, the metrics, and the footer are fitted as above. This fit is recomputed on every redraw — a change in any field, an animation tick, a waiting-countdown tick, a transition into or out of the waiting or reviewing state, a write above the block, and a terminal resize — against the current state and the current terminal width, and is never frozen at the width of an earlier draw.
+
+On a terminal resize the block recomputes and redraws all four lines at the new width and re-anchors to the bottom of the terminal, leaving no rows from the previous size on screen and remaining exactly four rows. Output already written into the scrolling region above the block is not retroactively reflowed; subsequent output flows according to the new width.
 
 ## Cleanup on exit
 The bottom-fixed block is never removed when the command exits. It stays on screen as the last thing the user sees, and the user's shell prompt resumes on the line immediately below the block. All prior output remains accessible through the terminal's standard scrollback exactly as during the run.
