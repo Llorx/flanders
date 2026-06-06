@@ -1,5 +1,8 @@
 import type { TimeContext, TimeoutHandle } from "../contexts";
-import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, SEPARATOR_GLYPH } from "./formatters";
+import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, ORANGE, RESET, SEPARATOR_GLYPH } from "./formatters";
+import type { ReviewerEntry } from "./formatters";
+
+export type { ReviewerEntry, ReviewerState, ReviewerTool } from "./formatters";
 
 export type BottomBlockIO = {
     write(text:string):void;
@@ -32,14 +35,13 @@ export type FooterState =
     | { kind:"blank" }
     | { kind:"working" }
     | { kind:"waiting"; waitKind:WaitKind; endTime:number }
+    | { kind:"reviewing"; reviewers:readonly ReviewerEntry[] }
     | { kind:"terminal"; label:TerminalLabel };
 
 export type TerminalLabel = "Done" | "Hard stop" | "Interrupted" | "Failed";
 
 const FRAMES = ["⣋", "⣙", "⣹", "⣸", "⣼", "⣴", "⣦", "⣧", "⣇", "⣏"];
 const FRAME_MS = 200;
-const ORANGE = "\x1b[38;5;208m";
-const RESET = "\x1b[0m";
 const CURSOR_UP_3 = "\x1b[3A";
 const CLEAR_TO_END = "\x1b[J";
 const CR = "\r";
@@ -195,7 +197,7 @@ export class BottomBlock {
         const separator = SEPARATOR_GLYPH.repeat(cols);
         const header = this._renderHeader(cols);
         const metrics = this._renderMetrics(cols);
-        const footer = this._renderFooter();
+        const footer = this._renderFooter(cols);
         this._io.write(separator + "\n" + header + "\n" + metrics + "\n" + footer);
     }
 
@@ -214,7 +216,7 @@ export class BottomBlock {
         return formatMetricsLine(this._metrics.task, this._metrics.plan, cols);
     }
 
-    private _renderFooter():string {
+    private _renderFooter(cols:number):string {
         switch (this._footer.kind) {
             /* coverage ignore next 2 */ // — Defensive: "blank" is a valid state but no current code path sets it.
             case "blank":
@@ -227,6 +229,8 @@ export class BottomBlock {
                 const countdown = formatCountdown(remaining);
                 return `${ORANGE}${WAIT_HEADINGS[this._footer.waitKind]} — ${dateStr} — ${countdown}${RESET}`;
             }
+            case "reviewing":
+                return formatReviewingFooter(this._footer.reviewers, cols);
             case "terminal":
                 return `${ORANGE}${this._footer.label}${RESET}`;
         }

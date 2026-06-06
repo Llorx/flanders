@@ -3,9 +3,9 @@ import * as Assert from "assert";
 import test from "arrange-act-assert";
 
 import { BottomBlock } from "./BottomBlock";
-import type { BottomBlockIO } from "./BottomBlock";
+import type { BottomBlockIO, ReviewerEntry } from "./BottomBlock";
 import type { TimeoutHandle } from "../contexts";
-import { CYAN, YELLOW, MAGENTA, GREEN, RESET, SEPARATOR_GLYPH } from "./formatters";
+import { CYAN, YELLOW, MAGENTA, GREEN, ORANGE, RESET, SEPARATOR_GLYPH } from "./formatters";
 
 function stripAnsi(s:string):string {
     return s.replace(/\x1b\[[0-9;]*m/g, "");
@@ -71,7 +71,6 @@ function stubIO(cols:number = 80) {
 const SEP = SEPARATOR_GLYPH;
 const CLEAR_SEQ = "\x1b[3A\r\x1b[J";
 const ALT_SCREEN_ON = "\x1b[?1049h";
-const ORANGE = "\x1b[38;5;208m";
 
 function makeBlock(io:BottomBlockIO, time:ReturnType<typeof fakeTime>) {
     return new BottomBlock(io, time);
@@ -917,6 +916,227 @@ test.describe("BottomBlock", test => {
         },
         ASSERT(output) {
             Assert.strictEqual(output, "plain text\n");
+        }
+    });
+
+    test("setFooter reviewing draws the reviewing line in ORANGE and contains the prefix and a configured reviewer", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.mount();
+            io.reset();
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            return { io, block, reviewers };
+        },
+        ACT({ io, block, reviewers }) {
+            block.setFooter({ kind: "reviewing", reviewers });
+            return io.output;
+        },
+        ASSERTS: {
+            "footer line plain text equals the formatted reviewing line"(output) {
+                const lines = output.split("\n");
+                const footerPlain = stripAnsi(lines[lines.length - 1] ?? "");
+                Assert.strictEqual(footerPlain, "review: claude (default): running");
+            },
+            "footer line is wrapped in ORANGE"(output) {
+                Assert.ok(output.includes(ORANGE + "review: claude (default): running" + RESET));
+            },
+            "no Working label rendered while reviewing"(output) {
+                const lastDraw = output.split(CLEAR_SEQ).pop() ?? "";
+                Assert.ok(!lastDraw.includes("Working"));
+            }
+        }
+    });
+
+    test("setFooter reviewing from working cancels animation timer and schedules no new timer", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            const pendingAfterSet = time.pendingCount;
+            io.reset();
+            time.advance(2000);
+            const writesAfterAdvance = io.writes.length;
+            return { pendingAfterSet, writesAfterAdvance };
+        },
+        ASSERTS: {
+            "no timer pending after entering reviewing"(result) {
+                Assert.strictEqual(result.pendingAfterSet, 0);
+            },
+            "no writes occur while time passes in the reviewing state"(result) {
+                Assert.strictEqual(result.writesAfterAdvance, 0);
+            }
+        }
+    });
+
+    test("setFooter reviewing from rate-limit cancels countdown timer and schedules no new timer", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "waiting", waitKind: "rate-limit", endTime: 600000 });
+            block.mount();
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            const pendingAfterSet = time.pendingCount;
+            io.reset();
+            time.advance(5000);
+            const writesAfterAdvance = io.writes.length;
+            return { pendingAfterSet, writesAfterAdvance };
+        },
+        ASSERTS: {
+            "no timer pending after entering reviewing"(result) {
+                Assert.strictEqual(result.pendingAfterSet, 0);
+            },
+            "countdown does not tick while reviewing"(result) {
+                Assert.strictEqual(result.writesAfterAdvance, 0);
+            }
+        }
+    });
+
+    test("reviewing line recomputes its compaction tier on resize from the stored structured reviewer list", {
+        ARRANGE() {
+            const io = stubIO(50);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.mount();
+            io.reset();
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "running" },
+                { tool: "claude", model: "", effort: "", state: "running" }
+            ];
+            return { io, block, reviewers };
+        },
+        ACT({ io, block, reviewers }) {
+            block.setFooter({ kind: "reviewing", reviewers });
+            const narrowDraw = io.output;
+            io.reset();
+            io.setCols(80);
+            io.emitResize();
+            const wideDraw = io.output;
+            return { narrowDraw, wideDraw };
+        },
+        ASSERTS: {
+            "narrow draw shows the compact form without the descriptor"(result) {
+                const lastDraw = result.narrowDraw.split(CLEAR_SEQ).pop() ?? "";
+                const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
+                Assert.strictEqual(footerPlain, "review: claude: running, claude: running");
+            },
+            "wide draw after resize shows the full form with the descriptor"(result) {
+                const lastDraw = result.wideDraw.split(CLEAR_SEQ).pop() ?? "";
+                const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
+                Assert.strictEqual(footerPlain, "review: claude (default): running, claude (default): running");
+            }
+        }
+    });
+
+    test("switching from reviewing back to working schedules the animation again", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            block.mount();
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            block.setFooter({ kind: "working" });
+            const pendingAfterSwitch = time.pendingCount;
+            io.reset();
+            time.advance(200);
+            const afterTick = io.output;
+            return { pendingAfterSwitch, afterTick };
+        },
+        ASSERTS: {
+            "a timer is pending after switching to working"(result) {
+                Assert.strictEqual(result.pendingAfterSwitch, 1);
+            },
+            "the animation tick redraws the block"(result) {
+                Assert.ok(result.afterTick.includes("Working"));
+            }
+        }
+    });
+
+    test("setFooter reviewing after finalize is a no-op", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.mount();
+            block.finalize("Done");
+            io.reset();
+            return { io, block };
+        },
+        ACT({ io, block }) {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            return io.writes.length;
+        },
+        ASSERT(writeCount) {
+            Assert.strictEqual(writeCount, 0);
+        }
+    });
+
+    test("setFooter reviewing after dispose is a no-op", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.mount();
+            block.dispose();
+            io.reset();
+            return { io, block };
+        },
+        ACT({ io, block }) {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            return io.writes.length;
+        },
+        ASSERT(writeCount) {
+            Assert.strictEqual(writeCount, 0);
+        }
+    });
+
+    test("writeAbove while reviewing keeps the reviewing footer line beneath the new output", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            const reviewers:ReviewerEntry[] = [{ tool: "codex", model: "gpt-5", effort: "high", state: "ok" }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            block.mount();
+            io.reset();
+            return { io, block };
+        },
+        ACT({ io, block }) {
+            block.writeAbove("scrollback line\n");
+            return io.output;
+        },
+        ASSERTS: {
+            "the new text appears before the redrawn block"(output) {
+                const textIdx = output.indexOf("scrollback line");
+                const sepIdx = output.lastIndexOf(SEP.repeat(120));
+                Assert.ok(textIdx >= 0 && sepIdx > textIdx);
+            },
+            "the redrawn footer line is the formatted reviewing line"(output) {
+                const footerPlain = stripAnsi(output.split("\n").pop() ?? "");
+                Assert.strictEqual(footerPlain, "review: codex (gpt-5 high): ok");
+            }
         }
     });
 });

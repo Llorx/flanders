@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { formatCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, RESET, colorize, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair } from "./formatters";
+import { formatCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
 
 test.describe("formatCountdown", test => {
     test("returns minutes only when remaining is under one hour", {
@@ -1069,6 +1069,287 @@ test.describe("formatSnapshotBlock", test => {
             const expected = "1/1 iter 1 done 1.1 Very long title exceeding column width";
             Assert.strictEqual(headerPlain, expected);
             Assert.ok(headerPlain.length > 10, "header plain length exceeds cols");
+        }
+    });
+});
+
+test.describe("formatReviewingFooter", test => {
+    test("renders single fully-defaulted reviewer in full form", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 120);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default): running");
+        }
+    });
+
+    test("renders distinct model and effort with space-joined descriptor", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "codex", model: "gpt-5.5", effort: "xhigh", state: "ok" }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 120);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: codex (gpt-5.5 xhigh): ok");
+        }
+    });
+
+    test("omits effort token when configured model equals configured effort (non-empty)", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "high", effort: "high", state: "waiting" }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 120);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (high): waiting");
+        }
+    });
+
+    test("renders 'default' for empty model when effort is set and differs", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "high", state: "fail" }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 120);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default high): fail");
+        }
+    });
+
+    test("renders 'default' for empty effort when model is set and differs", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "codex", model: "low", effort: "", state: "running" }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 120);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: codex (low default): running");
+        }
+    });
+
+    test("renders state 'running' verbatim", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 120);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default): running");
+        }
+    });
+
+    test("renders state 'waiting' verbatim", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "waiting" }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 120);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default): waiting");
+        }
+    });
+
+    test("renders state 'ok' verbatim", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "ok" }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 120);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default): ok");
+        }
+    });
+
+    test("renders state 'fail' verbatim", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "fail" }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 120);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default): fail");
+        }
+    });
+
+    test("renders multiple reviewers separated by comma-space in configured order", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "running" },
+                { tool: "codex", model: "gpt-5", effort: "high", state: "ok" },
+                { tool: "claude", model: "sonnet", effort: "sonnet", state: "fail" }
+            ];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 200);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default): running, codex (gpt-5 high): ok, claude (sonnet): fail");
+        }
+    });
+
+    test("returns full form when cols equals full text length exactly", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            const fullText = "review: claude (default): running";
+            return { reviewers, cols: fullText.length, fullText };
+        },
+        ACT({ reviewers, cols }) {
+            return formatReviewingFooter(reviewers, cols);
+        },
+        ASSERT(result, { fullText }) {
+            Assert.strictEqual(stripAnsi(result), fullText);
+        }
+    });
+
+    test("returns compact form when full form does not fit by one column", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "running" },
+                { tool: "claude", model: "", effort: "", state: "running" }
+            ];
+            const fullText = "review: claude (default): running, claude (default): running";
+            return { reviewers, cols: fullText.length - 1 };
+        },
+        ACT({ reviewers, cols }) {
+            return formatReviewingFooter(reviewers, cols);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude: running, claude: running");
+        }
+    });
+
+    test("returns compact form at boundary where compact equals cols exactly", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "running" },
+                { tool: "claude", model: "", effort: "", state: "running" }
+            ];
+            const compact = "review: claude: running, claude: running";
+            return { reviewers, cols: compact.length, compact };
+        },
+        ACT({ reviewers, cols }) {
+            return formatReviewingFooter(reviewers, cols);
+        },
+        ASSERT(result, { compact }) {
+            Assert.strictEqual(stripAnsi(result), compact);
+        }
+    });
+
+    test("returns truncated compact form when neither full nor compact fits", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "running" },
+                { tool: "claude", model: "", effort: "", state: "running" }
+            ];
+            return { reviewers, cols: 15 };
+        },
+        ACT({ reviewers, cols }) {
+            return formatReviewingFooter(reviewers, cols);
+        },
+        ASSERTS: {
+            "exact truncated plain string matches"(result) {
+                Assert.strictEqual(stripAnsi(result), "review: claude…");
+            },
+            "plain text length equals cols"(result) {
+                Assert.strictEqual(stripAnsi(result).length, 15);
+            },
+            "ends with ellipsis"(result) {
+                Assert.ok(stripAnsi(result).endsWith("…"));
+            }
+        }
+    });
+
+    test("emits the full form wrapped in ORANGE and RESET exactly", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 120);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, ORANGE + "review: claude (default): running" + RESET);
+        }
+    });
+
+    test("emits the compact form wrapped in ORANGE and RESET exactly", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "running" },
+                { tool: "claude", model: "", effort: "", state: "running" }
+            ];
+            const fullText = "review: claude (default): running, claude (default): running";
+            return { reviewers, cols: fullText.length - 1 };
+        },
+        ACT({ reviewers, cols }) {
+            return formatReviewingFooter(reviewers, cols);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, ORANGE + "review: claude: running, claude: running" + RESET);
+        }
+    });
+
+    test("truncated form colors the surviving prefix in ORANGE with a trailing RESET", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "running" },
+                { tool: "claude", model: "", effort: "", state: "running" }
+            ];
+            return { reviewers, cols: 15 };
+        },
+        ACT({ reviewers, cols }) {
+            return formatReviewingFooter(reviewers, cols);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, ORANGE + "review: claude" + RESET + "…");
+        }
+    });
+
+    test("recomputes compaction tier per call when only width changes", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "running" },
+                { tool: "claude", model: "", effort: "", state: "running" }
+            ];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            const wide = formatReviewingFooter(reviewers, 120);
+            const narrow = formatReviewingFooter(reviewers, 50);
+            const tiny = formatReviewingFooter(reviewers, 15);
+            return { wide, narrow, tiny };
+        },
+        ASSERTS: {
+            "wide width returns the full form"(result) {
+                Assert.strictEqual(stripAnsi(result.wide), "review: claude (default): running, claude (default): running");
+            },
+            "narrow width returns the compact form"(result) {
+                Assert.strictEqual(stripAnsi(result.narrow), "review: claude: running, claude: running");
+            },
+            "tiny width returns the truncated form"(result) {
+                Assert.strictEqual(stripAnsi(result.tiny), "review: claude…");
+            }
         }
     });
 });

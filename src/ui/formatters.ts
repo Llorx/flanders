@@ -4,6 +4,7 @@ export const MAGENTA = "\x1b[35m";
 export const GREEN = "\x1b[32m";
 export const BLUE = "\x1b[34m";
 export const DIM = "\x1b[2m";
+export const ORANGE = "\x1b[38;5;208m";
 export const RESET = "\x1b[0m";
 
 export const SEPARATOR_GLYPH = "─";
@@ -209,4 +210,55 @@ export function formatSnapshotBlock(indexLabel:string, iteration:number, taskNum
     const header = formatSnapshotHeader(indexLabel, iteration, taskNumber, title);
     const metrics = formatSnapshotMetrics(taskTokens, taskSeconds, planTokens, planSeconds);
     return sep + "\n" + header + "\n" + metrics + "\n" + sep + "\n";
+}
+
+export type ReviewerTool = "claude" | "codex";
+export type ReviewerState = "running" | "waiting" | "ok" | "fail";
+
+export type ReviewerEntry = {
+    tool:ReviewerTool;
+    model:string;
+    effort:string;
+    state:ReviewerState;
+};
+
+function reviewerEntryDescriptor(model:string, effort:string):string {
+    const modelToken = model === "" ? "default" : model;
+    if (effort === model) {
+        return `(${modelToken})`;
+    }
+    const effortToken = effort === "" ? "default" : effort;
+    return `(${modelToken} ${effortToken})`;
+}
+
+function buildReviewingFullText(reviewers:readonly ReviewerEntry[]):string {
+    let line = "review: ";
+    for (let i = 0; i < reviewers.length; i++) {
+        const r = reviewers[i]!;
+        if (i > 0) line += ", ";
+        line += `${r.tool} ${reviewerEntryDescriptor(r.model, r.effort)}: ${r.state}`;
+    }
+    return line;
+}
+
+function buildReviewingCompactText(reviewers:readonly ReviewerEntry[]):string {
+    let line = "review: ";
+    for (let i = 0; i < reviewers.length; i++) {
+        const r = reviewers[i]!;
+        if (i > 0) line += ", ";
+        line += `${r.tool}: ${r.state}`;
+    }
+    return line;
+}
+
+export function formatReviewingFooter(reviewers:readonly ReviewerEntry[], cols:number):string {
+    const fullText = buildReviewingFullText(reviewers);
+    if (fullText.length <= cols) {
+        return renderSegments([{ text: fullText, color: ORANGE }]);
+    }
+    const compactText = buildReviewingCompactText(reviewers);
+    if (compactText.length <= cols) {
+        return renderSegments([{ text: compactText, color: ORANGE }]);
+    }
+    return renderSegmentsToWidth([{ text: compactText, color: ORANGE }], cols);
 }
