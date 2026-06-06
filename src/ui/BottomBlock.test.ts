@@ -5,11 +5,7 @@ import test from "arrange-act-assert";
 import { BottomBlock } from "./BottomBlock";
 import type { BottomBlockIO, ReviewerEntry } from "./BottomBlock";
 import type { TimeoutHandle } from "../contexts";
-import { CYAN, YELLOW, MAGENTA, GREEN, ORANGE, RESET, SEPARATOR_GLYPH, formatDateTime } from "./formatters";
-
-function stripAnsi(s:string):string {
-    return s.replace(/\x1b\[[0-9;]*m/g, "");
-}
+import { CYAN, YELLOW, MAGENTA, GREEN, ORANGE, RESET, SEPARATOR_GLYPH, formatDateTime, stripAnsi } from "./formatters";
 
 type FakeTimer = { handler:() => void; at:number };
 
@@ -491,8 +487,11 @@ test.describe("BottomBlock", test => {
             "footer shows Done in orange"(result) {
                 Assert.ok(result.afterFinalize.includes(ORANGE + "Done" + RESET));
             },
-            "cursor left below block via trailing newline"(result) {
-                Assert.ok(result.afterFinalize.endsWith("\n"));
+            "content after the terminal label is exactly the autowrap restore followed by a single newline"(result) {
+                const labelStr = ORANGE + "Done" + RESET;
+                const labelIdx = result.afterFinalize.lastIndexOf(labelStr);
+                Assert.ok(labelIdx !== -1, "terminal label should be present");
+                Assert.strictEqual(result.afterFinalize.slice(labelIdx + labelStr.length), "\x1b[?7h\n");
             },
             "no timers pending after finalize"(result) {
                 Assert.strictEqual(result.pendingCount, 0);
@@ -1223,7 +1222,7 @@ test.describe("BottomBlock", test => {
         }
     });
 
-    test("clearBlock emits \\x1b[3A\\r\\x1b[J when every previous line fits in a single physical row", {
+    test("clearBlock emits exactly \\x1b[3A\\r\\x1b[J once a block has been drawn", {
         ARRANGE() {
             const io = stubIO(80);
             const time = fakeTime();
@@ -1241,7 +1240,7 @@ test.describe("BottomBlock", test => {
         }
     });
 
-    test("clearBlock cursor-up reflects the reflowed physical row count after a shrink resize", {
+    test("clearBlock still emits exactly \\x1b[3A\\r\\x1b[J after a shrink resize", {
         ARRANGE() {
             const io = stubIO(80);
             const time = fakeTime();
@@ -1256,44 +1255,45 @@ test.describe("BottomBlock", test => {
             return io.writes[0];
         },
         ASSERT(clearWrite) {
-            Assert.strictEqual(clearWrite, "\x1b[19A\r\x1b[J");
+            Assert.strictEqual(clearWrite, "\x1b[3A\r\x1b[J");
         }
     });
 
-    test("clearBlock counts only the visible length of each previous line — ANSI SGR escapes do not inflate the row count", {
+    test("draw block emits autowrap-off before the separator and autowrap-on after the footer, with the separator spanning cols glyphs", {
         ARRANGE() {
-            const ioColored = stubIO(80);
-            const ioPlain = stubIO(80);
-            const timeColored = fakeTime();
-            const timePlain = fakeTime();
-            const blockColored = makeBlock(ioColored, timeColored);
-            const blockPlain = makeBlock(ioPlain, timePlain);
-            blockColored.mount();
-            blockPlain.mount();
-            blockColored.setHeader({ indexLabel: "abcd" });
-            blockPlain.setHeader({ title: "abcd" });
-            ioColored.reset();
-            ioPlain.reset();
-            ioColored.setCols(2);
-            ioPlain.setCols(2);
-            return { ioColored, ioPlain };
+            const io = stubIO(20);
+            const time = fakeTime();
+            return { io, time };
         },
-        ACT({ ioColored, ioPlain }) {
-            ioColored.emitResize();
-            ioPlain.emitResize();
-            return { coloredClear: ioColored.writes[0], plainClear: ioPlain.writes[0] };
+        ACT({ io, time }) {
+            const block = makeBlock(io, time);
+            block.mount();
+            return io.writes[0]!;
         },
         ASSERTS: {
-            "colored header clear cursor-up matches its visible length only"(result) {
-                Assert.strictEqual(result.coloredClear, "\x1b[47A\r\x1b[J");
+            "the write begins with the autowrap-off CSI followed by the cols-wide separator and its newline"(write) {
+                Assert.ok(write.startsWith("\x1b[?7l" + SEP.repeat(20) + "\n"));
             },
-            "plain-text header produces the exact same cursor-up as the colored equivalent"(result) {
-                Assert.strictEqual(result.plainClear, "\x1b[47A\r\x1b[J");
+            "the write ends with the autowrap-on CSI"(write) {
+                Assert.ok(write.endsWith("\x1b[?7h"));
+            },
+            "the autowrap-off CSI appears once and only at the very start"(write) {
+                Assert.strictEqual(write.indexOf("\x1b[?7l"), 0);
+                Assert.strictEqual(write.lastIndexOf("\x1b[?7l"), 0);
+            },
+            "the autowrap-on CSI appears once and only at the very end"(write) {
+                const lastIdx = write.lastIndexOf("\x1b[?7h");
+                Assert.strictEqual(lastIdx, write.length - "\x1b[?7h".length);
+                Assert.strictEqual(write.indexOf("\x1b[?7h"), lastIdx);
+            },
+            "exactly four block lines sit between the autowrap toggles"(write) {
+                const inner = write.slice("\x1b[?7l".length, write.length - "\x1b[?7h".length);
+                Assert.strictEqual(inner.split("\n").length, 4);
             }
         }
     });
 
-    test("first paint emits no cursor-up because no previous render is recorded", {
+    test("first paint writes no clear sequence because no block has been drawn yet", {
         ARRANGE() {
             const io = stubIO(20);
             const time = fakeTime();
@@ -1308,8 +1308,8 @@ test.describe("BottomBlock", test => {
             "mount emits exactly one write so no clear preceded the first draw"(result) {
                 Assert.strictEqual(result.writes.length, 1);
             },
-            "the single write begins with the separator at the current width and not a cursor-up CSI"(result) {
-                Assert.ok(result.writes[0]!.startsWith(SEP.repeat(20)));
+            "the single write begins with autowrap-off followed by the separator at the current width and not a cursor-up CSI"(result) {
+                Assert.ok(result.writes[0]!.startsWith("\x1b[?7l" + SEP.repeat(20)));
             },
             "the first-paint output contains no cursor-up CSI sequence in any form (parameterless \\x1b[A or parameterised \\x1b[<n>A)"(result) {
                 Assert.ok(!/\x1b\[\d*A/.test(result.output), "first paint must not contain any CSI cursor-up sequence");

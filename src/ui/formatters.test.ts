@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { formatCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWorkingFooter, formatWaitingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
+import { formatCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWorkingFooter, formatWaitingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, stripAnsi, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
 
 test.describe("formatCountdown", test => {
     test("returns minutes only when remaining is under one hour", {
@@ -780,10 +780,6 @@ test.describe("formatDateTime", test => {
     });
 });
 
-function stripAnsi(s:string):string {
-    return s.replace(/\x1b\[[0-9;]*m/g, "");
-}
-
 test.describe("colorize", test => {
     test("wraps text with the given ANSI code and appends reset", {
         ARRANGE() { return { text: "x", code: CYAN }; },
@@ -793,6 +789,48 @@ test.describe("colorize", test => {
             Assert.ok(result.includes("x"), "contains the text");
             Assert.ok(result.endsWith(RESET), "ends with reset");
             Assert.strictEqual(result, CYAN + "x" + RESET);
+        }
+    });
+});
+
+test.describe("stripAnsi", test => {
+    test("returns input unchanged when it contains no ANSI sequences", {
+        ARRANGE() { return "plain text 123"; },
+        ACT(s) { return stripAnsi(s); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "plain text 123");
+        }
+    });
+
+    test("removes simple SGR color codes", {
+        ARRANGE() { return CYAN + "abc" + RESET; },
+        ACT(s) { return stripAnsi(s); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "abc");
+        }
+    });
+
+    test("removes multi-parameter SGR codes such as the 256-color orange", {
+        ARRANGE() { return ORANGE + "abc" + RESET; },
+        ACT(s) { return stripAnsi(s); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "abc");
+        }
+    });
+
+    test("removes non-SGR CSI sequences — cursor-up, erase-display, and DECAWM autowrap toggles", {
+        ARRANGE() { return "\x1b[?7l" + "block" + "\x1b[?7h" + "\x1b[3A" + "\r" + "\x1b[J"; },
+        ACT(s) { return stripAnsi(s); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "block\r");
+        }
+    });
+
+    test("removes every occurrence in a single input, not just the first", {
+        ARRANGE() { return CYAN + "a" + RESET + " " + GREEN + "b" + RESET; },
+        ACT(s) { return stripAnsi(s); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "a b");
         }
     });
 });

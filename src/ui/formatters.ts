@@ -13,6 +13,10 @@ export function colorize(text:string, code:string):string {
     return code + text + RESET;
 }
 
+export function stripAnsi(s:string):string {
+    return s.replace(/\x1b\[[?\d;]*[a-zA-Z]/g, "");
+}
+
 export type Segment = {
     text:string;
     color?:string;

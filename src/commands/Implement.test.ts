@@ -8,11 +8,7 @@ import type { FlandersConfig } from "../FlandersConfig";
 import type { SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { HeaderFields, MetricsFields, TerminalLabel } from "../ui/BottomBlock";
-import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, SEPARATOR_GLYPH } from "../ui/formatters";
-
-function stripAnsi(s:string):string {
-    return s.replace(/\x1b\[[0-9;]*m/g, "");
-}
+import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, SEPARATOR_GLYPH, stripAnsi } from "../ui/formatters";
 
 type FakeProcess = SpawnedProcess & {
     $emitStdout(chunk:string):void;
@@ -4351,7 +4347,7 @@ test.describe("Implement terminal label on exit", test => {
                 const labelIdx = allOutput.lastIndexOf(labelStr);
                 Assert.ok(labelIdx !== -1, "terminal label should be present");
                 const afterLabel = allOutput.slice(labelIdx + labelStr.length);
-                Assert.strictEqual(afterLabel, "\n");
+                Assert.strictEqual(afterLabel, "\x1b[?7h\n");
             }
         }
     });
@@ -4583,7 +4579,7 @@ test.describe("Implement terminal label on exit", test => {
                 const labelIdx = allOutput.lastIndexOf(labelStr);
                 Assert.ok(labelIdx !== -1, "terminal label should be present");
                 const afterLabel = allOutput.slice(labelIdx + labelStr.length);
-                Assert.strictEqual(afterLabel, "\n");
+                Assert.strictEqual(afterLabel, "\x1b[?7h\n");
             }
         }
     });
