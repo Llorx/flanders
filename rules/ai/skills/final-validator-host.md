@@ -30,6 +30,8 @@ The host packages the validator's prompt with all four of the following, regardl
 3. The **verbatim text of every check obligation enumerated by the per-skill rule.** The host MUST inline those obligations in the prompt — it does not just point the validator at the per-skill rule file by path, and it does not rely on the validator discovering check obligations through transitive reading of the skill's own contract. Without the verbatim text, the validator's categories collapse to whatever the validator chooses to read on its own, and gaps appear silently. Including the verbatim text closes that gap.
 4. The output-format spec described in the `Output shape` section below.
 
+In addition to these four, a per-skill rule may require the host to pass inputs specific to that skill's artifact. The per-skill rule enumerates such inputs, and the host passes them alongside the four above.
+
 The validator reads the artifact(s) in full, plus any contract or rule from the listings that it judges relevant to forming its verdict.
 
 ## Validator read-only discipline

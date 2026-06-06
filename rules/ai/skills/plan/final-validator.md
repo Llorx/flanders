@@ -10,7 +10,7 @@ The `/flanders-plan` skill gates its work behind a final validator hosted as `ru
 
 ## What the validator receives
 
-The host follows `rules/ai/skills/final-validator-host.md` for the shared inputs (artifact path, canonical listings, output spec, read-only discipline, FAIL loop). On top of those, the host MUST inline the verbatim text of each of the five check categories below in the validator's prompt.
+The host follows `rules/ai/skills/final-validator-host.md` for the shared inputs (artifact path, canonical listings, output spec, read-only discipline, FAIL loop). On top of those, the host MUST inline the verbatim text of each of the five check categories below in the validator's prompt, and MUST pass the number of leaf task lines it generated, per `rules/ai/skills/plan/validator-detects-expected-task-count.md`.
 
 The canonical listings the host passes are:
 
@@ -32,6 +32,7 @@ Every task line conforms to `contracts/shared/plan-file-format.md`:
 - Hierarchical task number coherent with document position (`1` before `2`, `1.1` before `1.2`, no malformed numbering).
 - Leaf-vs-parent distinction respected: leaves carry checkbox and metrics; parents carry neither.
 - Each leaf task carries a description and an explicit acceptance-criteria section.
+- The number of task lines the validator detects via the canonical recognizer equals the expected leaf-task count the host passes, per `rules/ai/skills/plan/validator-detects-expected-task-count.md`. A detected count that differs from the expected count in either direction is FAIL.
 
 Additionally, the plan file lives inside `plans/`, is non-empty, and contains at least one task line.
 
@@ -70,5 +71,6 @@ Additionally, for every contract or rule in the canonical listings the validator
 - The validator reports PASS on a plan that contains hedge phrasing or unresolved implementation choices, on the grounds that "the worker will figure it out".
 - The validator reports PASS on a plan with a leaf task missing its acceptance criteria, its contract link, or its rule link.
 - The validator reports PASS on a plan that links a contract or rule without the task's description or acceptance criteria actually applying the obligation.
+- The validator reports PASS on a plan whose detected task count differs from the expected count the host supplied — a generated task was silently lost to a recognition failure, or a non-task line was counted as a task.
 - The validator aggregates the five categories into a single judgment instead of auditing each independently and enumerating violations exhaustively.
 - The host packages the validator prompt without inlining the verbatim text of categories 4 and 5, forcing the validator to discover them by reading the contract — which defeats the explicit-categories obligation pinned in `rules/ai/skills/final-validator-host.md`.

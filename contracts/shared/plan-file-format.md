@@ -22,6 +22,13 @@ with the following pieces, in this exact order and spacing:
 
 A task line is detected by matching this shape on a non-blank line in the document. The same shape is used when generating tasks: any task line written by the `plan` command must be a line that the `implement` command's detector would recognize as a task — in particular it must carry the leading list marker, otherwise the detector skips it and the plan is treated as having no tasks.
 
+## Malformed task lines
+A line is reported as a malformed task line only when it attempts the checkbox-and-metrics shape but does not fully conform to it. A line attempts that shape when, after the list marker, it carries a bracketed token whose closing `]` is immediately followed by the metrics-object opener `{` — that is, it looks like a checkbox followed by a metrics object. When such a line does not conform to the full task-line shape above — for example the checkbox holds something other than a single space or `x`, or the metrics object is not a strict, complete JSON literal — it is a malformed task line.
+
+A list item whose closing `]` is not immediately followed by `{` is never a task line and is never a malformed task line: it is ordinary document content. In particular, a markdown link list item — a list item of the form `- [text](url)`, where the `]` is followed by `(` — is ordinary content and is never reported as malformed, even when its bracketed text resembles a path or a reference.
+
+The implement command's plan validation reports malformed task lines and exits non-zero (see `cli-commands/implement/overview.md`) only for lines that attempt the checkbox-and-metrics shape per the above; it never rejects a plan because of ordinary list items such as link bullets.
+
 ## Task metrics
 Every leaf task line carries a metrics object that tracks what the tool has consumed while working on that task. The object is a strict JSON literal of the form:
 
