@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { formatCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
+import { formatCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWorkingFooter, formatWaitingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
 
 test.describe("formatCountdown", test => {
     test("returns minutes only when remaining is under one hour", {
@@ -1349,6 +1349,120 @@ test.describe("formatReviewingFooter", test => {
             },
             "tiny width returns the truncated form"(result) {
                 Assert.strictEqual(stripAnsi(result.tiny), "review: claude…");
+            }
+        }
+    });
+});
+
+test.describe("formatWorkingFooter", test => {
+    test("returns the full ORANGE-wrapped string when the plain text fits within cols", {
+        ARRANGE() {
+            return { frame: "⣋", cols: 120 };
+        },
+        ACT({ frame, cols }) {
+            return formatWorkingFooter(frame, cols);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, ORANGE + "⣋ Working" + RESET);
+        }
+    });
+
+    test("returns the full untruncated string at exact boundary (plain length === cols)", {
+        ARRANGE() {
+            const frame = "⣋";
+            const plain = `${frame} Working`;
+            return { frame, cols: plain.length, plain };
+        },
+        ACT({ frame, cols }) {
+            return formatWorkingFooter(frame, cols);
+        },
+        ASSERTS: {
+            "returns the full ORANGE-wrapped string"(result, { plain }) {
+                Assert.strictEqual(result, ORANGE + plain + RESET);
+            },
+            "contains no ellipsis"(result) {
+                Assert.ok(!result.includes("…"));
+            }
+        }
+    });
+
+    test("truncates with a trailing ellipsis when the plain text exceeds cols", {
+        ARRANGE() {
+            return { frame: "⣋", cols: 5 };
+        },
+        ACT({ frame, cols }) {
+            return formatWorkingFooter(frame, cols);
+        },
+        ASSERTS: {
+            "exact truncated plain string matches"(result) {
+                Assert.strictEqual(stripAnsi(result), "⣋ Wo…");
+            },
+            "plain text length equals cols"(result) {
+                Assert.strictEqual(stripAnsi(result).length, 5);
+            },
+            "ends with ellipsis"(result) {
+                Assert.ok(stripAnsi(result).endsWith("…"));
+            },
+            "colors the surviving prefix in ORANGE with trailing RESET"(result) {
+                Assert.strictEqual(result, ORANGE + "⣋ Wo" + RESET + "…");
+            }
+        }
+    });
+});
+
+test.describe("formatWaitingFooter", test => {
+    test("returns the full ORANGE-wrapped string when the plain text fits within cols", {
+        ARRANGE() {
+            return { heading: "Waiting rate limit", dateTime: "2025-01-15 09:05", countdown: "15 minutes", cols: 120 };
+        },
+        ACT({ heading, dateTime, countdown, cols }) {
+            return formatWaitingFooter(heading, dateTime, countdown, cols);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, ORANGE + "Waiting rate limit — 2025-01-15 09:05 — 15 minutes" + RESET);
+        }
+    });
+
+    test("returns the full untruncated string at exact boundary (plain length === cols)", {
+        ARRANGE() {
+            const heading = "Waiting rate limit";
+            const dateTime = "2025-01-15 09:05";
+            const countdown = "15 minutes";
+            const plain = `${heading} — ${dateTime} — ${countdown}`;
+            return { heading, dateTime, countdown, cols: plain.length, plain };
+        },
+        ACT({ heading, dateTime, countdown, cols }) {
+            return formatWaitingFooter(heading, dateTime, countdown, cols);
+        },
+        ASSERTS: {
+            "returns the full ORANGE-wrapped string"(result, { plain }) {
+                Assert.strictEqual(result, ORANGE + plain + RESET);
+            },
+            "contains no ellipsis"(result) {
+                Assert.ok(!result.includes("…"));
+            }
+        }
+    });
+
+    test("truncates with a trailing ellipsis when the plain text exceeds cols", {
+        ARRANGE() {
+            return { heading: "Waiting rate limit", dateTime: "2025-01-15 09:05", countdown: "15 minutes", cols: 15 };
+        },
+        ACT({ heading, dateTime, countdown, cols }) {
+            return formatWaitingFooter(heading, dateTime, countdown, cols);
+        },
+        ASSERTS: {
+            "exact truncated plain string matches"(result) {
+                Assert.strictEqual(stripAnsi(result), "Waiting rate l…");
+            },
+            "plain text length equals cols"(result) {
+                Assert.strictEqual(stripAnsi(result).length, 15);
+            },
+            "ends with ellipsis"(result) {
+                Assert.ok(stripAnsi(result).endsWith("…"));
+            },
+            "colors the surviving prefix in ORANGE with trailing RESET"(result) {
+                Assert.strictEqual(result, ORANGE + "Waiting rate l" + RESET + "…");
             }
         }
     });

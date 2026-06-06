@@ -262,3 +262,18 @@ export function formatReviewingFooter(reviewers:readonly ReviewerEntry[], cols:n
     }
     return renderSegmentsToWidth([{ text: compactText, color: ORANGE }], cols);
 }
+
+function fitOrangeFooterLine(text:string, cols:number):string {
+    if (text.length <= cols) {
+        return renderSegments([{ text, color: ORANGE }]);
+    }
+    return renderSegmentsToWidth([{ text, color: ORANGE }], cols);
+}
+
+export function formatWorkingFooter(frame:string, cols:number):string {
+    return fitOrangeFooterLine(`${frame} Working`, cols);
+}
+
+export function formatWaitingFooter(heading:string, dateTime:string, countdown:string, cols:number):string {
+    return fitOrangeFooterLine(`${heading} — ${dateTime} — ${countdown}`, cols);
+}
