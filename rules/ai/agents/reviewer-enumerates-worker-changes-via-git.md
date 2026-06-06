@@ -17,6 +17,8 @@ When the reviewer runs inside a git work tree:
 
 3. **Read content the right way per file kind.** For tracked modifications, the reviewer inspects content with `git diff` (and `git diff --cached` for staged hunks). For created files that are still untracked — which `git diff` does not surface — the reviewer inspects the file by reading it directly from disk. A created file is never left uninspected on the grounds that `git diff` showed nothing for it.
 
+When the enumeration above is empty — `git status --porcelain` reports no files — the verdict the reviewer reaches is pinned by `rules/ai/agents/reviewer-empty-change-set-judged-against-head.md`.
+
 All of these are read-only git operations and are permitted under `rules/ai/agents/no-git-writes.md`; this rule never authorizes the reviewer to mutate repository state.
 
 ## Why
