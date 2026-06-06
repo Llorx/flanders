@@ -11,6 +11,8 @@ export type WorkspacePaths = Readonly<{
     buildLog(iter:number):string;
     testLog(iter:number):string;
     reviewerLog(iter:number):string;
+    reviewerOutputLog(iter:number, reviewerIndex:number):string;
+    reviewerErrorLog(reviewerIndex:number):string;
 }>;
 
 export interface PlatformContext {
@@ -59,7 +61,9 @@ export class Workspace {
             workerLog(iter:number) { return joinPath(root, `worker.${iter}.log`); },
             buildLog(iter:number) { return joinPath(root, `build.${iter}.log`); },
             testLog(iter:number) { return joinPath(root, `test.${iter}.log`); },
-            reviewerLog(iter:number) { return joinPath(root, `reviewer.${iter}.log`); }
+            reviewerLog(iter:number) { return joinPath(root, `reviewer.${iter}.log`); },
+            reviewerOutputLog(iter:number, reviewerIndex:number) { return joinPath(root, `reviewer.${iter}.${reviewerIndex}.log`); },
+            reviewerErrorLog(reviewerIndex:number) { return joinPath(root, `error.${reviewerIndex}.log`); }
         };
     }
     async errorLogExists():Promise<boolean> {
@@ -81,6 +85,25 @@ export class Workspace {
         const paths = this.paths();
         if (await this._fs.exists(paths.errorLog)) {
             await this._fs.rm(paths.errorLog, { force: true });
+        }
+    }
+    async reviewerErrorLogExists(reviewerIndex:number):Promise<boolean> {
+        const paths = this.paths();
+        return await this._fs.exists(paths.reviewerErrorLog(reviewerIndex));
+    }
+    async readReviewerErrorLog(reviewerIndex:number):Promise<string> {
+        const paths = this.paths();
+        const path = paths.reviewerErrorLog(reviewerIndex);
+        if (!await this._fs.exists(path)) {
+            return "";
+        }
+        return await this._fs.readFile(path);
+    }
+    async clearReviewerErrorLog(reviewerIndex:number):Promise<void> {
+        const paths = this.paths();
+        const path = paths.reviewerErrorLog(reviewerIndex);
+        if (await this._fs.exists(path)) {
+            await this._fs.rm(path, { force: true });
         }
     }
     async dispose() {
