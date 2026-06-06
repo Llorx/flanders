@@ -5,7 +5,7 @@ import test from "arrange-act-assert";
 import { BottomBlock } from "./BottomBlock";
 import type { BottomBlockIO, ReviewerEntry } from "./BottomBlock";
 import type { TimeoutHandle } from "../contexts";
-import { CYAN, YELLOW, MAGENTA, GREEN, ORANGE, RESET, SEPARATOR_GLYPH } from "./formatters";
+import { CYAN, YELLOW, MAGENTA, GREEN, ORANGE, RESET, SEPARATOR_GLYPH, formatDateTime } from "./formatters";
 
 function stripAnsi(s:string):string {
     return s.replace(/\x1b\[[0-9;]*m/g, "");
@@ -275,8 +275,9 @@ test.describe("BottomBlock", test => {
                 const footer = stripAnsi(result.afterSet.split("\n").pop() ?? "");
                 Assert.strictEqual(footer.split(" — ")[0], "Waiting rate limit");
             },
-            "footer includes absolute date and time"(result) {
-                Assert.ok(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(result.afterSet));
+            "footer expected-end field is exactly the formatted endTime"(result) {
+                const footer = stripAnsi(result.afterSet.split("\n").pop() ?? "");
+                Assert.strictEqual(footer.split(" — ")[1], formatDateTime(new Date(61000)));
             },
             "footer includes countdown in minutes"(result) {
                 Assert.ok(result.afterSet.includes("1 minutes"));
@@ -1137,6 +1138,88 @@ test.describe("BottomBlock", test => {
                 const footerPlain = stripAnsi(output.split("\n").pop() ?? "");
                 Assert.strictEqual(footerPlain, "review: codex (gpt-5 high): ok");
             }
+        }
+    });
+
+    test("working footer truncates at narrow width and re-expands after resize to a wider width", {
+        ARRANGE() {
+            const io = stubIO(5);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.mount();
+            return { io };
+        },
+        ACT({ io }) {
+            const narrowDraw = io.output;
+            io.reset();
+            io.setCols(20);
+            io.emitResize();
+            const wideDraw = io.output;
+            return { narrowDraw, wideDraw };
+        },
+        ASSERTS: {
+            "narrow draw shows the working footer truncated with a trailing ellipsis"(result) {
+                const footerPlain = stripAnsi(result.narrowDraw.split("\n").pop() ?? "");
+                Assert.strictEqual(footerPlain, "⣋ Wo…");
+            },
+            "wide draw after resize shows the full Working label without ellipsis"(result) {
+                const lastDraw = result.wideDraw.split(CLEAR_SEQ).pop() ?? "";
+                const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
+                Assert.strictEqual(footerPlain, "⣋ Working");
+            }
+        }
+    });
+
+    test("waiting footer truncates at narrow width and re-expands after resize to a wider width", {
+        ARRANGE() {
+            const io = stubIO(15);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "waiting", waitKind: "rate-limit", endTime: 60000 });
+            block.mount();
+            return { io };
+        },
+        ACT({ io }) {
+            const narrowDraw = io.output;
+            io.reset();
+            io.setCols(120);
+            io.emitResize();
+            const wideDraw = io.output;
+            return { narrowDraw, wideDraw };
+        },
+        ASSERTS: {
+            "narrow draw shows the waiting footer truncated with a trailing ellipsis"(result) {
+                const footerPlain = stripAnsi(result.narrowDraw.split("\n").pop() ?? "");
+                Assert.strictEqual(footerPlain, "Waiting rate l…");
+            },
+            "wide draw after resize shows the full waiting label without ellipsis"(result) {
+                const lastDraw = result.wideDraw.split(CLEAR_SEQ).pop() ?? "";
+                const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
+                Assert.strictEqual(footerPlain, `Waiting rate limit — ${formatDateTime(new Date(60000))} — 1 minutes`);
+            }
+        }
+    });
+
+    test("waiting footer recomputes the countdown on a resize redraw against the current clock", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "waiting", waitKind: "rate-limit", endTime: 120000 });
+            block.mount();
+            io.reset();
+            return { io, time };
+        },
+        ACT({ io, time }) {
+            time.setNow(60000);
+            io.emitResize();
+            const lastDraw = io.output.split(CLEAR_SEQ).pop() ?? "";
+            return stripAnsi(lastDraw.split("\n").pop() ?? "");
+        },
+        ASSERT(footerPlain) {
+            Assert.strictEqual(footerPlain, `Waiting rate limit — ${formatDateTime(new Date(120000))} — 1 minutes`);
         }
     });
 });

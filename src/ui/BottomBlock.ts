@@ -1,5 +1,5 @@
 import type { TimeContext, TimeoutHandle } from "../contexts";
-import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, ORANGE, RESET, SEPARATOR_GLYPH } from "./formatters";
+import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWaitingFooter, formatWorkingFooter, ORANGE, RESET, SEPARATOR_GLYPH } from "./formatters";
 import type { ReviewerEntry } from "./formatters";
 
 export type { ReviewerEntry, ReviewerState, ReviewerTool } from "./formatters";
@@ -222,12 +222,12 @@ export class BottomBlock {
             case "blank":
                 return "";
             case "working":
-                return `${ORANGE}${FRAMES[this._animFrame]} Working${RESET}`;
+                return formatWorkingFooter(FRAMES[this._animFrame]!, cols);
             case "waiting": {
                 const remaining = Math.max(0, this._footer.endTime - this._time.now());
                 const dateStr = formatDateTime(new Date(this._footer.endTime));
                 const countdown = formatCountdown(remaining);
-                return `${ORANGE}${WAIT_HEADINGS[this._footer.waitKind]} — ${dateStr} — ${countdown}${RESET}`;
+                return formatWaitingFooter(WAIT_HEADINGS[this._footer.waitKind], dateStr, countdown, cols);
             }
             case "reviewing":
                 return formatReviewingFooter(this._footer.reviewers, cols);
