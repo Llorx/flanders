@@ -356,6 +356,10 @@ test.describe("skills – planSkillBody", test => {
             },
             "passes canonical rule listing from step 2"(body) {
                 Assert.ok(body.includes("The canonical rule listing captured in step 2 of the procedure"), "must pass canonical rule listing");
+            },
+            "passes the leaf-task count as a single non-negative integer"(body) {
+                const inputsSection = body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+                Assert.ok(inputsSection.includes("- The number of leaf task lines you generated (a single non-negative integer)."), "Validator inputs must include the leaf-task count bullet verbatim");
             }
         }
     });
@@ -423,6 +427,9 @@ test.describe("skills – planSkillBody", test => {
             },
             "does not cite the no-git-writes rule path"(body) {
                 Assert.ok(!body.includes("rules/ai/agents/no-git-writes.md"), "must not cite the no-git-writes rule path");
+            },
+            "does not cite the validator-detects-expected-task-count rule path"(body) {
+                Assert.ok(!body.includes("rules/ai/skills/plan/validator-detects-expected-task-count.md"), "must not cite the validator-detects-expected-task-count rule path");
             }
         }
     });
@@ -622,6 +629,41 @@ test.describe("skills – planSkillBody", test => {
             "states marker-less task lines are FAIL"(body) {
                 const formatSection = body.slice(body.indexOf("1. Format and shape"));
                 Assert.ok(formatSection.includes("`[ ]{...}` without the leading list marker — is FAIL"), "must state that lines without the leading marker are FAIL");
+            }
+        }
+    });
+
+    test("validator Format and shape cross-checks the detected task-line count against the host-supplied leaf-task count", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "states the validator counts task lines via the canonical recognizer regex"(body) {
+                const formatSection = body.slice(body.indexOf("1. Format and shape"), body.indexOf("2. Semantic dependency order"));
+                Assert.ok(formatSection.includes("the number of task lines the validator detects via the canonical recognizer regex above"), "Format and shape must state the validator counts canonical-recognizer matches");
+            },
+            "states the detected count must equal the host-supplied leaf-task count exactly"(body) {
+                const formatSection = body.slice(body.indexOf("1. Format and shape"), body.indexOf("2. Semantic dependency order"));
+                Assert.ok(formatSection.includes("equals the leaf-task count the host supplied above exactly"), "Format and shape must require the detected count equals the supplied count exactly");
+            },
+            "names an inequality in either direction as FAIL"(body) {
+                const formatSection = body.slice(body.indexOf("1. Format and shape"), body.indexOf("2. Semantic dependency order"));
+                Assert.ok(formatSection.includes("differs from the supplied count in either direction — a generated task lost to a recognition failure, or a non-task line counted as a task — is FAIL"), "Format and shape must name a bidirectional count discrepancy as FAIL via the full literal consequence");
+            },
+            "enumerates both directions of the count discrepancy"(body) {
+                const formatSection = body.slice(body.indexOf("1. Format and shape"), body.indexOf("2. Semantic dependency order"));
+                Assert.ok(formatSection.includes("a generated task lost to a recognition failure, or a non-task line counted as a task"), "Format and shape must enumerate both directions (under-count and over-count) of the discrepancy");
+            },
+            "instructs the validator to enumerate the recognized task lines"(body) {
+                const formatSection = body.slice(body.indexOf("1. Format and shape"), body.indexOf("2. Semantic dependency order"));
+                Assert.ok(formatSection.includes("The validator enumerates the recognized task lines"), "Format and shape must instruct the validator to enumerate the recognized task lines");
+            },
+            "instructs the validator to report the detected count"(body) {
+                const formatSection = body.slice(body.indexOf("1. Format and shape"), body.indexOf("2. Semantic dependency order"));
+                Assert.ok(formatSection.includes("reports the detected count"), "Format and shape must instruct the validator to report the detected count");
+            },
+            "instructs the validator to name the discrepancy as expected versus detected on inequality"(body) {
+                const formatSection = body.slice(body.indexOf("1. Format and shape"), body.indexOf("2. Semantic dependency order"));
+                Assert.ok(formatSection.includes("on inequality names the discrepancy as the expected count versus the detected count"), "Format and shape must instruct the validator to name the discrepancy as expected versus detected count on inequality");
             }
         }
     });
