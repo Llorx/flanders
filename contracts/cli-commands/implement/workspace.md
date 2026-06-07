@@ -4,11 +4,13 @@
 Define how the implement command sets up its per-run scratch space and the helper scripts it uses for build and test validation gates.
 
 ## Temporary folder
-At the start of every implement run, a temporary folder is created. The folder holds:
+At the start of every implement run, a main temporary folder is created. It directly holds:
 - The build script and the test script (see below).
-- Per-iteration log files: worker output, build output, test output, reviewer output, and `error.log` (a single fixed-name file used to brief subsequent iterations).
+- Per-iteration log files: worker output, build output, test output, each reviewer's streamed output, and `error.log` (a single fixed-name file used to brief subsequent iterations).
 
-The folder is removed automatically when the program exits in any way other than the hard stop defined in `cli-commands/implement/iteration-loop.md`. On a hard stop the folder is intentionally preserved on disk so the user can inspect the per-iteration logs and `error.log`. If the host platform offers a built-in cleanup-on-exit API, that API is used for the automatic-removal cases; otherwise the program registers an explicit cleanup hook that runs on normal exit and on common termination signals. The hard stop suppresses this cleanup regardless of which mechanism is in use.
+Immediately after the main temporary folder is created, the command creates one additional temporary folder for each reviewer configured in the Flanders configuration (see `shared/flanders-config.md`). Each per-reviewer folder is allocated the same way as the main temporary folder — its own independently created temporary folder, never a subfolder of the main temporary folder and never a subfolder of any other reviewer's folder. Each per-reviewer folder holds exactly that reviewer's verdict file, named `error.log`, and holds no other reviewer's verdict. The `error.log` briefing file named above lives in the main temporary folder and is a distinct file from these per-reviewer `error.log` files.
+
+All of these temporary folders — the main folder together with every per-reviewer folder — are removed automatically when the program exits in any way other than the hard stop defined in `cli-commands/implement/iteration-loop.md`. On a hard stop all of them are intentionally preserved on disk so the user can inspect the per-iteration logs, every reviewer's `error.log`, and the briefing `error.log`. If the host platform offers a built-in cleanup-on-exit API, that API is used for the automatic-removal cases; otherwise the program registers an explicit cleanup hook that runs on normal exit and on common termination signals. The hard stop suppresses this cleanup regardless of which mechanism is in use.
 
 ## Build and test script detection
 Once the temporary folder exists and before the iteration loop starts, the command detects how to build and test the current project:

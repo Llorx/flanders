@@ -11,7 +11,7 @@ The adversarial review stage produces a single verdict from the per-reviewer err
 
 After every reviewer has run to a verdict, the orchestrator forms the stage verdict in this fixed order:
 
-1. **Read all.** Read the contents of every per-reviewer error file (`error.1.log`, `error.2.log`, … through the last configured reviewer). A reviewer that found no violation left its file empty; that empty content is read like any other, with no special-casing.
+1. **Read all.** Read the contents of every per-reviewer verdict file — the `error.log` inside each reviewer's own temporary folder, taken in reviewer order (reviewer 1 first) through the last configured reviewer. A reviewer that found no violation left its file empty; that empty content is read like any other, with no special-casing.
 
 2. **Concatenate.** Join the contents in reviewer order (reviewer 1 first) with exactly one newline (`\n`) between consecutive files. The join does not inspect whether a given file is empty before adding it — every file is concatenated unconditionally.
 
