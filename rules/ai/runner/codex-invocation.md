@@ -39,6 +39,7 @@ The Codex CLI's `exec --json` output is a sequence of newline-delimited JSON eve
 - `item.completed` — carries a completed `item`; the item's own `type` drives the output mapping below.
 - `turn.completed` — carries a `usage` object and marks the end of the turn (see Token usage and the terminal-event rules below).
 - `error` — carries a `message` string (see the error classification below).
+- `turn.failed` — carries a nested `error` object whose `message` string describes the failure (see the error classification below). When a turn fails, Codex emits a top-level `error` event and then a `turn.failed` event, in that order, both carrying the same text.
 
 Every native event Codex emits is either mapped or filtered as documented here. Any `type` not listed above is filtered.
 
@@ -67,25 +68,21 @@ The session id is the `thread_id` string carried by the `thread.started` event. 
 
 The `turn.completed` event carries a `usage` object with the integer fields `input_tokens`, `cached_input_tokens`, `output_tokens`, and `reasoning_output_tokens`. The adapter reports the invocation's token usage to the runner as `inputTokens = input_tokens` and `outputTokens = output_tokens`. `cached_input_tokens` and `reasoning_output_tokens` are informational sub-counts already contained within `input_tokens` and `output_tokens` respectively; the adapter does not add them to the totals, so no token is counted twice.
 
-### Terminal events from `type: "error"` and process exit
+### Terminal events from failure events and process exit
 
-Codex's structured error surface is the `ThreadErrorEvent`: `{ type: "error", message: string }`. Unlike Claude, Codex does not expose HTTP status, retry-after, or a discrete subtype as fields. The adapter classifies the failure from a combination of the `message` text and the surrounding process state:
+Codex's failure surface in the `exec --json` stream is two events that each carry a human-readable message and no other structured field: the top-level `{ type: "error", message: string }` and the `{ type: "turn.failed", error: { message: string } }` that follows it. When a turn fails, Codex emits both, in that order, carrying the same text. Unlike Claude, Codex exposes in this stream neither an HTTP status, nor a retry-after, nor a reset timestamp, nor a discrete error code — the structured `rate_limits` snapshot and the `codex_error_info` code that Codex records in its on-disk session rollout do not appear in the `exec --json` stdout stream. The adapter therefore classifies the failure from the message text alone, plus the surrounding process state.
 
-**When `type: "error"` is emitted** — the adapter inspects `message` (case-insensitive, substring match on the trimmed text):
+The adapter acts on whichever of the two failure events arrives first, emits exactly one terminal `ToolEvent` for it, and absorbs the duplicate that follows — preserving the single-terminal-event invariant of `rules/ai/runner/tool-interface.md`. The message it classifies is the `message` field for a `type: "error"` event and the nested `error.message` field for a `type: "turn.failed"` event.
 
-- Message contains any of: `rate limit`, `rate-limit`, `rate_limit`, `quota`, `too many requests`, or the standalone token `429` — this is a rate-limit. The adapter then attempts to parse an authoritative duration from the same message. Patterns the adapter recognizes:
-  - `try again in <N> seconds?` / `try again in <N> s`
-  - `try again in <N> minutes?` / `try again in <N> m`
-  - `retry after <N> seconds?` / `retry after <N> minutes?`
-  - `wait <N> seconds?` / `wait <N> minutes?`
-  - `retry-after <N>` (interpreted as seconds)
-  - When a duration is parsed, emit `{ type: "rate_limit", waitUntilMs: Date.now() + <duration-in-ms> }`. When no duration is parseable, emit `{ type: "error", retryable: true, message }` so the runner falls back to the transient backoff.
+**Classification of a failure message** — the adapter inspects the trimmed message (case-insensitive, literal substring search):
+
+- Message contains any of: `out of credits`, `refill`, `usage limit`, `rate limit`, `rate-limit`, `rate_limit`, `quota`, `too many requests`, or the standalone token `429` — this is a rate-limit or a quota/credit exhaustion. The `exec --json` stream carries no reset time for it, so the adapter synthesizes one: it emits `{ type: "rate_limit", waitUntilMs: <now> + R }`, where `R` is a duration drawn uniformly at random from the closed interval of 8 minutes to 12 minutes. Both the current time and the random draw are obtained through the injected contexts per `rules/external-access-through-contexts.md`; the adapter never calls `Date.now()` or `Math.random()` directly.
 - Message contains any three-digit `5xx` token (`500`..`599`) — emit `{ type: "error", retryable: true, message }`.
 - Message contains the three-digit tokens `408` or `425` — emit `{ type: "error", retryable: true, message }`.
 - Message contains any of: `timeout`, `timed out`, `connection reset`, `connection refused`, `socket hang up`, `temporarily unavailable`, `service unavailable`, `gateway`, `network`, `ECONNRESET`, `ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`, `EAI_AGAIN` — emit `{ type: "error", retryable: true, message }`.
 - Anything else — emit `{ type: "error", retryable: false, message }`. Unrecognized error shapes default to non-retryable so unknown failure modes do not silently mask a bug.
 
-**When the child process exits without having emitted `type: "error"` and without having emitted `type: "turn.completed"`** — the adapter treats the failure as a transport-level retryable error and emits `{ type: "error", retryable: true, message: <synthesized message describing the unexpected exit> }`.
+**When the child process exits without having emitted a failure event (`type: "error"` or `type: "turn.failed"`) and without having emitted `type: "turn.completed"`** — the adapter treats the failure as a transport-level retryable error and emits `{ type: "error", retryable: true, message: <synthesized message describing the unexpected exit> }`.
 
 **When the child process exits via a signal** — same treatment: emit `{ type: "error", retryable: true, message: <synthesized message naming the signal> }`.
 
@@ -95,7 +92,7 @@ The adapter never inspects `stderr` or the prompt text to decide retryability; t
 
 ### Why substring matching on the message
 
-The Codex SDK's `ThreadErrorEvent` exposes only a `message` string. The adapter cannot inspect a structured HTTP status, a subtype, or a retry-after field because Codex does not surface them. Substring matching on the message text is the surface the SDK leaves to consumers; the patterns above are the closed set the adapter recognizes. Adding a new retryable substring requires updating this rule first; silently expanding the matcher is a violation.
+Codex's `exec --json` failure events expose only a `message` string — `message` on the `error` event, `error.message` on the `turn.failed` event. The adapter cannot inspect a structured HTTP status, a subtype, a retry-after, a reset timestamp, or an error code because the stdout stream does not surface them. Substring matching on the message text is the only surface the stream leaves to consumers; the patterns above are the closed set the adapter recognizes. Adding a new recognized substring requires updating this rule first; silently expanding the matcher is a violation.
 
 The matching is literal substring search, case-insensitive, on the trimmed message. The adapter does NOT use a natural-language classifier and does not infer "nearby" variants.
 
@@ -117,8 +114,10 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `codex` p
 - The adapter emits an `output` event for an `item.started` event instead of filtering it and emitting only on `item.completed`.
 - The adapter ignores the `usage` object on `turn.completed` and reports no token usage to the runner, so the displayed token figures stay at zero.
 - The adapter adds `cached_input_tokens` to `input_tokens` or `reasoning_output_tokens` to `output_tokens`, double-counting the sub-totals into the reported figures.
-- The adapter adds a new retryable substring to its matcher without adding it to this rule first.
-- The adapter emits a `rate_limit` event without a parsed duration, instead of falling back to a retryable `error`.
-- The adapter parses a duration with a unit other than seconds or minutes (for example, hours) and treats the number as the same unit it expected.
+- The adapter adds a new recognized substring to its matcher without adding it to this rule first.
+- The adapter classifies a rate-limit or quota/credit-exhaustion message (for example `out of credits` or `usage limit`) as a non-retryable `error` because that message was not in the recognized substring set.
+- The adapter emits the rate-limit `rate_limit` event with a `waitUntilMs` whose wait falls outside the 8-to-12-minute interval, or computed by calling `Date.now()` / `Math.random()` directly instead of through the injected contexts.
+- The adapter ignores the `turn.failed` event and classifies only `type: "error"`, so a failure surfaced through `turn.failed` is dropped.
+- The adapter emits two terminal events when Codex emits both `error` and `turn.failed` for the same failure, instead of acting on the first and absorbing the second.
 - The adapter leaks the spawned `codex` process on cancellation.
 - A call site spawns `codex` directly, bypassing the adapter.

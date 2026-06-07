@@ -68,11 +68,11 @@ The decision of whether a given failure is retryable lives entirely in the adapt
 
 The invocation hit a rate-limit signalled by the tool. Field shape:
 
-- `waitUntilMs` — Unix timestamp in milliseconds. The wall-clock instant at which the rate-limit window ends and the tool is expected to accept a new call. The runner waits until this point per `rules/ai/retry/long-wait-chunked-timer.md` (chunking the wait when it exceeds an hour) and then re-invokes the same adapter with the same arguments.
+- `waitUntilMs` — Unix timestamp in milliseconds: the wall-clock instant the runner waits until before re-invoking. It is the tool's authoritative reset instant when the tool's signal carries one; when the tool signals a rate-limit or quota/credit exhaustion without an end time, it is an estimate the adapter synthesizes for that signal. Either way the runner waits until this point per `rules/ai/retry/long-wait-chunked-timer.md` (chunking the wait when it exceeds an hour) and then re-invokes the same adapter with the same arguments.
 
 `rate_limit` is a terminal event: when an adapter emits it, the invocation has ended.
 
-When the adapter cannot determine a `waitUntilMs` from the tool's signal (the tool reported "rate limit" but did not carry an end time), the adapter emits `{ type: "error", retryable: true, message: ... }` instead. The runner then falls back to the standard transient backoff. The `rate_limit` event is reserved for cases with an authoritative end time.
+`waitUntilMs` is always in the future relative to the moment the event is emitted. How an adapter derives it — reading the tool's reset field, or synthesizing an estimate when the tool reports a rate-limit without an end time — is pinned by that adapter's own rule (see `rules/ai/runner/claude-invocation.md`, `rules/ai/runner/codex-invocation.md`).
 
 ### `{ type: "done" }`
 
