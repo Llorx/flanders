@@ -993,6 +993,36 @@ test.describe("prompts – reviewer – git-status change-set enumeration", test
     });
 });
 
+test.describe("prompts – reviewer – empty change set judged against HEAD", test => {
+    test("contains the new guidance for an empty enumerated change set", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "states the empty change set is not on its own a failure"(template) {
+                Assert.ok(template.includes("the empty change set is not, on its own, a failure"));
+            },
+            "instructs judging acceptance criteria against the committed working tree at HEAD"(template) {
+                Assert.ok(template.includes("Judge each acceptance criterion against the committed working tree at `HEAD`"));
+            },
+            "forbids requiring evidence to originate from an uncommitted diff"(template) {
+                Assert.ok(template.includes("You must not require a criterion's evidence to originate from an uncommitted diff"));
+            },
+            "states a passing verdict creates the per-reviewer error file empty"(template) {
+                Assert.ok(template.includes("creating your per-reviewer `error.log` empty as your final act"));
+            },
+            "conditions the pass on every acceptance criterion being satisfied at HEAD"(template) {
+                Assert.ok(template.includes("when every acceptance criterion is satisfied at `HEAD`"));
+            },
+            "limits recorded violations to criteria genuinely unsatisfied at HEAD"(template) {
+                Assert.ok(template.includes("record a violation only for an acceptance criterion, contract, or rule that is genuinely unsatisfied at `HEAD`"));
+            },
+            "cites the empty-change-set rule"(template) {
+                Assert.ok(template.includes("rules/ai/agents/reviewer-empty-change-set-judged-against-head.md"));
+            }
+        }
+    });
+});
+
 test.describe("prompts – foreground execution boundary", test => {
     test("each subagent prompt cites rules/ai/agents/no-background-commands.md", {
         ARRANGE() {},
