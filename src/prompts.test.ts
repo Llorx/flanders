@@ -1001,11 +1001,32 @@ test.describe("prompts – reviewer – empty change set judged against HEAD", t
             "states the empty change set is not on its own a failure"(template) {
                 Assert.ok(template.includes("the empty change set is not, on its own, a failure"));
             },
+            "explicitly forbids recording a violation solely because the worker produced no diff"(template) {
+                Assert.ok(template.includes("You must not record a violation for the sole reason that the worker produced no diff this cycle"));
+            },
             "instructs judging acceptance criteria against the committed working tree at HEAD"(template) {
                 Assert.ok(template.includes("Judge each acceptance criterion against the committed working tree at `HEAD`"));
             },
+            "states evidence is drawn per each criterion's classification"(template) {
+                Assert.ok(template.includes("drawing the evidence each criterion's classification requires"));
+            },
+            "names the toolchain-guarded HEAD evidence source"(template) {
+                Assert.ok(template.includes("for a toolchain-guarded criterion, the automated signal the project already runs"));
+            },
+            "names the test-guarded HEAD evidence source"(template) {
+                Assert.ok(template.includes("for a test-guarded criterion, an existing passing test whose assertion a regression would trip"));
+            },
+            "names the review-adjudicated HEAD evidence source"(template) {
+                Assert.ok(template.includes("for a review-adjudicated criterion, your inspection of the full working tree at `HEAD`"));
+            },
             "forbids requiring evidence to originate from an uncommitted diff"(template) {
                 Assert.ok(template.includes("You must not require a criterion's evidence to originate from an uncommitted diff"));
+            },
+            "states the verdict follows from the criteria not from the diff's size"(template) {
+                Assert.ok(template.includes("The verdict follows from the criteria, not from the diff's size"));
+            },
+            "ties pass + empty error file + satisfied-at-HEAD together in one sentence"(template) {
+                Assert.ok(template.includes("pass the task — creating your per-reviewer `error.log` empty as your final act — when every acceptance criterion is satisfied at `HEAD`"));
             },
             "states a passing verdict creates the per-reviewer error file empty"(template) {
                 Assert.ok(template.includes("creating your per-reviewer `error.log` empty as your final act"));
@@ -1018,6 +1039,45 @@ test.describe("prompts – reviewer – empty change set judged against HEAD", t
             },
             "cites the empty-change-set rule"(template) {
                 Assert.ok(template.includes("rules/ai/agents/reviewer-empty-change-set-judged-against-head.md"));
+            }
+        }
+    });
+
+    test("the new guidance lives inside the 'Determining the worker's change set' section", {
+        ARRANGE() {},
+        ACT() {
+            const heading = "## Determining the worker's change set";
+            const start = prompts.reviewer.indexOf(heading);
+            const end = prompts.reviewer.indexOf("\n\n## ", start + heading.length);
+            return prompts.reviewer.substring(start, end);
+        },
+        ASSERTS: {
+            "section opens with the change-set heading"(section) {
+                Assert.ok(section.startsWith("## Determining the worker's change set"));
+            },
+            "section contains the empty-change-set opener"(section) {
+                Assert.ok(section.includes("When the enumerated change set is empty"));
+            },
+            "section contains the not-on-its-own-a-failure phrase"(section) {
+                Assert.ok(section.includes("the empty change set is not, on its own, a failure"));
+            },
+            "section contains the no-sole-diff-violation sentence"(section) {
+                Assert.ok(section.includes("You must not record a violation for the sole reason that the worker produced no diff this cycle"));
+            },
+            "section contains the judge-against-HEAD instruction"(section) {
+                Assert.ok(section.includes("Judge each acceptance criterion against the committed working tree at `HEAD`"));
+            },
+            "section contains the verdict-follows-from-criteria sentence"(section) {
+                Assert.ok(section.includes("The verdict follows from the criteria, not from the diff's size"));
+            },
+            "section contains the combined pass+empty+satisfied-at-HEAD sentence"(section) {
+                Assert.ok(section.includes("pass the task — creating your per-reviewer `error.log` empty as your final act — when every acceptance criterion is satisfied at `HEAD`"));
+            },
+            "section cites the empty-change-set rule"(section) {
+                Assert.ok(section.includes("rules/ai/agents/reviewer-empty-change-set-judged-against-head.md"));
+            },
+            "section does not bleed into the next H2"(section) {
+                Assert.strictEqual(section.includes("## Available contracts"), false);
             }
         }
     });
