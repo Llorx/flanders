@@ -8,9 +8,10 @@ import type { FsContext } from "./contexts";
 
 type RmCall = { path:string; options:Readonly<{ recursive?:boolean; force?:boolean }> | undefined };
 
-function stubFs():FsContext & { rmCalls:RmCall[] } {
+function stubFs():FsContext & { rmCalls:RmCall[]; mkdtempDirs:string[]; mkdtempPrefixes:string[] } {
     const dirs:string[] = [];
     const rmCalls:RmCall[] = [];
+    const mkdtempPrefixes:string[] = [];
     return {
         readFile() { return Promise.reject(new Error("unexpected readFile")); },
         writeFile() { return Promise.resolve(); },
@@ -20,12 +21,16 @@ function stubFs():FsContext & { rmCalls:RmCall[] } {
         exists() { return Promise.resolve(false); },
         mkdir() { return Promise.resolve(); },
         mkdtemp(prefix:string) {
-            const dir = prefix + "abc123";
+            mkdtempPrefixes.push(prefix);
+            const suffix = dirs.length === 0 ? "abc123" : `rev${dirs.length}`;
+            const dir = prefix + suffix;
             dirs.push(dir);
             return Promise.resolve(dir);
         },
         rm(path:string, options?:Readonly<{ recursive?:boolean; force?:boolean }>) { rmCalls.push({ path, options }); return Promise.resolve(); },
-        rmCalls
+        rmCalls,
+        mkdtempDirs: dirs,
+        mkdtempPrefixes
     };
 }
 
@@ -43,7 +48,7 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            const paths = await ws.setup();
+            const paths = await ws.setup(0);
             return paths;
         },
         ASSERTS: {
@@ -64,7 +69,7 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            return await ws.setup();
+            return await ws.setup(0);
         },
         ASSERTS: {
             "iteration 1 path"(paths) {
@@ -81,7 +86,7 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            return await ws.setup();
+            return await ws.setup(0);
         },
         ASSERTS: {
             "iteration 1 path"(paths) {
@@ -98,7 +103,7 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            return await ws.setup();
+            return await ws.setup(0);
         },
         ASSERTS: {
             "iteration 1 path"(paths) {
@@ -110,12 +115,12 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
         }
     });
 
-    test("errorLog remains a fixed path (not per-iteration)", {
+    test("errorLog remains a fixed path inside the main root (not per-iteration)", {
         ARRANGE() {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            return await ws.setup();
+            return await ws.setup(0);
         },
         ASSERT(paths) {
             Assert.strictEqual(paths.errorLog, paths.root + "/error.log");
@@ -127,7 +132,7 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            const paths = await ws.setup();
+            const paths = await ws.setup(0);
             return { first: paths.workerLog(1), second: paths.workerLog(1) };
         },
         ASSERT({ first, second }) {
@@ -140,7 +145,7 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            return await ws.setup();
+            return await ws.setup(0);
         },
         ASSERTS: {
             "task 0 path"(paths) {
@@ -157,7 +162,7 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            const paths = await ws.setup();
+            const paths = await ws.setup(0);
             return { first: paths.prepLog(1), second: paths.prepLog(1) };
         },
         ASSERT({ first, second }) {
@@ -170,7 +175,7 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            return await ws.setup();
+            return await ws.setup(0);
         },
         ASSERT(paths) {
             const taskIndex = 1;
@@ -191,7 +196,7 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            return await ws.setup();
+            return await ws.setup(0);
         },
         ASSERT(paths) {
             const iter = 1;
@@ -210,7 +215,7 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            await ws.setup();
+            await ws.setup(0);
             return ws.paths();
         },
         ASSERTS: {
@@ -234,20 +239,22 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
 });
 
 test.describe("Workspace.preserveOnDispose", test => {
-    test("dispose without preserveOnDispose removes the root folder", {
+    test("dispose without preserveOnDispose removes the main folder (no reviewers)", {
         ARRANGE() {
             const fs = stubFs();
             const ws = new Workspace(fs, stubPlatform(false));
             return { fs, ws };
         },
         async ACT({ ws }) {
-            const paths = await ws.setup();
+            const paths = await ws.setup(0);
             await ws.dispose();
             return paths.root;
         },
         ASSERTS: {
-            "rm called with the root path"(root, { fs }) {
+            "rm called exactly once"(_root, { fs }) {
                 Assert.strictEqual(fs.rmCalls.length, 1);
+            },
+            "rm called with the main root path"(root, { fs }) {
                 Assert.strictEqual(fs.rmCalls[0]!.path, root);
             },
             "rm called with recursive and force options"(_root, { fs }) {
@@ -256,23 +263,74 @@ test.describe("Workspace.preserveOnDispose", test => {
         }
     });
 
-    test("dispose after preserveOnDispose does not remove the root folder", {
+    test("dispose without preserveOnDispose removes the main folder and every per-reviewer folder", {
+        ARRANGE() {
+            const fs = stubFs();
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { fs, ws };
+        },
+        async ACT({ ws, fs }) {
+            const paths = await ws.setup(3);
+            const reviewerErrorLogPaths = [
+                paths.reviewerErrorLog(1),
+                paths.reviewerErrorLog(2),
+                paths.reviewerErrorLog(3)
+            ];
+            const allocated = [...fs.mkdtempDirs];
+            await ws.dispose();
+            return { root: paths.root, allocated, reviewerErrorLogPaths };
+        },
+        ASSERTS: {
+            "rm called exactly four times (main + 3 reviewers)"(_, { fs }) {
+                Assert.strictEqual(fs.rmCalls.length, 4);
+            },
+            "all rm calls use recursive and force options"(_, { fs }) {
+                for (const call of fs.rmCalls) {
+                    Assert.deepStrictEqual(call.options, { recursive: true, force: true });
+                }
+            },
+            "rm called on every allocated folder (main + per-reviewer)"({ allocated }, { fs }) {
+                const removed = new Set(fs.rmCalls.map(c => c.path));
+                const expected = new Set(allocated);
+                Assert.deepStrictEqual(removed, expected);
+            },
+            "rm called exactly once per allocated folder"(_, { fs }) {
+                const counts = new Map<string, number>();
+                for (const c of fs.rmCalls) counts.set(c.path, (counts.get(c.path) ?? 0) + 1);
+                for (const count of counts.values()) {
+                    Assert.strictEqual(count, 1);
+                }
+            },
+            "per-reviewer folders are removed before the main folder"({ root }, { fs }) {
+                const mainIdx = fs.rmCalls.findIndex(c => c.path === root);
+                const reviewerIndices = fs.rmCalls
+                    .map((c, i) => ({ path: c.path, i }))
+                    .filter(e => e.path !== root)
+                    .map(e => e.i);
+                for (const ri of reviewerIndices) {
+                    Assert.ok(ri < mainIdx, `reviewer folder rm at index ${ri} should come before main rm at ${mainIdx}`);
+                }
+            }
+        }
+    });
+
+    test("dispose after preserveOnDispose does not remove the main folder nor any per-reviewer folder", {
         ARRANGE() {
             const fs = stubFs();
             const ws = new Workspace(fs, stubPlatform(false));
             return { fs, ws };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(3);
             ws.preserveOnDispose();
             await ws.dispose();
         },
         ASSERTS: {
-            "rm not called"(_result, { fs }) {
+            "rm not called at all"(_result, { fs }) {
                 Assert.deepStrictEqual(fs.rmCalls, []);
             },
             async "workspace is marked as disposed"(_result, { ws }) {
-                await Assert.rejects(() => ws.setup(), /Workspace disposed/);
+                await Assert.rejects(() => ws.setup(0), /Workspace disposed/);
             },
             "root is cleared"(_result, { ws }) {
                 Assert.throws(() => ws.paths(), /Workspace not set up/);
@@ -287,7 +345,7 @@ test.describe("Workspace.preserveOnDispose", test => {
             return { fs, ws };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(2);
             ws.preserveOnDispose();
             await ws.dispose();
             await ws.dispose();
@@ -297,25 +355,26 @@ test.describe("Workspace.preserveOnDispose", test => {
         }
     });
 
-    test("idempotent dispose without preserveOnDispose invokes rm only once", {
+    test("idempotent dispose without preserveOnDispose invokes rm exactly once per folder", {
         ARRANGE() {
             const fs = stubFs();
             const ws = new Workspace(fs, stubPlatform(false));
             return { fs, ws };
         },
         async ACT({ ws }) {
-            const paths = await ws.setup();
+            const paths = await ws.setup(2);
             await ws.dispose();
             await ws.dispose();
             return paths.root;
         },
         ASSERTS: {
-            "rm called exactly once"(root, { fs }) {
-                Assert.strictEqual(fs.rmCalls.length, 1);
-                Assert.strictEqual(fs.rmCalls[0]!.path, root);
+            "rm called exactly three times (main + 2 reviewers)"(_root, { fs }) {
+                Assert.strictEqual(fs.rmCalls.length, 3);
             },
-            "rm called with recursive and force options"(_root, { fs }) {
-                Assert.deepStrictEqual(fs.rmCalls[0]!.options, { recursive: true, force: true });
+            "every rm uses recursive and force options"(_root, { fs }) {
+                for (const call of fs.rmCalls) {
+                    Assert.deepStrictEqual(call.options, { recursive: true, force: true });
+                }
             }
         }
     });
@@ -327,14 +386,14 @@ test.describe("Workspace.preserveOnDispose", test => {
             return { fs, ws };
         },
         async ACT({ ws }) {
-            const paths = await ws.setup();
+            const paths = await ws.setup(1);
             await ws.dispose();
             ws.preserveOnDispose();
             return paths.root;
         },
         ASSERT(root, { fs }) {
-            Assert.strictEqual(fs.rmCalls.length, 1);
-            Assert.strictEqual(fs.rmCalls[0]!.path, root);
+            Assert.strictEqual(fs.rmCalls.length, 2);
+            Assert.ok(fs.rmCalls.some(c => c.path === root));
         }
     });
 });
@@ -345,10 +404,10 @@ test.describe("Workspace.setup guards", test => {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            await ws.setup();
+            await ws.setup(0);
             await ws.dispose();
             try {
-                await ws.setup();
+                await ws.setup(0);
                 return "no error";
             } catch (e) {
                 return (e as Error).message;
@@ -364,9 +423,9 @@ test.describe("Workspace.setup guards", test => {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            await ws.setup();
+            await ws.setup(0);
             try {
-                await ws.setup();
+                await ws.setup(0);
                 return "no error";
             } catch (e) {
                 return (e as Error).message;
@@ -384,7 +443,7 @@ test.describe("Workspace paths on Windows platform", test => {
             return new Workspace(stubFs(), stubPlatform(true));
         },
         async ACT(ws) {
-            return await ws.setup();
+            return await ws.setup(0);
         },
         ASSERTS: {
             "buildScript ends with build.bat"(paths) {
@@ -403,7 +462,7 @@ test.describe("Workspace.clearErrorLog", test => {
             const fs = stubFs();
             const origExists = fs.exists;
             fs.exists = (p:string) => {
-                if (p.endsWith("error.log")) {
+                if (p.endsWith("/error.log")) {
                     return Promise.resolve(true);
                 }
                 return origExists(p);
@@ -412,17 +471,17 @@ test.describe("Workspace.clearErrorLog", test => {
             return { fs, ws };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(0);
             await ws.clearErrorLog();
         },
         ASSERTS: {
             "rm called once"(_result, { fs }) {
                 Assert.strictEqual(fs.rmCalls.length, 1);
             },
-            "rm called on error.log"(_result, { fs }) {
-                Assert.ok(fs.rmCalls[0]!.path.endsWith("/error.log"));
+            "rm called on the main root error.log"(_result, { fs, ws }) {
+                Assert.strictEqual(fs.rmCalls[0]!.path, ws.paths().errorLog);
             },
-            "rm called with force option"(_result, { fs }) {
+            "rm called with force option only"(_result, { fs }) {
                 Assert.deepStrictEqual(fs.rmCalls[0]!.options, { force: true });
             }
         }
@@ -435,7 +494,7 @@ test.describe("Workspace.clearErrorLog", test => {
             return { fs, ws };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(0);
             await ws.clearErrorLog();
         },
         ASSERT(_result, { fs }) {
@@ -448,12 +507,12 @@ test.describe("Workspace.errorLogExists", test => {
     test("returns true when error.log exists", {
         ARRANGE() {
             const fs = stubFs();
-            fs.exists = (p:string) => Promise.resolve(p.endsWith("error.log"));
+            fs.exists = (p:string) => Promise.resolve(p.endsWith("/error.log"));
             const ws = new Workspace(fs, stubPlatform(false));
             return { ws };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(0);
             return await ws.errorLogExists();
         },
         ASSERT(result) {
@@ -468,7 +527,7 @@ test.describe("Workspace.errorLogExists", test => {
             return { ws };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(0);
             return await ws.errorLogExists();
         },
         ASSERT(result) {
@@ -504,16 +563,16 @@ test.describe("Workspace.writeErrorLog", test => {
             return { ws, written };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(0);
             await ws.writeErrorLog("something went wrong");
         },
         ASSERTS: {
             "writes exactly one file"(_, { written }) {
                 Assert.strictEqual(Object.keys(written).length, 1);
             },
-            "written path ends with error.log"(_, { written }) {
+            "written path is the main root error.log"(_, { written, ws }) {
                 const key = Object.keys(written)[0]!;
-                Assert.ok(key.endsWith("/error.log"));
+                Assert.strictEqual(key, ws.paths().errorLog);
             },
             "written content matches input"(_, { written }) {
                 const content = Object.values(written)[0]!;
@@ -523,39 +582,180 @@ test.describe("Workspace.writeErrorLog", test => {
     });
 });
 
-test.describe("WorkspacePaths per-reviewer paths", test => {
-    test("reviewerErrorLog returns error.<index>.log for the 1-based reviewer index", {
+test.describe("Workspace setup allocates one independent folder per reviewer", test => {
+    test("setup(0) allocates only the main folder (no per-reviewer folders)", {
         ARRANGE() {
-            return new Workspace(stubFs(), stubPlatform(false));
+            const fs = stubFs();
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { fs, ws };
         },
-        async ACT(ws) {
-            return await ws.setup();
+        async ACT({ ws }) {
+            return await ws.setup(0);
         },
         ASSERTS: {
-            "reviewer 1 path"(paths) {
-                Assert.strictEqual(paths.reviewerErrorLog(1), paths.root + "/error.1.log");
+            "mkdtemp called exactly once"(_paths, { fs }) {
+                Assert.strictEqual(fs.mkdtempDirs.length, 1);
             },
-            "reviewer 2 path"(paths) {
-                Assert.strictEqual(paths.reviewerErrorLog(2), paths.root + "/error.2.log");
-            },
-            "reviewer 7 path"(paths) {
-                Assert.strictEqual(paths.reviewerErrorLog(7), paths.root + "/error.7.log");
-            },
-            "different indices produce different paths"(paths) {
-                Assert.notStrictEqual(paths.reviewerErrorLog(1), paths.reviewerErrorLog(2));
-            },
-            "differs from the aggregate error.log path"(paths) {
-                Assert.notStrictEqual(paths.reviewerErrorLog(1), paths.errorLog);
+            "the single allocated folder is paths.root"(paths, { fs }) {
+                Assert.strictEqual(fs.mkdtempDirs[0], paths.root);
             }
         }
     });
 
-    test("reviewerOutputLog returns reviewer.<iter>.<index>.log for the iteration and 1-based reviewer index", {
+    test("setup(N) allocates exactly N+1 folders (1 main + N per-reviewer)", {
+        ARRANGE() {
+            const fs = stubFs();
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { fs, ws };
+        },
+        async ACT({ ws }) {
+            return await ws.setup(3);
+        },
+        ASSERTS: {
+            "mkdtemp called exactly four times"(_paths, { fs }) {
+                Assert.strictEqual(fs.mkdtempDirs.length, 4);
+            },
+            "every mkdtemp call uses the same flanders- prefix"(_paths, { fs }) {
+                const expected = "/tmp/flanders-";
+                Assert.deepStrictEqual(fs.mkdtempPrefixes, [expected, expected, expected, expected]);
+            },
+            "all allocated paths are distinct"(_paths, { fs }) {
+                Assert.strictEqual(new Set(fs.mkdtempDirs).size, fs.mkdtempDirs.length);
+            },
+            "the first allocated folder is paths.root"(paths, { fs }) {
+                Assert.strictEqual(fs.mkdtempDirs[0], paths.root);
+            }
+        }
+    });
+
+    test("reviewerErrorLog(i) returns error.log inside the i-th reviewer's own folder", {
+        ARRANGE() {
+            const fs = stubFs();
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { fs, ws };
+        },
+        async ACT({ ws }) {
+            const paths = await ws.setup(3);
+            return paths;
+        },
+        ASSERTS: {
+            "reviewer 1 error.log lives inside the 2nd allocated folder"(paths, { fs }) {
+                Assert.strictEqual(paths.reviewerErrorLog(1), fs.mkdtempDirs[1] + "/error.log");
+            },
+            "reviewer 2 error.log lives inside the 3rd allocated folder"(paths, { fs }) {
+                Assert.strictEqual(paths.reviewerErrorLog(2), fs.mkdtempDirs[2] + "/error.log");
+            },
+            "reviewer 3 error.log lives inside the 4th allocated folder"(paths, { fs }) {
+                Assert.strictEqual(paths.reviewerErrorLog(3), fs.mkdtempDirs[3] + "/error.log");
+            },
+            "reviewer 1 error.log basename is exactly error.log"(paths) {
+                Assert.ok(paths.reviewerErrorLog(1).endsWith("/error.log"));
+            },
+            "reviewer 1 error.log is NOT a subpath of the main root"(paths) {
+                Assert.ok(!paths.reviewerErrorLog(1).startsWith(paths.root + "/"));
+            },
+            "reviewer 2 error.log is NOT a subpath of the main root"(paths) {
+                Assert.ok(!paths.reviewerErrorLog(2).startsWith(paths.root + "/"));
+            },
+            "reviewer 3 error.log is NOT a subpath of the main root"(paths) {
+                Assert.ok(!paths.reviewerErrorLog(3).startsWith(paths.root + "/"));
+            },
+            "different reviewer indices produce distinct paths"(paths) {
+                const set = new Set([
+                    paths.reviewerErrorLog(1),
+                    paths.reviewerErrorLog(2),
+                    paths.reviewerErrorLog(3)
+                ]);
+                Assert.strictEqual(set.size, 3);
+            },
+            "reviewer 1 error.log differs from the briefing errorLog"(paths) {
+                Assert.notStrictEqual(paths.reviewerErrorLog(1), paths.errorLog);
+            },
+            "no two reviewer folders are nested within each other"(paths) {
+                const stripTail = (p:string) => p.slice(0, -"/error.log".length);
+                const dir1 = stripTail(paths.reviewerErrorLog(1));
+                const dir2 = stripTail(paths.reviewerErrorLog(2));
+                const dir3 = stripTail(paths.reviewerErrorLog(3));
+                Assert.ok(!dir1.startsWith(dir2 + "/") && !dir2.startsWith(dir1 + "/"));
+                Assert.ok(!dir1.startsWith(dir3 + "/") && !dir3.startsWith(dir1 + "/"));
+                Assert.ok(!dir2.startsWith(dir3 + "/") && !dir3.startsWith(dir2 + "/"));
+            }
+        }
+    });
+
+    test("the main root no longer holds any per-reviewer verdict file", {
+        ARRANGE() {
+            const fs = stubFs();
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { fs, ws };
+        },
+        async ACT({ ws }) {
+            return await ws.setup(2);
+        },
+        ASSERTS: {
+            "reviewer 1 path does not start with the main root"(paths) {
+                Assert.ok(!paths.reviewerErrorLog(1).startsWith(paths.root + "/"));
+            },
+            "reviewer 2 path does not start with the main root"(paths) {
+                Assert.ok(!paths.reviewerErrorLog(2).startsWith(paths.root + "/"));
+            },
+            "reviewer 1 filename is exactly error.log (no per-index variant)"(paths) {
+                const parts = paths.reviewerErrorLog(1).split("/");
+                Assert.strictEqual(parts[parts.length - 1], "error.log");
+            },
+            "reviewer 2 filename is exactly error.log (no per-index variant)"(paths) {
+                const parts = paths.reviewerErrorLog(2).split("/");
+                Assert.strictEqual(parts[parts.length - 1], "error.log");
+            }
+        }
+    });
+
+    test("scripts, errorLog and per-iteration logs still resolve inside the main root", {
+        ARRANGE() {
+            const fs = stubFs();
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { fs, ws };
+        },
+        async ACT({ ws }) {
+            return await ws.setup(2);
+        },
+        ASSERTS: {
+            "buildScript is inside main root"(paths) {
+                Assert.strictEqual(paths.buildScript, paths.root + "/build.sh");
+            },
+            "testScript is inside main root"(paths) {
+                Assert.strictEqual(paths.testScript, paths.root + "/test.sh");
+            },
+            "errorLog is inside main root"(paths) {
+                Assert.strictEqual(paths.errorLog, paths.root + "/error.log");
+            },
+            "prepLog is inside main root"(paths) {
+                Assert.strictEqual(paths.prepLog(0), paths.root + "/prep.0.log");
+            },
+            "workerLog is inside main root"(paths) {
+                Assert.strictEqual(paths.workerLog(1), paths.root + "/worker.1.log");
+            },
+            "buildLog is inside main root"(paths) {
+                Assert.strictEqual(paths.buildLog(1), paths.root + "/build.1.log");
+            },
+            "testLog is inside main root"(paths) {
+                Assert.strictEqual(paths.testLog(1), paths.root + "/test.1.log");
+            },
+            "reviewerLog is inside main root"(paths) {
+                Assert.strictEqual(paths.reviewerLog(1), paths.root + "/reviewer.1.log");
+            },
+            "reviewerOutputLog is inside main root"(paths) {
+                Assert.strictEqual(paths.reviewerOutputLog(1, 1), paths.root + "/reviewer.1.1.log");
+            }
+        }
+    });
+
+    test("reviewerOutputLog returns reviewer.<iter>.<index>.log inside the main root", {
         ARRANGE() {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            return await ws.setup();
+            return await ws.setup(4);
         },
         ASSERTS: {
             "iter 1 reviewer 1 path"(paths) {
@@ -582,17 +782,19 @@ test.describe("WorkspacePaths per-reviewer paths", test => {
         }
     });
 
-    test("paths() also exposes the new per-reviewer methods", {
+    test("paths() exposes both per-reviewer error.log and reviewer output log methods", {
         ARRANGE() {
-            return new Workspace(stubFs(), stubPlatform(false));
+            const fs = stubFs();
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { fs, ws };
         },
-        async ACT(ws) {
-            await ws.setup();
+        async ACT({ ws }) {
+            await ws.setup(3);
             return ws.paths();
         },
         ASSERTS: {
-            "reviewerErrorLog path"(paths) {
-                Assert.strictEqual(paths.reviewerErrorLog(3), paths.root + "/error.3.log");
+            "reviewerErrorLog path matches the third reviewer's folder"(paths, { fs }) {
+                Assert.strictEqual(paths.reviewerErrorLog(3), fs.mkdtempDirs[3] + "/error.log");
             },
             "reviewerOutputLog path"(paths) {
                 Assert.strictEqual(paths.reviewerOutputLog(4, 2), paths.root + "/reviewer.4.2.log");
@@ -600,12 +802,12 @@ test.describe("WorkspacePaths per-reviewer paths", test => {
         }
     });
 
-    test("per-reviewer paths are stable across multiple calls", {
+    test("per-reviewer paths are stable across multiple paths() / setup result calls", {
         ARRANGE() {
             return new Workspace(stubFs(), stubPlatform(false));
         },
         async ACT(ws) {
-            const paths = await ws.setup();
+            const paths = await ws.setup(3);
             return {
                 errA: paths.reviewerErrorLog(2),
                 errB: paths.reviewerErrorLog(2),
@@ -625,53 +827,58 @@ test.describe("WorkspacePaths per-reviewer paths", test => {
 });
 
 test.describe("Workspace.reviewerErrorLogExists", test => {
-    test("returns true when the indexed error file exists", {
+    test("returns true when the per-reviewer error.log exists", {
         ARRANGE() {
             const fs = stubFs();
             const existsCalls:string[] = [];
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { fs, ws, existsCalls };
+        },
+        async ACT({ fs, ws, existsCalls }) {
+            await ws.setup(3);
+            const target = ws.paths().reviewerErrorLog(2);
             fs.exists = (p:string) => {
                 existsCalls.push(p);
-                return Promise.resolve(p.endsWith("/error.2.log"));
+                return Promise.resolve(p === target);
             };
-            const ws = new Workspace(fs, stubPlatform(false));
-            return { ws, existsCalls };
-        },
-        async ACT({ ws }) {
-            await ws.setup();
             return await ws.reviewerErrorLogExists(2);
         },
         ASSERTS: {
             "resolves true"(result) {
                 Assert.strictEqual(result, true);
             },
-            "exists called once on the indexed error.<index>.log path"(_result, { existsCalls, ws }) {
+            "exists called once"(_result, { existsCalls }) {
                 Assert.strictEqual(existsCalls.length, 1);
+            },
+            "exists called on reviewer 2's error.log inside its own folder"(_result, { existsCalls, ws }) {
                 Assert.strictEqual(existsCalls[0], ws.paths().reviewerErrorLog(2));
             }
         }
     });
 
-    test("returns false when the indexed error file does not exist", {
+    test("returns false when the per-reviewer error.log does not exist", {
         ARRANGE() {
             const fs = stubFs();
             const existsCalls:string[] = [];
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { fs, ws, existsCalls };
+        },
+        async ACT({ fs, ws, existsCalls }) {
+            await ws.setup(3);
             fs.exists = (p:string) => {
                 existsCalls.push(p);
                 return Promise.resolve(false);
             };
-            const ws = new Workspace(fs, stubPlatform(false));
-            return { ws, existsCalls };
-        },
-        async ACT({ ws }) {
-            await ws.setup();
             return await ws.reviewerErrorLogExists(3);
         },
         ASSERTS: {
             "resolves false"(result) {
                 Assert.strictEqual(result, false);
             },
-            "exists called once on the indexed error.<index>.log path"(_result, { existsCalls, ws }) {
+            "exists called once"(_result, { existsCalls }) {
                 Assert.strictEqual(existsCalls.length, 1);
+            },
+            "exists called on reviewer 3's error.log inside its own folder"(_result, { existsCalls, ws }) {
                 Assert.strictEqual(existsCalls[0], ws.paths().reviewerErrorLog(3));
             }
         }
@@ -696,7 +903,7 @@ test.describe("Workspace.reviewerErrorLogExists", test => {
 });
 
 test.describe("Workspace.readReviewerErrorLog", test => {
-    test("returns empty string when the indexed error file does not exist", {
+    test("returns empty string when the per-reviewer error.log does not exist", {
         ARRANGE() {
             const fs = stubFs();
             const readFileCalls:string[] = [];
@@ -706,7 +913,7 @@ test.describe("Workspace.readReviewerErrorLog", test => {
             return { ws, readFileCalls };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(1);
             return await ws.readReviewerErrorLog(1);
         },
         ASSERTS: {
@@ -719,41 +926,45 @@ test.describe("Workspace.readReviewerErrorLog", test => {
         }
     });
 
-    test("returns exact file contents when the indexed error file exists with content", {
+    test("returns exact file contents when the per-reviewer error.log exists with content", {
         ARRANGE() {
             const fs = stubFs();
             const content = "violation X\nviolation Y\n";
             const readFileCalls:string[] = [];
-            fs.exists = (p:string) => Promise.resolve(p.endsWith("/error.2.log"));
-            fs.readFile = (p:string) => { readFileCalls.push(p); return Promise.resolve(content); };
             const ws = new Workspace(fs, stubPlatform(false));
-            return { ws, content, readFileCalls };
+            return { fs, ws, content, readFileCalls };
         },
-        async ACT({ ws }) {
-            await ws.setup();
+        async ACT({ fs, ws, content, readFileCalls }) {
+            await ws.setup(3);
+            const target = ws.paths().reviewerErrorLog(2);
+            fs.exists = (p:string) => Promise.resolve(p === target);
+            fs.readFile = (p:string) => { readFileCalls.push(p); return Promise.resolve(content); };
             return await ws.readReviewerErrorLog(2);
         },
         ASSERTS: {
             "resolves to the exact file content including trailing whitespace"(result, { content }) {
                 Assert.strictEqual(result, content);
             },
-            "calls readFile exactly once on the indexed error.<index>.log path"(_result, { readFileCalls, ws }) {
+            "calls readFile exactly once"(_result, { readFileCalls }) {
                 Assert.strictEqual(readFileCalls.length, 1);
+            },
+            "readFile called on reviewer 2's error.log inside its own folder"(_result, { readFileCalls, ws }) {
                 Assert.strictEqual(readFileCalls[0], ws.paths().reviewerErrorLog(2));
             }
         }
     });
 
-    test("returns empty string when the indexed error file exists with empty content", {
+    test("returns empty string when the per-reviewer error.log exists but is empty", {
         ARRANGE() {
             const fs = stubFs();
-            fs.exists = (p:string) => Promise.resolve(p.endsWith("/error.1.log"));
-            fs.readFile = () => Promise.resolve("");
             const ws = new Workspace(fs, stubPlatform(false));
-            return { ws };
+            return { fs, ws };
         },
-        async ACT({ ws }) {
-            await ws.setup();
+        async ACT({ fs, ws }) {
+            await ws.setup(1);
+            const target = ws.paths().reviewerErrorLog(1);
+            fs.exists = (p:string) => Promise.resolve(p === target);
+            fs.readFile = () => Promise.resolve("");
             return await ws.readReviewerErrorLog(1);
         },
         ASSERT(result) {
@@ -764,13 +975,14 @@ test.describe("Workspace.readReviewerErrorLog", test => {
     test("propagates readFile rejection", {
         ARRANGE() {
             const fs = stubFs();
-            fs.exists = (p:string) => Promise.resolve(p.endsWith("/error.1.log"));
-            fs.readFile = () => Promise.reject(new Error("disk read failed"));
             const ws = new Workspace(fs, stubPlatform(false));
-            return { ws };
+            return { fs, ws };
         },
-        async ACT({ ws }) {
-            await ws.setup();
+        async ACT({ fs, ws }) {
+            await ws.setup(1);
+            const target = ws.paths().reviewerErrorLog(1);
+            fs.exists = (p:string) => Promise.resolve(p === target);
+            fs.readFile = () => Promise.reject(new Error("disk read failed"));
             try {
                 await ws.readReviewerErrorLog(1);
                 return "no error";
@@ -802,38 +1014,43 @@ test.describe("Workspace.readReviewerErrorLog", test => {
 });
 
 test.describe("Workspace.clearReviewerErrorLog", test => {
-    test("calls rm with force when the indexed error file exists", {
+    test("calls rm with force on the per-reviewer error.log when present, leaving the folder", {
         ARRANGE() {
             const fs = stubFs();
-            fs.exists = (p:string) => Promise.resolve(p.endsWith("/error.3.log"));
             const ws = new Workspace(fs, stubPlatform(false));
             return { fs, ws };
         },
-        async ACT({ ws }) {
-            await ws.setup();
+        async ACT({ fs, ws }) {
+            await ws.setup(3);
+            const target = ws.paths().reviewerErrorLog(3);
+            fs.exists = (p:string) => Promise.resolve(p === target);
             await ws.clearReviewerErrorLog(3);
+            return { target, reviewerFolder: target.slice(0, -"/error.log".length) };
         },
         ASSERTS: {
-            "rm called once"(_result, { fs }) {
+            "rm called exactly once"(_result, { fs }) {
                 Assert.strictEqual(fs.rmCalls.length, 1);
             },
-            "rm called on the indexed error.<index>.log path"(_result, { fs, ws }) {
-                Assert.strictEqual(fs.rmCalls[0]!.path, ws.paths().reviewerErrorLog(3));
+            "rm called on reviewer 3's error.log (the file, not the folder)"({ target }, { fs }) {
+                Assert.strictEqual(fs.rmCalls[0]!.path, target);
             },
-            "rm called with force option"(_result, { fs }) {
+            "rm options pin force only (not recursive — file, not folder)"(_result, { fs }) {
                 Assert.deepStrictEqual(fs.rmCalls[0]!.options, { force: true });
+            },
+            "rm is not called on the reviewer's folder itself"({ reviewerFolder }, { fs }) {
+                Assert.ok(!fs.rmCalls.some(c => c.path === reviewerFolder));
             }
         }
     });
 
-    test("does not call rm when the indexed error file does not exist", {
+    test("does not call rm when the per-reviewer error.log does not exist", {
         ARRANGE() {
             const fs = stubFs();
             const ws = new Workspace(fs, stubPlatform(false));
             return { fs, ws };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(1);
             await ws.clearReviewerErrorLog(1);
         },
         ASSERT(_result, { fs }) {
@@ -870,7 +1087,7 @@ test.describe("Workspace.readErrorLog", test => {
             return { ws, readFileCalls };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(0);
             return await ws.readErrorLog();
         },
         ASSERTS: {
@@ -888,13 +1105,13 @@ test.describe("Workspace.readErrorLog", test => {
             const fs = stubFs();
             const content = "violation A\nviolation B\n";
             const readFileCalls:string[] = [];
-            fs.exists = (p:string) => Promise.resolve(p.endsWith("error.log"));
+            fs.exists = (p:string) => Promise.resolve(p.endsWith("/error.log"));
             fs.readFile = (p:string) => { readFileCalls.push(p); return Promise.resolve(content); };
             const ws = new Workspace(fs, stubPlatform(false));
             return { ws, content, readFileCalls };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(0);
             return await ws.readErrorLog();
         },
         ASSERTS: {
@@ -928,13 +1145,13 @@ test.describe("Workspace.readErrorLog", test => {
     test("propagates readFile rejection", {
         ARRANGE() {
             const fs = stubFs();
-            fs.exists = (p:string) => Promise.resolve(p.endsWith("error.log"));
+            fs.exists = (p:string) => Promise.resolve(p.endsWith("/error.log"));
             fs.readFile = () => Promise.reject(new Error("disk read failed"));
             const ws = new Workspace(fs, stubPlatform(false));
             return { ws };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(0);
             try {
                 await ws.readErrorLog();
                 return "no error";
@@ -950,13 +1167,13 @@ test.describe("Workspace.readErrorLog", test => {
     test("returns empty string when error.log exists with empty content", {
         ARRANGE() {
             const fs = stubFs();
-            fs.exists = (p:string) => Promise.resolve(p.endsWith("error.log"));
+            fs.exists = (p:string) => Promise.resolve(p.endsWith("/error.log"));
             fs.readFile = () => Promise.resolve("");
             const ws = new Workspace(fs, stubPlatform(false));
             return { ws };
         },
         async ACT({ ws }) {
-            await ws.setup();
+            await ws.setup(0);
             return await ws.readErrorLog();
         },
         ASSERT(result) {
@@ -966,7 +1183,7 @@ test.describe("Workspace.readErrorLog", test => {
 });
 
 test.describe("Workspace.dispose rm failure", test => {
-    test("rm throwing during dispose does not propagate the error", {
+    test("rm throwing during dispose does not propagate the error (main folder only)", {
         ARRANGE() {
             const fs = stubFs();
             fs.rm = () => Promise.reject(new Error("disk failure"));
@@ -974,7 +1191,24 @@ test.describe("Workspace.dispose rm failure", test => {
             return ws;
         },
         async ACT(ws) {
-            await ws.setup();
+            await ws.setup(0);
+            await ws.dispose();
+            return "no error";
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "no error");
+        }
+    });
+
+    test("rm throwing during dispose does not propagate the error (with per-reviewer folders)", {
+        ARRANGE() {
+            const fs = stubFs();
+            fs.rm = () => Promise.reject(new Error("disk failure"));
+            const ws = new Workspace(fs, stubPlatform(false));
+            return ws;
+        },
+        async ACT(ws) {
+            await ws.setup(2);
             await ws.dispose();
             return "no error";
         },

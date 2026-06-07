@@ -89,6 +89,7 @@ function stubContexts() {
     const rmCalls:string[] = [];
     const written:string[] = [];
     const errors:string[] = [];
+    const mkdtempState = { count: 0 };
 
     const claudeQueue:ClaudeResponse[] = [];
     const codexQueue:CodexResponse[] = [];
@@ -120,8 +121,7 @@ function stubContexts() {
                         proc.$emit("error", new Error("spawn error"));
                     } else {
                         if (response.errorLog !== undefined) {
-                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            const target = targetErrorLogFromPrompt(capturedPrompt);
                             files.set(target, response.errorLog);
                         }
                         if (response.stderr) {
@@ -155,8 +155,7 @@ function stubContexts() {
                             proc.$emit("error", new Error("spawn error"));
                         } else {
                             if (response.errorLog !== undefined) {
-                                const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                                const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                                const target = targetErrorLogFromPrompt(capturedPrompt);
                                 files.set(target, response.errorLog);
                             }
                             proc.$emitStdout(codexResultEvents(response.text, response.sessionId));
@@ -193,7 +192,11 @@ function stubContexts() {
             },
             exists(p) { return Promise.resolve(files.has(p)); },
             mkdir() { return Promise.resolve(); },
-            mkdtemp(prefix) { return Promise.resolve(prefix + "ws123"); },
+            mkdtemp(prefix) {
+                mkdtempState.count++;
+                if (mkdtempState.count === 1) return Promise.resolve(prefix + "ws123");
+                return Promise.resolve(prefix + `rev${mkdtempState.count - 1}`);
+            },
             rm(p:string) { rmCalls.push(p); files.delete(p); return Promise.resolve(); }
         },
         time: {
@@ -222,6 +225,12 @@ function stubContexts() {
 const PLAN_PATH = "/project/plans/test.md";
 const PLAN_ONE_TASK = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Implement feature A\n';
 const WS_ROOT = "/tmp/flanders-ws123";
+function reviewerRoot(n:number):string { return `/tmp/flanders-rev${n}`; }
+function reviewerErrorLogPath(n:number):string { return `${reviewerRoot(n)}/error.log`; }
+function targetErrorLogFromPrompt(capturedPrompt:string):string {
+    const m = capturedPrompt.match(/(\/tmp\/flanders-rev\d+)\/error\.log/);
+    return m ? `${m[1]}/error.log` : `${WS_ROOT}/error.log`;
+}
 const PREP_RESPONSE:ClaudeResponse = { text: "READY", sessionId: "prep-session" };
 const DEFAULT_CONFIG:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
 const CONFIG_PATH = "/project/.flanders/config.json";
@@ -1413,8 +1422,7 @@ function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
             }
             setImmediate(() => {
                 if (response.errorLog !== undefined) {
-                    const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                    const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                    const target = targetErrorLogFromPrompt(capturedPrompt);
                     s.files.set(target, response.errorLog);
                 }
                 if (response.stderr) {
@@ -1905,8 +1913,7 @@ test.describe("Implement per-task token and time metrics", test => {
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
                         if (response.errorLog !== undefined) {
-                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            const target = targetErrorLogFromPrompt(capturedPrompt);
                             s.files.set(target, response.errorLog);
                         }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
@@ -2034,8 +2041,7 @@ test.describe("Implement per-task token and time metrics", test => {
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
                         if (response.errorLog !== undefined) {
-                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            const target = targetErrorLogFromPrompt(capturedPrompt);
                             s.files.set(target, response.errorLog);
                         }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
@@ -2103,8 +2109,7 @@ test.describe("Implement per-task token and time metrics", test => {
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
                         if (response.errorLog !== undefined) {
-                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            const target = targetErrorLogFromPrompt(capturedPrompt);
                             s.files.set(target, response.errorLog);
                         }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
@@ -2335,8 +2340,7 @@ test.describe("Implement per-task token and time metrics", test => {
                 if (spawnCount === 4) {
                     new Promise<void>(r => { releaseReviewer = r; }).then(() => {
                         setImmediate(() => {
-                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            const target = targetErrorLogFromPrompt(capturedPrompt);
                             s.files.set(target, "");
                             proc.$emitStdout(claudeResultEvents("PASS", 800, 300));
                             proc.$emit("exit", 0);
@@ -2346,8 +2350,7 @@ test.describe("Implement per-task token and time metrics", test => {
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
                         if (response.errorLog !== undefined) {
-                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            const target = targetErrorLogFromPrompt(capturedPrompt);
                             s.files.set(target, response.errorLog);
                         }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
@@ -5046,8 +5049,8 @@ test.describe("Implement error.log verdict protocol", test => {
             "aggregate error.log is absent (deleted before, never rewritten on pass)"(_code, { files }) {
                 Assert.strictEqual(files.has(WS_ROOT + "/error.log"), false);
             },
-            "per-reviewer error.1.log is empty (reviewer reported clean)"(_code, { files }) {
-                Assert.strictEqual(files.get(WS_ROOT + "/error.1.log")!, "");
+            "per-reviewer error.log (in reviewer 1's own folder) is empty (reviewer reported clean)"(_code, { files }) {
+                Assert.strictEqual(files.get(reviewerErrorLogPath(1))!, "");
             },
             "reviewer.1.1.log contains Verdict: PASS"(_code, { files }) {
                 const rev1 = files.get(WS_ROOT + "/reviewer.1.1.log")!;
@@ -5170,9 +5173,9 @@ test.describe("Implement error.log verdict protocol", test => {
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "reviewer prompt contains hydrated per-reviewer error.<n>.log path"({ promptQueue }) {
+            "reviewer prompt contains hydrated per-reviewer error.log path inside the reviewer's own folder"({ promptQueue }) {
                 const reviewerPrompt = promptQueue[3]!;
-                Assert.ok(reviewerPrompt.includes(WS_ROOT + "/error.1.log"));
+                Assert.ok(reviewerPrompt.includes(reviewerErrorLogPath(1)));
             },
             "placeholder is fully replaced"({ promptQueue }) {
                 const reviewerPrompt = promptQueue[3]!;
@@ -6948,12 +6951,12 @@ test.describe("Implement multiple parallel reviewers", test => {
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "reviewer 1 prompt references error.1.log"({ promptQueue }) {
+            "reviewer 1 prompt references reviewer 1's own per-reviewer-folder error.log"({ promptQueue }) {
                 // promptQueue: [0]=detect, [1]=prep, [2]=worker, [3]=reviewer-claude, [4]=reviewer-codex
-                Assert.ok(promptQueue[3]!.includes("/error.1.log"));
+                Assert.ok(promptQueue[3]!.includes(reviewerErrorLogPath(1)));
             },
-            "reviewer 2 prompt references error.2.log"({ promptQueue }) {
-                Assert.ok(promptQueue[4]!.includes("/error.2.log"));
+            "reviewer 2 prompt references reviewer 2's own per-reviewer-folder error.log"({ promptQueue }) {
+                Assert.ok(promptQueue[4]!.includes(reviewerErrorLogPath(2)));
             },
             "branch A: claude reviewer args[0] is --resume"({ claudeSpawnedArgs }) {
                 // claudeSpawnedArgs: [0]=detect, [1]=prep, [2]=worker, [3]=reviewer-claude
@@ -7174,7 +7177,7 @@ test.describe("Implement multiple parallel reviewers", test => {
         }
     });
 
-    test("absent per-reviewer error.<n>.log relaunches only that reviewer", {
+    test("absent per-reviewer error.log relaunches only that reviewer", {
         ARRANGE() {
             const s = stubContexts();
             const config:FlandersConfig = {
@@ -7189,11 +7192,11 @@ test.describe("Implement multiple parallel reviewers", test => {
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker done" });
-            // reviewer 1: writes error.1.log (PASS)
+            // reviewer 1: writes its per-reviewer-folder error.log (PASS)
             s.claudeQueue.push({ text: "reviewer 1 ok", errorLog: "" });
             // reviewer 2: does NOT write its file (absent) — must relaunch
             s.claudeQueue.push({ text: "reviewer 2 no verdict" });
-            // reviewer 2 relaunch: writes error.2.log (PASS)
+            // reviewer 2 relaunch: writes its per-reviewer-folder error.log (PASS)
             s.claudeQueue.push({ text: "reviewer 2 ok", errorLog: "" });
             return s;
         },
@@ -7314,8 +7317,7 @@ test.describe("Implement multiple parallel reviewers", test => {
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
                         if (response.errorLog !== undefined) {
-                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            const target = targetErrorLogFromPrompt(capturedPrompt);
                             s.files.set(target, response.errorLog);
                         }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
@@ -7506,8 +7508,7 @@ test.describe("Implement multiple parallel reviewers", test => {
                     const response = s.claudeQueue.shift()!;
                     setImmediate(() => {
                         if (response.errorLog !== undefined) {
-                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                            const target = targetErrorLogFromPrompt(capturedPrompt);
                             s.files.set(target, response.errorLog);
                         }
                         proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
@@ -7590,16 +7591,17 @@ test.describe("Implement multiple parallel reviewers", test => {
                     write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; s.promptQueue.push(p.message.content); } } catch {} },
                     end() { origStdin.end(); }
                 };
-                // The reviewer 2 prompt is the only one whose error log placeholder is `error.2.log`.
-                // For that prompt we hold the spawn open until the test fires the gate. Every other
-                // spawn (detect, prep, worker, reviewer 1) completes immediately.
+                // The reviewer 2 prompt is the only one whose error log placeholder lives in
+                // reviewer 2's own per-reviewer folder. For that prompt we hold the spawn open
+                // until the test fires the gate. Every other spawn (detect, prep, worker,
+                // reviewer 1) completes immediately.
                 setImmediate(() => {
-                    const promptIsReviewer2 = capturedPrompt.includes("/error.2.log");
+                    const promptIsReviewer2 = capturedPrompt.includes(reviewerErrorLogPath(2));
                     if (promptIsReviewer2) {
                         // Hold reviewer 2 in flight until the test releases the gate.
                         reviewer2HeldGate.then(() => {
-                            // After release, reviewer 2 produces an empty error.2.log and exits.
-                            s.files.set(WS_ROOT + "/error.2.log", "");
+                            // After release, reviewer 2 produces an empty per-reviewer error.log and exits.
+                            s.files.set(reviewerErrorLogPath(2), "");
                             proc.$emitStdout(claudeResultEvents("rev2 ok"));
                             proc.$emit("exit", 0);
                         });
@@ -7607,8 +7609,7 @@ test.describe("Implement multiple parallel reviewers", test => {
                     }
                     const response = s.claudeQueue.shift()!;
                     if (response.errorLog !== undefined) {
-                        const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                        const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
+                        const target = targetErrorLogFromPrompt(capturedPrompt);
                         s.files.set(target, response.errorLog);
                     }
                     proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));

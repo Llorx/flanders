@@ -199,7 +199,7 @@ export class Implement {
             const ruleFiles = await listFilesRecursive(this._contexts.fs, joinPath(this._options.projectRoot, "rules"));
             this._ruleList = ruleFiles.map(f => `rules/${f}`);
             this._workspace = new Workspace(this._contexts.fs, this._contexts.platform);
-            const wsPaths = await this._workspace.setup();
+            const wsPaths = await this._workspace.setup(this._config.reviewers.length);
             await this._detectBuildAndTest(wsPaths);
             /* coverage ignore next 4 */ // — Defensive: disposed guard between async operations.
             if (this._disposed) {

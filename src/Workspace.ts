@@ -25,6 +25,7 @@ export class Workspace {
     private _disposed = false;
     private _preserve = false;
     private _root:string|null = null;
+    private _reviewerRoots:string[] = [];
     constructor(
         private _fs:FsContext,
         private _platform:PlatformContext
@@ -33,7 +34,7 @@ export class Workspace {
         if (this._disposed) return;
         this._preserve = true;
     }
-    async setup():Promise<WorkspacePaths> {
+    async setup(reviewerCount:number):Promise<WorkspacePaths> {
         if (this._disposed) {
             throw new Error("Workspace disposed");
         }
@@ -42,15 +43,19 @@ export class Workspace {
         }
         const prefix = joinPath(this._platform.tmpdir(), "flanders-");
         this._root = await this._fs.mkdtemp(prefix);
-        return this._paths(this._root);
+        for (let i = 0; i < reviewerCount; i++) {
+            const dir = await this._fs.mkdtemp(prefix);
+            this._reviewerRoots.push(dir);
+        }
+        return this._paths(this._root, this._reviewerRoots);
     }
     paths():WorkspacePaths {
         if (!this._root) {
             throw new Error("Workspace not set up");
         }
-        return this._paths(this._root);
+        return this._paths(this._root, this._reviewerRoots);
     }
-    private _paths(root:string):WorkspacePaths {
+    private _paths(root:string, reviewerRoots:readonly string[]):WorkspacePaths {
         const isWindows = this._platform.isWindows();
         return {
             root,
@@ -63,7 +68,7 @@ export class Workspace {
             testLog(iter:number) { return joinPath(root, `test.${iter}.log`); },
             reviewerLog(iter:number) { return joinPath(root, `reviewer.${iter}.log`); },
             reviewerOutputLog(iter:number, reviewerIndex:number) { return joinPath(root, `reviewer.${iter}.${reviewerIndex}.log`); },
-            reviewerErrorLog(reviewerIndex:number) { return joinPath(root, `error.${reviewerIndex}.log`); }
+            reviewerErrorLog(reviewerIndex:number) { return joinPath(reviewerRoots[reviewerIndex - 1]!, "error.log"); }
         };
     }
     async errorLogExists():Promise<boolean> {
@@ -112,8 +117,17 @@ export class Workspace {
         }
         this._disposed = true;
         const root = this._root;
+        const reviewerRoots = this._reviewerRoots;
         this._root = null;
+        this._reviewerRoots = [];
         if (root && !this._preserve) {
+            for (let i = reviewerRoots.length - 1; i >= 0; i--) {
+                try {
+                    await this._fs.rm(reviewerRoots[i]!, { recursive: true, force: true });
+                } catch {
+
+                }
+            }
             try {
                 await this._fs.rm(root, { recursive: true, force: true });
             } catch {
