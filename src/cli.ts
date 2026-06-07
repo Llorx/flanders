@@ -14,6 +14,7 @@ import type {
     FsContext,
     FsDirEntry,
     OutputContext,
+    RandomContext,
     TimeContext,
     TimeoutHandle
 } from "./contexts";
@@ -103,6 +104,12 @@ const timeContext:TimeContext = {
                 clearTimeout(id);
             }
         };
+    }
+};
+
+const randomContext:RandomContext = {
+    random() {
+        return Math.random();
     }
 };
 
@@ -274,6 +281,7 @@ const flanders = new Flanders(
         script: spawnContext,
         fs: fsContext,
         time: timeContext,
+        random: randomContext,
         platform: platformContext,
         ask: ask.context,
         output: outputContext

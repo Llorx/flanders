@@ -49,6 +49,10 @@ export interface TimeContext {
     setTimeout(handler:() => void, ms:number):TimeoutHandle;
 }
 
+export interface RandomContext {
+    random():number; // a non-deterministic float in [0,1)
+}
+
 export type ChoiceOption = Readonly<{
     label:string;
     description?:string;

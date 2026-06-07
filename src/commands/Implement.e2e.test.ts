@@ -207,6 +207,7 @@ function stubContexts(config:FlandersConfig) {
                 return { cancel() { globalThis.clearTimeout(id); } };
             }
         },
+        random: { random() { return 0; } },
         platform: {
             isWindows() { return false; },
             tmpdir() { return "/tmp"; },

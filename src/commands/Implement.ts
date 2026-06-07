@@ -1,7 +1,7 @@
 import { AiSession } from "../ai/AiSession";
 import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import { CodexAdapter } from "../ai/CodexAdapter";
-import type { FsContext, OutputContext, ScriptContext, TimeContext } from "../contexts";
+import type { FsContext, OutputContext, RandomContext, ScriptContext, TimeContext } from "../contexts";
 import type { ToolAdapter, ToolName } from "../ai/ToolAdapter";
 import type { FlandersConfig, FlandersRole } from "../FlandersConfig";
 import { read as readConfig } from "../FlandersConfig";
@@ -57,6 +57,7 @@ export type ImplementContexts = Readonly<{
     script:ScriptContext;
     fs:FsContext;
     time:TimeContext;
+    random:RandomContext;
     platform:PlatformContext;
     output:OutputContext;
 }>;

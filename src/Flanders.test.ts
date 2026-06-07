@@ -28,6 +28,7 @@ function stubContexts() {
                 return { cancel() {} };
             }
         },
+        random: { random() { return 0; } },
         platform: {
             isWindows() { return false; },
             tmpdir() { return "/tmp"; },
