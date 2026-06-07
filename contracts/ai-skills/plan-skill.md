@@ -40,6 +40,7 @@ The skill's sole deliverable is exactly one markdown plan file inside the projec
 ## Plan content rules
 - No task the skill writes may describe work that creates, modifies, deletes, or renames files inside `contracts/`, `rules/`, or `plans/` (with the bounded checkbox/metrics exception that the `implement` command holds, not the worker). The skill's own write boundary and the immovability that applies to the tasks it generates are pinned in `shared/spec-folder-write-authority.md`.
 - The persisted plan is free of placeholders, contradictions with existing contracts or rules, ambiguous task wording, missing acceptance criteria on leaf tasks, and missing contract or rule links on leaf tasks.
+- The persisted plan is internally self-consistent: its narrative — context, rationale, and any explanatory prose — does not contradict the obligations, verification approach, or any other statement made in its task bodies, and no task contradicts that narrative. Where the prose describes how something is tested or built, it matches what the tasks prescribe.
 - The plan only references contracts and rules that exist in the canonical state captured at invocation.
 - Tasks are ordered top-to-bottom in the order they must be implemented, accounting for dependencies. A task that depends on another appears after the task it depends on.
 - Every leaf task carries a detailed description and explicit acceptance criteria — the conditions that must be true once the task is implemented for it to be considered complete.
