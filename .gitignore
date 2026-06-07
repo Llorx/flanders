@@ -19,3 +19,6 @@ node_modules/
 .npm
 
 plans/
+
+# Local AI tooling state (Claude Code worktrees, etc.)
+.claude/worktrees

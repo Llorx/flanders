@@ -22,7 +22,7 @@
     "watch": "npm run clean && npx tsc -p tsconfig.json -watch",
     "build": "npm run clean && npx tsc -p tsconfig.build.json",
     "build-debug": "npm run clean && npx tsc -p tsconfig.json",
-    "test": "npm run build-debug && npx aaa"
+    "test": "npm run build-debug && npx aaa --exclude-files node_modules --exclude-files claude.worktrees --coverage-exclude node_modules --coverage-exclude claude.worktrees"
   },
   "author": "Llorx",
   "license": "MIT",
