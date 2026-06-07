@@ -81,6 +81,7 @@ Tasks are written in the order they must be implemented, accounting for dependen
 ### Plan content rules
 
 - The persisted plan is free of placeholders, contradictions with existing contracts or rules, ambiguous task wording, missing acceptance criteria on leaf tasks, and missing contract or rule links on leaf tasks.
+- The persisted plan is internally self-consistent: its narrative — context, rationale, and any explanatory prose — does not contradict the obligations, verification approach, or any other statement made in its task bodies, and no task contradicts that narrative. Where the prose describes how something is tested or built, it matches what the tasks prescribe.
 - The plan only references contracts and rules that exist in the canonical state captured at invocation.
 - Implementation decisions resolved during the clarification phase and classified as plan-local are embedded in the relevant task's description and acceptance criteria, and are never promoted to a rule.
 - Tasks are ordered top-to-bottom in the order they must be implemented, accounting for dependencies. A task that depends on another must appear after the task it depends on.
@@ -140,6 +141,7 @@ Five categories, all mandatory; failure in any one is a FAIL. Each category is a
 4. Plan content rules. Verify the plan satisfies EACH of the following independently:
    - Free of placeholders. No \`<TBD>\` or analogous task markers, no template-style blanks, no parenthetical "(to be decided)" deferrals.
    - Free of contradictions with existing contracts or rules. No task pins behavior the canonical listings forbid.
+   - Internally self-consistent — no contradiction between the plan's narrative and its tasks. The plan's context, rationale, and explanatory prose do not contradict the obligations, verification approach, or any other statement in its task bodies, and no task contradicts that narrative. Where the prose describes how something is tested or built, it matches what the tasks prescribe.
    - Free of ambiguous task wording. Open-ended decisions deferred to the implementer are FAIL. This includes, non-exhaustively, hedge phrases such as: \`(or class)\`, \`(or function)\`, \`(or refactor in place if preferred)\`, \`pick the lower-friction option\`, \`pick the X that minimizes Y\`, \`suggested location\`, \`or — alternatively —\`, \`or — equivalently —\`, \`or equivalent\`, \`at the time of implementation\`, \`if the X exists, do Y; otherwise Z\`, \`either A or B — pick one\`, \`A or B (or some hybrid)\`, \`or, more strongly\`, \`or X if Y\`. An implementation choice that the request did not specify must be either (a) closed to a single concrete value in the task's description and acceptance criteria, or (b) escalated by the skill to the user before the plan was drafted — never left open for the worker to resolve.
    - Every leaf task carries an explicit acceptance-criteria section.
    - Every leaf task carries the relevant contract link(s) by their listed relative path.

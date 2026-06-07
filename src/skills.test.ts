@@ -554,6 +554,35 @@ test.describe("skills – planSkillBody", test => {
         }
     });
 
+    test("covers internal self-consistency obligation", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "states the plan-content self-consistency rule"(body) {
+                Assert.ok(body.includes("internally self-consistent: its narrative"), "must state the plan-content self-consistency rule");
+            },
+            "lists the validator self-consistency check"(body) {
+                Assert.ok(body.includes("Internally self-consistent — no contradiction between the plan's narrative and its tasks"), "must list the validator self-consistency check");
+            },
+            "plan-content bullet appears verbatim immediately after the placeholders bullet"(body) {
+                const placeholdersBullet = "- The persisted plan is free of placeholders, contradictions with existing contracts or rules, ambiguous task wording, missing acceptance criteria on leaf tasks, and missing contract or rule links on leaf tasks.";
+                const selfConsistencyBullet = "- The persisted plan is internally self-consistent: its narrative — context, rationale, and any explanatory prose — does not contradict the obligations, verification approach, or any other statement made in its task bodies, and no task contradicts that narrative. Where the prose describes how something is tested or built, it matches what the tasks prescribe.";
+                const lines = body.split("\n");
+                const placeholdersIndex = lines.indexOf(placeholdersBullet);
+                Assert.ok(placeholdersIndex !== -1, "placeholders bullet must appear verbatim");
+                Assert.ok(lines[placeholdersIndex + 1] === selfConsistencyBullet, "self-consistency bullet must follow the placeholders bullet exactly");
+            },
+            "validator category-4 item appears verbatim and indented like its siblings immediately after the contradictions item"(body) {
+                const contradictionsItem = "   - Free of contradictions with existing contracts or rules. No task pins behavior the canonical listings forbid.";
+                const selfConsistencyItem = "   - Internally self-consistent — no contradiction between the plan's narrative and its tasks. The plan's context, rationale, and explanatory prose do not contradict the obligations, verification approach, or any other statement in its task bodies, and no task contradicts that narrative. Where the prose describes how something is tested or built, it matches what the tasks prescribe.";
+                const lines = body.split("\n");
+                const contradictionsIndex = lines.indexOf(contradictionsItem);
+                Assert.ok(contradictionsIndex !== -1, "contradictions item must appear verbatim at sibling indentation");
+                Assert.ok(lines[contradictionsIndex + 1] === selfConsistencyItem, "validator self-consistency item must follow the contradictions item exactly and share its indentation");
+            }
+        }
+    });
+
     test("covers updated plan content rules", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
