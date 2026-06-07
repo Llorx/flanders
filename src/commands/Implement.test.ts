@@ -624,7 +624,7 @@ test.describe("Implement output routing through BottomBlock", test => {
     test("plan errors appear above the block (block always present)", {
         ARRANGE() {
             const s = stubContexts();
-            s.files.set(PLAN_PATH, "# Plan\n\n- [done] bad checkbox\n");
+            s.files.set(PLAN_PATH, '# Plan\n\n- [done]{"it":0,"ot":0,"t":0} bad checkbox\n');
             return s;
         },
         async ACT({ contexts }) {
@@ -641,15 +641,19 @@ test.describe("Implement output routing through BottomBlock", test => {
                 const allOutput = written.join("");
                 Assert.ok(allOutput.includes(SEP.repeat(80)), "block should be mounted from the start");
             },
-            "malformed error appears in output via writeAbove"(_code, { written }) {
+            "exact diagnostic header appears via writeAbove (preceded by block clear)"(_code, { written }) {
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes("malformed"), "plan error should appear in output above block");
+                const header = `Plan ${PLAN_PATH} contains malformed checkbox lines:\n`;
+                Assert.ok(allOutput.includes(header), "exact diagnostic header should appear in output above block");
+                const clearBefore = allOutput.lastIndexOf(CLEAR_SEQ, allOutput.indexOf(header));
+                Assert.ok(clearBefore !== -1, "diagnostic header should be preceded by block clear");
             },
-            "error appears via writeAbove (preceded by block clear)"(_code, { written }) {
+            "exact offending raw line appears in output"(_code, { written }) {
                 const allOutput = written.join("");
-                const malformedIdx = allOutput.indexOf("malformed");
-                const clearBefore = allOutput.lastIndexOf(CLEAR_SEQ, malformedIdx);
-                Assert.ok(malformedIdx !== -1 && clearBefore !== -1, "error text should be preceded by block clear");
+                Assert.ok(
+                    allOutput.includes('  line 3: - [done]{"it":0,"ot":0,"t":0} bad checkbox\n'),
+                    "exact offending raw line should appear in output above block"
+                );
             }
         }
     });
@@ -713,7 +717,7 @@ test.describe("Implement block present on early routes", test => {
     test("plan malformed emits each malformed line above the block", {
         ARRANGE() {
             const s = stubContexts();
-            s.files.set(PLAN_PATH, "# Plan\n\n- [done] bad1\n- [nope] bad2\n");
+            s.files.set(PLAN_PATH, '# Plan\n\n- [done]{"it":0,"ot":0,"t":0} bad1\n- [nope]{"it":0,"ot":0,"t":0} bad2\n');
             return s;
         },
         async ACT({ contexts }) {
@@ -729,17 +733,26 @@ test.describe("Implement block present on early routes", test => {
             "block separator is present"(_code, { written }) {
                 Assert.ok(written.join("").includes(SEP.repeat(80)));
             },
-            "first malformed line appears via writeAbove (preceded by block clear)"(_code, { written }) {
+            "exact diagnostic header appears in output"(_code, { written }) {
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes("bad1"), "first malformed line appears");
-                const clearBefore = allOutput.lastIndexOf(CLEAR_SEQ, allOutput.indexOf("bad1"));
-                Assert.ok(clearBefore !== -1, "first malformed line should be preceded by block clear");
+                Assert.ok(
+                    allOutput.includes(`Plan ${PLAN_PATH} contains malformed checkbox lines:\n`),
+                    "exact diagnostic header should appear in output"
+                );
             },
-            "second malformed line appears via writeAbove (preceded by block clear)"(_code, { written }) {
+            "first exact offending raw line appears via writeAbove (preceded by block clear)"(_code, { written }) {
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes("bad2"), "second malformed line appears");
-                const clearBefore = allOutput.lastIndexOf(CLEAR_SEQ, allOutput.indexOf("bad2"));
-                Assert.ok(clearBefore !== -1, "second malformed line should be preceded by block clear");
+                const lineText = '  line 3: - [done]{"it":0,"ot":0,"t":0} bad1\n';
+                Assert.ok(allOutput.includes(lineText), "first exact offending raw line should appear");
+                const clearBefore = allOutput.lastIndexOf(CLEAR_SEQ, allOutput.indexOf(lineText));
+                Assert.ok(clearBefore !== -1, "first offending raw line should be preceded by block clear");
+            },
+            "second exact offending raw line appears via writeAbove (preceded by block clear)"(_code, { written }) {
+                const allOutput = written.join("");
+                const lineText = '  line 4: - [nope]{"it":0,"ot":0,"t":0} bad2\n';
+                Assert.ok(allOutput.includes(lineText), "second exact offending raw line should appear");
+                const clearBefore = allOutput.lastIndexOf(CLEAR_SEQ, allOutput.indexOf(lineText));
+                Assert.ok(clearBefore !== -1, "second offending raw line should be preceded by block clear");
             }
         }
     });
@@ -4424,7 +4437,7 @@ test.describe("Implement terminal label on exit", test => {
     test("plan malformed shows Failed terminal label", {
         ARRANGE() {
             const s = stubContexts();
-            s.files.set(PLAN_PATH, "# Plan\n\n- [done] bad checkbox\n");
+            s.files.set(PLAN_PATH, '# Plan\n\n- [done]{"it":0,"ot":0,"t":0} bad checkbox\n');
             return s;
         },
         async ACT({ contexts }) {
@@ -4562,7 +4575,7 @@ test.describe("Implement terminal label on exit", test => {
     test("block visible and cursor below block after failed exit", {
         ARRANGE() {
             const s = stubContexts();
-            s.files.set(PLAN_PATH, "# Plan\n\n- [done] bad checkbox\n");
+            s.files.set(PLAN_PATH, '# Plan\n\n- [done]{"it":0,"ot":0,"t":0} bad checkbox\n');
             return s;
         },
         async ACT({ contexts }) {

@@ -217,9 +217,43 @@ test.describe("parsePlan metrics detection and validation", test => {
         }
     });
 
-    test("checkbox with no metrics is reported in malformed", {
+    test("checkbox with no metrics is ordinary content (not malformed)", {
         ARRANGE() {
             return "- [ ] Task without metrics\n";
+        },
+        ACT(content) {
+            return parsePlan(content);
+        },
+        ASSERTS: {
+            "no valid tasks"(result) {
+                Assert.strictEqual(result.tasks.length, 0);
+            },
+            "no malformed entries"(result) {
+                Assert.strictEqual(result.malformed.length, 0);
+            }
+        }
+    });
+
+    test("markdown link bullet is ordinary content (not malformed)", {
+        ARRANGE() {
+            return "- [rules/x.md](../rules/x.md)\n";
+        },
+        ACT(content) {
+            return parsePlan(content);
+        },
+        ASSERTS: {
+            "no valid tasks"(result) {
+                Assert.strictEqual(result.tasks.length, 0);
+            },
+            "no malformed entries"(result) {
+                Assert.strictEqual(result.malformed.length, 0);
+            }
+        }
+    });
+
+    test("]{-shaped line that is not a valid task line is reported in malformed", {
+        ARRANGE() {
+            return '- [done]{"it":0,"ot":0,"t":0} bad\n';
         },
         ACT(content) {
             return parsePlan(content);
@@ -235,7 +269,7 @@ test.describe("parsePlan metrics detection and validation", test => {
                 Assert.strictEqual(result.malformed[0]!.line, 1);
             },
             "malformed raw matches input"(result) {
-                Assert.strictEqual(result.malformed[0]!.raw, "- [ ] Task without metrics");
+                Assert.strictEqual(result.malformed[0]!.raw, '- [done]{"it":0,"ot":0,"t":0} bad');
             }
         }
     });
