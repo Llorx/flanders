@@ -1,11 +1,14 @@
 import type { SpawnOptions } from "child_process";
 
-import type { ScriptContext, SpawnedProcess, TimeContext } from "../contexts";
+import type { RandomContext, ScriptContext, SpawnedProcess, TimeContext } from "../contexts";
 import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent } from "./ToolAdapter";
 
 const COMMAND_INLINE_MAX = 120;
 
 const RATE_LIMIT_SUBSTRINGS = [
+    "out of credits",
+    "refill",
+    "usage limit",
     "rate limit",
     "rate-limit",
     "rate_limit",
@@ -15,7 +18,8 @@ const RATE_LIMIT_SUBSTRINGS = [
 
 const RATE_LIMIT_429_RE = /\b429\b/;
 
-const DURATION_RE = /(?:try again in|retry after|retry-after|wait)\s+(\d+)\s*(seconds?|minutes?|s|m)?/i;
+const EIGHT_MINUTES_MS = 8 * 60_000;
+const TWELVE_MINUTES_MS = 12 * 60_000;
 
 const FIVE_XX_RE = /\b5\d{2}\b/;
 const STATUS_408_RE = /\b408\b/;
@@ -51,6 +55,7 @@ type CodexNativeEvent = Readonly<{
     type?:string;
     item?:CodexNativeItem;
     message?:string;
+    error?:Readonly<{ message?:string }>;
     thread_id?:string;
     usage?:Readonly<{
         input_tokens?:number;
@@ -63,6 +68,7 @@ type CodexNativeEvent = Readonly<{
 export type CodexAdapterContexts = Readonly<{
     script:ScriptContext;
     time:TimeContext;
+    random:RandomContext;
 }>;
 
 export function formatCodexCommand(command:string|undefined):string {
@@ -80,18 +86,6 @@ function isRateLimitMessage(message:string):boolean {
         if (lower.includes(sub)) return true;
     }
     return RATE_LIMIT_429_RE.test(message.trim());
-}
-
-function parseDurationMs(message:string):number|null {
-    const match = DURATION_RE.exec(message);
-    if (!match) return null;
-    const value = parseInt(match[1]!, 10);
-    if (isNaN(value) || value <= 0) return null;
-    const unit = (match[2] ?? "").toLowerCase();
-    if (unit.startsWith("m")) {
-        return value * 60_000;
-    }
-    return value * 1_000;
 }
 
 function isRetryableHttpStatus(message:string):boolean {
@@ -305,7 +299,9 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
                 });
             }
         } else if (parsed.type === "error") {
-            this._handleErrorEvent(parsed);
+            this._handleFailure(typeof parsed.message === "string" ? parsed.message : "unknown error");
+        } else if (parsed.type === "turn.failed") {
+            this._handleFailure(typeof parsed.error?.message === "string" ? parsed.error.message : "unknown error");
         }
 
         this._wake();
@@ -336,19 +332,13 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
         }
     }
 
-    private _handleErrorEvent(parsed:CodexNativeEvent):void {
-        const message = typeof parsed.message === "string" ? parsed.message : "unknown error";
-
+    private _handleFailure(message:string):void {
         if (isRateLimitMessage(message)) {
-            const durationMs = parseDurationMs(message);
-            if (durationMs !== null) {
-                this._queue.push({
-                    type: "rate_limit",
-                    waitUntilMs: this._contexts.time.now() + durationMs
-                });
-            } else {
-                this._queue.push({ type: "error", retryable: true, message });
-            }
+            const r = EIGHT_MINUTES_MS + Math.round(this._contexts.random.random() * (TWELVE_MINUTES_MS - EIGHT_MINUTES_MS));
+            this._queue.push({
+                type: "rate_limit",
+                waitUntilMs: this._contexts.time.now() + r
+            });
         } else if (isRetryableHttpStatus(message)) {
             this._queue.push({ type: "error", retryable: true, message });
         } else if (isRetryableTransport(message)) {

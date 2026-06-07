@@ -677,7 +677,8 @@ export class Implement {
         if (tool === "codex") {
             return new CodexAdapter({
                 script: this._contexts.script,
-                time: this._contexts.time
+                time: this._contexts.time,
+                random: this._contexts.random
             });
         }
         return new ClaudeAdapter({

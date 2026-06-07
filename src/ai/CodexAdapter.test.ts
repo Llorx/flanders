@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import { CodexAdapter, CodexAdapterContexts, formatCodexCommand } from "./CodexAdapter";
 import type { ToolEvent, ToolAdapterInvokeArgs } from "./ToolAdapter";
-import type { ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
+import type { RandomContext, ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
 
 type SpawnedProcessSpy = SpawnedProcess & {
     $emit(event:"exit", code:number|null, signal?:string|null):void;
@@ -70,17 +70,26 @@ function timeContext(nowMs = 1_000_000):TimeContext {
     };
 }
 
-function makeContexts(overrides?:Partial<{ script:ReturnType<typeof scriptContext>; time:TimeContext }>):{
+function randomContext(value = 0):RandomContext {
+    return {
+        random() { return value; }
+    };
+}
+
+function makeContexts(overrides?:Partial<{ script:ReturnType<typeof scriptContext>; time:TimeContext; random:RandomContext }>):{
     contexts:CodexAdapterContexts;
     script:ReturnType<typeof scriptContext>;
     time:TimeContext;
+    random:RandomContext;
 } {
     const script = overrides?.script ?? scriptContext();
     const time = overrides?.time ?? timeContext();
+    const random = overrides?.random ?? randomContext();
     return {
-        contexts: { script, time },
+        contexts: { script, time, random },
         script,
-        time
+        time,
+        random
     };
 }
 
@@ -859,9 +868,17 @@ test.describe("CodexAdapter", test => {
         });
     });
 
-    test.describe("rate-limit substring detection", test => {
+    test.describe("rate-limit / credit-exhaustion substring detection synthesizes an 8-12 minute wait", test => {
+
+        const NOW_MS = 1_000_000;
+        // R = EIGHT_MINUTES_MS + round(random * (TWELVE_MINUTES_MS - EIGHT_MINUTES_MS)); random 0.5 => 480000 + 120000.
+        const MID_DRAW = 0.5;
+        const MID_R = 600_000;
 
         const RATE_LIMIT_CASES:[string, string][] = [
+            ["out of credits", "you are out of credits, please upgrade"],
+            ["refill", "your credits will refill at midnight"],
+            ["usage limit", "you have hit your usage limit"],
             ["rate limit", "the request was rate limited"],
             ["rate-limit", "rate-limit threshold exceeded"],
             ["rate_limit", "rate_limit error occurred"],
@@ -871,9 +888,9 @@ test.describe("CodexAdapter", test => {
         ];
 
         for (const [substring, testMessage] of RATE_LIMIT_CASES) {
-            test(`message containing "${substring}" produces retryable error`, {
+            test(`message containing "${substring}" produces a single rate_limit event with synthesized wait`, {
                 ARRANGE() {
-                    const { contexts, script } = makeContexts();
+                    const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
                     const adapter = new CodexAdapter(contexts);
                     const args = baseArgs();
                     return { adapter, args, script, testMessage };
@@ -885,11 +902,167 @@ test.describe("CodexAdapter", test => {
                 },
                 ASSERT(result) {
                     Assert.deepStrictEqual(result, [
-                        { type: "error", retryable: true, message: testMessage }
+                        { type: "rate_limit", waitUntilMs: NOW_MS + MID_R }
                     ]);
                 }
             });
         }
+
+        test("matching is case-insensitive and trims surrounding whitespace", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    emitErrorAndExit(proc, "   OUT OF CREDITS   ");
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "rate_limit", waitUntilMs: NOW_MS + MID_R }
+                ]);
+            }
+        });
+
+        test("a random draw of 0 yields the 8-minute floor (now + 480000)", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(0) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    emitErrorAndExit(proc, "out of credits");
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "rate_limit", waitUntilMs: NOW_MS + 480_000 }
+                ]);
+            }
+        });
+
+        test("a random draw of 1 yields the 12-minute ceiling (now + 720000)", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(1) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    emitErrorAndExit(proc, "usage limit reached");
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "rate_limit", waitUntilMs: NOW_MS + 720_000 }
+                ]);
+            }
+        });
+
+        test("a mid random draw of 0.5 yields the 10-minute midpoint (now + 600000)", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(0.5) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    emitErrorAndExit(proc, "rate limit exceeded");
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "rate_limit", waitUntilMs: NOW_MS + 600_000 }
+                ]);
+            }
+        });
+
+        test("a formerly duration-bearing message now produces the synthesized 8-12 minute wait, not a 30-second wait", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    emitErrorAndExit(proc, "rate limit exceeded, try again in 30 seconds");
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "rate_limit", waitUntilMs: NOW_MS + MID_R }
+                ]);
+            }
+        });
+
+        test("a turn.failed event carrying a credit-exhaustion message produces a single rate_limit event", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({ type: "turn.failed", error: { message: "out of credits" } }) + "\n");
+                    proc.$emit("exit", 1, null);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "rate_limit", waitUntilMs: NOW_MS + MID_R }
+                ]);
+            }
+        });
+
+        test("an error event immediately followed by a turn.failed event with the same text yields exactly one rate_limit event", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({ type: "error", message: "out of credits" }) + "\n");
+                    proc.$emitStdout(JSON.stringify({ type: "turn.failed", error: { message: "out of credits" } }) + "\n");
+                    proc.$emit("exit", 1, null);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "rate_limit", waitUntilMs: NOW_MS + MID_R }
+                ]);
+            }
+        });
+
+        test("a turn.failed event without a nested error message falls back to a non-retryable error", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({ type: "turn.failed" }) + "\n");
+                    proc.$emit("exit", 1, null);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "error", retryable: false, message: "unknown error" }
+                ]);
+            }
+        });
     });
 
     test.describe("5xx HTTP status detection", test => {
@@ -1030,125 +1203,6 @@ test.describe("CodexAdapter", test => {
         });
     });
 
-    test.describe("duration parser", test => {
-
-        const NOW_MS = 1_000_000;
-
-        test("try again in 30 seconds", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "rate limit exceeded, try again in 30 seconds");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + 30_000 }
-                ]);
-            }
-        });
-
-        test("try again in 2 minutes", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "rate limit hit, try again in 2 minutes");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + 120_000 }
-                ]);
-            }
-        });
-
-        test("retry after 45s", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "rate limit: retry after 45s");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + 45_000 }
-                ]);
-            }
-        });
-
-        test("retry-after 90 interpreted as seconds", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "too many requests, retry-after 90");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + 90_000 }
-                ]);
-            }
-        });
-
-        test("wait 5 minutes", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "rate limit exceeded, wait 5 minutes");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + 300_000 }
-                ]);
-            }
-        });
-    });
-
-    test("rate-limit without parseable duration produces retryable error not rate_limit", {
-        ARRANGE() {
-            const { contexts, script } = makeContexts();
-            const adapter = new CodexAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, script };
-        },
-        async ACT({ adapter, args, script }) {
-            return await collectEvents(adapter, args, script, proc => {
-                emitErrorAndExit(proc, "rate limit exceeded, please slow down");
-            });
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, [
-                { type: "error", retryable: true, message: "rate limit exceeded, please slow down" }
-            ]);
-        }
-    });
-
     test("abortSignal sends SIGINT to child and closes iterable", {
         ARRANGE() {
             const controller = new AbortController();
@@ -1287,25 +1341,6 @@ test.describe("CodexAdapter", test => {
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result[0], { type: "error", retryable: false, message: "unknown error" });
-        }
-    });
-
-    test("parseDurationMs returns null for zero duration", {
-        ARRANGE() {
-            const { contexts, script } = makeContexts();
-            const adapter = new CodexAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, script };
-        },
-        async ACT({ adapter, args, script }) {
-            return await collectEvents(adapter, args, script, proc => {
-                emitErrorAndExit(proc, "rate limit exceeded, try again in 0 seconds");
-            });
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, [
-                { type: "error", retryable: true, message: "rate limit exceeded, try again in 0 seconds" }
-            ]);
         }
     });
 
