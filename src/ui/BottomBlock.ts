@@ -47,6 +47,22 @@ const AUTOWRAP_ON = "\x1b[?7h";
 const CURSOR_UP_3 = "\x1b[3A";
 const CR = "\r";
 const CLEAR_TO_END = "\x1b[J";
+// When the terminal width shrinks between draws, the terminal reflows the
+// previous full-width separator into a wrap continuation that displaces the
+// block downward by one physical row, leaving the first wrapped chunk of the
+// old separator one row above where the next redraw will place the block.
+// The standard three-row clear emitted above does not reach that row, so on
+// every clear path we additionally erase that one row before the redraw
+// resumes. The extra erase is gated on a width shrink relative to the last
+// draw (current cols < last-drawn cols) so it never fires on a grow, a
+// same-width redraw (animation tick, countdown tick, write-above, field
+// change at unchanged width), or any draw that follows another draw at the
+// same width. Legitimate scrolling-region content is preserved because the
+// reflow shifts it upward by the same one row (into the row that was two
+// above the block, or into scrollback), so the row immediately above the
+// block is reliably the reflow-stale separator chunk on a width shrink —
+// not user output.
+const ERASE_ROW_ABOVE_BLOCK_FOR_RESHAPE = "\x1b[1A\x1b[K\x1b[B";
 
 export class BottomBlock {
     private _mounted = false;
@@ -60,6 +76,7 @@ export class BottomBlock {
     private _countdownTimer:TimeoutHandle|null = null;
     private _unsubResize:(() => void)|null = null;
     private _hasDrawn = false;
+    private _lastDrawnCols:number = -1;
 
     constructor(private _io:BottomBlockIO, private _time:TimeContext) {}
 
@@ -195,6 +212,9 @@ export class BottomBlock {
         /* coverage ignore next */ // — Defensive: every caller of _clearBlock is gated by _mounted, and mount() runs _drawBlock before exposing the listeners/setters that can re-enter the clear path, so _hasDrawn is always true when this runs; the boolean guards the spec's "writes nothing before the first draw" obligation.
         if (!this._hasDrawn) return;
         this._io.write(CURSOR_UP_3 + CR + CLEAR_TO_END);
+        if (Math.max(0, this._io.columns()) < this._lastDrawnCols) {
+            this._io.write(ERASE_ROW_ABOVE_BLOCK_FOR_RESHAPE);
+        }
     }
 
     private _drawBlock():void {
@@ -205,6 +225,7 @@ export class BottomBlock {
         const footer = this._renderFooter(cols);
         this._io.write(AUTOWRAP_OFF + separator + "\n" + header + "\n" + metrics + "\n" + footer + AUTOWRAP_ON);
         this._hasDrawn = true;
+        this._lastDrawnCols = cols;
     }
 
     private _renderHeader(cols:number):string {

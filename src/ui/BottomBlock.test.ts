@@ -1,6 +1,7 @@
 import * as Assert from "assert";
 
 import test from "arrange-act-assert";
+import { Terminal } from "@xterm/headless";
 
 import { BottomBlock } from "./BottomBlock";
 import type { BottomBlockIO, ReviewerEntry } from "./BottomBlock";
@@ -70,6 +71,21 @@ const ALT_SCREEN_ON = "\x1b[?1049h";
 
 function makeBlock(io:BottomBlockIO, time:ReturnType<typeof fakeTime>) {
     return new BottomBlock(io, time);
+}
+
+// Reads each visible viewport row of an @xterm/headless Terminal as a plain
+// string (trailing whitespace trimmed). The viewport spans buffer rows
+// `viewportY` to `viewportY + term.rows - 1`, which the active buffer's
+// scrolling state can shift after a resize-reflow, so each visible row is
+// addressed relative to `viewportY` rather than directly by buffer index.
+function readEmulatorViewport(term:Terminal):string[] {
+    const buf = term.buffer.active;
+    const rows:string[] = [];
+    for (let y = 0; y < term.rows; y++) {
+        const line = buf.getLine(buf.viewportY + y);
+        rows.push(line ? line.translateToString(true) : "");
+    }
+    return rows;
 }
 
 test.describe("BottomBlock", test => {
@@ -1313,6 +1329,71 @@ test.describe("BottomBlock", test => {
             },
             "the first-paint output contains no cursor-up CSI sequence in any form (parameterless \\x1b[A or parameterised \\x1b[<n>A)"(result) {
                 Assert.ok(!/\x1b\[\d*A/.test(result.output), "first paint must not contain any CSI cursor-up sequence");
+            }
+        }
+    });
+
+    test("@xterm/headless: after a shrink resize the rendered grid shows exactly four block rows at the bottom and no stale separator row above them", {
+        async ARRANGE() {
+            const INITIAL_COLS = 80;
+            const NEW_COLS = 40;
+            const TERM_ROWS = 24;
+            // convertEol mirrors how the OS layer translates LF to CRLF when stdout is a real TTY.
+            const term = new Terminal({ cols: INITIAL_COLS, rows: TERM_ROWS, convertEol: true, allowProposedApi: true });
+            const resizeListeners = new Set<() => void>();
+            const io:BottomBlockIO = {
+                write(text:string) { term.write(text); },
+                columns() { return term.cols; },
+                onResize(listener:() => void) {
+                    resizeListeners.add(listener);
+                    return () => { resizeListeners.delete(listener); };
+                }
+            };
+            const flush = () => new Promise<void>(resolve => { term.write("", resolve); });
+            // Push the cursor down so the block lands at the bottom of the viewport,
+            // matching the live UI which is always pinned to the bottom of the terminal.
+            await new Promise<void>(resolve => { term.write("\n".repeat(TERM_ROWS - 4), resolve); });
+            const time = fakeTime();
+            const block = new BottomBlock(io, time);
+            return { term, resizeListeners, block, flush, INITIAL_COLS, NEW_COLS, TERM_ROWS };
+        },
+        async ACT({ term, resizeListeners, block, flush, NEW_COLS, TERM_ROWS }) {
+            block.mount();
+            block.setHeader({ indexLabel: "5/12", iteration: 2, activity: "implementing", taskNumber: "7.3", title: "Task title" });
+            block.setMetrics({ task: { tokens: 100, seconds: 5 }, plan: { tokens: 200, seconds: 10 } });
+            await flush();
+            term.resize(NEW_COLS, term.rows);
+            for (const listener of resizeListeners) listener();
+            await flush();
+            const rows = readEmulatorViewport(term);
+            block.dispose();
+            term.dispose();
+            return { rows, NEW_COLS, TERM_ROWS };
+        },
+        ASSERTS: {
+            "separator row at the third-from-bottom position spans the new width with only ─ glyphs"(result) {
+                const sepRowIndex = result.TERM_ROWS - 4;
+                Assert.strictEqual(result.rows[sepRowIndex], SEPARATOR_GLYPH.repeat(result.NEW_COLS));
+            },
+            "header row at the second-from-bottom position carries the header fields"(result) {
+                const headerRowIndex = result.TERM_ROWS - 3;
+                Assert.strictEqual(result.rows[headerRowIndex], "5/12 iter 2 implementing 7.3 Task title");
+            },
+            "metrics row at the row-above-bottom position carries the metrics fields"(result) {
+                const metricsRowIndex = result.TERM_ROWS - 2;
+                Assert.strictEqual(result.rows[metricsRowIndex], "task 100 5s  │  plan 200 10s");
+            },
+            "footer row at the bottom carries the Working label with the first animation frame"(result) {
+                const footerRowIndex = result.TERM_ROWS - 1;
+                Assert.strictEqual(result.rows[footerRowIndex], "⣋ Working");
+            },
+            "row immediately above the block is not a stale all-─ separator"(result) {
+                const aboveBlockIndex = result.TERM_ROWS - 5;
+                Assert.notStrictEqual(result.rows[aboveBlockIndex], SEPARATOR_GLYPH.repeat(result.NEW_COLS));
+            },
+            "the block occupies exactly four terminal rows — every row above the bottom four is empty"(result) {
+                const rowsAboveBlock = result.rows.slice(0, result.TERM_ROWS - 4);
+                Assert.deepStrictEqual(rowsAboveBlock, new Array(result.TERM_ROWS - 4).fill(""));
             }
         }
     });

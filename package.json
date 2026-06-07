@@ -36,6 +36,7 @@
   "homepage": "https://github.com/Llorx/flanders#readme",
   "devDependencies": {
     "@types/node": "^22.7.8",
+    "@xterm/headless": "^6.0.0",
     "arrange-act-assert": "^2.11.1",
     "typescript": "^6.0.3"
   }
