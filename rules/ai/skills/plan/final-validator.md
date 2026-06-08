@@ -17,6 +17,8 @@ The canonical listings the host passes are:
 1. The contracts listing captured at the start of the run (every relative path under `contracts/`).
 2. The rules listing captured at the start of the run (every relative path under `rules/`).
 
+Additionally, under the per-skill-inputs provision of `rules/ai/skills/final-validator-host.md`, the validator reads the on-disk source files the plan's tasks build on — not only the plan text and the specs — so it can audit each code-touching task against its baseline: the current source, plus the changes earlier tasks in the plan prescribe (per category 4 below). This is what lets categories 4 and 5 catch a task that misdescribes the code it builds on. Reading source is read-only and does not relax the validator's read-only discipline.
+
 ## What the validator must check
 
 Five categories, all mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively — encountering a violation in one category does not exempt the validator from completing the remaining four.
@@ -58,6 +60,8 @@ Verify that the plan satisfies EACH of the following obligations, independently.
 - **The plan only references contracts and rules that exist in the canonical state captured at invocation.** Out of scope of the validator: verifying that the referenced paths physically resolve on disk; that is the skill's pre-validator responsibility.
 - **Tasks are numbered hierarchically** per `contracts/shared/plan-file-format.md`.
 - **Task granularity is sane.** A leaf task is not so broad that it would need to be split into separate AI invocations, and not so narrow that splitting further would create artificial fragmentation.
+- **Each code-touching task's claims about the code it builds on are accurate.** Audit each task against its baseline — the current on-disk source, plus the changes any earlier task in the plan it depends on prescribes. A task that names a function, type, field, file, or behavior that neither the source nor any earlier task in the plan provides, or that removes or rewrites code on a mistaken account of what it does, is FAIL. Do NOT FAIL a task merely for describing code the current on-disk source lacks when an earlier task in the plan introduces it — confirm instead that the depended-on task is ordered first, per category 2. Changing the code's behavior is the task's purpose and is not itself a violation — only a false claim about the code the task builds on is. Per `rules/ai/skills/plan/tasks-consistent-with-the-code-they-build-on.md`.
+- **Runtime-behavior premises are backed or escalated.** A task whose approach depends on a runtime- or observable-behavior claim not confirmable from the source — and that no contract, rule, existing test, or preceding task in the plan backs, and that was not escalated to the user — is FAIL. This explicitly includes a task that removes, weakens, or replaces existing code on the strength of such an unbacked claim. Per `rules/ai/skills/plan/runtime-premise-backed-or-escalated.md`.
 
 ### 5. Active application of referenced contracts and rules
 
@@ -73,6 +77,8 @@ Additionally, for every contract or rule in the canonical listings the validator
 - The validator reports PASS on a plan with a leaf task missing its acceptance criteria, its contract link, or its rule link.
 - The validator reports PASS on a plan that links a contract or rule without the task's description or acceptance criteria actually applying the obligation.
 - The validator reports PASS on a plan whose narrative — its Context or rationale prose — states a verification approach or obligation that a task body contradicts; for example, prose stating an outcome can only be confirmed manually while a task adds an automated test that confirms it.
+- The validator reports PASS on a task that references source structure or behavior the actual code does not have, or that removes or rewrites code on a mistaken account of what it does, because the plan text alone reads coherently — the validator audited the plan without reading the source.
+- The validator reports PASS on a task that rests on an untested runtime-behavior premise with no backing contract, rule, existing test, or preceding task and no escalation to the user — including a task that deletes existing code on the strength of such a premise.
 - The validator reports PASS on a plan whose detected task count differs from the expected count the host supplied — a generated task was silently lost to a recognition failure, or a non-task line was counted as a task.
 - The validator aggregates the five categories into a single judgment instead of auditing each independently and enumerating violations exhaustively.
 - The host packages the validator prompt without inlining the verbatim text of categories 4 and 5, forcing the validator to discover them by reading the contract — which defeats the explicit-categories obligation pinned in `rules/ai/skills/final-validator-host.md`.

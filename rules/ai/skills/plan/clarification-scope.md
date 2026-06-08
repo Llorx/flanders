@@ -1,6 +1,6 @@
-# `/flanders-plan` clarification questions are limited to genuinely unspecified implementation and scope choices
+# `/flanders-plan` clarification questions are limited to genuinely unsettled implementation choices, scope ambiguities, and unbacked runtime premises
 
-`/flanders-plan` asks the user a clarification question only when the question targets one of two things: an implementation choice in the code the tasks will produce that the request does not specify, or a task-scope ambiguity the planner cannot reasonably infer from the request or from the canonical contracts and rules. Any other question is forbidden, even when it would technically reduce ambiguity. The default posture is silence: when in doubt about anything outside those two categories, the planner picks the most reasonable default and proceeds.
+`/flanders-plan` asks the user a clarification question only when the question targets one of three things: an implementation choice in the code the tasks will produce that the request does not specify; a task-scope ambiguity the planner cannot reasonably infer from the request or from the canonical contracts and rules; or a load-bearing runtime-behavior premise the plan would otherwise have to assert without backing, per `rules/ai/skills/plan/runtime-premise-backed-or-escalated.md`. Any other question is forbidden, even when it would technically reduce ambiguity. The default posture is silence: when in doubt about anything outside those three categories, the planner picks the most reasonable default and proceeds.
 
 ## Who this applies to
 
@@ -22,10 +22,11 @@ When the planner has a doubt of any of these kinds, it picks the most reasonable
 
 The planner asks the user only when both of the following are true:
 
-1. The decision is genuinely unspecified — neither the request nor any file in the canonical contracts or rules listings fixes the answer.
-2. The decision is either:
+1. The decision is genuinely unsettled — nothing the planner is bound to follow fixes or backs the answer: not the request, not any file in the canonical contracts or rules listings, and (for a runtime-behavior premise) no existing test or earlier task in the plan.
+2. The decision is one of:
    - **An implementation choice in the code the tasks will produce** — which approach to take among multiple valid ones, which library or pattern to use, which trade-off to favor; or
-   - **A task-scope ambiguity** the planner cannot reasonably infer — for example, "add tests" without naming the module, "refactor the controller" when there are several candidate controllers and the request gives no signal which one.
+   - **A task-scope ambiguity** the planner cannot reasonably infer — for example, "add tests" without naming the module, "refactor the controller" when there are several candidate controllers and the request gives no signal which one; or
+   - **A load-bearing runtime-behavior premise without backing** — a claim about how the terminal, the OS, a library, or the execution environment behaves at run time, which a task's approach depends on, which cannot be confirmed by reading the source, and which no existing contract, rule, existing test, or preceding task in the plan backs (per `rules/ai/skills/plan/runtime-premise-backed-or-escalated.md`). The planner escalates the premise rather than asserting it as fact.
 
 When this test passes, the question mechanics already pinned in `contracts/ai-skills/plan-skill.md` apply (one question per turn, multiple-choice preferred when the answer space is bounded).
 
