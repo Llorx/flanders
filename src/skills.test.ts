@@ -1095,4 +1095,73 @@ test.describe("skills – specSkillBody", test => {
             );
         }
     });
+
+    test("Procedure carries the rename-sweep obligation", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "scopes the obligation to a renamed/relocated/removed recurring term"(body) {
+                const procedure = body.slice(body.indexOf("## Procedure"), body.indexOf("## Final validation"));
+                Assert.ok(procedure.includes("When the run renames, relocates, or removes a term that can recur across the corpus beyond the files it is editing — a folder name, a path segment, a flag, an identifier, a fixed string, or a namespace convention"), "Procedure must scope the rename sweep to a renamed/relocated/removed recurring term");
+            },
+            "requires a whole-corpus search for the old term"(body) {
+                const procedure = body.slice(body.indexOf("## Procedure"), body.indexOf("## Final validation"));
+                Assert.ok(procedure.includes("searching the whole corpus (every contract and every rule) for the old term and inspecting every occurrence the search returns"), "Procedure must require a whole-corpus search inspecting every occurrence");
+            },
+            "triages each occurrence into update-or-intentional-reference"(body) {
+                const procedure = body.slice(body.indexOf("## Procedure"), body.indexOf("## Final validation"));
+                Assert.ok(procedure.includes("an occurrence the rename must update, which the run edits; or an occurrence that is an intentional reference the rename leaves alone"), "Procedure must triage each occurrence into update-or-intentional-reference");
+            },
+            "drives coverage by the token, not a relevance judgment"(body) {
+                const procedure = body.slice(body.indexOf("## Procedure"), body.indexOf("## Final validation"));
+                Assert.ok(procedure.includes("Coverage is driven by the token, not by a judgment of which files are relevant"), "Procedure must drive coverage by the token rather than a relevance judgment");
+            },
+            "makes the edited-file set the union the sweep surfaces"(body) {
+                const procedure = body.slice(body.indexOf("## Procedure"), body.indexOf("## Final validation"));
+                Assert.ok(procedure.includes("the set of files the run edits is the union of the occurrences the sweep shows must be updated, and a file the sweep surfaces that you had not planned to touch is added to the run"), "Procedure must make the edited-file set the union the sweep surfaces");
+            }
+        }
+    });
+
+    test("Validator inputs pass the renamed-term list", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "passes the explicit list of renamed/relocated/removed term(s)"(body) {
+                const inputsSection = body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+                Assert.ok(inputsSection.includes("When this run renamed, relocated, or removed a term that can recur across the corpus (per the Rename sweep obligation in the procedure above), the explicit list of those old term(s)."), "Validator inputs must pass the explicit list of renamed/relocated/removed terms");
+            },
+            "states the list is empty when no such term changed"(body) {
+                const inputsSection = body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+                Assert.ok(inputsSection.includes("The list is empty when the run changed no such term."), "Validator inputs must state the term list is empty when no such term changed");
+            }
+        }
+    });
+
+    test("Category C carries the renamed-term sweep check", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "names the renamed-term sweep check inside category C"(body) {
+                const categoryC = body.slice(body.indexOf("**C. Non-contradiction"), body.indexOf("### Validator output"));
+                Assert.ok(categoryC.includes("**Renamed-term sweep.** For each old term the host passed (the terms this run renamed, relocated, or removed), the validator searches the whole corpus for that term and inspects every occurrence."), "category C must carry the per-term whole-corpus renamed-term sweep check");
+            },
+            "FAILs a stale un-updated occurrence"(body) {
+                const categoryC = body.slice(body.indexOf("**C. Non-contradiction"), body.indexOf("### Validator output"));
+                Assert.ok(categoryC.includes("An occurrence that is a stale, un-updated instance of the renamed term — a leftover that should have been changed in this run — is FAIL."), "category C must FAIL a stale un-updated occurrence");
+            },
+            "treats an intentional reference as not a violation"(body) {
+                const categoryC = body.slice(body.indexOf("**C. Non-contradiction"), body.indexOf("### Validator output"));
+                Assert.ok(categoryC.includes("An occurrence that is an intentional reference the rename correctly leaves alone is not a violation."), "category C must treat an intentional reference as not a violation");
+            },
+            "drives the check from the passed terms, not the validator's relevance judgment"(body) {
+                const categoryC = body.slice(body.indexOf("**C. Non-contradiction"), body.indexOf("### Validator output"));
+                Assert.ok(categoryC.includes("The validator drives this check from the passed term(s), not from its own judgment of which files are relevant"), "category C must drive the check from the passed terms rather than the validator's relevance judgment");
+            },
+            "is vacuously satisfied when the passed list is empty"(body) {
+                const categoryC = body.slice(body.indexOf("**C. Non-contradiction"), body.indexOf("### Validator output"));
+                Assert.ok(categoryC.includes("When the passed list is empty, this check is vacuously satisfied."), "category C must be vacuously satisfied when the passed list is empty");
+            }
+        }
+    });
 });
