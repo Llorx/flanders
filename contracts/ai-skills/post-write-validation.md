@@ -9,6 +9,9 @@ This obligation applies to `/flanders-spec` and `/flanders-plan`. Each skill run
 ## Post-write validation gate
 After persisting the file(s), and before declaring complete, the skill runs a validation gate over what it just wrote or updated. The gate is the sole condition for declaring complete: when it passes, the skill declares complete; when it fails, the skill enters the loop below. The skill does not declare complete on a gate failure, and does not skip the gate.
 
+## What a passing gate certifies
+A passing gate certifies that the file(s) the skill wrote or updated in this run satisfy the validator's check categories and do not contradict the corpus the validator inspected. It does not certify that the entire corpus is mutually consistent independent of this run's files: whole-corpus consistency is not re-verified on every run, and a passing gate is not a proof of it. The skill reports a pass as a statement about the run's own output, never as a statement that the whole spec is globally sound.
+
 ## On failure — clarification triage then fix
 When the gate fails, the skill processes the failure as follows, before reaching for any rewrite:
 

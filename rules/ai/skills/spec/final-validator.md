@@ -21,6 +21,8 @@ Both listings are always passed, because a single `/flanders-spec` run may have 
 
 The host also passes the explicit list of file paths the skill wrote or updated in this run, partitioned by folder, so the validator knows which subset of each canonical listing is under audit and which category set applies to each file.
 
+When this run renamed, relocated, or removed a term that can recur across the corpus (per `rules/ai/skills/spec/rename-triggers-corpus-wide-sweep.md`), the host also passes the explicit list of those old term(s). The list is empty when the run changed no such term.
+
 ## What the validator must check
 
 The categories below are mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively. Category A applies to each file that landed in `contracts/`; category B applies to each file that landed in `rules/`; category C applies to every file written or updated in the run.
@@ -72,6 +74,8 @@ Verify that each persisted rule satisfies EACH of the following obligations, ind
 
 The file(s) written or updated in this run do not contradict any other contract in `contracts/` (the canonical contracts listing) and do not contradict any rule in `rules/` (the canonical rules listing). A contradiction is an obligation pinned in two places with incompatible content. Tightening, extending, or qualifying an existing obligation in a way the existing text already allows is not a contradiction.
 
+**Renamed-term sweep.** For each old term the host passed (the terms this run renamed, relocated, or removed), the validator searches the whole corpus for that term and inspects every occurrence. An occurrence that is a stale, un-updated instance of the renamed term — a leftover that should have been changed in this run — is FAIL. An occurrence that is an intentional reference the rename correctly leaves alone is not a violation. The validator drives this check from the passed term(s), not from its own judgment of which files are relevant, so that a stale occurrence in a file the validator would not otherwise open is still caught. When the passed list is empty, this check is vacuously satisfied.
+
 Out of scope of the validator: verifying that paths referenced by a contract or rule physically resolve on disk; that is the skill's pre-validator responsibility.
 
 ## Failure signals
@@ -82,6 +86,7 @@ Out of scope of the validator: verifying that paths referenced by a contract or 
 - The validator reports PASS on a rule whose scope is undefined or stated as "everywhere" without enumeration of the actual surface.
 - The validator reports PASS on a run that duplicated an existing obligation across files instead of updating the existing file in place.
 - The validator reports PASS on a file that contradicts another contract or rule in the canonical corpus.
+- The validator reports PASS while a stale occurrence of a term this run renamed, relocated, or removed survives in a corpus file the validator did not search, because it scoped its reading by relevance judgment instead of sweeping the passed term(s) across the whole corpus.
 - The validator reports PASS on a contract or rule that records historical, transitional, or migration content (for example, "replaces the former X", "previously Y", or a changelog of what this run changed) instead of stating only the present spec.
 - The validator applies the contract category set to a file that landed in `rules/`, or the rule category set to a file that landed in `contracts/`, instead of selecting the category set by the file's folder.
 - The validator aggregates the categories into a single judgment instead of auditing each independently and enumerating violations exhaustively.
