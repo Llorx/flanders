@@ -1,5 +1,5 @@
 import type { TimeContext, TimeoutHandle } from "../contexts";
-import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWaitingFooter, formatWorkingFooter, ORANGE, RESET, SEPARATOR_GLYPH } from "./formatters";
+import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWaitingFooter, formatWorkingFooter, ORANGE, RESET, SEPARATOR_GLYPH, stripAnsi } from "./formatters";
 import type { ReviewerEntry } from "./formatters";
 
 export type { ReviewerEntry, ReviewerState, ReviewerTool } from "./formatters";
@@ -44,25 +44,8 @@ const FRAMES = ["⣋", "⣙", "⣹", "⣸", "⣼", "⣴", "⣦", "⣧", "⣇", "
 const FRAME_MS = 200;
 const AUTOWRAP_OFF = "\x1b[?7l";
 const AUTOWRAP_ON = "\x1b[?7h";
-const CURSOR_UP_3 = "\x1b[3A";
 const CR = "\r";
 const CLEAR_TO_END = "\x1b[J";
-// When the terminal width shrinks between draws, the terminal reflows the
-// previous full-width separator into a wrap continuation that displaces the
-// block downward by one physical row, leaving the first wrapped chunk of the
-// old separator one row above where the next redraw will place the block.
-// The standard three-row clear emitted above does not reach that row, so on
-// every clear path we additionally erase that one row before the redraw
-// resumes. The extra erase is gated on a width shrink relative to the last
-// draw (current cols < last-drawn cols) so it never fires on a grow, a
-// same-width redraw (animation tick, countdown tick, write-above, field
-// change at unchanged width), or any draw that follows another draw at the
-// same width. Legitimate scrolling-region content is preserved because the
-// reflow shifts it upward by the same one row (into the row that was two
-// above the block, or into scrollback), so the row immediately above the
-// block is reliably the reflow-stale separator chunk on a width shrink —
-// not user output.
-const ERASE_ROW_ABOVE_BLOCK_FOR_RESHAPE = "\x1b[1A\x1b[K\x1b[B";
 
 export class BottomBlock {
     private _mounted = false;
@@ -75,8 +58,7 @@ export class BottomBlock {
     private _animTimer:TimeoutHandle|null = null;
     private _countdownTimer:TimeoutHandle|null = null;
     private _unsubResize:(() => void)|null = null;
-    private _hasDrawn = false;
-    private _lastDrawnCols:number = -1;
+    private _prevLineWidths:readonly number[]|null = null;
 
     constructor(private _io:BottomBlockIO, private _time:TimeContext) {}
 
@@ -209,12 +191,34 @@ export class BottomBlock {
     }
 
     private _clearBlock():void {
-        /* coverage ignore next */ // — Defensive: every caller of _clearBlock is gated by _mounted, and mount() runs _drawBlock before exposing the listeners/setters that can re-enter the clear path, so _hasDrawn is always true when this runs; the boolean guards the spec's "writes nothing before the first draw" obligation.
-        if (!this._hasDrawn) return;
-        this._io.write(CURSOR_UP_3 + CR + CLEAR_TO_END);
-        if (Math.max(0, this._io.columns()) < this._lastDrawnCols) {
-            this._io.write(ERASE_ROW_ABOVE_BLOCK_FOR_RESHAPE);
+        /* coverage ignore next */ // — Defensive: every caller of _clearBlock is gated by _mounted, and mount() runs _drawBlock (which records _prevLineWidths) before exposing the listeners/setters that can re-enter the clear path, so _prevLineWidths is always non-null here; the guard upholds the spec's "writes nothing before the first draw" obligation.
+        if (!this._prevLineWidths) return;
+        // The block is drawn with autowrap disabled, so at draw time it is
+        // exactly four physical rows. But a terminal that has since shrunk
+        // reflows each previously-drawn line that is now wider than the new
+        // width into ceil(prevWidth / currentCols) physical rows — the
+        // full-width separator and, at small widths, the header and metrics
+        // too. The clear must move the cursor up over the previous block's
+        // post-reflow physical height (computed against the current width),
+        // not a fixed three rows, or stale rows from the larger draw are left
+        // on screen. At an unchanged or larger width every line still
+        // occupies one row, so this reduces to the canonical three-row move.
+        const cols = Math.max(1, this._io.columns());
+        let rows = 0;
+        for (const w of this._prevLineWidths) {
+            rows += Math.max(1, Math.ceil(w / cols));
         }
+        // Move to the top of the previous block's post-reflow footprint and
+        // erase it entirely, then drop back down so the freshly drawn four
+        // rows re-anchor at the bottom of the terminal (the block is always
+        // bottom-pinned). On an unchanged or larger width the footprint is
+        // four rows, so this reduces to the canonical three-row cursor-up
+        // with no re-anchor move.
+        let clear = `\x1b[${rows - 1}A` + CR + CLEAR_TO_END;
+        if (rows > 4) {
+            clear += `\x1b[${rows - 4}B`;
+        }
+        this._io.write(clear);
     }
 
     private _drawBlock():void {
@@ -224,8 +228,7 @@ export class BottomBlock {
         const metrics = this._renderMetrics(cols);
         const footer = this._renderFooter(cols);
         this._io.write(AUTOWRAP_OFF + separator + "\n" + header + "\n" + metrics + "\n" + footer + AUTOWRAP_ON);
-        this._hasDrawn = true;
-        this._lastDrawnCols = cols;
+        this._prevLineWidths = [cols, stripAnsi(header).length, stripAnsi(metrics).length, stripAnsi(footer).length];
     }
 
     private _renderHeader(cols:number):string {

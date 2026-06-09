@@ -88,6 +88,45 @@ function readEmulatorViewport(term:Terminal):string[] {
     return rows;
 }
 
+// Drives a real BottomBlock through an @xterm/headless terminal: mounts it
+// pinned to the bottom of an `initialCols`-wide screen with representative
+// header/metrics fields, then applies a single resize to `newCols` via the
+// production resize-listener path and returns the rendered viewport rows.
+// Used to assert the rendered terminal geometry (exactly four bottom rows, no
+// stale reflowed separator rows) across shrink ratios, per
+// rules/testing/terminal-geometry-tested-against-emulator.md. The full-width
+// separator reflows into ceil(initialCols/newCols) physical rows on a shrink,
+// so this exercises the reflow the string-concatenating fake IO cannot model.
+async function renderEmulatorShrink(initialCols:number, newCols:number, termRows:number):Promise<string[]> {
+    // convertEol mirrors how the OS layer translates LF to CRLF when stdout is a real TTY.
+    const term = new Terminal({ cols: initialCols, rows: termRows, convertEol: true, allowProposedApi: true });
+    const resizeListeners = new Set<() => void>();
+    const io:BottomBlockIO = {
+        write(text:string) { term.write(text); },
+        columns() { return term.cols; },
+        onResize(listener:() => void) {
+            resizeListeners.add(listener);
+            return () => { resizeListeners.delete(listener); };
+        }
+    };
+    const flush = () => new Promise<void>(resolve => { term.write("", resolve); });
+    // Push the cursor down so the block lands at the bottom of the viewport,
+    // matching the live UI which is always pinned to the bottom of the terminal.
+    await new Promise<void>(resolve => { term.write("\n".repeat(termRows - 4), resolve); });
+    const block = new BottomBlock(io, fakeTime());
+    block.mount();
+    block.setHeader({ indexLabel: "5/12", iteration: 2, activity: "implementing", taskNumber: "7.3", title: "Task title" });
+    block.setMetrics({ task: { tokens: 100, seconds: 5 }, plan: { tokens: 200, seconds: 10 } });
+    await flush();
+    term.resize(newCols, term.rows);
+    for (const listener of resizeListeners) listener();
+    await flush();
+    const rows = readEmulatorViewport(term);
+    block.dispose();
+    term.dispose();
+    return rows;
+}
+
 test.describe("BottomBlock", test => {
     test("mount initial paints separator, header blank, metrics blank, footer Working with first frame", {
         ARRANGE() {
@@ -1256,8 +1295,16 @@ test.describe("BottomBlock", test => {
         }
     });
 
-    test("clearBlock still emits exactly \\x1b[3A\\r\\x1b[J after a shrink resize", {
+    test("clearBlock emits the complete reflow-aware clear (cursor-up over the post-reflow height, erase, re-anchor) after a shrink resize", {
         ARRANGE() {
+            // Mounted at 80 cols with a blank header and metrics; the footer is
+            // the working frame "⣋ Working" (9 visible chars). Recorded line
+            // widths are therefore [80, 0, 0, 9]. After a shrink to 5 cols each
+            // previously-drawn line reflows to ceil(width/5) rows:
+            //   separator ceil(80/5)=16, header max(1,0)=1, metrics 1, footer ceil(9/5)=2
+            // => 20 physical rows. The clear moves up 20-1=19 to the top of that
+            // footprint, erases to end of screen, then drops back down 20-4=16 so
+            // the freshly drawn four rows re-anchor at the bottom.
             const io = stubIO(80);
             const time = fakeTime();
             const block = makeBlock(io, time);
@@ -1268,10 +1315,15 @@ test.describe("BottomBlock", test => {
         },
         ACT({ io }) {
             io.emitResize();
-            return io.writes[0];
+            return [...io.writes];
         },
-        ASSERT(clearWrite) {
-            Assert.strictEqual(clearWrite, "\x1b[3A\r\x1b[J");
+        ASSERTS: {
+            "the entire clear is emitted as a single write equal to the reflow-aware cursor-up/erase/re-anchor sequence"(writes) {
+                Assert.strictEqual(writes[0], "\x1b[19A\r\x1b[J\x1b[16B");
+            },
+            "the write immediately after the clear is the block redraw, proving nothing else belongs to the clear"(writes) {
+                Assert.ok(writes[1]!.startsWith("\x1b[?7l"), "redraw begins with autowrap-off");
+            }
         }
     });
 
@@ -1333,68 +1385,64 @@ test.describe("BottomBlock", test => {
         }
     });
 
-    test("@xterm/headless: after a shrink resize the rendered grid shows exactly four block rows at the bottom and no stale separator row above them", {
-        async ARRANGE() {
-            const INITIAL_COLS = 80;
-            const NEW_COLS = 40;
-            const TERM_ROWS = 24;
-            // convertEol mirrors how the OS layer translates LF to CRLF when stdout is a real TTY.
-            const term = new Terminal({ cols: INITIAL_COLS, rows: TERM_ROWS, convertEol: true, allowProposedApi: true });
-            const resizeListeners = new Set<() => void>();
-            const io:BottomBlockIO = {
-                write(text:string) { term.write(text); },
-                columns() { return term.cols; },
-                onResize(listener:() => void) {
-                    resizeListeners.add(listener);
-                    return () => { resizeListeners.delete(listener); };
-                }
-            };
-            const flush = () => new Promise<void>(resolve => { term.write("", resolve); });
-            // Push the cursor down so the block lands at the bottom of the viewport,
-            // matching the live UI which is always pinned to the bottom of the terminal.
-            await new Promise<void>(resolve => { term.write("\n".repeat(TERM_ROWS - 4), resolve); });
-            const time = fakeTime();
-            const block = new BottomBlock(io, time);
-            return { term, resizeListeners, block, flush, INITIAL_COLS, NEW_COLS, TERM_ROWS };
+    test("@xterm/headless: after a k=2 shrink resize the rendered grid shows exactly four block rows at the bottom with the full fields and no stale separator row above them", {
+        ARRANGE() {
+            return { initialCols: 80, newCols: 40, termRows: 24 };
         },
-        async ACT({ term, resizeListeners, block, flush, NEW_COLS, TERM_ROWS }) {
-            block.mount();
-            block.setHeader({ indexLabel: "5/12", iteration: 2, activity: "implementing", taskNumber: "7.3", title: "Task title" });
-            block.setMetrics({ task: { tokens: 100, seconds: 5 }, plan: { tokens: 200, seconds: 10 } });
-            await flush();
-            term.resize(NEW_COLS, term.rows);
-            for (const listener of resizeListeners) listener();
-            await flush();
-            const rows = readEmulatorViewport(term);
-            block.dispose();
-            term.dispose();
-            return { rows, NEW_COLS, TERM_ROWS };
+        async ACT({ initialCols, newCols, termRows }) {
+            return await renderEmulatorShrink(initialCols, newCols, termRows);
         },
         ASSERTS: {
-            "separator row at the third-from-bottom position spans the new width with only ─ glyphs"(result) {
-                const sepRowIndex = result.TERM_ROWS - 4;
-                Assert.strictEqual(result.rows[sepRowIndex], SEPARATOR_GLYPH.repeat(result.NEW_COLS));
+            "separator row at the third-from-bottom position spans the new width with only ─ glyphs"(rows, { newCols, termRows }) {
+                Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(newCols));
             },
-            "header row at the second-from-bottom position carries the header fields"(result) {
-                const headerRowIndex = result.TERM_ROWS - 3;
-                Assert.strictEqual(result.rows[headerRowIndex], "5/12 iter 2 implementing 7.3 Task title");
+            "header row at the second-from-bottom position carries the header fields"(rows, { termRows }) {
+                Assert.strictEqual(rows[termRows - 3], "5/12 iter 2 implementing 7.3 Task title");
             },
-            "metrics row at the row-above-bottom position carries the metrics fields"(result) {
-                const metricsRowIndex = result.TERM_ROWS - 2;
-                Assert.strictEqual(result.rows[metricsRowIndex], "task 100 5s  │  plan 200 10s");
+            "metrics row at the row-above-bottom position carries the metrics fields"(rows, { termRows }) {
+                Assert.strictEqual(rows[termRows - 2], "task 100 5s  │  plan 200 10s");
             },
-            "footer row at the bottom carries the Working label with the first animation frame"(result) {
-                const footerRowIndex = result.TERM_ROWS - 1;
-                Assert.strictEqual(result.rows[footerRowIndex], "⣋ Working");
+            "footer row at the bottom carries the Working label with the first animation frame"(rows, { termRows }) {
+                Assert.strictEqual(rows[termRows - 1], "⣋ Working");
             },
-            "row immediately above the block is not a stale all-─ separator"(result) {
-                const aboveBlockIndex = result.TERM_ROWS - 5;
-                Assert.notStrictEqual(result.rows[aboveBlockIndex], SEPARATOR_GLYPH.repeat(result.NEW_COLS));
+            "row immediately above the block is not a stale all-─ separator"(rows, { newCols, termRows }) {
+                Assert.notStrictEqual(rows[termRows - 5], SEPARATOR_GLYPH.repeat(newCols));
             },
-            "the block occupies exactly four terminal rows — every row above the bottom four is empty"(result) {
-                const rowsAboveBlock = result.rows.slice(0, result.TERM_ROWS - 4);
-                Assert.deepStrictEqual(rowsAboveBlock, new Array(result.TERM_ROWS - 4).fill(""));
+            "the block occupies exactly four terminal rows — every row above the bottom four is empty"(rows, { termRows }) {
+                Assert.deepStrictEqual(rows.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
             }
         }
     });
+
+    // The k=2 test above only exercises a separator that reflows into two rows;
+    // a fixed/one-row clear happens to be correct there but leaves k-1 stale
+    // separator rows for larger single-event shrinks (window restore, half-screen
+    // snap, font-size change), which the reflow-aware clear must also handle.
+    for (const { initialCols, newCols, k } of [
+        { initialCols: 240, newCols: 40, k: 6 },
+        { initialCols: 160, newCols: 20, k: 8 }
+    ]) {
+        test(`@xterm/headless: after a k=${k} shrink resize (${initialCols}->${newCols}) the block re-anchors to exactly four bottom rows with zero stale separator rows above`, {
+            ARRANGE() {
+                return { initialCols, newCols, termRows: 24 };
+            },
+            async ACT(params) {
+                return await renderEmulatorShrink(params.initialCols, params.newCols, params.termRows);
+            },
+            ASSERTS: {
+                "the separator row at the third-from-bottom position spans the new width with only ─ glyphs"(rows, { newCols, termRows }) {
+                    Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(newCols));
+                },
+                "the footer row at the bottom carries the Working label, proving the block re-anchored to the bottom"(rows, { termRows }) {
+                    Assert.strictEqual(rows[termRows - 1], "⣋ Working");
+                },
+                "the row immediately above the block is not a stale all-─ separator chunk left by the reflow"(rows, { newCols, termRows }) {
+                    Assert.notStrictEqual(rows[termRows - 5], SEPARATOR_GLYPH.repeat(newCols));
+                },
+                "every row above the bottom four is empty — no reflowed separator rows survive the redraw"(rows, { termRows }) {
+                    Assert.deepStrictEqual(rows.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
+                }
+            }
+        });
+    }
 });
