@@ -5,6 +5,9 @@ import test from "arrange-act-assert";
 import { TASK_LINE } from "./PlanFile";
 import { planSkillBody, specSkillBody } from "./skills";
 
+// A citation of a flanders-internal spec file: a path under contracts/, rules/, or plans/ that names a specific .md file. Skill bodies ship into arbitrary user projects where those files do not exist, so such a citation must never appear. Shared by the plan-skill and spec-skill self-containedness guards so the pattern has one source of truth.
+const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
+
 test.describe("skills – planSkillBody", test => {
     test("is a non-empty string", {
         ARRANGE() {},
@@ -464,9 +467,15 @@ test.describe("skills – planSkillBody", test => {
         ASSERTS: {
             "no path under contracts/, rules/, or plans/ names a specific .md file"(body) {
                 Assert.strictEqual(
-                    /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/.test(body),
+                    INTERNAL_SPEC_PATH_CITATION.test(body),
                     false
                 );
+            },
+            "does not name the code-grounding rule file even without a path"(body) {
+                Assert.ok(!body.includes("tasks-consistent-with-the-code-they-build-on.md"), "must not name the code-grounding rule file");
+            },
+            "does not name the runtime-premise rule file even without a path"(body) {
+                Assert.ok(!body.includes("runtime-premise-backed-or-escalated.md"), "must not name the runtime-premise rule file");
             },
             "inlines the narrower clarification-scope criteria"(body) {
                 Assert.ok(body.includes("implementation choice in the code the tasks will produce that the request does not specify, or a task-scope ambiguity"), "must inline the narrower clarification-scope criteria");
@@ -696,6 +705,145 @@ test.describe("skills – planSkillBody", test => {
             }
         }
     });
+
+    test("clarification phase names the runtime-premise third question trigger", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "frames the clarification triggers as three things"(body) {
+                const step3 = body.slice(body.indexOf("3. **Clarification phase.**"), body.indexOf("4. **Drafting phase.**"));
+                Assert.ok(step3.includes("targets one of three things"), "Procedure step 3 must frame its triggers as three things");
+            },
+            "names the load-bearing runtime-premise trigger"(body) {
+                const step3 = body.slice(body.indexOf("3. **Clarification phase.**"), body.indexOf("4. **Drafting phase.**"));
+                Assert.ok(step3.includes("a load-bearing runtime-behavior premise the plan would otherwise have to assert without backing"), "Procedure step 3 must name the runtime-premise third trigger");
+            },
+            "the validator-FAIL triage loop also carries the runtime-premise trigger"(body) {
+                const triageLoop = body.slice(body.indexOf("### On FAIL: bounded triage-then-fix loop"));
+                Assert.ok(triageLoop.includes("a load-bearing runtime-behavior premise the plan would otherwise have to assert without backing"), "the triage loop's clarification-scope restatement must also carry the runtime-premise trigger so a flagged unbacked premise is escalated, not silently rewritten");
+            }
+        }
+    });
+
+    test("plan content rules carry the code-grounding obligation", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "scopes the obligation to tasks that create, modify, or remove code"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("Every task that creates, modifies, or removes code is grounded in the real state of the code it builds on"), "the Plan content rules list must scope the code-grounding obligation to tasks that create, modify, or remove code");
+            },
+            "grounds code-touching tasks in the real state of the code they build on"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("grounded in the real state of the code it builds on — the current source, plus the changes any earlier task it depends on prescribes"), "the Plan content rules list must require tasks be grounded in the real state of the code they build on, including earlier dependent tasks' changes");
+            },
+            "requires establishing that state before writing the task"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("Before writing the task, establish that state"), "the Plan content rules list must require establishing the code state before writing the task");
+            },
+            "establishes existing code by reading the current source"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("read the current source for code that already exists"), "the Plan content rules list must establish existing code by reading the current source");
+            },
+            "establishes earlier-task code by consulting the producing task"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("consult the producing earlier task for code an earlier task in the plan creates or changes"), "the Plan content rules list must establish earlier-task code by consulting the producing earlier task");
+            },
+            "permits changing what the code does"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("Changing what the code does is the task's purpose and is allowed"), "the Plan content rules list must permit changing the code's behavior");
+            },
+            "forbids misstating the code the task builds on"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("misstate the code it builds on — naming structure or behavior that code does not and will not have, or removing or rewriting code on a mistaken account of what it is for"), "the Plan content rules list must forbid misstating the starting code");
+            }
+        }
+    });
+
+    test("plan content rules carry the runtime-premise backed-or-escalated obligation", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "forbids asserting a runtime premise as settled fact"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("No task asserts, as settled fact, a runtime- or observable-behavior premise that its approach depends on and that cannot be confirmed by reading the source"), "the Plan content rules list must forbid asserting an unbacked runtime premise as settled fact");
+            },
+            "requires the premise be backed or escalated"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("Such a premise is either backed — by an existing contract or rule, an existing test, or a preceding task in the plan that establishes it executably — or escalated to the user during the clarification phase"), "the Plan content rules list must require the premise be backed or escalated");
+            },
+            "forbids removing code on an unbacked, unescalated premise"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("A task does not remove, weaken, or replace existing code on the strength of an unbacked, unescalated runtime-behavior premise"), "the Plan content rules list must forbid removing code on an unbacked, unescalated premise");
+            }
+        }
+    });
+
+    test("validator inputs state the validator reads the source and audits each task against its baseline", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "reads the on-disk source the tasks build on"(body) {
+                const inputsSection = body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+                Assert.ok(inputsSection.includes("the validator reads the on-disk source files the plan's tasks build on"), "Validator inputs must state the validator reads the on-disk source the tasks build on");
+            },
+            "audits each code-touching task against its baseline"(body) {
+                const inputsSection = body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+                Assert.ok(inputsSection.includes("audits each code-touching task against its baseline: the current source, plus the changes earlier tasks in the plan it depends on prescribe"), "Validator inputs must state the validator audits each task against its baseline");
+            }
+        }
+    });
+
+    test("validator category 4 carries the accurate-claims-against-baseline check", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "requires each task's claims be accurate to its baseline"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("Each code-touching task's claims about the code it builds on are accurate to its baseline — the current on-disk source, plus the changes any earlier task in the plan it depends on prescribes"), "category 4 must require each task's claims be accurate to its baseline");
+            },
+            "FAILs a task naming structure neither source nor an earlier task provides"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("A task that names a function, type, field, file, or behavior that neither the source nor any earlier task in the plan provides, or that removes or rewrites code on a mistaken account of what it does, is FAIL"), "category 4 must FAIL a task that misstates the code it builds on");
+            },
+            "carves out code an earlier task introduces"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("Do NOT FAIL a task merely for describing code the current on-disk source lacks when an earlier task in the plan introduces it"), "category 4 must not FAIL a task for code an earlier ordered task introduces");
+            },
+            "ties the earlier-task carve-out to the depended-on task being ordered first"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("confirm instead that the depended-on task is ordered first"), "category 4 must require the depended-on task be ordered first for the carve-out to apply");
+            },
+            "carves out behavior change as not itself a violation"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("Changing the code's behavior is the task's purpose and is not itself a violation — only a false claim about the code the task builds on is"), "category 4 must state that changing behavior is not itself a violation");
+            }
+        }
+    });
+
+    test("validator category 4 carries the runtime-premise backed-or-escalated check", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "names the runtime-premise backed-or-escalated check"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("Runtime-behavior premises are backed or escalated"), "category 4 must name the runtime-premise backed-or-escalated check");
+            },
+            "qualifies the premise as a claim not confirmable from the source"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("a runtime- or observable-behavior claim not confirmable from the source"), "category 4 must qualify the premise as a runtime- or observable-behavior claim not confirmable from the source");
+            },
+            "FAILs an unbacked, unescalated runtime premise"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("that no contract, rule, existing test, or preceding task in the plan backs, and that was not escalated to the user — is FAIL"), "category 4 must FAIL an unbacked, unescalated runtime premise");
+            },
+            "includes code removal on the strength of such a premise"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("This explicitly includes a task that removes, weakens, or replaces existing code on the strength of such an unbacked claim"), "category 4 must include code removal on the strength of an unbacked premise");
+            }
+        }
+    });
+
 });
 
 test.describe("skills – specSkillBody", test => {
@@ -942,7 +1090,7 @@ test.describe("skills – specSkillBody", test => {
         ACT() { return specSkillBody; },
         ASSERT(body) {
             Assert.strictEqual(
-                /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/.test(body),
+                INTERNAL_SPEC_PATH_CITATION.test(body),
                 false
             );
         }
