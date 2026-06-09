@@ -111,6 +111,8 @@ If any check fails, fix the file and re-verify instead of leaving a malformed pl
 
 Before declaring this skill complete, run a final validator over the plan file. The validator is the gate — only declare complete when it returns PASS.
 
+What a passing gate certifies: a pass certifies that the file(s) you wrote or updated in this run satisfy the validator's checks and do not contradict the corpus the validator inspected. It does not certify that the entire corpus is mutually consistent independent of this run's files — whole-corpus consistency is not re-verified on every run, and a passing gate is not a proof of it. Report a pass as a statement about this run's own output, never as a statement that the whole spec is globally sound.
+
 ### Validator host
 
 Launch the validator as a fresh subagent via the AI tool's subagent mechanism, in a session that does not share context with this drafting session. The fresh session is load-bearing — it forces the validator to re-derive its judgments from the file on disk rather than from this session's confirmation bias.
@@ -258,6 +260,8 @@ For every obligation in the request, the skill decides whether it is a contract 
 ## Final validation
 
 Before declaring this skill complete, run a final validator over the persisted or updated file(s). The validator is the gate — only declare complete when it returns PASS.
+
+What a passing gate certifies: a pass certifies that the file(s) you wrote or updated in this run satisfy the validator's checks and do not contradict the corpus the validator inspected. It does not certify that the entire corpus is mutually consistent independent of this run's files — whole-corpus consistency is not re-verified on every run, and a passing gate is not a proof of it. Report a pass as a statement about this run's own output, never as a statement that the whole spec is globally sound.
 
 ### Validator host
 

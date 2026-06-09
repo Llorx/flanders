@@ -844,6 +844,25 @@ test.describe("skills – planSkillBody", test => {
         }
     });
 
+    test("Final validation carries the passing-gate certification-scope statement", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "certifies the run's written/updated files against the inspected corpus"(body) {
+                const finalValidation = body.slice(body.indexOf("## Final validation"), body.indexOf("## Summary"));
+                Assert.ok(finalValidation.includes("a pass certifies that the file(s) you wrote or updated in this run satisfy the validator's checks and do not contradict the corpus the validator inspected"), "Final validation must state a pass certifies the run's written/updated files against the inspected corpus");
+            },
+            "does not certify whole-corpus mutual consistency independent of the run"(body) {
+                const finalValidation = body.slice(body.indexOf("## Final validation"), body.indexOf("## Summary"));
+                Assert.ok(finalValidation.includes("It does not certify that the entire corpus is mutually consistent independent of this run's files"), "Final validation must state a pass does not certify whole-corpus mutual consistency");
+            },
+            "is reported only as a statement about the run's own output"(body) {
+                const finalValidation = body.slice(body.indexOf("## Final validation"), body.indexOf("## Summary"));
+                Assert.ok(finalValidation.includes("Report a pass as a statement about this run's own output, never as a statement that the whole spec is globally sound"), "Final validation must report a pass only as a statement about the run's own output");
+            }
+        }
+    });
+
 });
 
 test.describe("skills – specSkillBody", test => {
@@ -1161,6 +1180,25 @@ test.describe("skills – specSkillBody", test => {
             "is vacuously satisfied when the passed list is empty"(body) {
                 const categoryC = body.slice(body.indexOf("**C. Non-contradiction"), body.indexOf("### Validator output"));
                 Assert.ok(categoryC.includes("When the passed list is empty, this check is vacuously satisfied."), "category C must be vacuously satisfied when the passed list is empty");
+            }
+        }
+    });
+
+    test("Final validation carries the passing-gate certification-scope statement", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "certifies the run's written/updated files against the inspected corpus"(body) {
+                const finalValidation = body.slice(body.indexOf("## Final validation"), body.indexOf("## Output language"));
+                Assert.ok(finalValidation.includes("a pass certifies that the file(s) you wrote or updated in this run satisfy the validator's checks and do not contradict the corpus the validator inspected"), "Final validation must state a pass certifies the run's written/updated files against the inspected corpus");
+            },
+            "does not certify whole-corpus mutual consistency independent of the run"(body) {
+                const finalValidation = body.slice(body.indexOf("## Final validation"), body.indexOf("## Output language"));
+                Assert.ok(finalValidation.includes("It does not certify that the entire corpus is mutually consistent independent of this run's files"), "Final validation must state a pass does not certify whole-corpus mutual consistency");
+            },
+            "is reported only as a statement about the run's own output"(body) {
+                const finalValidation = body.slice(body.indexOf("## Final validation"), body.indexOf("## Output language"));
+                Assert.ok(finalValidation.includes("Report a pass as a statement about this run's own output, never as a statement that the whole spec is globally sound"), "Final validation must report a pass only as a statement about the run's own output");
             }
         }
     });
