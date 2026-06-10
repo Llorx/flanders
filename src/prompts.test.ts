@@ -63,6 +63,32 @@ test.describe("prompts – prep", test => {
             },
             "contains <RULE_LIST>"(template) {
                 Assert.ok(template.includes("<RULE_LIST>"));
+            },
+            "contains <BEHAVIOR_RULE_LIST>"(template) {
+                Assert.ok(template.includes("<BEHAVIOR_RULE_LIST>"));
+            }
+        }
+    });
+
+    test("includes the Available behavior rules section", {
+        ARRANGE() {},
+        ACT() {
+            const start = prompts.prep.indexOf("## Available behavior rules");
+            const end = prompts.prep.indexOf("## Ending discipline", start);
+            return prompts.prep.substring(start, end);
+        },
+        ASSERTS: {
+            "section opens with the Available behavior rules heading"(section) {
+                Assert.ok(section.startsWith("## Available behavior rules"));
+            },
+            "section renders the BEHAVIOR_RULE_LIST placeholder"(section) {
+                Assert.ok(section.includes("<BEHAVIOR_RULE_LIST>"));
+            },
+            "section instructs honoring every in-scope behavior rule"(section) {
+                Assert.ok(section.includes("every behavior rule whose `.docs/flanders` scope encloses the files this task's work touches must be honored"));
+            },
+            "section states in-scope behavior rules are mandatory whether or not the task links them"(section) {
+                Assert.ok(section.includes("in-scope behavior rules are mandatory whether or not the task links them"));
             }
         }
     });
@@ -180,6 +206,19 @@ test.describe("prompts – detectBuildAndTest", test => {
             },
             "no longer globs rules/build/*"(template) {
                 Assert.strictEqual(template.includes("rules/build/*"), false);
+            }
+        }
+    });
+
+    test("does not carry the behavior-rule listing", {
+        ARRANGE() {},
+        ACT() { return prompts.detectBuildAndTest; },
+        ASSERTS: {
+            "does not contain the BEHAVIOR_RULE_LIST placeholder"(template) {
+                Assert.strictEqual(template.includes("<BEHAVIOR_RULE_LIST>"), false);
+            },
+            "does not contain an Available behavior rules section"(template) {
+                Assert.strictEqual(template.includes("## Available behavior rules"), false);
             }
         }
     });
@@ -588,15 +627,45 @@ test.describe("prompts – worker – three-section Evidence Report", test => {
         }
     });
 
-    test("Adversarial review awaits block lists exactly four FAIL conditions", {
+    test("Adversarial review awaits block lists exactly five FAIL conditions", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
-        ASSERT(template) {
-            const blockStart = template.indexOf("The reviewer is instructed to FAIL on ANY of:");
-            const blockEnd = template.indexOf("Condition 4 causes most rejections", blockStart);
-            const block = template.substring(blockStart, blockEnd);
-            const count = (block.match(/\n\d+\. /g) ?? []).length;
-            Assert.strictEqual(count, 4);
+        ASSERTS: {
+            "lists exactly five numbered conditions"(template) {
+                const blockStart = template.indexOf("The reviewer is instructed to FAIL on ANY of:");
+                const blockEnd = template.indexOf("Condition 4 causes most rejections", blockStart);
+                const block = template.substring(blockStart, blockEnd);
+                const count = (block.match(/\n\d+\. /g) ?? []).length;
+                Assert.strictEqual(count, 5);
+            },
+            "the fifth condition makes an un-honored in-scope behavior rule a FAIL"(template) {
+                const blockStart = template.indexOf("The reviewer is instructed to FAIL on ANY of:");
+                const blockEnd = template.indexOf("Condition 4 causes most rejections", blockStart);
+                const block = template.substring(blockStart, blockEnd);
+                Assert.ok(block.includes("A behavior rule from the behavior-rule list below whose `.docs/flanders` scope encloses the files your changes touch is not honored by the changes"));
+            }
+        }
+    });
+
+    test("includes the Available behavior rules section", {
+        ARRANGE() {},
+        ACT() {
+            const start = prompts.worker.indexOf("## Available behavior rules");
+            return prompts.worker.substring(start);
+        },
+        ASSERTS: {
+            "section opens with the Available behavior rules heading"(section) {
+                Assert.ok(section.startsWith("## Available behavior rules"));
+            },
+            "section renders the BEHAVIOR_RULE_LIST placeholder"(section) {
+                Assert.ok(section.includes("<BEHAVIOR_RULE_LIST>"));
+            },
+            "section instructs honoring every in-scope behavior rule"(section) {
+                Assert.ok(section.includes("You must honor every behavior rule whose `.docs/flanders` scope encloses the files your changes touch"));
+            },
+            "section states in-scope behavior rules are mandatory whether or not the task links them"(section) {
+                Assert.ok(section.includes("in-scope behavior rules are mandatory whether or not the task links them"));
+            }
         }
     });
 });
@@ -629,6 +698,29 @@ test.describe("prompts – reviewer", test => {
         ACT() { return prompts.reviewer; },
         ASSERT(template) {
             Assert.ok(template.includes("<ERROR_LOG_PATH>"));
+        }
+    });
+
+    test("includes the Available behavior rules section", {
+        ARRANGE() {},
+        ACT() {
+            const start = prompts.reviewer.indexOf("## Available behavior rules");
+            const end = prompts.reviewer.indexOf("Your job is adversarial:", start);
+            return prompts.reviewer.substring(start, end);
+        },
+        ASSERTS: {
+            "section opens with the Available behavior rules heading"(section) {
+                Assert.ok(section.startsWith("## Available behavior rules"));
+            },
+            "section renders the BEHAVIOR_RULE_LIST placeholder"(section) {
+                Assert.ok(section.includes("<BEHAVIOR_RULE_LIST>"));
+            },
+            "section instructs verifying the changes honor every in-scope behavior rule"(section) {
+                Assert.ok(section.includes("You must verify that the working-tree changes honor every behavior rule whose `.docs/flanders` scope encloses the files they touch"));
+            },
+            "section states in-scope behavior rules are mandatory whether or not the task links them"(section) {
+                Assert.ok(section.includes("in-scope behavior rules are mandatory whether or not the task links them"));
+            }
         }
     });
 
@@ -938,19 +1030,25 @@ test.describe("prompts – reviewer – three-section claim checklist", test => 
         }
     });
 
-    test("four-condition FAIL block survives", {
+    test("five-condition FAIL block survives", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
             "contains adversarial header"(template) {
                 Assert.ok(template.includes("Your job is adversarial: find why the working-tree changes FAIL"));
             },
-            "contains four numbered conditions"(template) {
-                const blockStart = template.indexOf("You MUST check all four conditions below");
+            "contains five numbered conditions"(template) {
+                const blockStart = template.indexOf("You MUST check all five conditions below");
                 const blockEnd = template.indexOf("Exhaustiveness:", blockStart);
                 const block = template.substring(blockStart, blockEnd);
                 const count = (block.match(/\n\d+\. /g) ?? []).length;
-                Assert.strictEqual(count, 4);
+                Assert.strictEqual(count, 5);
+            },
+            "the fifth condition makes an un-honored in-scope behavior rule a FAIL"(template) {
+                const blockStart = template.indexOf("You MUST check all five conditions below");
+                const blockEnd = template.indexOf("Exhaustiveness:", blockStart);
+                const block = template.substring(blockStart, blockEnd);
+                Assert.ok(block.includes("A behavior rule from the behavior-rule list above whose `.docs/flanders` scope encloses the files the working-tree changes touch is not honored by the changes"));
             }
         }
     });

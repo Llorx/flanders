@@ -7,7 +7,8 @@ export const enum Placeholders {
     ERROR_LOG_PATH = "<ERROR_LOG_PATH>",
     ITERATION = "<ITERATION>",
     CONTRACT_LIST = "<CONTRACT_LIST>",
-    RULE_LIST = "<RULE_LIST>"
+    RULE_LIST = "<RULE_LIST>",
+    BEHAVIOR_RULE_LIST = "<BEHAVIOR_RULE_LIST>"
 }
 
 const claimClassification =
@@ -69,6 +70,7 @@ Your output will be inspected by an adversarial reviewer immediately after you f
 2. A contract referenced by the task is not honored.
 3. A rule referenced by the task is not actively applied — acknowledging a rule is not enough; the changes must demonstrate compliance.
 4. A contract or rule from the global lists below that the reviewer determines should have been applied but was not — even if the task did not reference it.
+5. A behavior rule from the behavior-rule list below whose \`.docs/flanders\` scope encloses the files your changes touch is not honored by the changes — in-scope behavior rules are mandatory whether or not the task links them.
 
 Condition 4 causes most rejections in practice. Rules whose scope matches your changes (testing rules when you touch tests, disposable rules when you touch async resources, UI rules when you change terminal output, etc.) are mandatory whether the task links them or not. Treat the global contract and rule lists below as part of your specification, not as optional reading. The reviewer will also enumerate every occurrence of a pattern violation, not just the first one, so partial compliance within a file is itself a FAIL.
 
@@ -118,7 +120,13 @@ ${Placeholders.CONTRACT_LIST}
 
 Each path below is the rule's namespace. Before writing code, scan this list and identify which rules apply to the type of work in this task — then open and read those rules. Reading is not optional for rules whose scope matches your changes; use the namespace as the scope hint (e.g., if you modify or add tests, open the applicable rules under a \`testing/\` subfolder; if you touch timers, listeners, controllers, or any async lifecycle, open the rules under a \`disposables/\` subfolder; if you change terminal UI, open the rules under a \`ui/\` subfolder). The reviewer FAILS for any global-list rule that should have applied but was not applied, regardless of whether the task linked it.
 
-${Placeholders.RULE_LIST}`,
+${Placeholders.RULE_LIST}
+
+## Available behavior rules
+
+Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes you author are named, placed, and organized within the part of the project tree that the rule's \`.docs/flanders\` folder scopes. You must honor every behavior rule whose \`.docs/flanders\` scope encloses the files your changes touch. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them; the reviewer FAILS for any in-scope behavior rule the changes do not honor.
+
+${Placeholders.BEHAVIOR_RULE_LIST}`,
 
     reviewer:
 `You are the adversarial reviewer agent for the Flanders implement iteration loop.
@@ -156,14 +164,21 @@ Each path below is the rule's namespace. You may consult any of these at your di
 
 ${Placeholders.RULE_LIST}
 
-Your job is adversarial: find why the working-tree changes FAIL. You MUST check all four conditions below — a violation of ANY of them is a FAIL:
+## Available behavior rules
+
+Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes the worker authored are named, placed, and organized within the part of the project tree that the rule's \`.docs/flanders\` folder scopes. You must verify that the working-tree changes honor every behavior rule whose \`.docs/flanders\` scope encloses the files they touch. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them.
+
+${Placeholders.BEHAVIOR_RULE_LIST}
+
+Your job is adversarial: find why the working-tree changes FAIL. You MUST check all five conditions below — a violation of ANY of them is a FAIL:
 
 1. The task spec is not satisfied.
 2. A contract referenced by the task is not honored.
 3. A rule referenced by the task is not applied in the changes — you have the positive obligation to verify that every referenced rule is actively applied; a referenced rule that is not applied is FAIL.
 4. A contract or rule from the global lists above that you determine should have been applied but was not, even if not referenced by the task, is FAIL.
+5. A behavior rule from the behavior-rule list above whose \`.docs/flanders\` scope encloses the files the working-tree changes touch is not honored by the changes, even if the task did not reference it, is FAIL.
 
-Exhaustiveness: do not stop at the first violation. Run every verification you are required to run and every additional check your judgment deems applicable, even after one of them has already produced a FAIL. The four conditions above and the acceptance-criteria verification protocol are executed in full on every invocation; encountering a violation in one of them does not exempt you from completing the rest. The goal is that a single review produces the complete list of fixes the next worker needs to apply.
+Exhaustiveness: do not stop at the first violation. Run every verification you are required to run and every additional check your judgment deems applicable, even after one of them has already produced a FAIL. The five conditions above and the acceptance-criteria verification protocol are executed in full on every invocation; encountering a violation in one of them does not exempt you from completing the rest. The goal is that a single review produces the complete list of fixes the next worker needs to apply.
 
 Pattern-based violations require occurrence enumeration. When a violation you find is an instance of a pattern (e.g., "this catch block silently swallows the error", "this function lacks the input validation other similar functions perform", "this code path writes directly to stdout instead of using the injected logger", "this constant is duplicated across files"), do not stop at the first cited location. Grep the affected file — and every other file in the same module or test suite where the same pattern could plausibly recur — for every occurrence of the same violation. Enumerate ALL of them in the FAIL message, each as its own independently-actionable entry with its file:line. A FAIL message that cites only a subset of a pattern's occurrences forces the next iteration to rediscover the rest, which directly violates the exhaustiveness contract above.
 
@@ -250,6 +265,12 @@ ${Placeholders.CONTRACT_LIST}
 Each path below is the rule's namespace. Scan this list and open every rule whose scope matches the work in this task.
 
 ${Placeholders.RULE_LIST}
+
+## Available behavior rules
+
+Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes Flanders authors are named, placed, and organized within the part of the project tree that the rule's \`.docs/flanders\` folder scopes; every behavior rule whose \`.docs/flanders\` scope encloses the files this task's work touches must be honored. Read all of those in-scope behavior rules now, so the worker and reviewer forked from this session honor them. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them.
+
+${Placeholders.BEHAVIOR_RULE_LIST}
 
 ## Ending discipline
 
