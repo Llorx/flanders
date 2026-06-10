@@ -1028,6 +1028,38 @@ test.describe("skills – specSkillBody", test => {
         }
     });
 
+    test("step 2 builds the behavior-rule listing from .docs/flanders subfolders", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "the files under each .docs/flanders subfolder form the behavior-rule listing"(body) {
+                Assert.ok(body.includes("the files under each \`.docs/flanders\` subfolder form the behavior-rule listing"), "step 2 must build the behavior-rule listing from .docs/flanders subfolders");
+            },
+            "treats every file inside a .docs/flanders folder at any depth as a behavior rule"(body) {
+                Assert.ok(body.includes("treating every file inside a \`.docs/flanders\` folder at any depth as a behavior rule"), "step 2 must treat every file inside a .docs/flanders folder at any depth as a behavior rule");
+            }
+        }
+    });
+
+    test("carries the obligation to honor in-scope behavior rules before persisting files", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "reads every in-scope behavior rule before persisting any file"(body) {
+                Assert.ok(body.includes("Before persisting any file, read every behavior rule whose \`.docs/flanders\` scope encloses each file you are about to write"), "must read every in-scope behavior rule before persisting any file");
+            },
+            "scopes the read to the target's .docs folder and every parent .docs folder"(body) {
+                Assert.ok(body.includes("the \`.docs\` folder you write the file into and every parent \`.docs\` folder"), "must scope behavior-rule reading to the target's .docs folder and every parent .docs folder");
+            },
+            "behavior rules govern how the skill names, places, and organizes the files it authors"(body) {
+                Assert.ok(body.includes("Behavior rules govern how you name, place, and organize the files you author"), "behavior rules must govern naming, placement, and organization of the authored files");
+            },
+            "treats an in-scope behavior rule as binding, not advisory"(body) {
+                Assert.ok(body.includes("an in-scope behavior rule is binding on that work, not advisory"), "an in-scope behavior rule must be binding, not advisory");
+            }
+        }
+    });
+
     test("specSkillBody names no root contracts/ or rules/ folder pair", {
         ARRANGE() {},
         ACT() { return specSkillBody; },
