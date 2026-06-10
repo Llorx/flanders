@@ -92,3 +92,58 @@ export function countPendingChangesExcept(script:ScriptContext, _time:TimeContex
         });
     });
 }
+
+export function listNonIgnoredFiles(script:ScriptContext, _time:TimeContext, cwd:string):Promise<string[]> {
+    return new Promise<string[]>((resolve, reject) => {
+        const proc = script.spawn("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { stdio: "pipe", cwd });
+        const stdoutChunks:string[] = [];
+        const stderrChunks:string[] = [];
+        proc.stdout?.on("data", chunk => { stdoutChunks.push(String(chunk)); });
+        proc.stderr?.on("data", chunk => { stderrChunks.push(String(chunk)); });
+        proc.on("error", e => reject(e instanceof Error ? e : new Error(String(e))));
+        proc.on("exit", code => {
+            if (code !== 0) {
+                return reject(new Error(stderrChunks.join("")));
+            }
+            const seen = new Set<string>();
+            const result:string[] = [];
+            for (const entry of stdoutChunks.join("").split("\0")) {
+                if (entry.length === 0) continue;
+                if (seen.has(entry)) continue;
+                seen.add(entry);
+                result.push(entry);
+            }
+            resolve(result);
+        });
+    });
+}
+
+export function listIgnoredPaths(script:ScriptContext, _time:TimeContext, cwd:string, paths:readonly string[]):Promise<Set<string>> {
+    if (paths.length === 0) {
+        return Promise.resolve(new Set<string>());
+    }
+    return new Promise<Set<string>>((resolve, reject) => {
+        const proc = script.spawn("git", ["check-ignore", "-z", "--stdin"], { stdio: "pipe", cwd });
+        const stdoutChunks:string[] = [];
+        const stderrChunks:string[] = [];
+        proc.stdout?.on("data", chunk => { stdoutChunks.push(String(chunk)); });
+        proc.stderr?.on("data", chunk => { stderrChunks.push(String(chunk)); });
+        proc.on("error", e => reject(e instanceof Error ? e : new Error(String(e))));
+        proc.on("exit", code => {
+            if (code === 1) {
+                return resolve(new Set<string>());
+            }
+            if (code !== 0) {
+                return reject(new Error(stderrChunks.join("")));
+            }
+            const ignored = new Set<string>();
+            for (const entry of stdoutChunks.join("").split("\0")) {
+                if (entry.length === 0) continue;
+                ignored.add(entry);
+            }
+            resolve(ignored);
+        });
+        proc.stdin?.write(paths.join("\0") + "\0");
+        proc.stdin?.end();
+    });
+}

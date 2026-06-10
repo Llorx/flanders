@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import * as path from "path";
 
-import { isGitAvailable, isInsideWorkTree, countPendingChangesExcept, addAll, commit } from "./Git";
+import { isGitAvailable, isInsideWorkTree, countPendingChangesExcept, addAll, commit, listNonIgnoredFiles, listIgnoredPaths } from "./Git";
 import type { OutputContext, ScriptContext, SpawnedProcess, TimeContext, TimeoutHandle } from "./contexts";
 
 type FakeProcess = SpawnedProcess & {
@@ -12,6 +12,8 @@ type FakeProcess = SpawnedProcess & {
     $emitStderr(chunk:string):void;
     $emit(event:"exit", code:number|null, signal?:string|null):void;
     $emit(event:"error", e:unknown):void;
+    $stdinWrites():readonly string[];
+    $stdinEnded():boolean;
 };
 
 function fakeProcess():FakeProcess {
@@ -19,6 +21,8 @@ function fakeProcess():FakeProcess {
     const errorListeners:Array<(e:unknown) => void> = [];
     const stdoutListeners:Array<(chunk:Buffer|string) => void> = [];
     const stderrListeners:Array<(chunk:Buffer|string) => void> = [];
+    const stdinWrites:string[] = [];
+    let stdinEnded = false;
     return {
         kill() {},
         on(event:"exit"|"error", listener:((code:number|null, signal:string|null) => void)|((e:unknown) => void)) {
@@ -27,13 +31,15 @@ function fakeProcess():FakeProcess {
         },
         stdout: { on(_event:"data", listener:(chunk:Buffer|string) => void) { stdoutListeners.push(listener); } },
         stderr: { on(_event:"data", listener:(chunk:Buffer|string) => void) { stderrListeners.push(listener); } },
-        stdin: { write() {}, end() {} },
+        stdin: { write(chunk:string) { stdinWrites.push(chunk); }, end() { stdinEnded = true; } },
         $emitStdout(chunk:string) { for (const l of stdoutListeners) l(chunk); },
         $emitStderr(chunk:string) { for (const l of stderrListeners) l(chunk); },
         $emit(event:string, codeOrError:unknown, signal?:unknown) {
             if (event === "exit") for (const l of exitListeners) l(codeOrError as number|null, (signal ?? null) as string|null);
             else if (event === "error") for (const l of errorListeners) l(codeOrError);
-        }
+        },
+        $stdinWrites() { return stdinWrites; },
+        $stdinEnded() { return stdinEnded; }
     };
 }
 
@@ -1048,6 +1054,386 @@ test.describe("commit", test => {
         },
         ASSERT(_result, { capturedCwd }) {
             Assert.strictEqual(capturedCwd(), CWD);
+        }
+    });
+});
+
+test.describe("listNonIgnoredFiles", test => {
+    test("resolves the split, empty-dropped, deduplicated path list", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => {
+                        proc.$emitStdout("a.md\0.docs/contracts/b.md\0.docs/contracts/b.md\0");
+                        proc.$emit("exit", 0);
+                    });
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await listNonIgnoredFiles(script, time, CWD);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, ["a.md", ".docs/contracts/b.md"]);
+        }
+    });
+
+    test("resolves an empty array for empty stdout", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => proc.$emit("exit", 0));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await listNonIgnoredFiles(script, time, CWD);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, []);
+        }
+    });
+
+    test("rejects with Error containing stderr when git ls-files exits non-zero", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => {
+                        proc.$emitStderr("fatal: not a git repository\n");
+                        proc.$emit("exit", 128);
+                    });
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            let caught:Error|null = null;
+            try {
+                await listNonIgnoredFiles(script, time, CWD);
+            } catch (e) {
+                caught = e as Error;
+            }
+            return caught;
+        },
+        ASSERTS: {
+            "rejects with an Error instance"(result) {
+                Assert.ok(result instanceof Error);
+            },
+            "message is the captured stderr"(result) {
+                Assert.strictEqual(result!.message, "fatal: not a git repository\n");
+            }
+        }
+    });
+
+    test("rejects with the original Error when spawn emits an Error instance", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => proc.$emit("error", new Error("ENOENT")));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            let caught:Error|null = null;
+            try {
+                await listNonIgnoredFiles(script, time, CWD);
+            } catch (e) {
+                caught = e as Error;
+            }
+            return caught;
+        },
+        ASSERTS: {
+            "rejects with an Error instance"(result) {
+                Assert.ok(result instanceof Error);
+            },
+            "message is the original error message"(result) {
+                Assert.strictEqual(result!.message, "ENOENT");
+            }
+        }
+    });
+
+    test("rejects with wrapped Error when spawn emits a non-Error value", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => proc.$emit("error", "raw string error"));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            let caught:Error|null = null;
+            try {
+                await listNonIgnoredFiles(script, time, CWD);
+            } catch (e) {
+                caught = e as Error;
+            }
+            return caught;
+        },
+        ASSERTS: {
+            "rejects with an Error instance"(result) {
+                Assert.ok(result instanceof Error);
+            },
+            "message is the stringified value"(result) {
+                Assert.strictEqual(result!.message, "raw string error");
+            }
+        }
+    });
+
+    test("spawns git ls-files -z --cached --others --exclude-standard with cwd", {
+        ARRANGE() {
+            let captured:{ command:string; args:readonly string[]; cwd?:string }|null = null;
+            const script:ScriptContext = {
+                spawn(command, args, options) {
+                    captured = { command, args, cwd: options.cwd as string|undefined };
+                    const proc = fakeProcess();
+                    setImmediate(() => proc.$emit("exit", 0));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime(), captured: () => captured };
+        },
+        async ACT({ script, time }) {
+            await listNonIgnoredFiles(script, time, CWD);
+        },
+        ASSERTS: {
+            "command is git"(_result, { captured }) {
+                Assert.strictEqual(captured()!.command, "git");
+            },
+            "args are ls-files -z --cached --others --exclude-standard"(_result, { captured }) {
+                Assert.deepStrictEqual(captured()!.args, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
+            },
+            "cwd is the project directory"(_result, { captured }) {
+                Assert.strictEqual(captured()!.cwd, CWD);
+            }
+        }
+    });
+});
+
+test.describe("listIgnoredPaths", test => {
+    test("resolves an empty Set and records zero spawns for an empty candidate array", {
+        ARRANGE() {
+            let spawnCount = 0;
+            const script:ScriptContext = {
+                spawn() {
+                    spawnCount++;
+                    return fakeProcess();
+                }
+            };
+            return { script, time: stubTime(), spawnCount: () => spawnCount };
+        },
+        async ACT({ script, time }) {
+            return await listIgnoredPaths(script, time, CWD, []);
+        },
+        ASSERTS: {
+            "resolves an empty Set"(result) {
+                Assert.deepStrictEqual(result, new Set());
+            },
+            "records zero spawns"(_result, { spawnCount }) {
+                Assert.strictEqual(spawnCount(), 0);
+            }
+        }
+    });
+
+    test("writes the candidates NUL-joined with a trailing NUL to stdin and ends the stream", {
+        ARRANGE() {
+            let captured:FakeProcess|null = null;
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    captured = proc;
+                    setImmediate(() => proc.$emit("exit", 1));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime(), captured: () => captured };
+        },
+        async ACT({ script, time }) {
+            await listIgnoredPaths(script, time, CWD, ["a.md", ".docs/contracts/b.md"]);
+        },
+        ASSERTS: {
+            "writes the candidate paths NUL-joined with a trailing NUL"(_result, { captured }) {
+                Assert.deepStrictEqual(captured()!.$stdinWrites(), ["a.md\0.docs/contracts/b.md\0"]);
+            },
+            "ends the stdin stream"(_result, { captured }) {
+                Assert.strictEqual(captured()!.$stdinEnded(), true);
+            }
+        }
+    });
+
+    test("exit 0 resolves a Set containing exactly the ignored path", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => {
+                        proc.$emitStdout("x/.docs/rules/r.md\0");
+                        proc.$emit("exit", 0);
+                    });
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await listIgnoredPaths(script, time, CWD, ["x/.docs/rules/r.md"]);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, new Set(["x/.docs/rules/r.md"]));
+        }
+    });
+
+    test("exit 1 with empty stdout resolves an empty Set", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => proc.$emit("exit", 1));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await listIgnoredPaths(script, time, CWD, ["x/.docs/rules/r.md"]);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, new Set());
+        }
+    });
+
+    test("rejects with Error containing stderr when git check-ignore exits with code 2", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => {
+                        proc.$emitStderr("fatal: bad config\n");
+                        proc.$emit("exit", 2);
+                    });
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            let caught:Error|null = null;
+            try {
+                await listIgnoredPaths(script, time, CWD, ["x/.docs/rules/r.md"]);
+            } catch (e) {
+                caught = e as Error;
+            }
+            return caught;
+        },
+        ASSERTS: {
+            "rejects with an Error instance"(result) {
+                Assert.ok(result instanceof Error);
+            },
+            "message is the captured stderr"(result) {
+                Assert.strictEqual(result!.message, "fatal: bad config\n");
+            }
+        }
+    });
+
+    test("rejects with the original Error when spawn emits an Error instance", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => proc.$emit("error", new Error("ENOENT")));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            let caught:Error|null = null;
+            try {
+                await listIgnoredPaths(script, time, CWD, ["x/.docs/rules/r.md"]);
+            } catch (e) {
+                caught = e as Error;
+            }
+            return caught;
+        },
+        ASSERTS: {
+            "rejects with an Error instance"(result) {
+                Assert.ok(result instanceof Error);
+            },
+            "message is the original error message"(result) {
+                Assert.strictEqual(result!.message, "ENOENT");
+            }
+        }
+    });
+
+    test("rejects with wrapped Error when spawn emits a non-Error value", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => proc.$emit("error", "raw string error"));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            let caught:Error|null = null;
+            try {
+                await listIgnoredPaths(script, time, CWD, ["x/.docs/rules/r.md"]);
+            } catch (e) {
+                caught = e as Error;
+            }
+            return caught;
+        },
+        ASSERTS: {
+            "rejects with an Error instance"(result) {
+                Assert.ok(result instanceof Error);
+            },
+            "message is the stringified value"(result) {
+                Assert.strictEqual(result!.message, "raw string error");
+            }
+        }
+    });
+
+    test("spawns git check-ignore -z --stdin with cwd", {
+        ARRANGE() {
+            let captured:{ command:string; args:readonly string[]; cwd?:string }|null = null;
+            const script:ScriptContext = {
+                spawn(command, args, options) {
+                    captured = { command, args, cwd: options.cwd as string|undefined };
+                    const proc = fakeProcess();
+                    setImmediate(() => proc.$emit("exit", 1));
+                    return proc;
+                }
+            };
+            return { script, time: stubTime(), captured: () => captured };
+        },
+        async ACT({ script, time }) {
+            await listIgnoredPaths(script, time, CWD, ["x/.docs/rules/r.md"]);
+        },
+        ASSERTS: {
+            "command is git"(_result, { captured }) {
+                Assert.strictEqual(captured()!.command, "git");
+            },
+            "args are check-ignore -z --stdin"(_result, { captured }) {
+                Assert.deepStrictEqual(captured()!.args, ["check-ignore", "-z", "--stdin"]);
+            },
+            "cwd is the project directory"(_result, { captured }) {
+                Assert.strictEqual(captured()!.cwd, CWD);
+            }
         }
     });
 });
