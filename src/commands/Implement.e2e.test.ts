@@ -231,6 +231,7 @@ function gitRunQueue(gitQueue:ScriptResponse[], taskCount = 1):void {
     gitQueue.push({ code: 0, stdout: "git version 2.40.0\n", stderr: "" }); // git --version
     gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });                // rev-parse --is-inside-work-tree
     gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // status (clean)
+    gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // ls-files discovery (empty → empty global lists, no check-ignore)
     for (let i = 0; i < taskCount; i++) {
         gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
         gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit

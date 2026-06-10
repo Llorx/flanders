@@ -3062,6 +3062,7 @@ test.describe("Implement git preflight", test => {
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: ` M ${PLAN_PATH.replace("/project/", "")}\n`, stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // ls-files discovery (empty → empty lists)
             s.claudeQueue.push({ text: "ok" });
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
@@ -3133,6 +3134,7 @@ test.describe("Implement commit per task", test => {
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // ls-files discovery (empty → empty lists)
             s.claudeQueue.push({ text: "ok" });
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
@@ -3155,9 +3157,9 @@ test.describe("Implement commit per task", test => {
             Assert.ok(plan.includes("[x]"), "plan should be marked done");
             const plain = stripAnsi(written.join(""));
             Assert.ok(plain.includes("done"), "snapshot should be emitted");
-            // After preflight (3 git calls), expect exactly add + commit
-            const postPreflight = gitSpawns.slice(3);
-            Assert.strictEqual(postPreflight.length, 2, "should have exactly 2 git calls after preflight");
+            // After preflight (3 git calls) + ls-files discovery (1 call), expect exactly add + commit
+            const postPreflight = gitSpawns.slice(4);
+            Assert.strictEqual(postPreflight.length, 2, "should have exactly 2 git calls after preflight+discovery");
             Assert.deepStrictEqual(postPreflight[0]!.args, ["add", "-A"]);
             Assert.strictEqual(postPreflight[1]!.args[0], "commit");
             Assert.strictEqual(postPreflight[1]!.args[1], "--allow-empty");
@@ -3174,6 +3176,7 @@ test.describe("Implement commit per task", test => {
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // ls-files discovery (empty → empty lists)
             s.claudeQueue.push({ text: "ok" });
             // iter 1: worker + reviewer pass, add fails
             // prep
@@ -3211,6 +3214,7 @@ test.describe("Implement commit per task", test => {
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // ls-files discovery (empty → empty lists)
             s.claudeQueue.push({ text: "ok" });
             // iter 1: worker + reviewer pass, add succeeds, commit fails
             // prep
@@ -3249,6 +3253,7 @@ test.describe("Implement commit per task", test => {
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // ls-files discovery (empty → empty lists)
             s.claudeQueue.push({ text: "ok" });
             // prep runs once per task, before the iteration loop
             s.claudeQueue.push(PREP_RESPONSE);
@@ -3286,6 +3291,7 @@ test.describe("Implement commit per task", test => {
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // ls-files discovery (empty → empty lists)
             s.claudeQueue.push({ text: "ok" });
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
@@ -3323,10 +3329,17 @@ const E2E_TWO_TASK_PLAN = [
     ""
 ].join("\n");
 
-function gitActivationQueue(gitQueue:ScriptResponse[]):void {
-    gitQueue.push({ code: 0, stdout: "git version 2.40.0\n", stderr: "" });
-    gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
-    gitQueue.push({ code: 0, stdout: "", stderr: "" });
+// Arranges the git startup preflight (version / rev-parse / clean status) plus the
+// `.docs` discovery's `git ls-files` spawn that runs immediately after the preflight.
+// `lsFilesStdout` defaults to empty: an empty-stdout reply yields empty global lists
+// and no follow-up `git check-ignore` spawn, which is the correct arrangement for the
+// many tests that don't exercise the contract/rule lists. Tests that do exercise the
+// lists pass a NUL-joined `.docs` namespace fixture and push their own check-ignore reply.
+function gitActivationQueue(gitQueue:ScriptResponse[], lsFilesStdout = ""):void {
+    gitQueue.push({ code: 0, stdout: "git version 2.40.0\n", stderr: "" }); // git --version
+    gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });               // rev-parse --is-inside-work-tree
+    gitQueue.push({ code: 0, stdout: "", stderr: "" });                     // status (clean)
+    gitQueue.push({ code: 0, stdout: lsFilesStdout, stderr: "" });          // ls-files discovery
 }
 
 // Arranges a full git run: the version/rev-parse/status preflight triple plus one
@@ -3377,8 +3390,8 @@ test.describe("Implement end-to-end git flow", test => {
             Assert.strictEqual(code, 0);
             const plan = files.get(PLAN_PATH)!;
             Assert.ok(plan.includes("[x]") && !plan.includes("[ ]"), "both tasks should be marked done");
-            const postPreflight = gitSpawns.slice(3);
-            Assert.strictEqual(postPreflight.length, 4, "should have exactly 4 git calls after preflight (add+commit per task)");
+            const postPreflight = gitSpawns.slice(4);
+            Assert.strictEqual(postPreflight.length, 4, "should have exactly 4 git calls after preflight+discovery (add+commit per task)");
             Assert.deepStrictEqual(postPreflight[0]!.args, ["add", "-A"]);
             Assert.strictEqual(postPreflight[1]!.args[0], "commit");
             Assert.strictEqual(postPreflight[1]!.args[3], "1 Build the parser");
@@ -3450,7 +3463,10 @@ test.describe("Implement end-to-end git flow", test => {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             gitActivationQueue(s.gitQueue);
-            // Override the status response to report external changes
+            // Override the status response to report external changes. Drop the ls-files
+            // discovery reply (preflight fails first, so discovery never runs) and the clean
+            // status reply, then push a dirty status.
+            s.gitQueue.pop();
             s.gitQueue.pop();
             s.gitQueue.push({ code: 0, stdout: " M src/dirty.ts\n?? src/new.ts\n", stderr: "" });
             return s;
@@ -3532,33 +3548,31 @@ test.describe("Implement end-to-end git flow", test => {
     });
 });
 
-function withDirectoryTree(s:ReturnType<typeof stubContexts>, tree:Record<string, Array<{name:string; isFile:boolean; isDirectory:boolean}>>) {
-    const origExists = s.contexts.fs.exists;
-    (s.contexts.fs as { exists:typeof s.contexts.fs.exists }).exists = (p) => {
-        if (p in tree) return Promise.resolve(true);
-        return origExists(p);
-    };
-    const origReaddir = s.contexts.fs.readdir;
-    (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = (p) => {
-        if (p in tree) return Promise.resolve(tree[p]!);
-        return origReaddir(p);
-    };
+// Extracts the namespace-list block that follows a "## Available contracts" or
+// "## Available rules" heading in an agent prompt. The block layout is: heading line,
+// blank line, single-line description, blank line, the substituted list, then either a
+// blank line (mid-prompt) or end-of-prompt. Returns the list block, trimmed.
+function extractPromptList(prompt:string, heading:string):string {
+    const idx = prompt.indexOf(heading);
+    if (idx === -1) return "";
+    const afterHeading = prompt.indexOf("\n", idx) + 1;
+    const descEnd = prompt.indexOf("\n\n", afterHeading);
+    if (descEnd === -1) return prompt.slice(afterHeading).trim();
+    const listStart = descEnd + 2;
+    const listEnd = prompt.indexOf("\n\n", listStart);
+    return prompt.slice(listStart, listEnd === -1 ? undefined : listEnd).trim();
 }
 
 test.describe("Implement detect prompt rule list", test => {
-    test("detect prompt contains rule paths and substitutes RULE_LIST", {
+    test("detect prompt's rule list comes from .docs discovery and substitutes RULE_LIST", {
         ARRANGE() {
             const s = stubContexts();
-            gitRunQueue(s.gitQueue);
+            // discovery yields one nested .docs/rules namespace; nothing ignored.
+            gitActivationQueue(s.gitQueue, ".docs/rules/testing/runner-flag.md\0");
+            s.gitQueue.push({ code: 1, stdout: "", stderr: "" }); // check-ignore: none ignored
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            withDirectoryTree(s, {
-                "/project/rules": [
-                    { name: "testing", isFile: false, isDirectory: true }
-                ],
-                "/project/rules/testing": [
-                    { name: "runner-flag.md", isFile: true, isDirectory: false }
-                ]
-            });
             s.claudeQueue.push({ text: "ok" });
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
@@ -3576,8 +3590,8 @@ test.describe("Implement detect prompt rule list", test => {
             "the command succeeds"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "the detect prompt contains the rule path"(_code, { promptQueue }) {
-                Assert.ok(promptQueue[0]!.includes("rules/testing/runner-flag.md"), "detect prompt should contain rules/testing/runner-flag.md");
+            "the detect prompt's rule list is exactly the discovered namespace"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[0]!, "## Available rules"), ".docs/rules/testing/runner-flag.md");
             },
             "the RULE_LIST placeholder is substituted"(_code, { promptQueue }) {
                 Assert.ok(!promptQueue[0]!.includes("<RULE_LIST>"), "RULE_LIST placeholder should be substituted");
@@ -3618,20 +3632,60 @@ test.describe("Implement detect prompt rule list", test => {
 });
 
 test.describe("Implement worker prompt contract and rule lists", test => {
-    test("worker prompt contains contract paths and (none) for absent rules", {
+    test("worker prompt's lists come from .docs discovery and exclude git-ignored namespaces", {
         ARRANGE() {
             const s = stubContexts();
-            gitRunQueue(s.gitQueue);
+            // discovery enumerates a root contract, a nested rule, and a third candidate that
+            // git check-ignore reports as ignored — the ignored one must not reach the prompt.
+            gitActivationQueue(s.gitQueue, ".docs/contracts/c1.md\0src/x/.docs/rules/r1.md\0node-ish/.docs/rules/ignored.md\0");
+            s.gitQueue.push({ code: 0, stdout: "node-ish/.docs/rules/ignored.md\0", stderr: "" }); // check-ignore: this candidate is ignored
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            withDirectoryTree(s, {
-                "/project/contracts": [
-                    { name: "overview.md", isFile: true, isDirectory: false },
-                    { name: "ai-skills", isFile: false, isDirectory: true }
-                ],
-                "/project/contracts/ai-skills": [
-                    { name: "contract.md", isFile: true, isDirectory: false }
-                ]
-            });
+            s.claudeQueue.push({ text: "ok" });
+            // prep
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            // promptQueue: [0]=detect, [1]=prep, [2]=worker, [3]=reviewer
+            "the command succeeds"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker contract list is exactly the surviving .docs contract namespace"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[2]!, "## Available contracts"), ".docs/contracts/c1.md");
+            },
+            "the worker rule list is exactly the surviving nested .docs rule namespace"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[2]!, "## Available rules"), "src/x/.docs/rules/r1.md");
+            },
+            "neither list contains the git-ignored namespace"(_code, { promptQueue }) {
+                Assert.ok(!promptQueue[2]!.includes("node-ish/.docs/rules/ignored.md"), "the git-ignored namespace must not appear in the worker prompt");
+            },
+            "the CONTRACT_LIST placeholder is substituted"(_code, { promptQueue }) {
+                Assert.ok(!promptQueue[2]!.includes("<CONTRACT_LIST>"), "CONTRACT_LIST placeholder should be substituted");
+            },
+            "the RULE_LIST placeholder is substituted"(_code, { promptQueue }) {
+                Assert.ok(!promptQueue[2]!.includes("<RULE_LIST>"), "RULE_LIST placeholder should be substituted");
+            }
+        }
+    });
+
+    test("worker prompt's rule list reflects a discovered .docs/rules namespace", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitActivationQueue(s.gitQueue, ".docs/rules/testing/coverage.md\0");
+            s.gitQueue.push({ code: 1, stdout: "", stderr: "" }); // check-ignore: none ignored
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
@@ -3648,72 +3702,24 @@ test.describe("Implement worker prompt contract and rule lists", test => {
         ASSERT(code, { promptQueue }) {
             Assert.strictEqual(code, 0);
             // promptQueue: [0]=detect, [1]=prep, [2]=worker, [3]=reviewer
-            const workerPrompt = promptQueue[2]!;
-            Assert.ok(workerPrompt.includes("contracts/overview.md"), "worker prompt should contain contracts/overview.md");
-            Assert.ok(workerPrompt.includes("contracts/ai-skills/contract.md"), "worker prompt should contain contracts/ai-skills/contract.md");
-            Assert.ok(workerPrompt.includes("(none)"), "worker prompt should show (none) for absent rules");
-            Assert.ok(!workerPrompt.includes("<RULE_LIST>"), "RULE_LIST placeholder should be substituted");
-            Assert.ok(!workerPrompt.includes("<CONTRACT_LIST>"), "CONTRACT_LIST placeholder should be substituted");
+            Assert.strictEqual(extractPromptList(promptQueue[2]!, "## Available rules"), ".docs/rules/testing/coverage.md");
         }
     });
 
-    test("worker prompt contains rule paths when rules/ exists", {
+    test("discovery runs once at startup and the lists are reused for every task", {
         ARRANGE() {
             const s = stubContexts();
-            gitRunQueue(s.gitQueue);
-            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            withDirectoryTree(s, {
-                "/project/rules": [
-                    { name: "testing", isFile: false, isDirectory: true }
-                ],
-                "/project/rules/testing": [
-                    { name: "coverage.md", isFile: true, isDirectory: false }
-                ]
-            });
-            s.claudeQueue.push({ text: "ok" });
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERT(code, { promptQueue }) {
-            Assert.strictEqual(code, 0);
-            // promptQueue: [0]=detect, [1]=prep, [2]=worker, [3]=reviewer
-            const workerPrompt = promptQueue[2]!;
-            Assert.ok(workerPrompt.includes("rules/testing/coverage.md"), "worker prompt should contain rules/testing/coverage.md");
-        }
-    });
-
-    test("lists are cached — fs changes after startup are not reflected in prompts", {
-        ARRANGE() {
-            const s = stubContexts();
-            gitRunQueue(s.gitQueue, 2);
+            // A single ls-files discovery at startup; nothing ignored. The queue holds only
+            // one ls-files reply, so a regression that re-ran discovery per task would either
+            // spawn ls-files twice (caught below) or exhaust the queue.
+            gitActivationQueue(s.gitQueue, ".docs/contracts/initial.md\0");
+            s.gitQueue.push({ code: 1, stdout: "", stderr: "" }); // check-ignore: none ignored
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A commit
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task B add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task B commit
             const twoTaskPlan = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Task A\n- [ ]{"it":0,"ot":0,"t":0} Task B\n';
             s.files.set(PLAN_PATH, twoTaskPlan);
-            let readdirCallCount = 0;
-            const origExists = s.contexts.fs.exists;
-            (s.contexts.fs as { exists:typeof s.contexts.fs.exists }).exists = (p) => {
-                if (p === "/project/contracts") return Promise.resolve(true);
-                return origExists(p);
-            };
-            const origReaddir = s.contexts.fs.readdir;
-            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = (p) => {
-                if (p === "/project/contracts") {
-                    readdirCallCount++;
-                    if (readdirCallCount === 1) {
-                        return Promise.resolve([{ name: "initial.md", isFile: true, isDirectory: false }]);
-                    }
-                    return Promise.resolve([{ name: "changed.md", isFile: true, isDirectory: false }]);
-                }
-                return origReaddir(p);
-            };
             s.claudeQueue.push({ text: "ok" });
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
@@ -3722,7 +3728,7 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            return { ...s, getReaddirCallCount: () => readdirCallCount };
+            return s;
         },
         async ACT({ contexts }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
@@ -3730,32 +3736,35 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             await cmd.dispose();
             return code;
         },
-        ASSERT(code, { promptQueue, getReaddirCallCount }) {
-            Assert.strictEqual(code, 0);
+        ASSERTS: {
             // promptQueue: [0]=detect, [1]=prep1, [2]=worker1, [3]=reviewer1, [4]=prep2, [5]=worker2, [6]=reviewer2
-            const worker1Prompt = promptQueue[2]!;
-            const worker2Prompt = promptQueue[5]!;
-            Assert.ok(worker1Prompt.includes("contracts/initial.md"), "first worker prompt should contain initial contract");
-            Assert.ok(worker2Prompt.includes("contracts/initial.md"), "second worker prompt should still contain initial contract (cached)");
-            Assert.ok(!worker2Prompt.includes("contracts/changed.md"), "second worker prompt should NOT contain changed contract");
-            Assert.strictEqual(getReaddirCallCount(), 1, "readdir for contracts should be called only once");
+            "the run succeeds"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "git ls-files is spawned exactly once for the whole run"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.filter(g => g.args[0] === "ls-files").length, 1, "discovery should run exactly once at startup");
+            },
+            "the first worker prompt carries the discovered contract"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[2]!, "## Available contracts"), ".docs/contracts/initial.md");
+            },
+            "the second worker prompt carries the same discovered contract (lists reused)"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[5]!, "## Available contracts"), ".docs/contracts/initial.md");
+            }
         }
     });
 
     test("lists are identical across tasks and iterations within a single run", {
         ARRANGE() {
             const s = stubContexts();
-            gitRunQueue(s.gitQueue, 2);
+            // discovery yields one contract and one rule; nothing ignored.
+            gitActivationQueue(s.gitQueue, ".docs/contracts/spec.md\0.docs/rules/style.md\0");
+            s.gitQueue.push({ code: 1, stdout: "", stderr: "" }); // check-ignore: none ignored
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A commit
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task B add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task B commit
             const twoTaskPlan = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Task A\n- [ ]{"it":0,"ot":0,"t":0} Task B\n';
             s.files.set(PLAN_PATH, twoTaskPlan);
-            withDirectoryTree(s, {
-                "/project/contracts": [
-                    { name: "spec.md", isFile: true, isDirectory: false }
-                ],
-                "/project/rules": [
-                    { name: "style.md", isFile: true, isDirectory: false }
-                ]
-            });
             s.claudeQueue.push({ text: "ok" });
             // Task A: worker fails, retries, then passes
             // prep
@@ -3781,24 +3790,14 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             // promptQueue: [0]=detect, [1]=prep A, [2]=worker A iter 1, [3]=reviewer A iter 1,
             // [4]=worker A iter 2, [5]=reviewer A iter 2,
             // [6]=prep B, [7]=worker B, [8]=reviewer B
-            const extractList = (prompt:string, heading:string):string => {
-                const idx = prompt.indexOf(heading);
-                if (idx === -1) return "";
-                const afterHeading = prompt.indexOf("\n", idx) + 1;
-                const descEnd = prompt.indexOf("\n\n", afterHeading);
-                if (descEnd === -1) return prompt.slice(afterHeading).trim();
-                const listStart = descEnd + 2;
-                const listEnd = prompt.indexOf("\n\n", listStart);
-                return prompt.slice(listStart, listEnd === -1 ? undefined : listEnd).trim();
-            };
-            const w1Contracts = extractList(promptQueue[2]!, "## Available contracts");
-            const w2Contracts = extractList(promptQueue[4]!, "## Available contracts");
-            const w3Contracts = extractList(promptQueue[7]!, "## Available contracts");
+            const w1Contracts = extractPromptList(promptQueue[2]!, "## Available contracts");
+            const w2Contracts = extractPromptList(promptQueue[4]!, "## Available contracts");
+            const w3Contracts = extractPromptList(promptQueue[7]!, "## Available contracts");
             Assert.strictEqual(w1Contracts, w2Contracts, "contract lists should be identical across iterations");
             Assert.strictEqual(w1Contracts, w3Contracts, "contract lists should be identical across tasks");
-            const w1Rules = extractList(promptQueue[2]!, "## Available rules");
-            const w2Rules = extractList(promptQueue[4]!, "## Available rules");
-            const w3Rules = extractList(promptQueue[7]!, "## Available rules");
+            const w1Rules = extractPromptList(promptQueue[2]!, "## Available rules");
+            const w2Rules = extractPromptList(promptQueue[4]!, "## Available rules");
+            const w3Rules = extractPromptList(promptQueue[7]!, "## Available rules");
             Assert.strictEqual(w1Rules, w2Rules, "rule lists should be identical across iterations");
             Assert.strictEqual(w1Rules, w3Rules, "rule lists should be identical across tasks");
         }
@@ -3806,26 +3805,15 @@ test.describe("Implement worker prompt contract and rule lists", test => {
 });
 
 test.describe("Implement reviewer prompt contract and rule lists", test => {
-    test("reviewer prompt contains the same formatted lists as the worker prompt", {
+    test("reviewer prompt receives the same discovered lists as the worker for the same iteration", {
         ARRANGE() {
             const s = stubContexts();
-            gitRunQueue(s.gitQueue);
+            // discovery yields one contract and one nested rule; nothing ignored.
+            gitActivationQueue(s.gitQueue, ".docs/contracts/overview.md\0src/x/.docs/rules/r1.md\0");
+            s.gitQueue.push({ code: 1, stdout: "", stderr: "" }); // check-ignore: none ignored
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            withDirectoryTree(s, {
-                "/project/contracts": [
-                    { name: "overview.md", isFile: true, isDirectory: false },
-                    { name: "ai-skills", isFile: false, isDirectory: true }
-                ],
-                "/project/contracts/ai-skills": [
-                    { name: "contract.md", isFile: true, isDirectory: false }
-                ],
-                "/project/rules": [
-                    { name: "testing", isFile: false, isDirectory: true }
-                ],
-                "/project/rules/testing": [
-                    { name: "coverage.md", isFile: true, isDirectory: false }
-                ]
-            });
             s.claudeQueue.push({ text: "ok" });
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
@@ -3839,32 +3827,23 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
             await cmd.dispose();
             return code;
         },
-        ASSERT(code, { promptQueue }) {
-            Assert.strictEqual(code, 0);
+        ASSERTS: {
             // promptQueue: [0]=detect, [1]=prep, [2]=worker, [3]=reviewer
-            const workerPrompt = promptQueue[2]!;
-            const reviewerPrompt = promptQueue[3]!;
-            Assert.ok(reviewerPrompt.includes("contracts/overview.md"), "reviewer prompt should contain contracts/overview.md");
-            Assert.ok(reviewerPrompt.includes("contracts/ai-skills/contract.md"), "reviewer prompt should contain contracts/ai-skills/contract.md");
-            Assert.ok(reviewerPrompt.includes("rules/testing/coverage.md"), "reviewer prompt should contain rules/testing/coverage.md");
-            Assert.ok(!reviewerPrompt.includes("<CONTRACT_LIST>"), "CONTRACT_LIST placeholder should be substituted");
-            Assert.ok(!reviewerPrompt.includes("<RULE_LIST>"), "RULE_LIST placeholder should be substituted");
-            const extractList = (prompt:string, heading:string):string => {
-                const idx = prompt.indexOf(heading);
-                if (idx === -1) return "";
-                const afterHeading = prompt.indexOf("\n", idx) + 1;
-                const descEnd = prompt.indexOf("\n\n", afterHeading);
-                if (descEnd === -1) return prompt.slice(afterHeading).trim();
-                const listStart = descEnd + 2;
-                const listEnd = prompt.indexOf("\n\n", listStart);
-                return prompt.slice(listStart, listEnd === -1 ? undefined : listEnd).trim();
-            };
-            const wContracts = extractList(workerPrompt, "## Available contracts");
-            const rContracts = extractList(reviewerPrompt, "## Available contracts");
-            Assert.strictEqual(rContracts, wContracts, "reviewer contract list should match worker contract list");
-            const wRules = extractList(workerPrompt, "## Available rules");
-            const rRules = extractList(reviewerPrompt, "## Available rules");
-            Assert.strictEqual(rRules, wRules, "reviewer rule list should match worker rule list");
+            "the command succeeds"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker contract list is the discovered namespace"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[2]!, "## Available contracts"), ".docs/contracts/overview.md");
+            },
+            "the reviewer contract list matches the worker's"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[3]!, "## Available contracts"), extractPromptList(promptQueue[2]!, "## Available contracts"));
+            },
+            "the worker rule list is the discovered nested namespace"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[2]!, "## Available rules"), "src/x/.docs/rules/r1.md");
+            },
+            "the reviewer rule list matches the worker's"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[3]!, "## Available rules"), extractPromptList(promptQueue[2]!, "## Available rules"));
+            }
         }
     });
 

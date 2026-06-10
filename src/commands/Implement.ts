@@ -7,6 +7,7 @@ import type { FlandersConfig, FlandersRole } from "../FlandersConfig";
 import { read as readConfig } from "../FlandersConfig";
 import { isNonEmptyFile, joinPath, listFilesRecursive } from "../fsUtils";
 import { isGitAvailable, isInsideWorkTree, countPendingChangesExcept, addAll, commit } from "../Git";
+import { discoverSpecs } from "../SpecDiscovery";
 import { PlanFile, PlanTask } from "../PlanFile";
 import { Placeholders, prompts } from "../prompts";
 import { ScriptRunner } from "../ScriptRunner";
@@ -191,10 +192,9 @@ export class Implement {
                 this._finalizeBlock("Failed");
                 return 1;
             }
-            const contractFiles = await listFilesRecursive(this._contexts.fs, joinPath(this._options.projectRoot, "contracts"));
-            this._contractList = contractFiles.map(f => `contracts/${f}`);
-            const ruleFiles = await listFilesRecursive(this._contexts.fs, joinPath(this._options.projectRoot, "rules"));
-            this._ruleList = ruleFiles.map(f => `rules/${f}`);
+            const specs = await discoverSpecs(this._contexts.script, this._contexts.time, this._options.projectRoot);
+            this._contractList = specs.contracts;
+            this._ruleList = specs.rules;
             this._workspace = new Workspace(this._contexts.fs, this._contexts.platform);
             const wsPaths = await this._workspace.setup(this._config.reviewers.length);
             await this._detectBuildAndTest(wsPaths);
