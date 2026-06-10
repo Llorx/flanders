@@ -18,15 +18,31 @@ test.describe("skills – planSkillBody", test => {
         }
     });
 
-    test("covers contracts/ listing as canonical reference", {
+    test("covers .docs discovery as the canonical contracts reference", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            "mentions canonical reference"(body) {
-                Assert.ok(body.includes("canonical reference"), "must mention canonical reference");
+            "instructs recursive .docs discovery across the project tree"(body) {
+                Assert.ok(body.includes("Discover every directory named \`.docs\` across the whole project tree at every depth"), "step 2 must instruct recursive .docs discovery at every depth");
             },
-            "references contracts/ folder"(body) {
-                Assert.ok(body.includes("contracts/ folder"), "must reference contracts/ folder");
+            "names the git-ignore exclusion"(body) {
+                Assert.ok(body.includes("excluding every path the project's git ignore rules exclude"), "step 2 must exclude git-ignored paths");
+            },
+            ".docs/contracts subfolders form the canonical contracts listing"(body) {
+                Assert.ok(body.includes("the files under each \`.docs/contracts\` subfolder form the canonical contracts listing"), "step 2 must build the contracts listing from .docs/contracts subfolders");
+            }
+        }
+    });
+
+    test("step 2 instructs no root contracts/ or rules/ folder listing", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "names no root contracts/ folder"(body) {
+                Assert.ok(!body.includes("contracts/ folder"), "must not instruct listing a root contracts/ folder");
+            },
+            "names no root rules/ folder"(body) {
+                Assert.ok(!body.includes("rules/ folder"), "must not instruct listing a root rules/ folder");
             }
         }
     });
@@ -167,24 +183,49 @@ test.describe("skills – planSkillBody", test => {
             "has missing contracts or rules section"(body) {
                 Assert.ok(body.includes("Missing contracts or rules"), "must have missing contracts or rules section");
             },
-            "warns when contracts/ is missing or empty"(body) {
-                Assert.ok(body.includes("contracts/ folder is missing or empty"), "must warn when contracts/ is missing or empty");
+            "warns when no .docs/contracts folder contains any file"(body) {
+                Assert.ok(body.includes("no \`.docs/contracts\` folder contains any file"), "must warn when no .docs/contracts folder contains any file");
             },
-            "warns when rules/ is missing or empty"(body) {
-                Assert.ok(body.includes("rules/ folder is missing or empty"), "must warn when rules/ is missing or empty");
+            "warns when no .docs/rules folder contains any file"(body) {
+                Assert.ok(body.includes("no \`.docs/rules\` folder contains any file"), "must warn when no .docs/rules folder contains any file");
             }
         }
     });
 
-    test("covers rules/ listing as canonical reference", {
+    test("covers .docs discovery as the canonical rules reference", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            "references rules/ folder"(body) {
-                Assert.ok(body.includes("rules/ folder"), "must reference rules/ folder in step 2");
+            ".docs/rules subfolders form the canonical rules listing"(body) {
+                Assert.ok(body.includes("the files under each \`.docs/rules\` subfolder form the canonical rules listing"), "step 2 must build the rules listing from .docs/rules subfolders");
             },
-            "mentions canonical reference of rules"(body) {
-                Assert.ok(body.includes("canonical reference of rules"), "must mention canonical reference of rules");
+            "identifies each file by its namespace"(body) {
+                Assert.ok(body.includes("each file is identified by its namespace"), "step 2 must identify each file by its namespace");
+            },
+            "defines the namespace as the path relative to the project root"(body) {
+                Assert.ok(body.includes("its path relative to the project root"), "step 2 must define the namespace as the project-root-relative path");
+            },
+            "keeps same-leaf-filename specs distinct by namespace"(body) {
+                Assert.ok(body.includes("files sharing a leaf filename in different \`.docs\` folders stay distinct"), "step 2 must keep same-leaf-filename specs in different .docs folders distinct");
+            }
+        }
+    });
+
+    test("scope-driven rule-selection bullet uses namespace-shape-neutral subfolder hints", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "walks the rules listing without a root rules/ path"(body) {
+                Assert.ok(body.includes("walk the rules listing and ask"), "must instruct walking the rules listing");
+            },
+            "hints a testing/ subfolder"(body) {
+                Assert.ok(body.includes("every applicable rule under a \`testing/\` subfolder"), "must hint a testing/ subfolder");
+            },
+            "hints a disposables/ subfolder"(body) {
+                Assert.ok(body.includes("every applicable rule under a \`disposables/\` subfolder"), "must hint a disposables/ subfolder");
+            },
+            "hints a ui/ subfolder"(body) {
+                Assert.ok(body.includes("every applicable rule under a \`ui/\` subfolder"), "must hint a ui/ subfolder");
             }
         }
     });
@@ -222,14 +263,14 @@ test.describe("skills – planSkillBody", test => {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            "prohibits task content from touching contracts/"(body) {
-                Assert.ok(body.includes("inside contracts/"), "must prohibit tasks from touching contracts/");
+            "prohibits task content from touching .docs/contracts folders"(body) {
+                Assert.ok(body.includes("inside any \`.docs/contracts\` folder"), "must prohibit tasks from touching .docs/contracts folders");
             },
-            "prohibits task content from touching rules/"(body) {
-                Assert.ok(body.includes("inside rules/"), "must prohibit tasks from touching rules/");
+            "prohibits task content from touching .docs/rules folders"(body) {
+                Assert.ok(body.includes("any \`.docs/rules\` folder"), "must prohibit tasks from touching .docs/rules folders");
             },
-            "prohibits task content from touching plans/"(body) {
-                Assert.ok(body.includes("or inside plans/"), "must prohibit tasks from touching plans/");
+            "prohibits task content from touching the plans/ folder"(body) {
+                Assert.ok(body.includes("or the \`plans/\` folder"), "must prohibit tasks from touching the plans/ folder");
             },
             "does not cite shared/spec-folder-write-authority.md"(body) {
                 Assert.ok(!body.includes("shared/spec-folder-write-authority.md"), "must not cite spec-folder-write-authority path");
@@ -331,6 +372,10 @@ test.describe("skills – planSkillBody", test => {
             },
             "lists Spec-folder write boundary check"(body) {
                 Assert.ok(body.includes("3. Spec-folder write boundary"), "must list Spec-folder write boundary check");
+            },
+            "category 3 names the .docs spec folders and plans/"(body) {
+                const category3 = body.slice(body.indexOf("3. Spec-folder write boundary"), body.indexOf("4. Plan content rules"));
+                Assert.ok(category3.includes("renames any file inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder"), "validator category 3 must name the .docs/contracts, .docs/rules, and plans/ folders");
             },
             "lists Plan content rules check"(body) {
                 Assert.ok(body.includes("4. Plan content rules"), "must list Plan content rules check");
@@ -499,7 +544,7 @@ test.describe("skills – planSkillBody", test => {
                 Assert.ok(body.includes("does NOT carry its own checkbox"), "must inline the leaf/parent distinction");
             },
             "inlines the spec-folder write boundary for tasks"(body) {
-                Assert.ok(body.includes("No task may describe work that creates, modifies, deletes, or renames files inside contracts/, inside rules/, or inside plans/"), "must inline the spec-folder write boundary");
+                Assert.ok(body.includes("No task may describe work that creates, modifies, deletes, or renames files inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder"), "must inline the spec-folder write boundary");
             },
             "On FAIL triage step"(body) {
                 Assert.ok(body.includes("Triage each issue"), "must describe the triage step");
@@ -535,11 +580,14 @@ test.describe("skills – planSkillBody", test => {
             "describes cross-cutting convention outcome"(body) {
                 Assert.ok(body.includes("Cross-cutting convention"), "must describe cross-cutting convention outcome");
             },
+            "routes a cross-cutting convention to a .docs/rules folder"(body) {
+                Assert.ok(body.includes("belongs in a \`.docs/rules\` folder"), "a cross-cutting convention must belong in a .docs/rules folder");
+            },
             "describes plan-local outcome"(body) {
                 Assert.ok(body.includes("Plan-local implementation choice"), "must describe plan-local outcome");
             },
-            "prohibits writing to rules/ or contracts/"(body) {
-                Assert.ok(body.includes("never writes to rules/ or contracts/"), "must prohibit writing to rules/ or contracts/");
+            "prohibits writing to .docs/rules or .docs/contracts folders"(body) {
+                Assert.ok(body.includes("never writes to any \`.docs/rules\` or \`.docs/contracts\` folder"), "must prohibit writing to .docs/rules or .docs/contracts folders");
             }
         }
     });
