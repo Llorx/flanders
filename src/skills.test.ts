@@ -211,6 +211,41 @@ test.describe("skills – planSkillBody", test => {
         }
     });
 
+    test("step 2 builds the behavior-rule listing from .docs/flanders subfolders", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "the files under each .docs/flanders subfolder form the behavior-rule listing"(body) {
+                Assert.ok(body.includes("the files under each \`.docs/flanders\` subfolder form the behavior-rule listing"), "step 2 must build the behavior-rule listing from .docs/flanders subfolders");
+            },
+            "treats every file inside a .docs/flanders folder at any depth as a behavior rule"(body) {
+                Assert.ok(body.includes("treating every file inside a \`.docs/flanders\` folder at any depth as a behavior rule"), "step 2 must treat every file inside a .docs/flanders folder at any depth as a behavior rule");
+            }
+        }
+    });
+
+    test("carries the obligation to honor in-scope behavior rules before persisting the plan file", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "reads every in-scope behavior rule before persisting the plan file"(body) {
+                Assert.ok(body.includes("Before persisting the plan file, read every behavior rule whose \`.docs/flanders\` scope encloses the plan file you are about to write"), "must read every in-scope behavior rule before persisting the plan file");
+            },
+            "scopes the read to the project-root .docs folder and any other enclosing .docs folder"(body) {
+                Assert.ok(body.includes("the project-root \`.docs\` folder and any other \`.docs\` folder whose scope encloses the \`plans/\` target"), "must scope behavior-rule reading to the project-root .docs folder and any other .docs folder enclosing the plans/ target");
+            },
+            "behavior rules govern how the skill names and organizes the plan file it authors"(body) {
+                Assert.ok(body.includes("Behavior rules govern how you name and organize the plan file you author"), "behavior rules must govern naming and organization of the authored plan file");
+            },
+            "treats an in-scope behavior rule as binding, not advisory"(body) {
+                Assert.ok(body.includes("an in-scope behavior rule is binding on that work, not advisory"), "an in-scope behavior rule must be binding, not advisory");
+            },
+            "adds no new task-line link obligation"(body) {
+                Assert.ok(body.includes("This adds no new task-line link obligation"), "must state it adds no new task-line link obligation");
+            }
+        }
+    });
+
     test("scope-driven rule-selection bullet uses namespace-shape-neutral subfolder hints", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
