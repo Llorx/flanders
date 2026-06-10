@@ -17,7 +17,7 @@ A claim that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D"
 
 When a test-guarded regression argument cannot be soundly constructed — the asserting call would still pass under a regression the claim forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
 
-const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per `rules/ai/agents/evidence/scope-driven-self-audit.md`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (relative path inside `rules/`), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape are classified by observability: a test-observable absence needs a search-based or recorded-call assertion that confirms zero matches over the observable surface, while a source-text structural absence or semantic-judgment absence is review-adjudicated and must not be guarded by a test that reads source as text. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per `rules/ai/agents/evidence/enumerated-claim-coverage.md`.";
+const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per `rules/ai/agents/evidence/scope-driven-self-audit.md`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (its path relative to the project root), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape are classified by observability: a test-observable absence needs a search-based or recorded-call assertion that confirms zero matches over the observable surface, while a source-text structural absence or semantic-judgment absence is review-adjudicated and must not be guarded by a test that reads source as text. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per `rules/ai/agents/evidence/enumerated-claim-coverage.md`.";
 
 function claimClassificationBlock(template: string, endMarker: string) {
     const start = template.indexOf("Classify every claim by ONE question:");
@@ -79,14 +79,17 @@ test.describe("prompts – prep", test => {
         ARRANGE() {},
         ACT() { return prompts.prep; },
         ASSERTS: {
-            "references contracts/"(template) {
-                Assert.ok(template.includes("contracts/"));
+            "names .docs/contracts folders"(template) {
+                Assert.ok(template.includes(".docs/contracts"));
             },
-            "references rules/"(template) {
-                Assert.ok(template.includes("rules/"));
+            "names .docs/rules folders"(template) {
+                Assert.ok(template.includes(".docs/rules"));
             },
             "references plans/"(template) {
                 Assert.ok(template.includes("plans/"));
+            },
+            "names no bare root contracts/ rules/ folder pair"(template) {
+                Assert.strictEqual(template.includes("`contracts/`, `rules/`"), false);
             },
             "references shared/spec-folder-write-authority.md"(template) {
                 Assert.ok(template.includes("shared/spec-folder-write-authority.md"));
@@ -147,17 +150,36 @@ test.describe("prompts – detectBuildAndTest", test => {
         ARRANGE() {},
         ACT() { return prompts.detectBuildAndTest; },
         ASSERTS: {
-            "references contracts/"(template) {
-                Assert.ok(template.includes("contracts/"));
+            "names .docs/contracts folders"(template) {
+                Assert.ok(template.includes(".docs/contracts"));
             },
-            "references rules/"(template) {
-                Assert.ok(template.includes("rules/"));
+            "names .docs/rules folders"(template) {
+                Assert.ok(template.includes(".docs/rules"));
             },
             "references plans/"(template) {
                 Assert.ok(template.includes("plans/"));
             },
+            "names no bare root contracts/ rules/ folder pair"(template) {
+                Assert.strictEqual(template.includes("`contracts/`, `rules/`"), false);
+            },
             "references shared/spec-folder-write-authority.md"(template) {
                 Assert.ok(template.includes("shared/spec-folder-write-authority.md"));
+            }
+        }
+    });
+
+    test("scope hint references testing/ and build/ subfolders of a .docs/rules folder", {
+        ARRANGE() {},
+        ACT() { return prompts.detectBuildAndTest; },
+        ASSERTS: {
+            "references the testing/ and build/ subfolder hint"(template) {
+                Assert.ok(template.includes("any rule under a `testing/` or `build/` subfolder of a `.docs/rules` folder"));
+            },
+            "no longer globs rules/testing/*"(template) {
+                Assert.strictEqual(template.includes("rules/testing/*"), false);
+            },
+            "no longer globs rules/build/*"(template) {
+                Assert.strictEqual(template.includes("rules/build/*"), false);
             }
         }
     });
@@ -168,17 +190,52 @@ test.describe("prompts – worker", test => {
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERTS: {
-            "references contracts/"(template) {
-                Assert.ok(template.includes("contracts/"));
+            "names .docs/contracts folders"(template) {
+                Assert.ok(template.includes(".docs/contracts"));
             },
-            "references rules/"(template) {
-                Assert.ok(template.includes("rules/"));
+            "names .docs/rules folders"(template) {
+                Assert.ok(template.includes(".docs/rules"));
             },
             "references plans/"(template) {
                 Assert.ok(template.includes("plans/"));
             },
+            "names no bare root contracts/ rules/ folder pair"(template) {
+                Assert.strictEqual(template.includes("`contracts/`, `rules/`"), false);
+            },
             "references shared/spec-folder-write-authority.md"(template) {
                 Assert.ok(template.includes("shared/spec-folder-write-authority.md"));
+            }
+        }
+    });
+
+    test("worker namespace glosses read its path relative to the project root", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERTS: {
+            "rule-claim gloss reads its path relative to the project root"(template) {
+                Assert.ok(template.includes("the rule's namespace (its path relative to the project root)"));
+            },
+            "contract-claim gloss reads its path relative to the project root"(template) {
+                Assert.ok(template.includes("the contract's namespace (its path relative to the project root)"));
+            }
+        }
+    });
+
+    test("scope hint references testing/, disposables/, and ui/ subfolders", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERTS: {
+            "references the subfolder-based scope hint exactly"(template) {
+                Assert.ok(template.includes("open the applicable rules under a `testing/` subfolder; if you touch timers, listeners, controllers, or any async lifecycle, open the rules under a `disposables/` subfolder; if you change terminal UI, open the rules under a `ui/` subfolder"));
+            },
+            "no longer globs rules/testing/*"(template) {
+                Assert.strictEqual(template.includes("rules/testing/*"), false);
+            },
+            "no longer globs rules/disposables/*"(template) {
+                Assert.strictEqual(template.includes("rules/disposables/*"), false);
+            },
+            "no longer globs rules/ui/*"(template) {
+                Assert.strictEqual(template.includes("rules/ui/*"), false);
             }
         }
     });
@@ -527,7 +584,7 @@ test.describe("prompts – worker – three-section Evidence Report", test => {
             const start = template.indexOf("Spec-folder write boundary:");
             const end = template.indexOf("\n\n", start);
             const specBoundary = template.substring(start, end);
-            Assert.strictEqual(specBoundary, "Spec-folder write boundary: you must not create, modify, delete, or rename any file inside `contracts/`, `rules/`, or `plans/`. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.");
+            Assert.strictEqual(specBoundary, "Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any `.docs/contracts` folder, any `.docs/rules` folder, or the `plans/` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.");
         }
     });
 
@@ -549,14 +606,17 @@ test.describe("prompts – reviewer", test => {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
-            "references contracts/"(template) {
-                Assert.ok(template.includes("contracts/"));
+            "names .docs/contracts folders"(template) {
+                Assert.ok(template.includes(".docs/contracts"));
             },
-            "references rules/"(template) {
-                Assert.ok(template.includes("rules/"));
+            "names .docs/rules folders"(template) {
+                Assert.ok(template.includes(".docs/rules"));
             },
             "references plans/"(template) {
                 Assert.ok(template.includes("plans/"));
+            },
+            "names no bare root contracts/ rules/ folder pair"(template) {
+                Assert.strictEqual(template.includes("`contracts/`, `rules/`"), false);
             },
             "references shared/spec-folder-write-authority.md"(template) {
                 Assert.ok(template.includes("shared/spec-folder-write-authority.md"));
@@ -913,7 +973,7 @@ test.describe("prompts – reviewer – three-section claim checklist", test => 
             const start = template.indexOf("Spec-folder write boundary:");
             const end = template.indexOf("\n\n", start);
             const specBoundary = template.substring(start, end === -1 ? undefined : end);
-            Assert.strictEqual(specBoundary, "Spec-folder write boundary: you must not create, modify, delete, or rename any file inside `contracts/`, `rules/`, or `plans/`. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.");
+            Assert.strictEqual(specBoundary, "Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any `.docs/contracts` folder, any `.docs/rules` folder, or the `plans/` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.");
         }
     });
 });
@@ -966,15 +1026,15 @@ test.describe("prompts – reviewer – git-status change-set enumeration", test
         }
     });
 
-    test("contains the non-git fallback statement", {
+    test("makes the change-set enumeration unconditional", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
-            "contains the imposes-nothing clause"(template) {
-                Assert.ok(template.includes("When the project is not a git work tree, this obligation imposes nothing"));
+            "contains no non-git work-tree conditional"(template) {
+                Assert.strictEqual(template.includes("not a git work tree"), false);
             },
-            "contains the fallback-to-task-files clause"(template) {
-                Assert.ok(template.includes("you fall back to the files the task references"));
+            "contains the unconditional enumeration intro sentence exactly"(template) {
+                Assert.ok(template.includes("You must derive the worker's complete change set from git, not from the task description alone:"));
             }
         }
     });

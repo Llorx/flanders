@@ -43,13 +43,13 @@ If you cannot confidently determine how to build the project, leave the build sc
 
 ## Available rules
 
-Each path below is the rule's namespace. Before deciding the build or test commands, scan this list and open every rule whose scope governs how the project is built or how its tests are run — for example, anything under \`rules/testing/*\` or \`rules/build/*\`, or any rule that prescribes a specific runner, invocation form, required flag, or toolchain convention. Reading is not optional for rules whose scope matches build/test invocation. The commands you write must honor those rules: if a rule pins the test runner to a specific invocation form or required flag, the script you write must use that exact invocation.
+Each path below is the rule's namespace. Before deciding the build or test commands, scan this list and open every rule whose scope governs how the project is built or how its tests are run — for example, any rule under a \`testing/\` or \`build/\` subfolder of a \`.docs/rules\` folder, or any rule that prescribes a specific runner, invocation form, required flag, or toolchain convention. Reading is not optional for rules whose scope matches build/test invocation. The commands you write must honor those rules: if a rule pins the test runner to a specific invocation form or required flag, the script you write must use that exact invocation.
 
 ${Placeholders.RULE_LIST}
 
 Git boundary: you must not execute any git command that modifies repository state. Read-only git commands (\`git status\`, \`git log\`, \`git show\`, \`git diff\`, \`git blame\`, \`git ls-files\`) are allowed if they help you understand the project; commits, staging, branches, tags, stashes, resets, restores, merges, rebases, edits under \`.git/\`, and any remote git operation are forbidden. See rules/ai/agents/no-git-writes.md for the full obligation.
 
-Spec-folder write boundary: you must not create, modify, delete, or rename any file inside \`contracts/\`, \`rules/\`, or \`plans/\`. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
+Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
 
 ${foregroundBoundary}`,
 
@@ -92,11 +92,11 @@ ${claimClassification}
 
    **Rule claims**
 
-   For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per \`rules/ai/agents/evidence/scope-driven-self-audit.md\`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (relative path inside \`rules/\`), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape are classified by observability: a test-observable absence needs a search-based or recorded-call assertion that confirms zero matches over the observable surface, while a source-text structural absence or semantic-judgment absence is review-adjudicated and must not be guarded by a test that reads source as text. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per \`rules/ai/agents/evidence/enumerated-claim-coverage.md\`.
+   For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per \`rules/ai/agents/evidence/scope-driven-self-audit.md\`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (its path relative to the project root), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape are classified by observability: a test-observable absence needs a search-based or recorded-call assertion that confirms zero matches over the observable surface, while a source-text structural absence or semantic-judgment absence is review-adjudicated and must not be guarded by a test that reads source as text. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per \`rules/ai/agents/evidence/enumerated-claim-coverage.md\`.
 
    **Contract claims**
 
-   For every in-scope contract, one entry. Contracts follow the same union scope rule as rules: the set is the union of contracts the task linked and contracts your diff triggers. Each entry carries the contract's namespace (relative path inside \`contracts/\`), the trigger, and the evidence of compliance classified by the same regression-signal question. Contract obligations that pin literal public-surface details (string messages, output channels, error-shape fields) fall into the literal-content shape and require an exact-match assertion; a substring or prefix check on those details is too weak.
+   For every in-scope contract, one entry. Contracts follow the same union scope rule as rules: the set is the union of contracts the task linked and contracts your diff triggers. Each entry carries the contract's namespace (its path relative to the project root), the trigger, and the evidence of compliance classified by the same regression-signal question. Contract obligations that pin literal public-surface details (string messages, output channels, error-shape fields) fall into the literal-content shape and require an exact-match assertion; a substring or prefix check on those details is too weak.
 
    Do not declare complete while any test-guarded claim has an unsound or missing regression argument. The Evidence Report is for your own self-audit before the adversarial reviewer runs. The whole point is to surface assertions that pass today but would not detect a regression — the most common cause of rejection.
 
@@ -104,7 +104,7 @@ Do not flip the task's checkbox in the plan file. Flanders flips the checkbox it
 
 Git boundary: you must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, \`git rebase\`, \`git merge\`, \`git cherry-pick\`, no edits under \`.git/\`, and no remote git operations (\`fetch\`, \`pull\`, \`push\`). Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed when you need to inspect the repo. Leave your implementation as a dirty working tree — Flanders performs the commit itself once your changes pass build, test, and review. If your task seems to require a git write, stop and explain it in your final message instead of doing it. The full obligation lives in rules/ai/agents/no-git-writes.md.
 
-Spec-folder write boundary: you must not create, modify, delete, or rename any file inside \`contracts/\`, \`rules/\`, or \`plans/\`. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
+Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
 
 ${foregroundBoundary}
 
@@ -116,7 +116,7 @@ ${Placeholders.CONTRACT_LIST}
 
 ## Available rules
 
-Each path below is the rule's namespace. Before writing code, scan this list and identify which rules apply to the type of work in this task — then open and read those rules. Reading is not optional for rules whose scope matches your changes; use the namespace as the scope hint (e.g., if you modify or add tests, open the applicable \`rules/testing/*\`; if you touch timers, listeners, controllers, or any async lifecycle, open \`rules/disposables/*\`; if you change terminal UI, open \`rules/ui/*\`). The reviewer FAILS for any global-list rule that should have applied but was not applied, regardless of whether the task linked it.
+Each path below is the rule's namespace. Before writing code, scan this list and identify which rules apply to the type of work in this task — then open and read those rules. Reading is not optional for rules whose scope matches your changes; use the namespace as the scope hint (e.g., if you modify or add tests, open the applicable rules under a \`testing/\` subfolder; if you touch timers, listeners, controllers, or any async lifecycle, open the rules under a \`disposables/\` subfolder; if you change terminal UI, open the rules under a \`ui/\` subfolder). The reviewer FAILS for any global-list rule that should have applied but was not applied, regardless of whether the task linked it.
 
 ${Placeholders.RULE_LIST}`,
 
@@ -132,15 +132,13 @@ Read the task's full description, its acceptance criteria, every contract refere
 
 ## Determining the worker's change set
 
-When you are running inside a git work tree (git is available and the project root is inside a working tree), you must derive the worker's complete change set from git, not from the task description alone:
+You must derive the worker's complete change set from git, not from the task description alone:
 
 1. **Enumerate with \`git status --porcelain\`.** Run \`git status --porcelain\` and treat its output as the authoritative, complete enumeration of the worker's uncommitted changes: tracked modifications (\` M\`, \`M \`), untracked creations (\`??\`), deletions (\` D\`, \`D \`), and renames (\`R \`). This enumeration — not the list of files the task happens to name — is the set you must account for.
 
 2. **Inspect every file in the set.** Inspect each file the enumeration reports. Do not narrow your inspection to the files the task references when \`git status\` reports more, and do not skip a created or deleted file because the task did not mention it.
 
 3. **Read content the right way per file kind.** For tracked modifications, inspect content with \`git diff\` (and \`git diff --cached\` for staged hunks). For untracked created files — which \`git diff\` does not surface — read the file directly from disk. A created file is never left uninspected on the grounds that \`git diff\` showed nothing for it.
-
-When the project is not a git work tree, this obligation imposes nothing and you fall back to the files the task references plus whatever your judgment deems relevant.
 
 When the enumerated change set is empty — \`git status --porcelain\` reports no files and both the unstaged and staged diffs are empty — the empty change set is not, on its own, a failure. You must not record a violation for the sole reason that the worker produced no diff this cycle; an absent diff is the expected shape of an idempotent re-application of already-committed work. Judge each acceptance criterion against the committed working tree at \`HEAD\`, drawing the evidence each criterion's classification requires: for a toolchain-guarded criterion, the automated signal the project already runs; for a test-guarded criterion, an existing passing test whose assertion a regression would trip; for a review-adjudicated criterion, your inspection of the full working tree at \`HEAD\`. You must not require a criterion's evidence to originate from an uncommitted diff. The verdict follows from the criteria, not from the diff's size: pass the task — creating your per-reviewer \`error.log\` empty as your final act — when every acceptance criterion is satisfied at \`HEAD\`, and record a violation only for an acceptance criterion, contract, or rule that is genuinely unsatisfied at \`HEAD\`. See \`rules/ai/agents/reviewer-empty-change-set-judged-against-head.md\` for the full obligation.
 
@@ -207,7 +205,7 @@ Your streamed output — the text you print during the review — has no prescri
 
 Git boundary: you are an inspection-only agent. You must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, no edits under \`.git/\`, and no remote git operations. Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed and are how you should inspect the worker's changes. The full obligation lives in rules/ai/agents/no-git-writes.md.
 
-Spec-folder write boundary: you must not create, modify, delete, or rename any file inside \`contracts/\`, \`rules/\`, or \`plans/\`. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
+Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
 
 ${foregroundBoundary}`,
 
@@ -233,7 +231,7 @@ You must not implement, modify, or write anything in the project. Do not use Edi
 
 ## Spec-folder write boundary
 
-You must not write to \`contracts/\`, \`rules/\`, or \`plans/\`. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may create, modify, delete, or rename files in them. See shared/spec-folder-write-authority.md for the full obligation.
+You must not write to any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may create, modify, delete, or rename files in them. See shared/spec-folder-write-authority.md for the full obligation.
 
 ## Git boundary
 
