@@ -978,11 +978,65 @@ test.describe("skills – specSkillBody", test => {
             "has What a rule is section"(body) {
                 Assert.ok(body.includes("## What a rule is"), "must have What a rule is section");
             },
-            "has classification section"(body) {
-                Assert.ok(body.includes("## Contract vs rule"), "must have Contract vs rule classification section");
+            "has classification-and-placement section"(body) {
+                Assert.ok(body.includes("## Contract vs rule: how the skill classifies and places"), "must have Contract vs rule classification-and-placement section");
             },
-            "classification is the skill's own decision"(body) {
-                Assert.ok(body.includes("classification is the skill's own decision"), "classification must be the skill's own decision");
+            "classification and placement are the skill's own decisions"(body) {
+                Assert.ok(body.includes("The classification and placement are the skill's own decisions"), "classification and placement must be the skill's own decisions");
+            }
+        }
+    });
+
+    test("states the scope-relative classification and the lowest-enclosing-directory placement rule", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "classifies boundary behavior as a contract and internal guidance as a rule"(body) {
+                Assert.ok(body.includes("public behavior across a scope's boundary is a contract, internal implementation guidance is a rule"), "must classify scope-boundary behavior as a contract and internal guidance as a rule");
+            },
+            "places a spec in the lowest enclosing directory's .docs folder"(body) {
+                Assert.ok(body.includes("the spec lands in the \`.docs\` folder of the lowest directory that encloses all the code its obligation governs"), "must place a spec in the lowest enclosing directory's .docs folder");
+            },
+            "covers the one-directory placement case"(body) {
+                Assert.ok(body.includes("an obligation governing one directory goes in that directory's \`.docs\` folder"), "must cover the one-directory placement case");
+            },
+            "covers the nearest-common-ancestor placement case"(body) {
+                Assert.ok(body.includes("an obligation spanning sibling directories goes in their nearest common ancestor's \`.docs\` folder"), "must cover the sibling/nearest-common-ancestor placement case");
+            },
+            "covers the project-boundary placement case"(body) {
+                Assert.ok(body.includes("an obligation about project-boundary behavior goes in the project-root \`.docs\` folder"), "must cover the project-boundary placement case");
+            }
+        }
+    });
+
+    test("step 2 instructs recursive .docs discovery with git-ignore exclusion and root-relative namespaces", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "instructs recursive .docs discovery at every depth"(body) {
+                Assert.ok(body.includes("Discover every directory named \`.docs\` across the whole project tree at every depth"), "step 2 must instruct recursive .docs discovery at every depth");
+            },
+            "names the git-ignore exclusion"(body) {
+                Assert.ok(body.includes("excluding every path the project's git ignore rules exclude"), "step 2 must exclude git-ignored paths");
+            },
+            "defines the namespace as the path relative to the project root"(body) {
+                Assert.ok(body.includes("its path relative to the project root"), "step 2 must define the namespace as the project-root-relative path");
+            },
+            "states an empty discovery yields an empty canonical reference set"(body) {
+                Assert.ok(body.includes("yields an empty canonical reference set"), "step 2 must state a missing or empty discovery yields an empty canonical reference set");
+            }
+        }
+    });
+
+    test("specSkillBody names no root contracts/ or rules/ folder pair", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "names no root contracts/ path"(body) {
+                Assert.ok(!body.includes("contracts/"), "every contracts reference must be a .docs/contracts folder, never a root contracts/ path");
+            },
+            "names no root rules/ path"(body) {
+                Assert.ok(!body.includes("rules/"), "every rules reference must be a .docs/rules folder, never a root rules/ path");
             }
         }
     });
@@ -1000,11 +1054,11 @@ test.describe("skills – specSkillBody", test => {
         }
     });
 
-    test("restricts writes to contracts/ and rules/ only", {
+    test("restricts writes to .docs/contracts and .docs/rules folders only", {
         ARRANGE() {},
         ACT() { return specSkillBody; },
         ASSERT(body) {
-            Assert.ok(body.includes("must not write, modify, or delete any source code or any file outside contracts/ and rules/"), "must restrict writes to contracts/ and rules/");
+            Assert.ok(body.includes("must not write, modify, or delete any source code or any file outside the project's \`.docs/contracts\` and \`.docs/rules\` folders"), "must restrict writes to the project's .docs/contracts and .docs/rules folders");
         }
     });
 

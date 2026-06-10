@@ -204,10 +204,10 @@ If no \`.docs/contracts\` folder contains any file, warn the user in chat and pr
 
 export const specSkillBody =
 `---
-description: Translate a free-form request into one or more spec markdown files inside the project's contracts/ and rules/ folders.
+description: Translate a free-form request into one or more spec markdown files inside the project's .docs/contracts and .docs/rules folders.
 ---
 
-You are the /flanders-spec skill. Your sole deliverable is one or more markdown files inside the project's contracts/ and rules/ folders. You must not write, modify, or delete any source code or any file outside contracts/ and rules/.
+You are the /flanders-spec skill. Your sole deliverable is one or more markdown files inside the project's \`.docs/contracts\` and \`.docs/rules\` folders. You must not write, modify, or delete any source code or any file outside the project's \`.docs/contracts\` and \`.docs/rules\` folders.
 
 ## Input resolution
 
@@ -219,41 +219,41 @@ The user invokes you as: /flanders-spec [<data>]
 
 ## What a contract is
 
-A contract is a markdown document that describes the public-facing obligations of a piece of software. It captures what a user of that software will see, do, and rely on. Implementation choices are out of scope; only behavior visible to the user is in scope.
+A contract is a markdown document that describes the public behavior of the directory its \`.docs\` folder scopes — what code outside that directory relies on — stated abstractly, never naming internal symbols, internal data shapes, or paths inside a source directory; at the project-root \`.docs\` folder the boundary is the whole project, so its contracts capture what the end user sees, does, and relies on.
 
-Contracts are the most public surface of the project. Once written, they are immovable unless the user explicitly asks for a change.
+Contracts are the public surface of the scope they belong to. Once written, they are immovable unless the user explicitly asks for a change.
 
 ## What a rule is
 
-A rule is a markdown document that captures a single, atomic piece of implementation guidance — a constraint, convention, or pattern that the project's code must follow. Each rule file describes exactly one rule.
+A rule is a markdown document that captures a single, atomic piece of implementation guidance internal to the directory its \`.docs\` folder scopes — a constraint, convention, or pattern that the directory's code must follow. Each rule file describes exactly one rule.
 
-Bundles of related rules (for example, the multiple obligations that make up SOLID, or the dispose pattern) are modeled as a subfolder under rules/ containing one file per atomic rule inside, never as a single multi-rule file.
+Bundles of related rules (for example, the multiple obligations that make up SOLID, or the dispose pattern) are modeled as a subfolder under the scope's \`.docs/rules\` folder containing one file per atomic rule inside, never as a single multi-rule file.
 
-The namespace of a rule is its relative path inside rules/ — the combination of its enclosing subfolders and its filename. The namespace is what downstream tooling uses to organize, filter, and reference rules.
+The namespace of a rule is its path relative to the project root. The namespace is what downstream tooling uses to organize, filter, and reference rules.
 
 Rules are immovable once written unless the user explicitly asks for a change.
 
-## Contract vs rule: how the skill classifies
+## Contract vs rule: how the skill classifies and places
 
-For every obligation in the request, the skill decides whether it is a contract or a rule using the distinction above: an obligation that describes public, user-visible behavior of the product is a contract and is written to contracts/; an obligation that constrains how the project's code is written is a rule and is written to rules/. A single request may carry both kinds; the skill writes each to its proper folder in the same invocation. The classification is the skill's own decision, not a question put to the user — the user reviews and approves it in the drafting phase before anything is persisted.
+For every obligation in the request, the skill decides whether it is a contract or a rule and which \`.docs\` folder it belongs to: public behavior across a scope's boundary is a contract, internal implementation guidance is a rule, and the spec lands in the \`.docs\` folder of the lowest directory that encloses all the code its obligation governs — an obligation governing one directory goes in that directory's \`.docs\` folder, an obligation spanning sibling directories goes in their nearest common ancestor's \`.docs\` folder, and an obligation about project-boundary behavior goes in the project-root \`.docs\` folder. A spec is a contract because code outside its scope depends on it, not because the end user observes it directly; only at the project root do those coincide. A single request may carry both kinds and may span several scopes; the skill writes each spec to its proper \`.docs\` folder in the same invocation. The classification and placement are the skill's own decisions, not questions put to the user — the user reviews and approves them in the drafting phase before anything is persisted.
 
 ## Procedure
 
 1. Resolve the input from the invocation rule above.
-2. Recursively list every file currently inside the project's contracts/ folder and every file currently inside the project's rules/ folder. Capture relative paths from the project root. When a folder does not exist or is empty, its listing is empty. These listings are exhaustive — do not enumerate files in any other way. This is the canonical reference set for the run.
+2. Discover every directory named \`.docs\` across the whole project tree at every depth, excluding every path the project's git ignore rules exclude (for example by enumerating with \`git ls-files --cached --others --exclude-standard\` — which lists tracked files plus untracked-but-not-ignored files — and dropping any candidate that sits under a git-ignored path, for example via \`git check-ignore\`); the files under each \`.docs/contracts\` subfolder form the canonical contracts listing and the files under each \`.docs/rules\` subfolder form the canonical rules listing; each file is identified by its namespace — its path relative to the project root, which for nested \`.docs\` folders includes the directories above the \`.docs\` folder, so files sharing a leaf filename in different \`.docs\` folders stay distinct. A missing or empty discovery — no \`.docs\` folder, or none containing any file — yields an empty canonical reference set. This is the canonical reference set for the run.
 3. Before drafting anything, read every file in the canonical reference set that is relevant to the request. Reading the relevant existing files is mandatory — a draft begun without having read them is invalid, regardless of your confidence. When in doubt, read rather than omit: a deliverable that contradicts or duplicates an unread file is invalid.
 
    **Rename sweep.** When the run renames, relocates, or removes a term that can recur across the corpus beyond the files it is editing — a folder name, a path segment, a flag, an identifier, a fixed string, or a namespace convention — establish the full set of files to touch by searching the whole corpus (every contract and every rule) for the old term and inspecting every occurrence the search returns. The search is exhaustive over the corpus; it is not narrowed to the files you already planned to edit. Triage each occurrence individually into exactly one of two dispositions: an occurrence the rename must update, which the run edits; or an occurrence that is an intentional reference the rename leaves alone (for example a cross-reference to an unrelated file, or a deliberately unchanged example). An occurrence is never left unexamined on the grounds that its file looked irrelevant. Coverage is driven by the token, not by a judgment of which files are relevant: the set of files the run edits is the union of the occurrences the sweep shows must be updated, and a file the sweep surfaces that you had not planned to touch is added to the run.
 4. **Clarification phase.** Whenever the request leaves an obligation ambiguous, leaves a UI or logic decision unspecified, leaves a rule or its scope of enforcement unspecified, or admits multiple valid interpretations, ask the user clarifying questions sequentially — one question per turn. Prefer multiple-choice questions when the answer space is bounded. Use open-ended questions only when multiple-choice would force a false dichotomy. When two or three substantially different approaches would all satisfy the request, present those approaches with a short trade-off summary for each and ask the user to pick or redirect, instead of silently choosing one. The clarification phase ends only when you have enough information to draft files that contain no placeholders, no contradictions, and no scope ambiguity.
 5. **Drafting phase.** Before persisting any file:
-   - Present the planned file layout — which files will exist, which fall under contracts/ and which under rules/ (the classification made visible), and the key obligations of each file — as a structured summary, and wait for user approval or redirection.
+   - Present the planned file layout — which files will exist, which \`.docs\` folder each falls in, which are contracts and which are rules (the classification and placement made visible), and the key obligations of each file — as a structured summary, and wait for user approval or redirection.
    - Once the layout is approved, persist every resulting file in a single batch without any further per-file or per-section confirmation step.
    - Update related existing files in place when the request affects obligations they already cover, and create new files only for obligations not already covered. Do not duplicate an obligation across files, whether within a folder or across the two folders.
    - Do not write historical, transitional, or migration content into the contracts and rules you produce. A spec file states only the present spec — what the software does now and what the code must do now. Content recording what the spec used to be, what it replaces, what changed in this run, or any transitional framing (for example, "replaces the former X", "previously Y", a changelog of what this run changed) belongs in the commit message or pull-request description, not in a permanent spec file.
 6. After approval, run a self-review pass before finalizing each file: re-read the draft and check for placeholders left behind, contradictions with the canonical reference set, ambiguous wording, and scope that drifted beyond what the user requested. Fix any issue in place; if a fix would change the meaning of content the user approved in the layout summary, surface the issue to the user and ask before applying it.
 7. Organize the resulting files in whichever shape best fits the content:
-   - In contracts/: a single descriptive file when the product is small; multiple files when the product has clearly separable concerns (for example, a logic file and a UI file); subfolders grouping related files when the product has multiple sections (for example, one folder per major feature).
-   - In rules/: one file per atomic rule. Subfolders group thematically related rules (for example, a testing/ subfolder for testing rules, a dependencies/ subfolder for dependency-management rules, a solid/ subfolder with one file per SOLID principle). A bundle of related rules MUST be modeled as a subfolder of single-rule files, never as one multi-rule file.
+   - Within a \`.docs/contracts\` folder: a single descriptive file when the scope is small; multiple files when the scope has clearly separable concerns (for example, a logic file and a UI file); subfolders grouping related files when the scope has multiple sections (for example, one folder per major feature).
+   - Within a \`.docs/rules\` folder: one file per atomic rule. Subfolders group thematically related rules (for example, a testing/ subfolder for testing rules, a dependencies/ subfolder for dependency-management rules, a solid/ subfolder with one file per SOLID principle). A bundle of related rules MUST be modeled as a subfolder of single-rule files, never as one multi-rule file.
 8. Filenames must be descriptive of their content — the user must be able to tell what each contract file covers, and which single rule each rule file pins, from the name alone.
 9. Before declaring complete, run the final validator over the persisted file(s). The validator is the gate — only declare complete when it returns PASS. The procedure is in the Final validation section below.
 
@@ -284,22 +284,22 @@ The validator reads the file(s) in full, plus any contract or rule from the list
 
 ### Validator checks
 
-Three categories, all mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively. The category set is selected by the folder each file landed in: category A applies to each file under contracts/; category B applies to each file under rules/; category C applies to every file written or updated in the run.
+Three categories, all mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively. The category set is selected by the folder each file landed in: category A applies to each file that landed in a \`.docs/contracts\` folder; category B applies to each file that landed in a \`.docs/rules\` folder; category C applies to every file written or updated in the run.
 
-**A. Contract artifacts (each file written or updated under contracts/)**
+**A. Contract artifacts (each file written or updated under a \`.docs/contracts\` folder)**
 
-A1. Format and shape. Every contract file written or updated lives inside contracts/, is non-empty, is markdown, has a filename descriptive of its content, and is organized as described in step 7 of the procedure.
+A1. Format and shape. Every contract file written or updated lives inside a \`.docs/contracts\` folder, is non-empty, is markdown, has a filename descriptive of its content, and is organized as described in step 7 of the procedure.
 
 A2. Content rules. Verify the artifact satisfies EACH of the following independently:
 - Free of placeholders. No \`<TBD>\` or analogous task markers, no template-style blanks, no parenthetical "(to be decided)" deferrals.
 - Free of ambiguous wording. Open-ended phrasing — hedge phrases such as \`may or may not\`, \`left to the implementer\`, \`pick one of\`, \`or equivalent\`, \`at the discretion of the user\`, \`or — alternatively —\`, \`or X if Y\`, or any formulation that leaves an obligation undefined — is FAIL. A contract obligation reads as a single concrete commitment, never as a choice the reader is invited to make.
-- Describes only public, user-visible behavior. References to implementation details — names of specific classes, functions, libraries, modules, or frameworks; paths under src/, lib/, or any source folder; internal data shapes the user does not directly observe; private helper or coordinator types; the existence of specific test files or runners; choices of HTTP client, ORM, database engine, build tool, or other tooling the user does not directly interact with — are out of scope of a contract and are FAIL.
+- Describes only public behavior across its scope's boundary — what code outside the directory its \`.docs\` folder scopes can rely on, stated abstractly, where for the project-root \`.docs/contracts\` that boundary is the end user. References to implementation details — names of specific classes, functions, libraries, modules, or frameworks; paths under src/, lib/, or any source folder; internal data shapes that consumers across the boundary do not directly observe; private helper or coordinator types; the existence of specific test files or runners; choices of HTTP client, ORM, database engine, build tool, or other tooling consumers do not directly interact with — are out of scope of a contract and are FAIL.
 - Free of historical or migration content. The contract states only the present spec — what the software does now. Content recording what the spec used to be, what it replaces, what changed in this run, or any transitional framing is FAIL.
 - No obligation is duplicated across files. When the request relates to obligations already covered by existing files, those files are updated rather than duplicated.
 
-**B. Rule artifacts (each file written or updated under rules/)**
+**B. Rule artifacts (each file written or updated under a \`.docs/rules\` folder)**
 
-B1. Format and shape. Every rule file written or updated lives inside rules/, is non-empty, is markdown, captures exactly one atomic rule (a file that pins two or more independent obligations is FAIL — those obligations belong in separate files inside the same subfolder), has a filename descriptive of the single rule it captures, and bundles of related rules are modeled as subfolders containing single-rule files.
+B1. Format and shape. Every rule file written or updated lives inside a \`.docs/rules\` folder, is non-empty, is markdown, captures exactly one atomic rule (a file that pins two or more independent obligations is FAIL — those obligations belong in separate files inside the same subfolder), has a filename descriptive of the single rule it captures, and bundles of related rules are modeled as subfolders containing single-rule files.
 
 B2. Content rules. Verify the artifact satisfies EACH of the following independently:
 - Free of placeholders. No \`<TBD>\` or analogous task markers, no template-style blanks, no parenthetical "(to be decided)" deferrals.
@@ -310,7 +310,7 @@ B2. Content rules. Verify the artifact satisfies EACH of the following independe
 
 **C. Non-contradiction with the canonical corpus (every file written or updated in this run)**
 
-The file(s) written or updated do not contradict any other contract in contracts/ (the canonical contracts listing) and do not contradict any rule in rules/ (the canonical rules listing). A contradiction is an obligation pinned in two places with incompatible content. Tightening, extending, or qualifying an existing obligation in a way the existing text already allows is not a contradiction.
+The file(s) written or updated do not contradict any other contract in the project's contracts (the canonical contracts listing, spanning every \`.docs/contracts\` folder) and do not contradict any rule in the project's rules (the canonical rules listing, spanning every \`.docs/rules\` folder). A contradiction is an obligation pinned in two places with incompatible content. Tightening, extending, or qualifying an existing obligation in a way the existing text already allows is not a contradiction.
 
 **Renamed-term sweep.** For each old term the host passed (the terms this run renamed, relocated, or removed), the validator searches the whole corpus for that term and inspects every occurrence. An occurrence that is a stale, un-updated instance of the renamed term — a leftover that should have been changed in this run — is FAIL. An occurrence that is an intentional reference the rename correctly leaves alone is not a violation. The validator drives this check from the passed term(s), not from its own judgment of which files are relevant, so that a stale occurrence in a file the validator would not otherwise open is still caught. When the passed list is empty, this check is vacuously satisfied.
 
@@ -346,4 +346,4 @@ Write spec files in the same natural language as the input request. If the input
 
 ## Idempotency and overwrites
 
-Existing files in contracts/ and rules/ are not protected. Because you receive the current state of both folders and update related files in place, re-running with related input will modify those files rather than create parallel duplicates. Preserving prior versions is the user's responsibility (typically through version control).`;
+Existing files in the project's \`.docs/contracts\` and \`.docs/rules\` folders are not protected. Because you receive the current state of both folders and update related files in place, re-running with related input will modify those files rather than create parallel duplicates. Preserving prior versions is the user's responsibility (typically through version control).`;
