@@ -90,6 +90,7 @@ function stubContexts() {
     const written:string[] = [];
     const errors:string[] = [];
     const mkdtempState = { count: 0 };
+    const mkdtempCalls:string[] = [];
 
     const claudeQueue:ClaudeResponse[] = [];
     const codexQueue:CodexResponse[] = [];
@@ -193,6 +194,7 @@ function stubContexts() {
             exists(p) { return Promise.resolve(files.has(p)); },
             mkdir() { return Promise.resolve(); },
             mkdtemp(prefix) {
+                mkdtempCalls.push(prefix);
                 mkdtempState.count++;
                 if (mkdtempState.count === 1) return Promise.resolve(prefix + "ws123");
                 return Promise.resolve(prefix + `rev${mkdtempState.count - 1}`);
@@ -220,7 +222,7 @@ function stubContexts() {
             onResize() { return () => {}; }
         }
     };
-    return { contexts, files, rmCalls, written, errors, claudeQueue, codexQueue, promptQueue, scriptQueue, gitQueue, gitSpawns, claudeSpawnedArgs, codexSpawnedArgs };
+    return { contexts, files, rmCalls, written, errors, claudeQueue, codexQueue, promptQueue, scriptQueue, gitQueue, gitSpawns, claudeSpawnedArgs, codexSpawnedArgs, mkdtempCalls };
 }
 
 const PLAN_PATH = "/project/plans/test.md";
@@ -240,6 +242,7 @@ test.describe("Implement per-iteration logs", test => {
     test("writes all four log files after one successful iteration", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "No build or test scripts needed." });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -266,6 +269,7 @@ test.describe("Implement per-iteration logs", test => {
     test("writes build and test logs when scripts exist", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             // detect build/test — simulate scripts being written
             s.claudeQueue.push({ text: "Scripts written." });
@@ -302,6 +306,7 @@ test.describe("Implement per-iteration logs", test => {
     test("previous iteration logs are preserved when build fails and retries", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             // detect build/test
             s.claudeQueue.push({ text: "ok" });
@@ -343,6 +348,7 @@ test.describe("Implement per-iteration logs", test => {
     test("error.log is overwritten on each failure (not per-iteration)", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.files.set(WS_ROOT + "/build.sh", "make");
@@ -374,6 +380,7 @@ test.describe("Implement per-iteration logs", test => {
     test("reviewer FAIL writes reviewer log with verdict and preserves across iterations", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // iter 1: worker ok, build/test skipped, reviewer fails
@@ -405,6 +412,7 @@ test.describe("Implement per-iteration logs", test => {
     test("hard stop message points to workspace with per-iteration logs", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep runs once per task, before the iteration loop
@@ -445,6 +453,7 @@ test.describe("Implement per-iteration logs", test => {
     test("non-hard-stop run still removes the workspace on dispose", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -477,6 +486,7 @@ test.describe("Implement output routing through BottomBlock", test => {
     test("claude session output appears via writeAbove (preceded by block clear)", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -503,6 +513,7 @@ test.describe("Implement output routing through BottomBlock", test => {
     test("script stdout and stderr routed through writeAbove", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.files.set(WS_ROOT + "/build.sh", "make");
@@ -530,14 +541,19 @@ test.describe("Implement output routing through BottomBlock", test => {
     test("line buffering: partial lines are held until newline arrives", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.files.set(WS_ROOT + "/build.sh", "echo");
             const proc = fakeProcess();
-            let spawnCount = 0;
-            (s.contexts.script as { spawn:typeof s.contexts.script.spawn }).spawn = () => {
-                spawnCount++;
-                if (spawnCount === 1) {
+            let scriptSpawnCount = 0;
+            const origScriptSpawn = s.contexts.script.spawn;
+            (s.contexts.script as { spawn:typeof s.contexts.script.spawn }).spawn = (command, args, options) => {
+                if (command === "git") {
+                    return origScriptSpawn(command, args, options);
+                }
+                scriptSpawnCount++;
+                if (scriptSpawnCount === 1) {
                     setImmediate(() => {
                         proc.$emitStdout("partial");
                         proc.$emitStdout(" line\ncomplete\n");
@@ -554,7 +570,7 @@ test.describe("Implement output routing through BottomBlock", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -570,6 +586,7 @@ test.describe("Implement output routing through BottomBlock", test => {
     test("ANSI escape sequences pass through unchanged", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.files.set(WS_ROOT + "/build.sh", "echo");
@@ -596,6 +613,7 @@ test.describe("Implement output routing through BottomBlock", test => {
     test("block remains visible after run completes and no additional writes happen", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -625,6 +643,7 @@ test.describe("Implement output routing through BottomBlock", test => {
     test("plan errors appear above the block (block always present)", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, '# Plan\n\n- [done]{"it":0,"ot":0,"t":0} bad checkbox\n');
             return s;
         },
@@ -664,6 +683,7 @@ test.describe("Implement block present on early routes", test => {
     test("unknown flag keeps block present and emits error above the block", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             return s;
         },
         async ACT({ contexts }) {
@@ -691,6 +711,7 @@ test.describe("Implement block present on early routes", test => {
     test("plan not found keeps block present and emits error above the block", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             return s;
         },
         async ACT({ contexts }) {
@@ -718,6 +739,7 @@ test.describe("Implement block present on early routes", test => {
     test("plan malformed emits each malformed line above the block", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, '# Plan\n\n- [done]{"it":0,"ot":0,"t":0} bad1\n- [nope]{"it":0,"ot":0,"t":0} bad2\n');
             return s;
         },
@@ -822,6 +844,7 @@ test.describe("Implement config loading", test => {
     test("missing config at both scopes exits 1 with exact diagnostic and Failed footer", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.delete(CONFIG_PATH);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             return s;
@@ -852,6 +875,7 @@ test.describe("Implement config loading", test => {
     test("valid project-scope config proceeds and is stashed on instance", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const projectConfig:FlandersConfig = { worker: { tool: "codex", model: "test-model", effort: "high" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "low" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(projectConfig));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -880,6 +904,7 @@ test.describe("Implement config loading", test => {
     test("project config shadows global config", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const projectConfig:FlandersConfig = { worker: { tool: "claude", model: "project-sentinel", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
             const globalConfig:FlandersConfig = { worker: { tool: "codex", model: "global-sentinel", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(projectConfig));
@@ -914,6 +939,7 @@ test.describe("Implement config loading", test => {
     test("malformed config exits non-zero with diagnostic containing file path and field name", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(CONFIG_PATH, JSON.stringify({ worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "" }] }));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             return s;
@@ -942,6 +968,7 @@ test.describe("Implement config loading", test => {
     test("malformed config footer shows Failed", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(CONFIG_PATH, "not valid json{{{");
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             return s;
@@ -971,6 +998,7 @@ test.describe("Implement ambiguous plan selection", test => {
     test("multiple plans + no [plan] arg emits diagnostic listing each plan and instructions, exits non-zero, never prompts", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set("/project/plans/plan-a.md", PLAN_A);
             s.files.set("/project/plans/plan-b.md", PLAN_B);
             const origExists = s.contexts.fs.exists.bind(s.contexts.fs);
@@ -1037,6 +1065,7 @@ test.describe("Implement intermediate header and metrics states", test => {
     test("noop tasks completed shows header N/N and plan metrics", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const allDonePlan = '# Plan\n\n- [x]{"it":100,"ot":50,"t":5} Already done task\n';
             s.files.set(PLAN_PATH, allDonePlan);
             const headerCalls:HeaderFields[] = [];
@@ -1086,6 +1115,7 @@ test.describe("Implement intermediate header and metrics states", test => {
     test("after parsing plan, block shows header 0/N, metrics with plan pair only, footer Working", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             const headerCalls:HeaderFields[] = [];
             const metricsCalls:MetricsFields[] = [];
@@ -1145,6 +1175,7 @@ test.describe("Implement header line", test => {
     test("header shows index, iteration, activity and title", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -1169,6 +1200,7 @@ test.describe("Implement header line", test => {
     test("no [index] iter N task output lines are emitted — info comes from header only", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -1193,6 +1225,7 @@ test.describe("Implement header line", test => {
     test("header updates activity through all four stages", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.files.set(WS_ROOT + "/build.sh", "make");
@@ -1224,6 +1257,7 @@ test.describe("Implement header line", test => {
     test("header includes taskNumber when plan has numbered headings", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const numberedPlan = '# Plan\n\n## 3. Section\n\n### 3.2 Subsection\n\n- [ ]{"it":0,"ot":0,"t":0} Do the thing\n';
             s.files.set(PLAN_PATH, numberedPlan);
             s.claudeQueue.push({ text: "ok" });
@@ -1249,6 +1283,7 @@ test.describe("Implement header line", test => {
     test("header truncates with ellipsis when wider than terminal", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             (s.contexts.output as any).columns = () => 20;
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -1275,6 +1310,7 @@ test.describe("Implement header line", test => {
     test("header iteration updates across retries", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -1302,6 +1338,7 @@ test.describe("Implement header line", test => {
     test("header contains ANSI color escapes for each field", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const numberedPlan = '# Plan\n\n## 3. Section\n\n- [ ]{"it":0,"ot":0,"t":0} Do the thing\n';
             s.files.set(PLAN_PATH, numberedPlan);
             s.claudeQueue.push({ text: "ok" });
@@ -1335,6 +1372,7 @@ test.describe("Implement footer animation", test => {
     test("footer shows Working label in orange during execution", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -1361,6 +1399,7 @@ test.describe("Implement footer animation", test => {
     test("animation is stopped when block is unmounted (no lingering timers)", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -1409,6 +1448,7 @@ function controllableTime() {
 
 function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
     const s = stubContexts();
+    gitRunQueue(s.gitQueue);
     const time = controllableTime();
     (s.contexts as any).time = time.ctx;
     s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -1643,6 +1683,7 @@ test.describe("Implement cleanup on exit", test => {
     test("dispose during active AI session stops timers but block stays visible", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             let spawnCount = 0;
@@ -1685,6 +1726,7 @@ test.describe("Implement cleanup on exit", test => {
     test("block stays visible after hard stop (MAX_ITER exceeded)", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep runs once per task, before the iteration loop
@@ -1714,6 +1756,7 @@ test.describe("Implement cleanup on exit", test => {
     test("separator remains visible after successful exit", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -1770,6 +1813,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("single task records accumulated token metrics in the plan file", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -1794,6 +1838,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("tokens accumulate across iterations when first reviewer returns FAIL", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -1820,6 +1865,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("build and test scripts do not add tokens to the task metrics", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.files.set(WS_ROOT + "/build.sh", "make");
             s.files.set(WS_ROOT + "/test.sh", "test");
@@ -1848,6 +1894,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("active seconds reflect elapsed time with scripts", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const time = controllableTime();
             (s.contexts as any).time = time.ctx;
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -1881,7 +1928,7 @@ test.describe("Implement per-task token and time metrics", test => {
             return { s };
         },
         async ACT({ s }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1902,6 +1949,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("persisted t excludes rate-limit window", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const time = controllableTime();
             (s.contexts as any).time = time.ctx;
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -1969,6 +2017,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("detect-build-and-test tokens do not appear in any task metrics", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok", inputTokens: 500, outputTokens: 200 });
             // prep
@@ -1993,6 +2042,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("persist failure is logged but does not abort the iteration loop", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -2030,6 +2080,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("repeated rate-limit windows each subtract their own duration from t", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const time = controllableTime();
             (s.contexts as any).time = time.ctx;
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -2099,6 +2150,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("rate-limit before any task is picked does not affect task accumulator", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const time = controllableTime();
             (s.contexts as any).time = time.ctx;
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -2206,6 +2258,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("metrics are persisted after every action boundary, not only at the end", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.files.set(WS_ROOT + "/build.sh", "make");
             s.claudeQueue.push({ text: "ok" });
@@ -2247,6 +2300,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("setMetrics is called after each AI call with expected structured data", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -2332,6 +2386,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("resize from wide to narrow triggers compact-form metrics in block redraw", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             let cols = 80;
             const resizeListeners:Array<() => void> = [];
             (s.contexts.output as any).columns = () => cols;
@@ -2409,6 +2464,7 @@ test.describe("Implement per-task token and time metrics", test => {
     test("metrics rendered in block output contain ANSI color escapes for each field", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -2452,6 +2508,7 @@ test.describe("Implement per-task completion snapshot", test => {
     test("emits exactly two separator-framed blocks with done headers for a 2-task plan", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue, 2);
             s.files.set(PLAN_PATH, PLAN_TWO_TASKS);
             s.claudeQueue.push({ text: "ok" });
             // Task 1: worker + reviewer
@@ -2486,6 +2543,7 @@ test.describe("Implement per-task completion snapshot", test => {
     test("snapshot appears in the output region via writeAbove, not inside the bottom-fixed block", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -2523,6 +2581,7 @@ test.describe("Implement per-task completion snapshot", test => {
     test("snapshot contains separator, done header, full metrics, and second separator in order", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -2561,6 +2620,7 @@ test.describe("Implement per-task completion snapshot", test => {
     test("snapshot uses full metrics form even when terminal is narrow", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             (s.contexts.output as any).columns = () => 10;
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -2603,6 +2663,7 @@ test.describe("Implement per-task completion snapshot", test => {
     test("all tasks completed appears after all snapshots", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue, 2);
             s.files.set(PLAN_PATH, PLAN_TWO_TASKS);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -2634,6 +2695,7 @@ test.describe("Implement per-task completion snapshot", test => {
     test("startup short-circuit does not emit a snapshot but block is present", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const allDonePlan = '# Plan\n\n- [x]{"it":100,"ot":50,"t":5} Already done task\n';
             s.files.set(PLAN_PATH, allDonePlan);
             return s;
@@ -2666,6 +2728,7 @@ test.describe("Implement per-task completion snapshot", test => {
     test("bottom-fixed block stays consistent after snapshot emission", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue, 2);
             s.files.set(PLAN_PATH, PLAN_TWO_TASKS);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -2719,6 +2782,7 @@ test.describe("Implement per-task completion snapshot", test => {
     test("snapshot uses done activity color (green)", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -2741,74 +2805,36 @@ test.describe("Implement per-task completion snapshot", test => {
     });
 });
 
-test.describe("Implement --no-git flag parsing", test => {
-    test("--no-git with auto-discovered plan selects the plan and succeeds", {
+test.describe("Implement flag parsing", test => {
+    test("--no-git is rejected as an unknown flag with exit 1 and the exact diagnostic", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            const origExists = s.contexts.fs.exists;
-            (s.contexts.fs as { exists:typeof s.contexts.fs.exists }).exists = (p) => {
-                if (p === "/project/plans") return Promise.resolve(true);
-                return origExists(p);
-            };
-            const origReaddir = s.contexts.fs.readdir;
-            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = (p) => {
-                if (p === "/project/plans") return Promise.resolve([{ name: "test.md", isFile: true, isDirectory: false }]);
-                return origReaddir(p);
-            };
-            s.claudeQueue.push({ text: "ok" });
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git"], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
         },
-        ASSERT(code) {
-            Assert.strictEqual(code, 0);
-        }
-    });
-
-    test("--no-git after plan path is equivalent to --no-git before plan path", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.claudeQueue.push({ text: "ok" });
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            s.claudeQueue.push({ text: "ok" });
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            return s;
-        },
-        async ACT({ contexts, files }) {
-            const cmd1 = new Implement([PLAN_PATH, "--no-git"], { projectRoot: "/project" }, contexts);
-            const code1 = await cmd1.result();
-            await cmd1.dispose();
-            files.set(PLAN_PATH, PLAN_ONE_TASK);
-            const cmd2 = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
-            const code2 = await cmd2.result();
-            await cmd2.dispose();
-            return { code1, code2 };
-        },
-        ASSERT({ code1, code2 }) {
-            Assert.strictEqual(code1, 0, "plan.md --no-git should succeed");
-            Assert.strictEqual(code2, 0, "--no-git plan.md should succeed");
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic is exactly 'Unknown flag: --no-git'"(_code, { written }) {
+                Assert.ok(written.join("").includes("Unknown flag: --no-git\n"), "diagnostic should be exactly 'Unknown flag: --no-git'");
+            },
+            "no git spawns happen (rejected before the git preflight)"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.length, 0, "an unknown flag exits before any git spawn");
+            }
         }
     });
 
     test("flag absent — normal invocation still works", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -2900,37 +2926,115 @@ test.describe("Implement --no-git flag parsing", test => {
     });
 });
 
-test.describe("Implement git activation", test => {
-    test("--no-git flag prevents all git spawn calls", {
+test.describe("Implement git requirement", test => {
+    const GIT_DIAGNOSTIC = "The project must be a git repository. Flanders implement requires git on PATH and the project root inside a git work tree.\n";
+
+    test("git unavailable (git --version exits non-zero) exits 1 with the exact diagnostic before workspace setup", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.claudeQueue.push({ text: "ok" });
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            s.gitQueue.push({ code: 1, stdout: "", stderr: "" }); // git --version fails
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
         },
-        ASSERT(code, { gitSpawns }) {
-            Assert.strictEqual(code, 0);
-            Assert.strictEqual(gitSpawns.length, 0, "no git calls should be made when --no-git is set");
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "emits exactly the git-requirement diagnostic"(_code, { written }) {
+                Assert.ok(written.join("").includes(GIT_DIAGNOSTIC), "should emit the exact git-requirement diagnostic");
+            },
+            "finalizes the footer with the Failed terminal label"(_code, { written }) {
+                Assert.ok(written.join("").includes(ORANGE + "Failed" + ANSI_RESET), "footer should show the Failed terminal label");
+            },
+            "block is mounted before the diagnostic (separator scrolls above it)"(_code, { written }) {
+                const all = written.join("");
+                Assert.ok(all.includes(SEP.repeat(80)), "block separator should be present");
+                Assert.ok(all.indexOf(SEP.repeat(80)) < all.indexOf(GIT_DIAGNOSTIC), "block should be mounted before the diagnostic is emitted");
+            },
+            "only git --version is spawned, no work-tree check"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.length, 1, "git --version is the only git spawn");
+                Assert.deepStrictEqual(gitSpawns[0]!.args, ["--version"]);
+            },
+            "performs no workspace setup (no mkdtemp recorded)"(_code, { mkdtempCalls }) {
+                Assert.strictEqual(mkdtempCalls.length, 0, "no temporary folder should be created");
+            }
         }
     });
 
-    test("git not available — only git --version is spawned, no work-tree check", {
+    test("git available but rev-parse answers false exits 1 with the exact diagnostic before workspace setup", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.gitQueue.push({ code: 1, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git --version ok
+            s.gitQueue.push({ code: 0, stdout: "false\n", stderr: "" }); // rev-parse: not inside a work tree
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "emits exactly the git-requirement diagnostic"(_code, { written }) {
+                Assert.ok(written.join("").includes(GIT_DIAGNOSTIC), "should emit the exact git-requirement diagnostic");
+            },
+            "finalizes the footer with the Failed terminal label"(_code, { written }) {
+                Assert.ok(written.join("").includes(ORANGE + "Failed" + ANSI_RESET), "footer should show the Failed terminal label");
+            },
+            "both git --version and rev-parse are spawned"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.length, 2, "git --version and rev-parse are spawned");
+                Assert.deepStrictEqual(gitSpawns[0]!.args, ["--version"]);
+                Assert.deepStrictEqual(gitSpawns[1]!.args, ["rev-parse", "--is-inside-work-tree"]);
+            },
+            "performs no workspace setup (no mkdtemp recorded)"(_code, { mkdtempCalls }) {
+                Assert.strictEqual(mkdtempCalls.length, 0, "no temporary folder should be created");
+            }
+        }
+    });
+
+    test("git available but rev-parse exits non-zero exits 1 with the exact diagnostic before workspace setup", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git --version ok
+            s.gitQueue.push({ code: 1, stdout: "", stderr: "fatal: not a git repository\n" }); // rev-parse errors
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "emits exactly the git-requirement diagnostic"(_code, { written }) {
+                Assert.ok(written.join("").includes(GIT_DIAGNOSTIC), "should emit the exact git-requirement diagnostic");
+            },
+            "performs no workspace setup (no mkdtemp recorded)"(_code, { mkdtempCalls }) {
+                Assert.strictEqual(mkdtempCalls.length, 0, "no temporary folder should be created");
+            }
+        }
+    });
+
+    test("git available and inside a work tree — preflight passes and the run completes", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
-            // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -2944,65 +3048,6 @@ test.describe("Implement git activation", test => {
         },
         ASSERT(code, { gitSpawns }) {
             Assert.strictEqual(code, 0);
-            Assert.strictEqual(gitSpawns.length, 1, "should only spawn git --version");
-            Assert.deepStrictEqual(gitSpawns[0]!.args, ["--version"]);
-        }
-    });
-
-    test("git available but not inside work tree — both checks spawned, no error", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "false\n", stderr: "" });
-            s.claudeQueue.push({ text: "ok" });
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERT(code, { gitSpawns, errors }) {
-            Assert.strictEqual(code, 0);
-            Assert.strictEqual(gitSpawns.length, 2, "should spawn git --version and git rev-parse");
-            Assert.deepStrictEqual(gitSpawns[0]!.args, ["--version"]);
-            Assert.deepStrictEqual(gitSpawns[1]!.args, ["rev-parse", "--is-inside-work-tree"]);
-            Assert.strictEqual(errors.length, 0, "not inside work tree should not produce an error");
-        }
-    });
-
-    test("git available and inside work tree — gitActive is true, command completes", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.claudeQueue.push({ text: "ok" });
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            // git add + commit after task accepted
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERT(code, { gitSpawns }) {
-            Assert.strictEqual(code, 0);
-            Assert.ok(gitSpawns.length >= 2, "should spawn both git checks");
             Assert.deepStrictEqual(gitSpawns[0]!.args, ["--version"]);
             Assert.deepStrictEqual(gitSpawns[1]!.args, ["rev-parse", "--is-inside-work-tree"]);
         }
@@ -3076,60 +3121,10 @@ test.describe("Implement git preflight", test => {
         }
     });
 
-    test("gitActive false — no git status spawned", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.claudeQueue.push({ text: "ok" });
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERT(code, { gitSpawns }) {
-            Assert.strictEqual(code, 0, "should complete without error");
-            const statusSpawns = gitSpawns.filter(s => s.args[0] === "status");
-            Assert.strictEqual(statusSpawns.length, 0, "no git status should be spawned when gitActive is false");
-        }
-    });
 });
 
 test.describe("Implement commit per task", test => {
-    test("gitActive false — no git invocations during _runTask, plan marked done, snapshot emitted", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.claudeQueue.push({ text: "ok" });
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERT(code, { gitSpawns, files, written }) {
-            Assert.strictEqual(code, 0);
-            Assert.strictEqual(gitSpawns.length, 0, "no git calls when --no-git");
-            const plan = files.get(PLAN_PATH)!;
-            Assert.ok(plan.includes("[x]"), "plan should be marked done");
-            const plain = stripAnsi(written.join(""));
-            Assert.ok(plain.includes("done"), "snapshot should be emitted");
-        }
-    });
-
-    test("gitActive true, both git commands succeed — add and commit appear in order with correct message", {
+    test("both git commands succeed — add and commit appear in order with correct message", {
         ARRANGE() {
             const s = stubContexts();
             const numberedPlan = '# Plan\n\n## 3. Section\n\n- [ ]{"it":0,"ot":0,"t":0} 3.1 Validate input\n';
@@ -3334,6 +3329,16 @@ function gitActivationQueue(gitQueue:ScriptResponse[]):void {
     gitQueue.push({ code: 0, stdout: "", stderr: "" });
 }
 
+// Arranges a full git run: the version/rev-parse/status preflight triple plus one
+// {code:0} (add, commit) pair for each task the scenario accepts unconditionally.
+function gitRunQueue(gitQueue:ScriptResponse[], taskCount = 1):void {
+    gitActivationQueue(gitQueue);
+    for (let i = 0; i < taskCount; i++) {
+        gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
+        gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
+    }
+}
+
 test.describe("Implement end-to-end git flow", test => {
     test("Scenario A — happy path with git active and two open tasks", {
         ARRANGE() {
@@ -3385,19 +3390,10 @@ test.describe("Implement end-to-end git flow", test => {
         }
     });
 
-    test("Scenario B — --no-git disables git even when binary and work tree are available", {
+    test("Scenario B — --no-git is rejected as an unknown flag and exits 1", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.claudeQueue.push({ text: "ok" });
-            s.files.set(WS_ROOT + "/build.sh", "npm run build");
-            s.files.set(WS_ROOT + "/test.sh", "npm test");
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker output" });
-            s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
-            s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -3406,26 +3402,24 @@ test.describe("Implement end-to-end git flow", test => {
             await cmd.dispose();
             return code;
         },
-        ASSERT(code, { gitSpawns, files, written }) {
-            Assert.strictEqual(code, 0);
-            Assert.strictEqual(gitSpawns.length, 0, "no git calls should appear when --no-git is set");
-            const plan = files.get(PLAN_PATH)!;
-            Assert.ok(plan.includes("[x]"), "task should be marked done");
-            const plain = stripAnsi(written.join(""));
-            Assert.ok(plain.includes("all tasks completed"), "should print all tasks completed");
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic is exactly 'Unknown flag: --no-git'"(_code, { written }) {
+                Assert.ok(written.join("").includes("Unknown flag: --no-git\n"), "diagnostic should be exactly 'Unknown flag: --no-git'");
+            },
+            "no git spawns happen (rejected before the git preflight)"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.length, 0, "an unknown flag exits before any git spawn");
+            }
         }
     });
 
-    test("Scenario C — git not available, integration inactive, plan completes normally", {
+    test("Scenario C — git binary unavailable exits 1 with the git-requirement diagnostic", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.gitQueue.push({ code: 1, stdout: "", stderr: "git: command not found\n" });
-            s.claudeQueue.push({ text: "ok" });
-            // prep
-            s.claudeQueue.push(PREP_RESPONSE);
-            s.claudeQueue.push({ text: "worker output" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            s.gitQueue.push({ code: 1, stdout: "", stderr: "git: command not found\n" }); // git --version fails
             return s;
         },
         async ACT({ contexts }) {
@@ -3434,14 +3428,20 @@ test.describe("Implement end-to-end git flow", test => {
             await cmd.dispose();
             return code;
         },
-        ASSERT(code, { gitSpawns, files, written }) {
-            Assert.strictEqual(code, 0);
-            Assert.strictEqual(gitSpawns.length, 1, "only git --version should be spawned");
-            Assert.deepStrictEqual(gitSpawns[0]!.args, ["--version"]);
-            const plan = files.get(PLAN_PATH)!;
-            Assert.ok(plan.includes("[x]"), "task should be marked done");
-            const plain = stripAnsi(written.join(""));
-            Assert.ok(plain.includes("all tasks completed"), "should print all tasks completed");
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "emits exactly the git-requirement diagnostic"(_code, { written }) {
+                Assert.ok(written.join("").includes("The project must be a git repository. Flanders implement requires git on PATH and the project root inside a git work tree.\n"), "should emit the exact git-requirement diagnostic");
+            },
+            "only git --version is spawned"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.length, 1, "only git --version should be spawned");
+                Assert.deepStrictEqual(gitSpawns[0]!.args, ["--version"]);
+            },
+            "performs no workspace setup (no mkdtemp recorded)"(_code, { mkdtempCalls }) {
+                Assert.strictEqual(mkdtempCalls.length, 0, "no temporary folder should be created");
+            }
         }
     });
 
@@ -3549,6 +3549,7 @@ test.describe("Implement detect prompt rule list", test => {
     test("detect prompt contains rule paths and substitutes RULE_LIST", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             withDirectoryTree(s, {
                 "/project/rules": [
@@ -3566,7 +3567,7 @@ test.describe("Implement detect prompt rule list", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3587,6 +3588,7 @@ test.describe("Implement detect prompt rule list", test => {
     test("detect prompt shows (none) when rules/ is empty", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -3596,7 +3598,7 @@ test.describe("Implement detect prompt rule list", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3619,6 +3621,7 @@ test.describe("Implement worker prompt contract and rule lists", test => {
     test("worker prompt contains contract paths and (none) for absent rules", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             withDirectoryTree(s, {
                 "/project/contracts": [
@@ -3637,7 +3640,7 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3657,6 +3660,7 @@ test.describe("Implement worker prompt contract and rule lists", test => {
     test("worker prompt contains rule paths when rules/ exists", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             withDirectoryTree(s, {
                 "/project/rules": [
@@ -3674,7 +3678,7 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3690,6 +3694,7 @@ test.describe("Implement worker prompt contract and rule lists", test => {
     test("lists are cached — fs changes after startup are not reflected in prompts", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue, 2);
             const twoTaskPlan = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Task A\n- [ ]{"it":0,"ot":0,"t":0} Task B\n';
             s.files.set(PLAN_PATH, twoTaskPlan);
             let readdirCallCount = 0;
@@ -3720,7 +3725,7 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             return { ...s, getReaddirCallCount: () => readdirCallCount };
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3740,6 +3745,7 @@ test.describe("Implement worker prompt contract and rule lists", test => {
     test("lists are identical across tasks and iterations within a single run", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue, 2);
             const twoTaskPlan = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Task A\n- [ ]{"it":0,"ot":0,"t":0} Task B\n';
             s.files.set(PLAN_PATH, twoTaskPlan);
             withDirectoryTree(s, {
@@ -3765,7 +3771,7 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3803,6 +3809,7 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
     test("reviewer prompt contains the same formatted lists as the worker prompt", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             withDirectoryTree(s, {
                 "/project/contracts": [
@@ -3827,7 +3834,7 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3864,6 +3871,7 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
     test("reviewer prompt contains the four explicit FAIL conditions", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -3873,7 +3881,7 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3892,6 +3900,7 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
     test("reviewer error.log verdict protocol works with updated prompt", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // iter 1: worker ok, reviewer fails
@@ -3929,6 +3938,7 @@ test.describe("Implement worker session_id persistence", test => {
     test("worker session_id is reused across iterations of the same task", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.files.set(WS_ROOT + "/build.sh", "make");
             s.claudeQueue.push({ text: "ok" });
@@ -3944,7 +3954,7 @@ test.describe("Implement worker session_id persistence", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3973,6 +3983,7 @@ test.describe("Implement worker session_id persistence", test => {
     test("reviewer never receives the worker session_id", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -3986,7 +3997,7 @@ test.describe("Implement worker session_id persistence", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -4014,6 +4025,7 @@ test.describe("Implement worker session_id persistence", test => {
     test("worker session_id resets between tasks", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue, 2);
             const twoTaskPlan = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Task Alpha\n- [ ]{"it":0,"ot":0,"t":0} Task Beta\n';
             s.files.set(PLAN_PATH, twoTaskPlan);
             s.claudeQueue.push({ text: "ok" });
@@ -4028,7 +4040,7 @@ test.describe("Implement worker session_id persistence", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -4053,6 +4065,7 @@ test.describe("Implement worker session_id persistence", test => {
     test("null sessionId from worker does not overwrite a previously stored session_id", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.files.set(WS_ROOT + "/build.sh", "make");
             s.claudeQueue.push({ text: "ok" });
@@ -4071,7 +4084,7 @@ test.describe("Implement worker session_id persistence", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -4102,6 +4115,7 @@ test.describe("Implement worker session_id persistence", test => {
     test("worker rejection does not clear a previously stored session_id", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // iter 1: worker returns sessionId, reviewer FAIL
@@ -4117,7 +4131,7 @@ test.describe("Implement worker session_id persistence", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -4139,6 +4153,7 @@ test.describe("Implement worker session_id persistence", test => {
     test("iteration 1 forks from prep, iteration 2 resumes worker session", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.files.set(WS_ROOT + "/build.sh", "make");
             s.claudeQueue.push({ text: "ok" });
@@ -4154,7 +4169,7 @@ test.describe("Implement worker session_id persistence", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -4196,6 +4211,7 @@ test.describe("Implement reviewer forks from prep", test => {
     test("reviewer iteration 1 is spawned with --resume <prep_session_id> --fork-session", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -4206,7 +4222,7 @@ test.describe("Implement reviewer forks from prep", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -4231,6 +4247,7 @@ test.describe("Implement reviewer forks from prep", test => {
     test("reviewer iteration 2 forks from the same prep session id as iteration 1", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -4244,7 +4261,7 @@ test.describe("Implement reviewer forks from prep", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -4278,6 +4295,7 @@ test.describe("Implement reviewer forks from prep", test => {
     test("reviewer session_id is not stored as worker or prep session — observed via iter-2 --resume args", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -4291,7 +4309,7 @@ test.describe("Implement reviewer forks from prep", test => {
             return s;
         },
         async ACT({ contexts, claudeSpawnedArgs }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             // claudeSpawnedArgs positions: [0]=detect, [1]=prep, [2]=worker-iter1,
@@ -4332,6 +4350,7 @@ test.describe("Implement terminal label on exit", test => {
     test("success path shows Done terminal label", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -4372,6 +4391,7 @@ test.describe("Implement terminal label on exit", test => {
     test("noop tasks completed shows Done terminal label", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const allDonePlan = '# Plan\n\n- [x]{"it":100,"ot":50,"t":5} Already done\n';
             s.files.set(PLAN_PATH, allDonePlan);
             return s;
@@ -4438,6 +4458,7 @@ test.describe("Implement terminal label on exit", test => {
     test("plan malformed shows Failed terminal label", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, '# Plan\n\n- [done]{"it":0,"ot":0,"t":0} bad checkbox\n');
             return s;
         },
@@ -4510,6 +4531,7 @@ test.describe("Implement terminal label on exit", test => {
     test("hard stop shows Hard stop terminal label", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep runs once per task, before the iteration loop
@@ -4540,6 +4562,7 @@ test.describe("Implement terminal label on exit", test => {
     test("interruption during run shows Interrupted terminal label", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             let spawnCount = 0;
@@ -4576,6 +4599,7 @@ test.describe("Implement terminal label on exit", test => {
     test("block visible and cursor below block after failed exit", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, '# Plan\n\n- [done]{"it":0,"ot":0,"t":0} bad checkbox\n');
             return s;
         },
@@ -4604,6 +4628,7 @@ test.describe("Implement terminal label on exit", test => {
     test("dispose after completed run does not call finalize again", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -4644,6 +4669,7 @@ test.describe("Implement terminal label on exit", test => {
     test("dispose during active run with delayed stage closes with Interrupted", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             let spawnCount = 0;
@@ -4694,6 +4720,7 @@ test.describe("Implement prep stage", test => {
     test("prep is spawned before worker and reviewer in 1-task plan", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -4726,6 +4753,7 @@ test.describe("Implement prep stage", test => {
     test("prep output is persisted to ws.prepLog(taskIndex)", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -4755,6 +4783,7 @@ test.describe("Implement prep stage", test => {
     test("prep tokens are accumulated into task metrics", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "READY", sessionId: "prep-session", inputTokens: 200, outputTokens: 100 });
@@ -4786,6 +4815,7 @@ test.describe("Implement prep stage", test => {
     test("prep failure (rejection) causes hard stop and preserves workspace", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "prep", error: true });
@@ -4822,6 +4852,7 @@ test.describe("Implement prep stage", test => {
     test("prep returns null sessionId causes hard stop", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "READY" });
@@ -4864,6 +4895,7 @@ test.describe("Implement prep stage", test => {
     test("prep session id is captured per task and reset between tasks — observed via per-task worker fork args", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue, 2);
             s.files.set(PLAN_PATH, PLAN_TWO_TASKS);
             s.claudeQueue.push({ text: "ok" });
             // task 1
@@ -4916,6 +4948,7 @@ test.describe("Implement _selectPlan edge cases", test => {
     test("positional arg resolved via plans/ folder when direct path does not exist", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set("/project/plans/my-plan.md", PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -4936,6 +4969,7 @@ test.describe("Implement _selectPlan edge cases", test => {
     test("multiple positional args are joined with spaces", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set("/project/plans/my plan.md", PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -4956,6 +4990,7 @@ test.describe("Implement _selectPlan edge cases", test => {
     test("no positional arg and empty plans folder shows diagnostic", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.contexts.fs.exists = async (p) => s.files.has(p) || p === "/project/plans";
             return s;
         },
@@ -4975,12 +5010,45 @@ test.describe("Implement _selectPlan edge cases", test => {
             }
         }
     });
+
+    test("no positional arg with exactly one plan file auto-selects it and runs", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            const origExists = s.contexts.fs.exists;
+            (s.contexts.fs as { exists:typeof s.contexts.fs.exists }).exists = (p) => {
+                if (p === "/project/plans") return Promise.resolve(true);
+                return origExists(p);
+            };
+            const origReaddir = s.contexts.fs.readdir;
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = (p) => {
+                if (p === "/project/plans") return Promise.resolve([{ name: "test.md", isFile: true, isDirectory: false }]);
+                return origReaddir(p);
+            };
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 0);
+        }
+    });
 });
 
 test.describe("Implement test-stage failure", test => {
     test("test script failure triggers retry and covers testOk continue path", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect ok" });
             s.files.set(WS_ROOT + "/test.sh", "npm test");
@@ -5016,6 +5084,7 @@ test.describe("Implement reviewer-stage error", test => {
     test("reviewer AI error causes retry", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5043,6 +5112,7 @@ test.describe("Implement error.log verdict protocol", test => {
     test("reviewer pass leaves error.log empty", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5076,6 +5146,7 @@ test.describe("Implement error.log verdict protocol", test => {
     test("reviewer fail writes violations to error.log and triggers retry", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5111,6 +5182,7 @@ test.describe("Implement error.log verdict protocol", test => {
     test("on a failing review the orchestrator does not overwrite error.log with reviewer rejected: summary", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5142,6 +5214,7 @@ test.describe("Implement error.log verdict protocol", test => {
     test("empty-before invariant — stale error.log content is cleared before reviewer", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.files.set(WS_ROOT + "/error.log", "stale content from previous stage");
@@ -5170,6 +5243,7 @@ test.describe("Implement error.log verdict protocol", test => {
     test("reviewer prompt receives hydrated error.log path", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5201,6 +5275,7 @@ test.describe("Implement error.log verdict protocol", test => {
     test("whitespace-only error.log counts as pass", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5230,6 +5305,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
     test("error.log is deleted (not emptied) before the reviewer", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.files.set(WS_ROOT + "/error.log", "stale");
             s.claudeQueue.push({ text: "ok" });
@@ -5257,6 +5333,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
     test("absent error.log after reviewer triggers relaunch until file exists", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5291,6 +5368,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
     test("relaunch does not increment worker iteration or restart worker/build/test", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5323,6 +5401,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
     test("tokens accumulate across reviewer relaunches", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5359,6 +5438,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
     test("each reviewer relaunch forks from prep session", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "READY", sessionId: "PREP-RELAUNCH" });
@@ -5394,6 +5474,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
     test("error.log deleted before each reviewer relaunch", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.files.set(WS_ROOT + "/error.log", "stale");
             s.claudeQueue.push({ text: "ok" });
@@ -5421,6 +5502,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
     test("present empty error.log is PASS", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5448,6 +5530,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
     test("present non-empty error.log is FAIL and content preserved between iterations", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5481,6 +5564,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
     test("reviewer exception writes error.log and returns false", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5513,6 +5597,7 @@ test.describe("Implement AI stderr forwarding", test => {
     test("AI stderr is captured in writeError output", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect ok" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -5543,6 +5628,7 @@ test.describe("Implement _stringifyError non-Error", test => {
     test("non-Error value is stringified via String()", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect ok" });
             s.files.set(WS_ROOT + "/build.sh", "make");
@@ -5582,6 +5668,7 @@ test.describe("Implement .bat script path on Windows", test => {
     test("uses cmd.exe /c for .bat scripts when isWindows is true", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.contexts.platform.isWindows = () => true;
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect ok" });
@@ -5640,6 +5727,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("worker.tool=codex routes worker stage through codex binary", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "codex", model: "codex-model", effort: "high" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "low" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -5675,6 +5763,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("reviewer.tool=claude routes reviewer stage through claude binary", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "codex", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -5706,6 +5795,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("detect agent uses the worker triple, not the reviewer triple", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewers: [{ tool: "claude", model: "r-model", effort: "low" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -5740,6 +5830,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("prep stage uses the worker triple", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewers: [{ tool: "codex", model: "w-model", effort: "medium" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -5771,6 +5862,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("session id is still captured from the worker via the runner", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect" });
             s.claudeQueue.push({ text: "READY", sessionId: "prep-session" });
@@ -5802,6 +5894,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("all-claude config routes all stages through claude binary", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "w-model", effort: "" }, reviewers: [{ tool: "claude", model: "r-model", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -5842,6 +5935,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
     test("empty model and effort do not pass flags to the binary", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -5871,6 +5965,7 @@ test.describe("Implement detect agent inherits worker triple", test => {
     test("codex worker with model and effort routes detect through codex adapter with those values", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "codex", model: "gpt-5-codex", effort: "high" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "low" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -5906,6 +6001,7 @@ test.describe("Implement detect agent inherits worker triple", test => {
     test("claude worker with empty model and effort routes detect through claude with no flags", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -5937,6 +6033,7 @@ test.describe("Implement detect agent inherits worker triple", test => {
     test("detect prompt does not mention or include the reviewer triple", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "codex", model: "worker-model-abc", effort: "high" }, reviewers: [{ tool: "claude", model: "reviewer-sentinel-model", effort: "reviewer-sentinel-effort" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -5967,6 +6064,7 @@ test.describe("Implement detect agent inherits worker triple", test => {
     test("detect agent uses worker values even when config JSON contains an extra detect section", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config = JSON.stringify({
                 worker: { tool: "codex", model: "worker-model", effort: "high" },
                 reviewers: [{ tool: "claude", model: "reviewer-model", effort: "low" }],
@@ -6002,6 +6100,7 @@ test.describe("Implement detect agent inherits worker triple", test => {
     test("exactly one detect call per implement run through the runner", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect" });
             s.claudeQueue.push(PREP_RESPONSE);
@@ -6034,6 +6133,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=true when worker and reviewer share tool, model, and effort", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -6062,6 +6162,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=false when tools differ — no prep launched", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -6097,6 +6198,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=false when effort differs — no prep launched", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "codex", model: "m", effort: "medium" }, reviewers: [{ tool: "codex", model: "m", effort: "high" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -6124,6 +6226,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=true when both model and effort are empty strings", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -6152,6 +6255,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=true and prep returns no session id causes hard stop", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "READY" });
@@ -6182,6 +6286,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=false — worker and reviewer succeed without prep session", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "codex", model: "b", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -6215,6 +6320,7 @@ test.describe("Implement prep-optimization condition", test => {
     test("prepActive=false when model differs — no prep launched", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "claude", model: "b", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -6272,6 +6378,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
     test("branch A: prepActive=true — worker forks from prep and prompt does NOT inline linked content", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const plan = planWithLinkedFiles(
                 "`contracts/linked-c.md`.",
                 "`rules/linked-r.md`."
@@ -6322,6 +6429,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
     test("branch B: prepActive=false — worker is fresh and prompt inlines linked content", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
@@ -6379,6 +6487,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
     test("branch A: captured _currentWorkerSessionId equals the session.id emitted", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const plan = planWithLinkedFiles("`contracts/c.md`.", "`rules/r.md`.");
             s.files.set(PLAN_PATH, plan);
             s.files.set("/project/contracts/c.md", "c");
@@ -6414,6 +6523,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
     test("branch B: captured _currentWorkerSessionId equals the session.id emitted", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "codex", model: "b", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles("`contracts/c.md`.", "`rules/r.md`.");
@@ -6458,6 +6568,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
     test("branch B: missing linked file produces '(file not found)' in prompt", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
@@ -6497,6 +6608,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
     test("branch B: no throw when _currentPrepSessionId is null", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "claude", model: "b", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -6522,6 +6634,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
     test("iter 2 with captured session invokes worker with resumeSessionId and no fork parent", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -6535,7 +6648,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             return s;
         },
         async ACT({ contexts, claudeSpawnedArgs }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return { code, claudeSpawnedArgs };
@@ -6558,6 +6671,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
     test("iter 2 prompt does NOT contain linked contract or rule body even after branch B inlined", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
@@ -6608,6 +6722,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
     test("iter 2 with null session invokes worker with no resume and no fork", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -6621,7 +6736,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             return s;
         },
         async ACT({ contexts, claudeSpawnedArgs }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return { code, claudeSpawnedArgs };
@@ -6643,6 +6758,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
     test("defensive capture: iter 2 emits new session.id, iter 3 uses the new id", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -6659,7 +6775,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             return s;
         },
         async ACT({ contexts, claudeSpawnedArgs }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return { code, claudeSpawnedArgs };
@@ -6686,6 +6802,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
     test("previousIterationBriefing is appended in all iter n>1 cases", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -6702,7 +6819,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             return s;
         },
         async ACT({ contexts, promptQueue }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return { code, promptQueue };
@@ -6729,6 +6846,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
     test("cross-task discard: _currentWorkerSessionId resets to null before iter 1 of new task", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue, 2);
             const twoTaskPlan = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Task Alpha\n- [ ]{"it":0,"ot":0,"t":0} Task Beta\n';
             s.files.set(PLAN_PATH, twoTaskPlan);
             s.claudeQueue.push({ text: "ok" });
@@ -6746,7 +6864,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             return s;
         },
         async ACT({ contexts, claudeSpawnedArgs }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return { code, claudeSpawnedArgs };
@@ -6778,6 +6896,7 @@ test.describe("Implement reviewer branch A vs branch B", test => {
     test("branch A: prepActive=true — reviewer forks from prep and prompt does NOT inline linked content", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const plan = planWithLinkedFiles(
                 "`contracts/linked-c.md`.",
                 "`rules/linked-r.md`."
@@ -6823,6 +6942,7 @@ test.describe("Implement reviewer branch A vs branch B", test => {
     test("branch B: prepActive=false — reviewer is fresh and prompt inlines linked content", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
@@ -6874,6 +6994,7 @@ test.describe("Implement reviewer branch A vs branch B", test => {
     test("branch A: across two iterations, both reviewer calls fork from the same prep session id", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const plan = planWithLinkedFiles(
                 "`contracts/linked-c.md`.",
                 "`rules/linked-r.md`."
@@ -6891,7 +7012,7 @@ test.describe("Implement reviewer branch A vs branch B", test => {
             return s;
         },
         async ACT({ contexts, claudeSpawnedArgs, promptQueue }) {
-            const cmd = new Implement(["--no-git", PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return { code, claudeSpawnedArgs, promptQueue };
@@ -6929,6 +7050,7 @@ test.describe("Implement multiple parallel reviewers", test => {
     test("two reviewers, mixed config — per-reviewer branch A/B coexists in one review round", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
@@ -7006,6 +7128,7 @@ test.describe("Implement multiple parallel reviewers", test => {
     test("two reviewers both PASS — aggregate verdict is empty and error.log is absent", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
@@ -7047,6 +7170,7 @@ test.describe("Implement multiple parallel reviewers", test => {
     test("two reviewers, one FAIL and one PASS — aggregate is concat in reviewer order with newline separator", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
@@ -7103,6 +7227,7 @@ test.describe("Implement multiple parallel reviewers", test => {
     test("two reviewers BOTH FAIL — aggregate equals reviewer-1\\nreviewer-2 (newline separator and reviewer order)", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
@@ -7152,6 +7277,7 @@ test.describe("Implement multiple parallel reviewers", test => {
     test("two reviewers, both files whitespace-only — aggregate trims to empty, verdict is PASS, no aggregate write", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
@@ -7194,6 +7320,7 @@ test.describe("Implement multiple parallel reviewers", test => {
     test("absent per-reviewer error.log relaunches only that reviewer", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
@@ -7233,6 +7360,7 @@ test.describe("Implement multiple parallel reviewers", test => {
     test("dispose mid-review aborts every in-flight reviewer session", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
@@ -7286,6 +7414,7 @@ test.describe("Implement multiple parallel reviewers", test => {
     test("rate-limit on one reviewer: state transitions running→waiting→running→ok, no global waiting, metrics not frozen", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const time = controllableTime();
             (s.contexts as any).time = time.ctx;
             const config:FlandersConfig = {
@@ -7420,6 +7549,7 @@ test.describe("Implement multiple parallel reviewers", test => {
     test("FAIL verdict surfaces as reviewer state = fail in the final reviewing snapshot", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [{ tool: "claude", model: "", effort: "" }]
@@ -7476,6 +7606,7 @@ test.describe("Implement multiple parallel reviewers", test => {
     test("transient retryable error on a reviewer leaves the reviewer at running (no waiting state)", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const time = controllableTime();
             (s.contexts as any).time = time.ctx;
             const config:FlandersConfig = {
@@ -7572,6 +7703,7 @@ test.describe("Implement multiple parallel reviewers", test => {
     test("reviewer that finishes early flips to ok WHILE another reviewer is still in flight", {
         ARRANGE() {
             const s = stubContexts();
+            gitRunQueue(s.gitQueue);
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [

@@ -123,11 +123,8 @@ export class Implement {
         this._buffered = new LineBufferedBlock(block);
         try {
             const positional:string[] = [];
-            let noGitFlag = false;
             for (const arg of rawArgs) {
-                if (arg === "--no-git") {
-                    noGitFlag = true;
-                } else if (arg.startsWith("-")) {
+                if (arg.startsWith("-")) {
                     this._buffered.writeError(`Unknown flag: ${arg}\n`);
                     this._finalizeBlock("Failed");
                     return 1;
@@ -181,19 +178,18 @@ export class Implement {
             }
             this._block!.setHeader({ indexLabel: `0/${totalTasks}` });
             this._block!.setMetrics({ plan: { tokens: planTotals.it + planTotals.ot, seconds: planTotals.t } });
-            let gitActive = false;
-            if (!noGitFlag) {
-                if (await isGitAvailable(this._contexts.script, this._contexts.time)) {
-                    gitActive = await isInsideWorkTree(this._contexts.script, this._contexts.time, this._options.projectRoot);
-                }
+            const gitAvailable = await isGitAvailable(this._contexts.script, this._contexts.time);
+            const insideWorkTree = gitAvailable && await isInsideWorkTree(this._contexts.script, this._contexts.time, this._options.projectRoot);
+            if (!insideWorkTree) {
+                this._buffered.writeError("The project must be a git repository. Flanders implement requires git on PATH and the project root inside a git work tree.\n");
+                this._finalizeBlock("Failed");
+                return 1;
             }
-            if (gitActive) {
-                const pending = await countPendingChangesExcept(this._contexts.script, this._contexts.time, this._options.projectRoot, planPath);
-                if (pending > 0) {
-                    this._buffered.writeError("Working tree has uncommitted changes. Please commit or stash them before re-running.\n");
-                    this._finalizeBlock("Failed");
-                    return 1;
-                }
+            const pending = await countPendingChangesExcept(this._contexts.script, this._contexts.time, this._options.projectRoot, planPath);
+            if (pending > 0) {
+                this._buffered.writeError("Working tree has uncommitted changes. Please commit or stash them before re-running.\n");
+                this._finalizeBlock("Failed");
+                return 1;
             }
             const contractFiles = await listFilesRecursive(this._contexts.fs, joinPath(this._options.projectRoot, "contracts"));
             this._contractList = contractFiles.map(f => `contracts/${f}`);
@@ -220,7 +216,7 @@ export class Implement {
                 const refreshed = plan.parse();
                 const completedSoFar = refreshed.tasks.filter(t => t.done).length;
                 const indexLabel = `${completedSoFar + 1}/${totalTasks}`;
-                const taskOk = await this._runTask(plan, open, wsPaths, indexLabel, completedSoFar, gitActive);
+                const taskOk = await this._runTask(plan, open, wsPaths, indexLabel, completedSoFar);
                 if (this._disposed) {
                     this._finalizeBlock("Interrupted");
                     return 1;
@@ -317,7 +313,7 @@ export class Implement {
     private _prepActive():boolean {
         return this._config!.reviewers.some(r => this._reviewerMatchesWorker(r));
     }
-    private async _runTask(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, indexLabel:string, taskIndex:number, gitActive:boolean):Promise<boolean> {
+    private async _runTask(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, indexLabel:string, taskIndex:number):Promise<boolean> {
         this._currentTask = task;
         this._currentIndexLabel = indexLabel;
         this._currentWorkerSessionId = null;
@@ -388,29 +384,27 @@ export class Implement {
                 continue;
             }
             await plan.markDone(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});
-            if (gitActive) {
-                const commitMessage = task.taskNumber ? `${task.taskNumber} ${task.title}` : task.title;
-                const gitOutput:OutputContext = {
-                    write: text => this._buffered.write(text),
-                    writeError: text => this._buffered.writeError(text),
-                    /* coverage ignore next 2 */ // — Pass-through required by OutputContext; Git never calls columns or rows.
-                    columns: () => this._contexts.output.columns(),
-                    rows: () => this._contexts.output.rows(),
-                    /* coverage ignore next */ // — Pass-through required by OutputContext; Git never calls onResize.
-                    onResize: listener => this._contexts.output.onResize(listener)
-                };
-                const addResult = await addAll(this._contexts.script, this._contexts.time, gitOutput, this._options.projectRoot);
-                if (addResult.code !== 0) {
-                    await this._writeErrorLog(ws, `git add -A failed (exit ${addResult.code})\n--- stdout ---\n${addResult.stdout}\n--- stderr ---\n${addResult.stderr}`);
-                    await plan.markOpen(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});
-                    continue;
-                }
-                const commitResult = await commit(this._contexts.script, this._contexts.time, gitOutput, this._options.projectRoot, commitMessage);
-                if (commitResult.code !== 0) {
-                    await this._writeErrorLog(ws, `git commit failed (exit ${commitResult.code})\n--- stdout ---\n${commitResult.stdout}\n--- stderr ---\n${commitResult.stderr}`);
-                    await plan.markOpen(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});
-                    continue;
-                }
+            const commitMessage = task.taskNumber ? `${task.taskNumber} ${task.title}` : task.title;
+            const gitOutput:OutputContext = {
+                write: text => this._buffered.write(text),
+                writeError: text => this._buffered.writeError(text),
+                /* coverage ignore next 2 */ // — Pass-through required by OutputContext; Git never calls columns or rows.
+                columns: () => this._contexts.output.columns(),
+                rows: () => this._contexts.output.rows(),
+                /* coverage ignore next */ // — Pass-through required by OutputContext; Git never calls onResize.
+                onResize: listener => this._contexts.output.onResize(listener)
+            };
+            const addResult = await addAll(this._contexts.script, this._contexts.time, gitOutput, this._options.projectRoot);
+            if (addResult.code !== 0) {
+                await this._writeErrorLog(ws, `git add -A failed (exit ${addResult.code})\n--- stdout ---\n${addResult.stdout}\n--- stderr ---\n${addResult.stderr}`);
+                await plan.markOpen(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});
+                continue;
+            }
+            const commitResult = await commit(this._contexts.script, this._contexts.time, gitOutput, this._options.projectRoot, commitMessage);
+            if (commitResult.code !== 0) {
+                await this._writeErrorLog(ws, `git commit failed (exit ${commitResult.code})\n--- stdout ---\n${commitResult.stdout}\n--- stderr ---\n${commitResult.stderr}`);
+                await plan.markOpen(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});
+                continue;
             }
             const planTotals = plan.planTotals();
             const snapshot = formatSnapshotBlock(

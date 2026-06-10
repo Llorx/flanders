@@ -103,6 +103,7 @@ function stubContexts(config:FlandersConfig) {
     const codexQueue:CodexResponse[] = [];
     const promptQueue:string[] = [];
     const scriptQueue:ScriptResponse[] = [];
+    const gitQueue:ScriptResponse[] = [];
     const claudeSpawnedArgs:string[][] = [];
     const codexSpawnedArgs:string[][] = [];
 
@@ -173,7 +174,7 @@ function stubContexts(config:FlandersConfig) {
                     return proc;
                 }
                 const isGit = command === "git";
-                const response = (isGit ? [] : scriptQueue).shift();
+                const response = (isGit ? gitQueue : scriptQueue).shift();
                 if (!response) {
                     setImmediate(() => proc.$emit("error", new Error("no response in queue")));
                     return proc;
@@ -221,7 +222,19 @@ function stubContexts(config:FlandersConfig) {
             onResize() { return () => {}; }
         }
     };
-    return { contexts, files, claudeQueue, codexQueue, promptQueue, scriptQueue, claudeSpawnedArgs, codexSpawnedArgs };
+    return { contexts, files, claudeQueue, codexQueue, promptQueue, scriptQueue, gitQueue, claudeSpawnedArgs, codexSpawnedArgs };
+}
+
+// Arranges a full git run for an e2e scenario: the version/rev-parse/clean-status preflight
+// triple plus one {code:0} (add, commit) pair per task the scenario accepts.
+function gitRunQueue(gitQueue:ScriptResponse[], taskCount = 1):void {
+    gitQueue.push({ code: 0, stdout: "git version 2.40.0\n", stderr: "" }); // git --version
+    gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });                // rev-parse --is-inside-work-tree
+    gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // status (clean)
+    for (let i = 0; i < taskCount; i++) {
+        gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
+        gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
+    }
 }
 
 const LINKED_PLAN = planWithLinkedFiles(
@@ -252,6 +265,7 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
         ARRANGE() {
             const config:FlandersConfig = { worker: { tool: "claude", model: "m1", effort: "high" }, reviewers: [{ tool: "claude", model: "m1", effort: "high" }] };
             const s = stubContexts(config);
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, LINKED_PLAN);
             setLinkedFiles(s.files);
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
@@ -312,6 +326,7 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
         ARRANGE() {
             const config:FlandersConfig = { worker: { tool: "codex", model: "m2", effort: "low" }, reviewers: [{ tool: "codex", model: "m2", effort: "low" }] };
             const s = stubContexts(config);
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, LINKED_PLAN);
             setLinkedFiles(s.files);
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
@@ -370,6 +385,7 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
         ARRANGE() {
             const config:FlandersConfig = { worker: { tool: "claude", model: "m3", effort: "mid" }, reviewers: [{ tool: "codex", model: "m3", effort: "mid" }] };
             const s = stubContexts(config);
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, LINKED_PLAN);
             setLinkedFiles(s.files);
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
@@ -426,6 +442,7 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
         ARRANGE() {
             const config:FlandersConfig = { worker: { tool: "claude", model: "m4", effort: "high" }, reviewers: [{ tool: "claude", model: "m4", effort: "low" }] };
             const s = stubContexts(config);
+            gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, LINKED_PLAN);
             setLinkedFiles(s.files);
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
