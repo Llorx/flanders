@@ -342,7 +342,13 @@ When the loop ends with FAIL after five passes, do not declare complete: surface
 
 ## Output language
 
-Write spec files in the same natural language as the input request. If the input is in Spanish, the output is in Spanish; if English, English; and so on. Do not translate unless the user says otherwise.
+Resolve the natural language to write each spec file in by this priority order:
+
+1. When the request explicitly states a language to write in, write in that language.
+2. Otherwise, when at least one spec file already exists in the project, write in the language of those existing spec files, determined by inspecting a single existing spec file — reading more than one is unnecessary, since the corpus is kept in one language.
+3. Otherwise — when the request names no language and no spec file exists yet — write in the language the request itself is written in.
+
+Do not translate already-written content; the resolved language governs only the content you author in this run.
 
 ## Idempotency and overwrites
 

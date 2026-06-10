@@ -1066,11 +1066,20 @@ test.describe("skills – specSkillBody", test => {
         ARRANGE() {},
         ACT() { return specSkillBody; },
         ASSERTS: {
-            "has output language section"(body) {
+            "has output language heading"(body) {
                 Assert.ok(body.includes("## Output language"), "must have output language section");
             },
-            "matches input language"(body) {
-                Assert.ok(body.includes("same natural language as the input"), "must match input language");
+            "tier 1, first in priority: an explicitly requested language wins"(body) {
+                Assert.ok(body.includes("1. When the request explicitly states a language to write in, write in that language."), "tier 1 (first) must write in the explicitly requested language");
+            },
+            "tier 2, second in priority: the language of existing spec files, determined from a single file"(body) {
+                Assert.ok(body.includes("2. Otherwise, when at least one spec file already exists in the project, write in the language of those existing spec files, determined by inspecting a single existing spec file"), "tier 2 (second) must write in the existing spec files' language, determined by inspecting a single existing file");
+            },
+            "tier 3, last in priority: the language the request itself is written in"(body) {
+                Assert.ok(body.includes("3. Otherwise — when the request names no language and no spec file exists yet — write in the language the request itself is written in."), "tier 3 (last) must write in the language the request itself is written in");
+            },
+            "keeps the non-translation clause"(body) {
+                Assert.ok(body.includes("Do not translate already-written content; the resolved language governs only the content you author in this run."), "must keep the clause that already-written content is not translated and the resolved language governs only content authored in the run");
             }
         }
     });
