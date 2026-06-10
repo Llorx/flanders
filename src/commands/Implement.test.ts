@@ -3635,9 +3635,9 @@ test.describe("Implement worker prompt contract and rule lists", test => {
     test("worker prompt's lists come from .docs discovery and exclude git-ignored namespaces", {
         ARRANGE() {
             const s = stubContexts();
-            // discovery enumerates a root contract, a nested rule, and a third candidate that
-            // git check-ignore reports as ignored — the ignored one must not reach the prompt.
-            gitActivationQueue(s.gitQueue, ".docs/contracts/c1.md\0src/x/.docs/rules/r1.md\0node-ish/.docs/rules/ignored.md\0");
+            // discovery enumerates a root contract, a nested rule, a .docs/flanders behavior rule, and a
+            // candidate git check-ignore reports as ignored — the ignored one must not reach the prompt.
+            gitActivationQueue(s.gitQueue, ".docs/contracts/c1.md\0src/x/.docs/rules/r1.md\0.docs/flanders/naming.md\0node-ish/.docs/rules/ignored.md\0");
             s.gitQueue.push({ code: 0, stdout: "node-ish/.docs/rules/ignored.md\0", stderr: "" }); // check-ignore: this candidate is ignored
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
@@ -3666,6 +3666,12 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             "the worker rule list is exactly the surviving nested .docs rule namespace"(_code, { promptQueue }) {
                 Assert.strictEqual(extractPromptList(promptQueue[2]!, "## Available rules"), "src/x/.docs/rules/r1.md");
             },
+            "the worker behavior-rule list is exactly the surviving .docs/flanders namespace"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[2]!, "## Available behavior rules"), ".docs/flanders/naming.md");
+            },
+            "the prep behavior-rule list is exactly the surviving .docs/flanders namespace"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[1]!, "## Available behavior rules"), ".docs/flanders/naming.md");
+            },
             "neither list contains the git-ignored namespace"(_code, { promptQueue }) {
                 Assert.ok(!promptQueue[2]!.includes("node-ish/.docs/rules/ignored.md"), "the git-ignored namespace must not appear in the worker prompt");
             },
@@ -3674,6 +3680,51 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             },
             "the RULE_LIST placeholder is substituted"(_code, { promptQueue }) {
                 Assert.ok(!promptQueue[2]!.includes("<RULE_LIST>"), "RULE_LIST placeholder should be substituted");
+            },
+            "the BEHAVIOR_RULE_LIST placeholder is substituted in the worker prompt"(_code, { promptQueue }) {
+                Assert.ok(!promptQueue[2]!.includes("<BEHAVIOR_RULE_LIST>"), "BEHAVIOR_RULE_LIST placeholder should be substituted");
+            }
+        }
+    });
+
+    test("behavior-rule list renders (none) when no .docs/flanders folder is discovered, and the detect prompt omits it", {
+        ARRANGE() {
+            const s = stubContexts();
+            // gitRunQueue discovers no .docs files at all, so the flanders listing is empty.
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            // prep
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            // promptQueue: [0]=detect, [1]=prep, [2]=worker, [3]=reviewer
+            "the command succeeds"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the prep behavior-rule list renders (none)"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[1]!, "## Available behavior rules"), "(none)");
+            },
+            "the worker behavior-rule list renders (none)"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[2]!, "## Available behavior rules"), "(none)");
+            },
+            "the reviewer behavior-rule list renders (none)"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[3]!, "## Available behavior rules"), "(none)");
+            },
+            "the detect prompt has no behavior-rule section"(_code, { promptQueue }) {
+                Assert.ok(!promptQueue[0]!.includes("## Available behavior rules"), "detect prompt should not carry an Available behavior rules section");
+            },
+            "the detect prompt has no BEHAVIOR_RULE_LIST placeholder"(_code, { promptQueue }) {
+                Assert.ok(!promptQueue[0]!.includes("<BEHAVIOR_RULE_LIST>"), "detect prompt should not carry the BEHAVIOR_RULE_LIST placeholder");
             }
         }
     });
@@ -3808,8 +3859,8 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
     test("reviewer prompt receives the same discovered lists as the worker for the same iteration", {
         ARRANGE() {
             const s = stubContexts();
-            // discovery yields one contract and one nested rule; nothing ignored.
-            gitActivationQueue(s.gitQueue, ".docs/contracts/overview.md\0src/x/.docs/rules/r1.md\0");
+            // discovery yields one contract, one nested rule, and one .docs/flanders behavior rule; nothing ignored.
+            gitActivationQueue(s.gitQueue, ".docs/contracts/overview.md\0src/x/.docs/rules/r1.md\0.docs/flanders/naming.md\0");
             s.gitQueue.push({ code: 1, stdout: "", stderr: "" }); // check-ignore: none ignored
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
@@ -3843,6 +3894,12 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
             },
             "the reviewer rule list matches the worker's"(_code, { promptQueue }) {
                 Assert.strictEqual(extractPromptList(promptQueue[3]!, "## Available rules"), extractPromptList(promptQueue[2]!, "## Available rules"));
+            },
+            "the reviewer behavior-rule list is the discovered .docs/flanders namespace"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[3]!, "## Available behavior rules"), ".docs/flanders/naming.md");
+            },
+            "the reviewer behavior-rule list matches the worker's"(_code, { promptQueue }) {
+                Assert.strictEqual(extractPromptList(promptQueue[3]!, "## Available behavior rules"), extractPromptList(promptQueue[2]!, "## Available behavior rules"));
             }
         }
     });

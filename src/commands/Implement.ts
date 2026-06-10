@@ -82,6 +82,7 @@ export class Implement {
     private _config:FlandersConfig|null = null;
     private _contractList:readonly string[] = [];
     private _ruleList:readonly string[] = [];
+    private _behaviorRuleList:readonly string[] = [];
     private _workspace:Workspace|null = null;
     private _block:BottomBlock|null = null;
     private _buffered!:LineBufferedBlock;
@@ -195,6 +196,7 @@ export class Implement {
             const specs = await discoverSpecs(this._contexts.script, this._contexts.time, this._options.projectRoot);
             this._contractList = specs.contracts;
             this._ruleList = specs.rules;
+            this._behaviorRuleList = specs.flanders;
             this._workspace = new Workspace(this._contexts.fs, this._contexts.platform);
             const wsPaths = await this._workspace.setup(this._config.reviewers.length);
             await this._detectBuildAndTest(wsPaths);
@@ -429,7 +431,8 @@ export class Implement {
             .split(Placeholders.TASK_LINE).join(String(task.line))
             .split(Placeholders.TASK_TITLE).join(task.title)
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
-            .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList));
+            .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
+            .split(Placeholders.BEHAVIOR_RULE_LIST).join(this._formatPathList(this._behaviorRuleList));
         try {
             const { result, capturedOutput } = await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt);
             this._taskTokens.it += result.inputTokens;
@@ -462,7 +465,8 @@ export class Implement {
             .split(Placeholders.BUILD_SCRIPT_PATH).join(ws.buildScript)
             .split(Placeholders.TEST_SCRIPT_PATH).join(ws.testScript)
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
-            .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList));
+            .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
+            .split(Placeholders.BEHAVIOR_RULE_LIST).join(this._formatPathList(this._behaviorRuleList));
         if (iteration === 1 && !prepActive) {
             prompt = await this._appendLinkedContent(plan, task, prompt);
         }
@@ -608,6 +612,7 @@ export class Implement {
             .split(Placeholders.TASK_TITLE).join(task.title)
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
+            .split(Placeholders.BEHAVIOR_RULE_LIST).join(this._formatPathList(this._behaviorRuleList))
             .split(Placeholders.ERROR_LOG_PATH).join(ws.reviewerErrorLog(reviewerNum));
         if (!useBranchA) {
             prompt = await this._appendLinkedContent(plan, task, prompt);
