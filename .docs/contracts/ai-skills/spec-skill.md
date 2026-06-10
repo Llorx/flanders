@@ -50,7 +50,12 @@ The skill's sole deliverable is one or more markdown files inside the project's 
 8. **Post-write validation.** Before declaring complete, the skill runs the post-write validation gate per `.docs/contracts/ai-skills/post-write-validation.md`. If the gate fails, the skill follows the triage-then-fix loop defined there — re-entering this contract's clarification phase for any issue that closes a previously-unresolved ambiguity in this contract's clarification scope, and fixing the rest in place — and surfaces the final failure to the user if the bounded loop exhausts.
 
 ## Output language
-Spec files are written in the same natural language as the input request. If the input is in Spanish, the output is in Spanish; if English, English; and so on. The skill does not translate, unless the user says otherwise.
+The natural language a spec file is written in is resolved in priority order:
+1. The language the request explicitly asks the skill to write in, when the request states one.
+2. Otherwise, the language of the project's existing spec files: when at least one contract or rule file already exists, the skill writes in that corpus's language, determined by inspecting a single existing spec file — reading more than one is unnecessary, as the corpus is kept in one language.
+3. Otherwise — when the request names no language and no spec file exists yet — the language the request itself is written in.
+
+The skill does not translate already-written content; the resolved language governs only the content the skill authors in this run.
 
 ## Idempotency and overwrites
 Existing files in the project's `.docs/contracts` and `.docs/rules` folders are not protected by the skill. Re-running the skill with input related to existing obligations modifies those files rather than creating parallel duplicates. The skill does not guarantee deterministic file naming or layout across runs with unrelated input. Preserving prior versions of spec files is the user's responsibility, typically through version control.
