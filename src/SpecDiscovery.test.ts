@@ -122,6 +122,26 @@ test.describe("classifySpecPaths", test => {
             Assert.deepStrictEqual(result.contracts, [".docs/contracts/a.md", "nested/.docs/contracts/a.md"]);
         }
     });
+
+    test("classifies .docs/flanders files at any depth into flanders and never into contracts or rules", {
+        ARRANGE() {
+            return { paths: [".docs/flanders/b.md", ".docs/flanders/naming/x.md", "src/x/.docs/flanders/y.md"] };
+        },
+        ACT({ paths }) {
+            return classifySpecPaths(paths);
+        },
+        ASSERTS: {
+            "flanders holds the top-level, nested-subfolder, and nested-.docs behavior rules by their first .docs segment"(result) {
+                Assert.deepStrictEqual(result.flanders, [".docs/flanders/b.md", ".docs/flanders/naming/x.md", "src/x/.docs/flanders/y.md"]);
+            },
+            "no .docs/flanders file leaks into contracts"(result) {
+                Assert.deepStrictEqual(result.contracts, []);
+            },
+            "no .docs/flanders file leaks into rules"(result) {
+                Assert.deepStrictEqual(result.rules, []);
+            }
+        }
+    });
 });
 
 test.describe("discoverSpecs", test => {
@@ -185,6 +205,37 @@ test.describe("discoverSpecs", test => {
             },
             "both spawns run in the project root"(_result, { spawns }) {
                 Assert.deepStrictEqual([spawns[0]!.cwd, spawns[1]!.cwd], [ROOT, ROOT]);
+            }
+        }
+    });
+
+    test("folds .docs/flanders candidates into the same check-ignore pass, drops the ignored one, and returns the survivors sorted", {
+        ARRANGE() {
+            const { script, spawns } = recordingScript((args, proc) => {
+                setImmediate(() => {
+                    if (args[0] === "ls-files") {
+                        proc.$emitStdout(".docs/contracts/c-a.md\0.docs/rules/r-a.md\0.docs/flanders/f-b.md\0.docs/flanders/f-a.md\0.docs/flanders/ignored.md\0");
+                        proc.$emit("exit", 0);
+                    } else {
+                        proc.$emitStdout(".docs/flanders/ignored.md\0");
+                        proc.$emit("exit", 0);
+                    }
+                });
+            });
+            return { script, time: stubTime(), spawns };
+        },
+        async ACT({ script, time }) {
+            return await discoverSpecs(script, time, ROOT);
+        },
+        ASSERTS: {
+            "flanders drops the ignored behavior rule and comes back sorted ascending"(result) {
+                Assert.deepStrictEqual(result.flanders, [".docs/flanders/f-a.md", ".docs/flanders/f-b.md"]);
+            },
+            "the behavior-rule candidates are folded into the same check-ignore stdin after contracts and rules"(_result, { spawns }) {
+                Assert.deepStrictEqual(spawns[1]!.proc.$stdinWrites(), [".docs/contracts/c-a.md\0.docs/rules/r-a.md\0.docs/flanders/f-b.md\0.docs/flanders/f-a.md\0.docs/flanders/ignored.md\0"]);
+            },
+            "folding the behavior rules triggers no extra git spawn beyond ls-files then check-ignore"(_result, { spawns }) {
+                Assert.deepStrictEqual(spawns.map(s => s.args[0]), ["ls-files", "check-ignore"]);
             }
         }
     });
