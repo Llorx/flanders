@@ -147,7 +147,7 @@ The bottom-fixed block is never removed when the command exits. It stays on scre
 
 The only state change at exit is on the footer line. Just before the process exits, the footer's animation is stopped and its label is replaced with a terminal label that names how the command ended:
 - `Done` — every termination path that is not an error, including the successful completion of all remaining tasks (`all tasks completed`) and the noop case where every task was already complete at startup (`tasks completed`).
-- `Hard stop` — the per-task iteration cap was exceeded for some task.
+- `Hard stop` — a hard stop occurred: the per-task iteration cap was exceeded for some task, or the prep optimization failed irrecoverably.
 - `Interrupted` — the command received an interruption signal (for example, Ctrl+C).
 - `Failed` — any other failure, including unknown CLI flag, plan validation failure, missing or empty `plans/` folder, and git preflight failure.
 

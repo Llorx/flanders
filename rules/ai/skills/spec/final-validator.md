@@ -1,6 +1,6 @@
 # The /flanders-spec validator audits each artifact by its folder against the spec check categories
 
-The `/flanders-spec` skill gates its work behind a final validator hosted as `rules/ai/skills/final-validator-host.md` pins. This rule pins the check categories the validator runs against the persisted or updated file(s). Because `/flanders-spec` can write to `contracts/`, to `rules/`, or to both in a single run, each persisted file is audited by the category set that matches the folder it landed in, plus the shared non-contradiction category that spans the whole corpus. Failure in ANY category is FAIL; the validator must run every applicable check on every invocation and must not stop at the first violation.
+The `/flanders-spec` skill gates its work behind a final validator hosted as `rules/ai/skills/final-validator-host.md` pins. This rule pins the check categories the validator runs against the persisted or updated file(s). Because `/flanders-spec` can write to a `.docs/contracts` folder, to a `.docs/rules` folder, or to both in a single run, each persisted file is audited by the category set that matches the folder it landed in, plus the shared non-contradiction category that spans the whole corpus. Failure in ANY category is FAIL; the validator must run every applicable check on every invocation and must not stop at the first violation.
 
 ## Who this applies to
 
@@ -14,10 +14,10 @@ The host follows `rules/ai/skills/final-validator-host.md` for the shared inputs
 
 The canonical listings the host passes are:
 
-1. The contracts listing captured at the start of the run (every relative path under `contracts/`).
-2. The rules listing captured at the start of the run (every relative path under `rules/`).
+1. The contracts listing captured at the start of the run (every contract's namespace — its project-root-relative path — across every `.docs/contracts` folder in the tree).
+2. The rules listing captured at the start of the run (every rule's namespace across every `.docs/rules` folder in the tree).
 
-Both listings are always passed, because a single `/flanders-spec` run may have written contract files, rule files, or both, and the non-contradiction category spans both folders regardless.
+Both listings are always passed, because a single `/flanders-spec` run may have written contract files, rule files, or both, and the non-contradiction category spans both regardless.
 
 The host also passes the explicit list of file paths the skill wrote or updated in this run, partitioned by folder, so the validator knows which subset of each canonical listing is under audit and which category set applies to each file.
 
@@ -25,18 +25,18 @@ When this run renamed, relocated, or removed a term that can recur across the co
 
 ## What the validator must check
 
-The categories below are mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively. Category A applies to each file that landed in `contracts/`; category B applies to each file that landed in `rules/`; category C applies to every file written or updated in the run.
+The categories below are mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively. Category A applies to each file that landed in a `.docs/contracts` folder; category B applies to each file that landed in a `.docs/rules` folder; category C applies to every file written or updated in the run.
 
-### A. Contract artifacts (each file written or updated under `contracts/`)
+### A. Contract artifacts (each file written or updated under a `.docs/contracts` folder)
 
 #### A1. Format and shape
 
 Every contract file written or updated in this run:
 
-- Lives inside `contracts/` and is non-empty.
+- Lives inside a `.docs/contracts` folder and is non-empty.
 - Is markdown.
 - Has a filename descriptive of its content — a reader can tell what each file covers from its name alone.
-- Is organized per `contracts/ai-skills/spec-skill.md`: a single descriptive file when the product is small, multiple files when the product has clearly separable concerns (for example, a logic file and a UI file), subfolders grouping related files when the product has multiple sections (for example, one folder per major feature).
+- Is organized per `contracts/ai-skills/spec-skill.md`: a single descriptive file when the scope is small, multiple files when the scope has clearly separable concerns (for example, a logic file and a UI file), subfolders grouping related files when the scope has multiple sections (for example, one folder per major feature).
 
 #### A2. Content rules
 
@@ -44,17 +44,17 @@ Verify that each persisted contract satisfies EACH of the following obligations,
 
 - **Free of placeholders.** No `<TBD>`, no `TODO`, no `XXX`, no template-style blanks, no parenthetical "(to be decided)".
 - **Free of ambiguous wording.** Open-ended phrasing — hedge phrases such as `may or may not`, `left to the implementer`, `pick one of`, `or equivalent`, `at the discretion of the user`, `or — alternatively —`, `or X if Y`, or any formulation that leaves an obligation undefined — is FAIL. A contract obligation reads as a single concrete commitment, never as a choice the reader is invited to make.
-- **Describes only public, user-visible behavior.** References to implementation details are out of scope of a contract and are FAIL. Implementation details include: names of specific classes, functions, libraries, modules, or frameworks; paths under `src/`, `lib/`, or any source folder; internal data shapes that the user does not directly observe; private helper or coordinator types; the existence of specific test files or runners; choices of HTTP client, ORM, database engine, build tool, or other tooling the user does not directly interact with. A contract names what the user sees, does, and relies on — never how the project achieves it internally.
+- **Describes only public behavior across its scope's boundary.** A contract names what code outside the directory its `.docs` folder scopes can rely on, stated abstractly; for the project-root `.docs/contracts` that boundary is the end user. References to implementation details are out of scope of a contract and are FAIL. Implementation details include: names of specific classes, functions, libraries, modules, or frameworks; paths under `src/`, `lib/`, or any source folder; internal data shapes that consumers across the boundary do not directly observe; private helper or coordinator types; the existence of specific test files or runners; choices of HTTP client, ORM, database engine, build tool, or other tooling consumers do not directly interact with. A contract names what crosses its boundary — never how the directory achieves it internally.
 - **Free of historical or migration content.** The contract states only the present spec — what the software does now. Content recording what the spec used to be, what it replaces, what changed in this run, or any transitional framing (for example, "replaces the former X", "previously Y", a changelog of the edit) is FAIL. Such facts belong in the commit message or pull-request description, not in a permanent spec file.
 - **No obligation is duplicated across files.** When the request relates to obligations already covered by existing files, those files are updated rather than duplicated. The validator looks for the same obligation pinned in two places.
 
-### B. Rule artifacts (each file written or updated under `rules/`)
+### B. Rule artifacts (each file written or updated under a `.docs/rules` folder)
 
 #### B1. Format and shape
 
 Every rule file written or updated in this run:
 
-- Lives inside `rules/` and is non-empty.
+- Lives inside a `.docs/rules` folder and is non-empty.
 - Is markdown.
 - **Captures exactly one atomic rule.** A file that pins two or more independent obligations is FAIL. Those obligations belong in separate files inside the same subfolder.
 - Has a filename descriptive of the single rule the file captures — a reader can tell which rule the file pins from its name alone.
@@ -72,7 +72,7 @@ Verify that each persisted rule satisfies EACH of the following obligations, ind
 
 ### C. Non-contradiction with the canonical corpus (every file written or updated in this run)
 
-The file(s) written or updated in this run do not contradict any other contract in `contracts/` (the canonical contracts listing) and do not contradict any rule in `rules/` (the canonical rules listing). A contradiction is an obligation pinned in two places with incompatible content. Tightening, extending, or qualifying an existing obligation in a way the existing text already allows is not a contradiction.
+The file(s) written or updated in this run do not contradict any other contract in the project's contracts (the canonical contracts listing, spanning every `.docs/contracts` folder) and do not contradict any rule in the project's rules (the canonical rules listing, spanning every `.docs/rules` folder). A contradiction is an obligation pinned in two places with incompatible content. Tightening, extending, or qualifying an existing obligation in a way the existing text already allows is not a contradiction.
 
 **Renamed-term sweep.** For each old term the host passed (the terms this run renamed, relocated, or removed), the validator searches the whole corpus for that term and inspects every occurrence. An occurrence that is a stale, un-updated instance of the renamed term — a leftover that should have been changed in this run — is FAIL. An occurrence that is an intentional reference the rename correctly leaves alone is not a violation. The validator drives this check from the passed term(s), not from its own judgment of which files are relevant, so that a stale occurrence in a file the validator would not otherwise open is still caught. When the passed list is empty, this check is vacuously satisfied.
 
@@ -88,6 +88,6 @@ Out of scope of the validator: verifying that paths referenced by a contract or 
 - The validator reports PASS on a file that contradicts another contract or rule in the canonical corpus.
 - The validator reports PASS while a stale occurrence of a term this run renamed, relocated, or removed survives in a corpus file the validator did not search, because it scoped its reading by relevance judgment instead of sweeping the passed term(s) across the whole corpus.
 - The validator reports PASS on a contract or rule that records historical, transitional, or migration content (for example, "replaces the former X", "previously Y", or a changelog of what this run changed) instead of stating only the present spec.
-- The validator applies the contract category set to a file that landed in `rules/`, or the rule category set to a file that landed in `contracts/`, instead of selecting the category set by the file's folder.
+- The validator applies the contract category set to a file that landed in a `.docs/rules` folder, or the rule category set to a file that landed in a `.docs/contracts` folder, instead of selecting the category set by the file's folder.
 - The validator aggregates the categories into a single judgment instead of auditing each independently and enumerating violations exhaustively.
 - The host packages the validator prompt without inlining the verbatim text of the content-rule categories (A2 and B2), forcing the validator to discover the content obligations by transitive contract reading — which defeats the explicit-categories obligation pinned in `rules/ai/skills/final-validator-host.md`.

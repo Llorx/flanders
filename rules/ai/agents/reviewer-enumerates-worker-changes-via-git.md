@@ -1,15 +1,15 @@
-# Inside a git work tree, the reviewer derives the worker's change set from `git status`, not from `git diff` alone
+# The reviewer derives the worker's change set from `git status`, not from `git diff` alone
 
-When the `implement` command runs inside a git work tree, the adversarial reviewer treats git as the authoritative source for the complete set of files the worker produced. It enumerates that set with `git status --porcelain` — which surfaces modified, created, deleted, and renamed files in one pass, including created files that were never staged — and inspects every file in the set. Relying on `git diff` or `git diff --stat` alone is not enough: those surfaces only report tracked changes, so a file the worker created but did not `git add` is untracked and never appears in them, and a reviewer anchored on diff alone can miss a brand-new file in full.
+The adversarial reviewer treats git as the authoritative source for the complete set of files the worker produced. It enumerates that set with `git status --porcelain` — which surfaces modified, created, deleted, and renamed files in one pass, including created files that were never staged — and inspects every file in the set. Relying on `git diff` or `git diff --stat` alone is not enough: those surfaces only report tracked changes, so a file the worker created but did not `git add` is untracked and never appears in them, and a reviewer anchored on diff alone can miss a brand-new file in full.
 
 ## Who this applies to
 
-- **Subject:** the adversarial reviewer agent of the `implement` inner loop, at the moment it determines which files the worker changed, but only when the project is a git work tree (git is available and the project root is inside a working tree).
-- **Not subject:** the reviewer when the project is not a git work tree. There the rule imposes nothing — the reviewer falls back to the files the task references and whatever its judgment deems relevant. This rule adds an obligation only when git is present; it does not remove or alter any other reviewer obligation.
+- **Subject:** the adversarial reviewer agent of the `implement` inner loop, at the moment it determines which files the worker changed. The project is always a git repository per `contracts/cli-commands/implement/git-integration.md`, so this enumeration is unconditional.
+- **Not subject:** the worker and other agents; this rule governs only how the adversarial reviewer enumerates the change set, not any other reviewer obligation.
 
 ## Behavior
 
-When the reviewer runs inside a git work tree:
+When the reviewer determines the worker's change set:
 
 1. **Enumerate with `git status --porcelain`.** The reviewer runs `git status --porcelain` and reads its output as the authoritative, complete enumeration of the worker's uncommitted work: tracked modifications (` M`, `M `), staged or unstaged creations, untracked creations (`??`), deletions (` D`, `D `), and renames (`R `). This enumeration — not the list of files the task happens to name — is the set the reviewer must account for.
 

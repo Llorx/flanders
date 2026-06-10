@@ -12,7 +12,7 @@ When `/flanders-plan` picks which rule files to link to each leaf task, the sele
 For each leaf task, the planner performs the following:
 
 1. Identify the kinds of work the task performs — for example, "adds a test", "creates a timer", "changes terminal output", "adds a new module", "modifies a controller's lifecycle", "adds retry handling around an AI call".
-2. For each kind of work, walk the rule namespaces in the canonical rule listing captured at invocation and ask: which namespaces are in scope for work of this kind? A namespace is in scope when any of its obligations could plausibly be triggered by the task — not only when the namespace name keyword-matches the request.
+2. For each kind of work, walk the rule namespaces in the canonical rule listing captured at invocation and ask: which namespaces are in scope for work of this kind? The listing spans every `.docs/rules` folder in the project tree per `rules/spec-discovery/docs-folders-enumerated-recursively.md`, and a namespace is a rule's project-root-relative path. A namespace is in scope when any of its obligations could plausibly be triggered by the task — not only when the namespace name keyword-matches the request.
 3. Inside every in-scope namespace, inspect every file and link every file whose obligation could be triggered by the task. The default is to link; omission requires the planner to have read the file and concluded that none of its obligations apply.
 
 The selection is namespace-first, not keyword-first. A request that says "add a timer" without mentioning disposables still requires linking every applicable file under `rules/disposables/`, because the scope of the task — adding a timer — triggers that namespace regardless of the request's wording.

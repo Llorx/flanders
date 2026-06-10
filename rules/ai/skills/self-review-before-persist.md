@@ -21,7 +21,7 @@ The self-review is the last step the skill performs before persistence; persisti
 The skill audits the draft against all of the following, every time:
 
 1. **No placeholders left behind.** No `TODO`, no `TBD`, no `<placeholder>`-style markers, no half-finished sentences, no "(fill in)"-style fragments.
-2. **No contradictions with the canonical reference set.** The draft is consistent with every relevant file in the canonical reference set as captured at invocation (per `rules/ai/skills/read-relevant-references-before-drafting.md`). For both `/flanders-spec` and `/flanders-plan`, contradictions are checked against both `contracts/` and `rules/`.
+2. **No contradictions with the canonical reference set.** The draft is consistent with every relevant file in the canonical reference set as captured at invocation (per `rules/ai/skills/read-relevant-references-before-drafting.md`). For both `/flanders-spec` and `/flanders-plan`, contradictions are checked against the full canonical reference set — every contract under a `.docs/contracts` folder and every rule under a `.docs/rules` folder, per `rules/ai/skills/read-relevant-references-before-drafting.md`.
 3. **No ambiguous wording.** Every obligation, rule, or task description is unambiguous about scope, subject, and applicability. A reader who is not in this conversation must be able to interpret the draft a single way.
 4. **No scope drift.** The draft does not introduce obligations, rules, or tasks that were not part of the request the user approved during the drafting phase.
 

@@ -4,7 +4,7 @@ A contract or rule authored by `/flanders-spec` describes only the present spec:
 
 ## Who this applies to
 
-- **Subject:** every contract file under `contracts/` and every rule file under `rules/` that `/flanders-spec` writes or updates — including this project's own `contracts/` and `rules/`, which `/flanders-spec` authors because the project self-hosts its spec.
+- **Subject:** every contract file under a `.docs/contracts` folder and every rule file under a `.docs/rules` folder that `/flanders-spec` writes or updates — including flanders' own spec, which `/flanders-spec` authors because the project self-hosts its spec.
 - **Subject:** the source content that produces the `/flanders-spec` skill artifact body — the prompt text the `install` command ships — which must carry the active prohibition described under "How to apply".
 - **Not subject:** plan files under `plans/` (`/flanders-plan` output), which sequence work and may reference prior state as task context.
 - **Not subject:** commit messages, pull-request descriptions, and other non-spec documents — these are the correct home for historical, transitional, and migration notes.

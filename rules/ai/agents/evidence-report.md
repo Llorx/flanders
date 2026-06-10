@@ -50,13 +50,13 @@ One entry per criterion. A criterion that enumerates N independent facts ("X AND
 
 For every in-scope rule per `rules/ai/agents/evidence/scope-driven-self-audit.md`, one entry with:
 
-1. **The rule**, identified by its namespace (the relative path inside `rules/`).
+1. **The rule**, identified by its namespace (its path relative to the project root).
 2. **The trigger**, naming which part of the subagent's diff (or which task link) brought this rule into scope — for example, "added tests in `<file>` triggers `rules/testing/asserts-object-for-multiple-assertions.md`".
 3. **Evidence of compliance**, as `file:line` citations, classified by the same three-branch regression-signal question pinned in `rules/ai/agents/evidence/claim-evidence-classification.md`. A rule obligation of the absence-of-a-pattern shape that is observable through the test surface — common in `rules/testing/` and `rules/disposables/`, for example an `ASSERT` block that records zero forbidden calls or a diff that contains no matching line — is test-guarded and needs a search-based or recorded-call assertion that confirms zero matches over that observable surface. An obligation that is a property of the subject's production source as text — for example the forbidden-import absence pinned by `rules/external-access-through-contexts.md`, or a semantic-judgment obligation such as non-duplication — is review-adjudicated: its evidence is the targeted `file:line` plus the statement that the reviewer verifies it by inspection, and fabricating a source-reading test to guard it violates `rules/testing/assert-via-public-surface.md`. A rule whose obligation enumerates N distinct prohibited patterns or N distinct required patterns expands into N independent entries per `rules/ai/agents/evidence/enumerated-claim-coverage.md`.
 
 ### Contract claims
 
-For every in-scope contract per `rules/ai/agents/evidence/scope-driven-self-audit.md`, one entry with the same three fields as a rule claim: the contract's namespace (relative path inside `contracts/`), the trigger from the diff or task link, and the evidence of compliance classified by the regression-signal question. Contract obligations that pin literal public-surface details (string messages, output channels, error-shape fields) fall into the literal-content shape and require an exact-match assertion; a substring or prefix check on those details is too weak.
+For every in-scope contract per `rules/ai/agents/evidence/scope-driven-self-audit.md`, one entry with the same three fields as a rule claim: the contract's namespace (its path relative to the project root), the trigger from the diff or task link, and the evidence of compliance classified by the regression-signal question. Contract obligations that pin literal public-surface details (string messages, output channels, error-shape fields) fall into the literal-content shape and require an exact-match assertion; a substring or prefix check on those details is too weak.
 
 ## Why this exists
 

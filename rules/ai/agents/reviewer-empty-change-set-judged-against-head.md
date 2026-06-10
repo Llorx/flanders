@@ -6,12 +6,12 @@ This is the case of an idempotent re-application: a task whose work a prior iter
 
 ## Who this applies to
 
-- **Subject:** the adversarial reviewer agent of the `implement` inner loop, at the moment it decides its verdict, but only when the project is a git work tree (git is available and the project root is inside a working tree) **and** the worker's change set enumerated per `rules/ai/agents/reviewer-enumerates-worker-changes-via-git.md` is empty.
-- **Not subject:** the reviewer when the project is not a git work tree — that fallback is governed by `rules/ai/agents/reviewer-enumerates-worker-changes-via-git.md`. The reviewer when the change set is non-empty — the standard review of the worker's diff is unchanged and is governed by the reviewer's other obligations.
+- **Subject:** the adversarial reviewer agent of the `implement` inner loop, at the moment it decides its verdict, but only when the worker's change set enumerated per `rules/ai/agents/reviewer-enumerates-worker-changes-via-git.md` is empty.
+- **Not subject:** the reviewer when the change set is non-empty — the standard review of the worker's diff is unchanged and is governed by the reviewer's other obligations.
 
 ## Behavior
 
-When the reviewer runs inside a git work tree and the enumerated change set is empty:
+When the enumerated change set is empty:
 
 1. **The empty change set is not a failure on its own.** The reviewer does not record a violation for the sole reason that the worker produced no diff this cycle. The absence of a diff is the expected shape of an idempotent re-application of already-committed work.
 

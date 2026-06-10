@@ -15,7 +15,7 @@ The body of every Flanders skill artifact — the prompt text that the `install`
 
 ## What is permitted in a skill artifact body
 
-- Structural references to the user's project folders by their conventional names — `contracts/`, `rules/`, `plans/` — without naming a specific file inside them. For example: "list every file currently inside the project's `contracts/` folder", "persist exactly one markdown file inside the project's `plans/` folder", "for every leaf task, link the relevant contract file or files by their listed relative path".
+- Structural references to the user's project spec folders by their conventional shape — `.docs/contracts` and `.docs/rules` folders (which may appear at any level of the project tree) and the project-root `plans/` folder — without naming a specific file inside them. For example: "discover every `.docs/contracts` folder in the project tree", "persist exactly one markdown file inside the project's `plans/` folder", "for every leaf task, link the relevant contract file or files by their listed relative path".
 - Names of user-visible AI tools the skill targets (Claude Code, Codex CLI) and the install destinations those tools use as already pinned by the install behavior the user has consented to.
 
 The body never embeds a specific file path that points to a file from flanders' own spec.

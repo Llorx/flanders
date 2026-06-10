@@ -1,31 +1,23 @@
 # `implement` Command Contract — Git Integration
 
 ## Purpose
-Define how the implement command interacts with git: when the integration is active, what is checked before the run starts, how each accepted task is committed, and how a failing commit is handled.
+Define how the implement command interacts with git: the requirement that the project be a git repository, what is checked before the run starts, how each accepted task is committed, and how a failing commit is handled.
 
-## Activation
-The git integration is active for a run only when all three of the following hold:
-
-1. The `git` command is available on the host (executable on `PATH`).
-2. The current working directory is inside a git working tree.
-3. The `--no-git` flag was not passed to `implement`.
-
-When any of these is false, the implement command runs without git: no preflight check, no commits, and no other git operations. Missing git or running outside a working tree is not an error condition — the command simply proceeds in its non-git mode.
-
-## Flag
-- `--no-git` — disables the git integration even when git is available and the project is a git working tree. When passed, the run behaves identically to a run on a non-git project.
+## Requirement
+The implement command requires the project to be a git repository: `git` must be available on the host (executable on `PATH`) and the command's working directory must be inside a git working tree. Git is not optional and is not toggled by any flag. When the project is not a git repository — `git` is unavailable, or the working directory is not inside a git working tree — the command exits non-zero at startup, before setting up any workspace, with a diagnostic that tells the user the project must be a git repository. There is no mode in which the command runs without git.
 
 ## Preflight check
-When the integration is active, the command runs a preflight check before setting up the workspace (see `cli-commands/implement/workspace.md`):
+Before setting up the workspace (see `cli-commands/implement/workspace.md`), the command runs a preflight check:
 
+- The project must be a git repository, per the Requirement above.
 - The working tree must be clean except for the plan file selected for this run.
 - The selected plan file is excluded from the check unconditionally, regardless of whether it is listed in `.gitignore`. This avoids spurious failures when the plan file is tracked and was modified by a previous, partially-committed run.
 - Any other pending modification, addition, or deletion in the working tree causes the preflight to fail.
 
-On preflight failure the command exits non-zero with a diagnostic that asks the user to commit or stash the pending changes before re-running. The diagnostic does NOT list the offending files — the list may be long and is left to the user to inspect via `git status`.
+On preflight failure the command exits non-zero with a diagnostic, before setting up any workspace. When the failure is an unclean working tree, the diagnostic asks the user to commit or stash the pending changes before re-running; it does NOT list the offending files — the list may be long and is left to the user to inspect via `git status`.
 
 ## Commit per task
-When the integration is active, the commit/check stage of the inner loop (see `cli-commands/implement/iteration-loop.md`) commits the work for the accepted task. The sequence for that stage is:
+The commit/check stage of the inner loop (see `cli-commands/implement/iteration-loop.md`) commits the work for the accepted task. The sequence for that stage is:
 
 1. The plan file is updated in place: the task's checkbox is flipped from `[ ]` to `[x]` and its metrics object is finalized for that task.
 2. The orchestrator stages every change in the working tree with `git add -A`.
@@ -46,6 +38,3 @@ If `git commit` exits non-zero (for example because a pre-commit hook rejects th
 
 ## Output
 All `git` invocations emitted by the implement command — preflight checks, staging, and commits — stream their stdout and stderr into the output region defined in `cli-commands/implement/ui.md`, like any other subprocess the command spawns.
-
-## Non-git mode
-When the integration is inactive (any of the activation conditions is false), the command behaves as defined in the rest of the implement contracts without any git-specific behavior: there is no preflight check, no `git add`, no `git commit`, and a failing commit cannot be the cause of an iteration restart. The plan file is still updated in place as work progresses; persistence to disk simply does not include creating a git commit.

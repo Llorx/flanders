@@ -24,7 +24,7 @@ The list below illustrates the pattern and is not exhaustive:
 - A diff that **adds or modifies retry, backoff, or rate-limit handling around AI or external calls** earns in-scope claims for every applicable file under `rules/ai/retry/`.
 - A diff that **changes how the AI runner invokes a CLI tool** earns in-scope claims for every applicable file under `rules/ai/runner/`.
 - A diff that **adds or modifies a subagent's prompt construction** earns in-scope claims for every applicable file under `rules/ai/agents/`.
-- A diff that **touches any contract obligation in `contracts/`** earns in-scope claims for every contract file whose obligation is affected, regardless of whether the task linked it.
+- A diff that **touches any contract obligation** earns in-scope claims for every contract file whose obligation is affected, regardless of whether the task linked it.
 
 When the diff spans multiple kinds of work — for example, "added a new test that exercises a controller with a timer" — the in-scope set is the union across all kinds.
 

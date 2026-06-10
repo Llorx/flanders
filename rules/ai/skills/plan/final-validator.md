@@ -14,8 +14,8 @@ The host follows `rules/ai/skills/final-validator-host.md` for the shared inputs
 
 The canonical listings the host passes are:
 
-1. The contracts listing captured at the start of the run (every relative path under `contracts/`).
-2. The rules listing captured at the start of the run (every relative path under `rules/`).
+1. The contracts listing captured at the start of the run (every contract's namespace — its project-root-relative path — across every `.docs/contracts` folder in the tree).
+2. The rules listing captured at the start of the run (every rule's namespace across every `.docs/rules` folder in the tree).
 
 Additionally, under the per-skill-inputs provision of `rules/ai/skills/final-validator-host.md`, the validator reads the on-disk source files the plan's tasks build on — not only the plan text and the specs — so it can audit each code-touching task against its baseline: the current source, plus the changes earlier tasks in the plan prescribe (per category 4 below). This is what lets categories 4 and 5 catch a task that misdescribes the code it builds on. Reading source is read-only and does not relax the validator's read-only discipline.
 
@@ -44,7 +44,7 @@ Tasks appear top-to-bottom in implementation order. The audit is semantic, not n
 
 ### 3. Spec-folder write boundary
 
-No task — leaf or parent — describes work that creates, modifies, deletes, or renames any file inside `contracts/`, `rules/`, or `plans/`. There is no exception for flipping checkboxes or rewriting metrics: those mutations are performed programmatically by the `implement` command and are never described by a task.
+No task — leaf or parent — describes work that creates, modifies, deletes, or renames any file inside any `.docs/contracts` folder, any `.docs/rules` folder, or the `plans/` folder. There is no exception for flipping checkboxes or rewriting metrics: those mutations are performed programmatically by the `implement` command and are never described by a task.
 
 ### 4. Plan content rules (verbatim from `contracts/ai-skills/plan-skill.md`)
 
@@ -67,11 +67,11 @@ Verify that the plan satisfies EACH of the following obligations, independently.
 
 For every contract and rule referenced by any task in the plan, verify that the task's description and acceptance criteria actually require or honor the obligations of that reference. A task that lists a contract or rule link without the description or acceptance criteria invoking the obligation is FAIL — this is the analogue of the adversarial reviewer's condition 3 in `contracts/cli-commands/implement/iteration-loop.md`.
 
-Additionally, for every contract or rule in the canonical listings the validator judges should have been linked by a task whose scope makes it applicable, but was not linked, the missing link is FAIL — analogous to the reviewer's condition 4. Apply scope-driven selection per `rules/ai/skills/plan/scope-driven-rule-selection.md`: a task that touches tests must link applicable files under `rules/testing/*`; a task that touches async lifecycle must link applicable files under `rules/disposables/*`; a task that changes terminal UI must link applicable files under `rules/ui/*`; and so on across every namespace whose scope could plausibly apply.
+Additionally, for every contract or rule in the canonical listings the validator judges should have been linked by a task whose scope makes it applicable, but was not linked, the missing link is FAIL — analogous to the reviewer's condition 4. Apply scope-driven selection per `rules/ai/skills/plan/scope-driven-rule-selection.md`: a task that touches tests must link the applicable testing rules; a task that touches async lifecycle must link the applicable disposables rules; a task that changes terminal UI must link the applicable UI rules; and so on across every rule namespace whose scope could plausibly apply.
 
 ## Failure signals
 
-- The validator reports PASS on a plan whose tasks describe writing to `contracts/`, `rules/`, or `plans/` (including checkbox flips or metrics rewrites).
+- The validator reports PASS on a plan whose tasks describe writing to any `.docs/contracts` folder, any `.docs/rules` folder, or the `plans/` folder (including checkbox flips or metrics rewrites).
 - The validator reports PASS on a plan in which a task depends on work performed by a later task, on the grounds that the numbering looks correct.
 - The validator reports PASS on a plan that contains hedge phrasing or unresolved implementation choices, on the grounds that "the worker will figure it out".
 - The validator reports PASS on a plan with a leaf task missing its acceptance criteria, its contract link, or its rule link.

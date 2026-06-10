@@ -6,7 +6,7 @@ A code-touching task states facts about the code it builds on — what exists, w
 
 The code a task builds on is the code as the tasks before it leave it: the current source, plus the changes every earlier task it depends on prescribes. How the planner establishes that state depends on whether the code already exists:
 
-- **Code that already exists and no earlier task changes** — the planner establishes its reality by reading the current on-disk source. Reading the `contracts/` and `rules/` listings does not substitute for this: those state what the software must do, not what the code does today.
+- **Code that already exists and no earlier task changes** — the planner establishes its reality by reading the current on-disk source. Reading the canonical contracts and rules listings does not substitute for this: those state what the software must do, not what the code does today.
 - **Code an earlier task in the plan creates or changes** — that code does not exist on disk yet, so the planner grounds the task in what the earlier task is specified to produce: its description and acceptance criteria. The earlier task must appear before this one in the plan.
 
 Either way, the planner establishes the real starting state before writing the task — reading the source for code that exists, and consulting the producing task for code an earlier task will introduce — rather than drafting from assumption.

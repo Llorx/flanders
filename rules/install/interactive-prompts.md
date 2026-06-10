@@ -1,6 +1,6 @@
 # Interactive prompts go through the shared prompt helper
 
-Every interactive question `install` asks the user — scope, skills tool, worker tool, worker model, worker effort, and, for each reviewer in the configured list, that reviewer's tool, model, and effort, plus the `Configure another reviewer?` question that extends the reviewer list — goes through the same prompt helper that `implement` uses for its plan-selection question. The `Configure another reviewer?` question is a single-select (yes/no) rendered through the helper's single-select function like every other bounded choice. There is one prompt helper for the whole library, and every interactive prompt across every command goes through it.
+Every interactive question `install` asks the user — skills tool, scope, worker tool, worker model, worker effort, and, for each reviewer in the configured list, that reviewer's tool, model, and effort, plus the `Configure another reviewer?` question that extends the reviewer list — goes through the same prompt helper that `implement` uses for its plan-selection question. The `Configure another reviewer?` question is a single-select (yes/no) rendered through the helper's single-select function like every other bounded choice. There is one prompt helper for the whole library, and every interactive prompt across every command goes through it.
 
 ## Who this applies to
 
