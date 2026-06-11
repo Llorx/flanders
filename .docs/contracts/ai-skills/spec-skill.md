@@ -57,5 +57,8 @@ The natural language a spec file is written in is resolved in priority order:
 
 The skill does not translate already-written content; the resolved language governs only the content the skill authors in this run.
 
+## Interaction language
+The natural language the skill converses in with the user — its clarifying questions, the approach trade-off summaries, the drafting-phase layout summary, and every other message it prints in chat — is resolved independently of the Output language above and is pinned by `.docs/contracts/ai-skills/interaction-language.md`.
+
 ## Idempotency and overwrites
 Existing files in the project's `.docs/contracts` and `.docs/rules` folders are not protected by the skill. Re-running the skill with input related to existing obligations modifies those files rather than creating parallel duplicates. The skill does not guarantee deterministic file naming or layout across runs with unrelated input. Preserving prior versions of spec files is the user's responsibility, typically through version control.

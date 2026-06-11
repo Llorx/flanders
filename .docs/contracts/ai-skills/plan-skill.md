@@ -56,5 +56,8 @@ The skill's sole deliverable is exactly one markdown plan file inside the projec
 ## Output language
 The plan file is written in the same natural language as the input request, unless the user says otherwise.
 
+## Interaction language
+The natural language the skill converses in with the user — its clarifying questions, the recommendation to create a rule via `/flanders-spec`, the warnings printed when the project has no contracts or no rules, the completion summary printed in chat, and every other message it prints in chat — is resolved independently of the Output language above and is pinned by `.docs/contracts/ai-skills/interaction-language.md`.
+
 ## Missing contracts or rules
 If the project has no contracts — no `.docs/contracts` folder contains any file — the skill warns the user in chat and produces a plan that includes whatever contracts the request implicitly requires before any implementation work. If the project has no rules — no `.docs/rules` folder contains any file — the skill warns the user in chat and proceeds without rule references on the resulting tasks.
