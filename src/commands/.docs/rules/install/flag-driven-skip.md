@@ -33,7 +33,7 @@ The reviewers are an ordered list addressed by 1-based index per `.docs/contract
 
 ## Empty values are valid answers
 
-For `--worker-model`, `--worker-effort`, `--reviewer-model`, `--reviewer-effort`, and their indexed forms `--reviewer-N-model`, `--reviewer-N-effort`, an empty value is a valid answer that resolves to `""` in `.flanders/config.json` per `src/.docs/rules/flanders-config/file-format.md`. An empty value is therefore distinct from "flag not supplied":
+For `--worker-model`, `--worker-effort`, `--reviewer-model`, `--reviewer-effort`, and their indexed forms `--reviewer-N-model`, `--reviewer-N-effort`, an empty value is a valid answer that resolves to `""` in `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`. An empty value is therefore distinct from "flag not supplied":
 
 - Flag not supplied → the question is asked interactively.
 - Flag supplied with an empty value (for example `--worker-model=`) → the question is not asked; the persisted value is `""` ("default configured model"/"default configured effort").

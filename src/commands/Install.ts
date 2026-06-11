@@ -1,11 +1,11 @@
 import type { AskContext, ChoiceOption, FsContext, OutputContext, ScriptContext } from "../contexts";
-import type { FlandersConfig, FlandersRole } from "../FlandersConfig";
-import { write as writeConfig } from "../FlandersConfig";
-import { askChoice, askText } from "../PromptHelper";
-import type { AskChoiceArgs, AskTextArgs } from "../PromptHelper";
-import { joinPath } from "../fsUtils";
-import { planSkillBody, specSkillBody } from "../skills";
-import type { PlatformContext } from "../Workspace";
+import type { FlandersConfig, FlandersRole } from "../workspace/FlandersConfig";
+import { write as writeConfig } from "../workspace/FlandersConfig";
+import { askChoice, askText } from "../ui/PromptHelper";
+import type { AskChoiceArgs, AskTextArgs } from "../ui/PromptHelper";
+import { joinPath } from "../system/fsUtils";
+import { planSkillBody, specSkillBody } from "../prompts/skills";
+import type { PlatformContext } from "../workspace/Workspace";
 import { verifyToolAvailability } from "./InstallAvailabilityCheck";
 import { probeModelList } from "./InstallModelProbe";
 

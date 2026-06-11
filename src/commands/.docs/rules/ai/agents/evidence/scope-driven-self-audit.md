@@ -12,7 +12,7 @@ When a deliverable-producing subagent (today the `worker` of `implement`'s inner
 
 For each rule and contract namespace in the global listings the subagent received in its prompt, the subagent walks its own diff and asks: does any obligation in this namespace's files plausibly apply to the kinds of work this diff performs? When the answer is yes for any file in the namespace, every file in that namespace whose obligation could be triggered by the diff becomes an in-scope claim and earns an entry in the Evidence Report. The default when in doubt is to include rather than skip: a namespace omitted on the grounds that the task did not link it is a violation when the diff actually triggers it.
 
-The scope-derivation is namespace-first, the same heuristic the planner uses in `src/.docs/rules/ai/skills/plan/scope-driven-rule-selection.md` for picking task links — applied here to a different surface (the worker's actual diff) and for a different purpose (auditing already-written code rather than picking links for a task that has not yet been worked).
+The scope-derivation is namespace-first, the same heuristic the planner uses in `src/prompts/.docs/rules/ai/skills/plan/scope-driven-rule-selection.md` for picking task links — applied here to a different surface (the worker's actual diff) and for a different purpose (auditing already-written code rather than picking links for a task that has not yet been worked).
 
 ## Scope examples
 

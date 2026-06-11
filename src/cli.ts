@@ -19,9 +19,9 @@ import type {
     TimeoutHandle
 } from "./contexts";
 import { Flanders } from "./Flanders";
-import { ShellScriptContext } from "./ShellScriptContext";
-import type { KillPrimitive, RawSpawnedChild, RawSpawner } from "./ShellScriptContext";
-import type { PlatformContext } from "./Workspace";
+import { ShellScriptContext } from "./system/ShellScriptContext";
+import type { KillPrimitive, RawSpawnedChild, RawSpawner } from "./system/ShellScriptContext";
+import type { PlatformContext } from "./workspace/Workspace";
 
 const rawSpawn:RawSpawner = (command, args, options) => {
     const child = nodeSpawn(command, [...args], options);

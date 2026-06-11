@@ -3,18 +3,18 @@ import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import { CodexAdapter } from "../ai/CodexAdapter";
 import type { FsContext, OutputContext, RandomContext, ScriptContext, TimeContext } from "../contexts";
 import type { ToolAdapter, ToolName } from "../ai/ToolAdapter";
-import type { FlandersConfig, FlandersRole } from "../FlandersConfig";
-import { read as readConfig } from "../FlandersConfig";
-import { isNonEmptyFile, joinPath, listFilesRecursive } from "../fsUtils";
-import { isGitAvailable, isInsideWorkTree, countPendingChangesExcept, addAll, commit } from "../Git";
-import { discoverSpecs } from "../SpecDiscovery";
-import { PlanFile, PlanTask } from "../PlanFile";
-import { Placeholders, prompts } from "../prompts";
-import { ScriptRunner } from "../ScriptRunner";
+import type { FlandersConfig, FlandersRole } from "../workspace/FlandersConfig";
+import { read as readConfig } from "../workspace/FlandersConfig";
+import { isNonEmptyFile, joinPath, listFilesRecursive } from "../system/fsUtils";
+import { isGitAvailable, isInsideWorkTree, countPendingChangesExcept, addAll, commit } from "../system/Git";
+import { discoverSpecs } from "../workspace/SpecDiscovery";
+import { PlanFile, PlanTask } from "../plan/PlanFile";
+import { Placeholders, prompts } from "../prompts/prompts";
+import { ScriptRunner } from "../system/ScriptRunner";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { Activity, ReviewerEntry, ReviewerState, TerminalLabel } from "../ui/BottomBlock";
 import { formatSnapshotBlock } from "../ui/formatters";
-import { PlatformContext, Workspace, WorkspacePaths } from "../Workspace";
+import { PlatformContext, Workspace, WorkspacePaths } from "../workspace/Workspace";
 
 export type { Activity };
 

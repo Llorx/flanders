@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import { Implement } from "./Implement";
 import type { ImplementContexts } from "./Implement";
-import type { FlandersConfig } from "../FlandersConfig";
+import type { FlandersConfig } from "../workspace/FlandersConfig";
 import type { SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { HeaderFields, MetricsFields, TerminalLabel } from "../ui/BottomBlock";

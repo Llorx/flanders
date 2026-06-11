@@ -19,7 +19,7 @@ Every adapter exposes one invocation function. Its signature, abstractly:
 Arguments:
 
 - `prompt` — the prompt text to send. The adapter is responsible for delivering it to the binary in whatever way that binary requires (stdin, argv, file); the runner does not care.
-- `model` — the model identifier persisted in `.flanders/config.json` per `src/.docs/rules/flanders-config/file-format.md`. An empty string means "default configured model" and the adapter must not pass an explicit model flag to its binary.
+- `model` — the model identifier persisted in `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`. An empty string means "default configured model" and the adapter must not pass an explicit model flag to its binary.
 - `effort` — the effort identifier persisted in `.flanders/config.json`. An empty string means "default configured effort" and the adapter must not pass an explicit effort flag.
 - `resumeSessionId` — when set, the adapter resumes the previous session with that id (used by `src/commands/.docs/rules/ai/task-context/worker-continuity.md`). When unset, the adapter starts a fresh invocation.
 - `forkParentSessionId` — when set, the adapter forks from that parent session (used by the branch-A case in `src/commands/.docs/rules/ai/task-context/prep-optimization.md`). When unset, no fork happens.

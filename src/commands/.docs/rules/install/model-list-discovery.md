@@ -18,7 +18,7 @@ When `claude` ever does expose a model list in the future, this rule must be upd
 
 ## Rendering the question
 
-When the probe yields a non-empty list, the question is rendered as a selectable list whose entries are the model identifiers returned by the probe, plus one synthetic entry at the end labelled `default configured model`. Picking the synthetic entry resolves to the empty string `""` when persisted in `.flanders/config.json` per `src/.docs/rules/flanders-config/file-format.md`.
+When the probe yields a non-empty list, the question is rendered as a selectable list whose entries are the model identifiers returned by the probe, plus one synthetic entry at the end labelled `default configured model`. Picking the synthetic entry resolves to the empty string `""` when persisted in `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`.
 
 When the probe yields an empty list, or the probe is skipped, or the probe fails, the question is rendered as a free-text input with the placeholder `leave empty for the default configured model`. An empty answer resolves to the empty string `""` when persisted.
 

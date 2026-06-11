@@ -9,7 +9,7 @@ The "prep" agent — a read-only AI call that loads the task's contracts and rul
 
 ## The condition
 
-The prep agent is always built with the worker's tool, model, and effort. The orchestrator launches a prep agent for a task if and only if **at least one** reviewer in the `reviewers` array matches the worker on **all three** of the following, by exact string equality on the values read from `.flanders/config.json` per `src/.docs/rules/flanders-config/file-format.md`. A reviewer `r` matches the worker when:
+The prep agent is always built with the worker's tool, model, and effort. The orchestrator launches a prep agent for a task if and only if **at least one** reviewer in the `reviewers` array matches the worker on **all three** of the following, by exact string equality on the values read from `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`. A reviewer `r` matches the worker when:
 
 1. `worker.tool == r.tool`
 2. `worker.model == r.model` (including both being the empty string `""`)

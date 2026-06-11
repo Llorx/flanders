@@ -1,6 +1,6 @@
 export { Flanders } from "./Flanders"; /* coverage ignore next */ // — Type-only re-exports below: no runtime code is generated.
 export type { FlandersContexts, FlandersOptions } from "./Flanders"; /* coverage disable */ // — Type-only re-exports: no runtime code is generated.
-export type { FlandersConfig } from "./FlandersConfig";
+export type { FlandersConfig } from "./workspace/FlandersConfig";
 export type {
     AskAnswer,
     AskChoiceOptions,
@@ -28,5 +28,5 @@ export type {
     ToolEventSession,
     ToolName
 } from "./ai/ToolAdapter";
-export type { PlatformContext } from "./Workspace";
+export type { PlatformContext } from "./workspace/Workspace";
 /* coverage enable */

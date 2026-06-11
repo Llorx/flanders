@@ -9,7 +9,7 @@ import type {
     ToolEventOutput,
     ToolEventRateLimit,
 } from "./ToolAdapter";
-import { wait } from "../wait";
+import { wait } from "../system/wait";
 
 const RATE_LIMIT_CHUNK_MS = 60 * 60 * 1000;
 const INITIAL_TRANSIENT_WAIT_MS = 1_000;

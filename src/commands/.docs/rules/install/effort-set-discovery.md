@@ -14,7 +14,7 @@ When `install` asks the user for a reasoning-effort level for the worker or the 
 
 ## Rendering the question
 
-When the tool exposes a closed set, the question is rendered as a selectable list whose entries are that set's levels, plus one synthetic entry at the end labelled `default configured effort`. Picking the synthetic entry resolves to the empty string `""` when persisted in `.flanders/config.json` per `src/.docs/rules/flanders-config/file-format.md`.
+When the tool exposes a closed set, the question is rendered as a selectable list whose entries are that set's levels, plus one synthetic entry at the end labelled `default configured effort`. Picking the synthetic entry resolves to the empty string `""` when persisted in `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`.
 
 When the tool does not expose a closed set, the question is rendered as a free-text input with the placeholder `leave empty for the default configured effort`. An empty answer resolves to the empty string `""` when persisted.
 

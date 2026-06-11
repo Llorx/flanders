@@ -5,9 +5,9 @@ import test from "arrange-act-assert";
 import { Install, parseInstallFlags, stripYamlFrontmatter } from "./Install";
 import type { InstallContexts } from "./Install";
 import type { AskAnswer, ScriptContext, SpawnedProcess } from "../contexts";
-import { read as readConfig } from "../FlandersConfig";
-import type { FlandersConfig } from "../FlandersConfig";
-import { planSkillBody, specSkillBody } from "../skills";
+import { read as readConfig } from "../workspace/FlandersConfig";
+import type { FlandersConfig } from "../workspace/FlandersConfig";
+import { planSkillBody, specSkillBody } from "../prompts/skills";
 
 function stubContexts() {
     const written:string[] = [];
