@@ -1151,6 +1151,49 @@ test.describe("skills – specSkillBody", test => {
         }
     });
 
+    test("covers interaction language obligation", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "has interaction language heading"(body) {
+                Assert.ok(body.includes("## Interaction language"), "must have interaction language section");
+            },
+            "user-facing messages follow the language of the user's most recent message"(body) {
+                Assert.ok(body.includes("the natural language of the user's most recent message in the conversation"), "must state user-facing messages follow the language of the user's most recent message");
+            },
+            "follows a mid-conversation language switch"(body) {
+                Assert.ok(body.includes("every subsequent message you address to the user follows the language of their latest message"), "must state the language follows a mid-conversation switch");
+            },
+            "resolved independently of the output language"(body) {
+                Assert.ok(body.includes("resolved independently of the Output language above"), "must state the interaction language is resolved independently of the output language");
+            },
+            "never governs the language of the spec files written"(body) {
+                Assert.ok(body.includes("never the language of the spec files you write"), "must state it never governs the language of the spec files written");
+            }
+        }
+    });
+
+    test("places the interaction-language section verbatim between Output language and Idempotency", {
+        ARRANGE() {
+            const section = `## Interaction language
+
+Every message you address to the user during the run — your clarifying questions, the approach trade-off summaries, the drafting-phase layout summary, and any other text you print in chat — is written in the natural language of the user's most recent message in the conversation. When the user switches the language they write in partway through the interaction, every subsequent message you address to the user follows the language of their latest message. This is resolved independently of the Output language above: it governs only what you say to the user in the conversation, never the language of the spec files you write.`;
+            return { section };
+        },
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "contains the interaction-language section verbatim"(body, { section }) {
+                Assert.ok(body.includes(section), "specSkillBody must contain the interaction-language section verbatim");
+            },
+            "section appears after the Output language section"(body) {
+                Assert.ok(body.indexOf("## Interaction language") > body.indexOf("## Output language"), "the Interaction language section must appear after the Output language section");
+            },
+            "section appears before the Idempotency and overwrites section"(body) {
+                Assert.ok(body.indexOf("## Interaction language") < body.indexOf("## Idempotency and overwrites"), "the Interaction language section must appear before the Idempotency and overwrites section");
+            }
+        }
+    });
+
     test("covers idempotency and overwrites", {
         ARRANGE() {},
         ACT() { return specSkillBody; },

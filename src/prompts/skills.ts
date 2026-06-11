@@ -354,6 +354,10 @@ Resolve the natural language to write each spec file in by this priority order:
 
 Do not translate already-written content; the resolved language governs only the content you author in this run.
 
+## Interaction language
+
+Every message you address to the user during the run — your clarifying questions, the approach trade-off summaries, the drafting-phase layout summary, and any other text you print in chat — is written in the natural language of the user's most recent message in the conversation. When the user switches the language they write in partway through the interaction, every subsequent message you address to the user follows the language of their latest message. This is resolved independently of the Output language above: it governs only what you say to the user in the conversation, never the language of the spec files you write.
+
 ## Idempotency and overwrites
 
 Existing files in the project's \`.docs/contracts\` and \`.docs/rules\` folders are not protected. Because you receive the current state of both folders and update related files in place, re-running with related input will modify those files rather than create parallel duplicates. Preserving prior versions is the user's responsibility (typically through version control).`;
