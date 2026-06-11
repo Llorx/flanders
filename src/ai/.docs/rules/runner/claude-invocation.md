@@ -22,7 +22,7 @@ The prompt is delivered as a single user message inside the input stream-json on
 
 When the configured `model` is non-empty, the adapter appends `--model <model>`. When it is the empty string, the flag is not passed and the Claude default applies.
 
-When the configured `effort` is non-empty, the adapter appends the documented Claude flag for that effort level. Until the Claude Code CLI documents a stable flag for effort, the adapter does not invent one — the adapter logs a one-time `output` event explaining that effort is unsupported in the current Claude CLI and proceeds without it.
+When the configured `effort` is non-empty, the adapter appends `--effort <effort>` — the Claude Code flag that sets the reasoning-effort level for the launched session — passing the configured value verbatim. When it is the empty string, the flag is not passed and the Claude default applies.
 
 When `resumeSessionId` is supplied, the adapter appends `--resume <resumeSessionId>`. When `forkParentSessionId` is supplied, the adapter uses the Claude flag that forks a session from the given parent. The two flags are mutually exclusive at the interface level (see `src/ai/.docs/rules/runner/tool-interface.md`); the adapter does not emit both.
 
@@ -83,7 +83,8 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `claude` 
 - The adapter passes `--permission-prompt-tool=stdio` or any other approval, permission, or interactive-prompt flag, turning a non-interactive call into one that can pause for input.
 - The adapter keeps stdin open after writing the prompt — for example to hold a control channel — so the turn never ends and the spawned `claude` process never exits.
 - The adapter processes a `control_request` / permission event, writes a `control_response` on stdin, or forwards a question to the user, instead of running the turn to completion without human interaction.
-- The adapter passes `--model ""` (empty string) instead of omitting the flag when the configured model is empty. Likewise for effort.
+- The adapter passes `--model ""` (empty string) instead of omitting the flag when the configured model is empty. Likewise for `--effort`.
+- The adapter drops a non-empty configured effort, or logs it as unsupported, instead of appending `--effort <effort>`.
 - The adapter writes Claude's native output to the user's terminal directly, instead of emitting `output` events and letting the runner forward them.
 - The adapter classifies the retryable / non-retryable decision by parsing `result.error.message` text instead of the structured `is_error` / `api_error_status` / `subtype` fields.
 - The adapter emits a `rate_limit` event without an authoritative `waitUntilMs` parsed from Claude's signal, instead of falling back to a retryable `error`.

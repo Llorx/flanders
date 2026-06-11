@@ -1,6 +1,6 @@
-# Effort levels are a closed per-tool set, with free-text fallback
+# Effort levels are sourced per tool from each CLI's documented levels
 
-When `install` asks the user for a reasoning-effort level for the worker or the reviewer, the question is rendered from the closed set of effort levels the selected tool's CLI documents. When the tool documents such a set, the user picks from it; when it does not, `install` falls back to a free-text input. The contract `.docs/contracts/cli-commands/install.md` pins both modes; this rule pins, per tool, which set is presented and how each mode persists its value. Unlike the model question, effort is not discovered through a subprocess probe — the set is documented by each tool's CLI and is hardcoded against that documentation.
+When `install` asks the user for a reasoning-effort level for the worker or the reviewer, the effort levels are sourced from the levels the selected tool's CLI documents. Effort is not discovered through a subprocess probe — each tool's set is documented by its CLI and is hardcoded against that documentation. The contract `.docs/contracts/cli-commands/install.md` pins the user-visible shape of each rendering; this rule pins, per tool, which set is presented, whether the set is closed, and how each path persists its value.
 
 ## Who this applies to
 
@@ -9,22 +9,24 @@ When `install` asks the user for a reasoning-effort level for the worker or the 
 
 ## Per-tool effort sets
 
-- **`claude`** — Claude Code does not expose a discrete, enumerable set of effort levels selectable for its model invocations. The question is rendered as a free-text input with the placeholder `leave empty for the default configured effort`.
-- **`codex`** — the effort levels Codex CLI documents are `minimal`, `low`, `medium`, `high`, `xhigh`. `xhigh` is model-dependent but remains in the list — `install` does not pre-filter by model. The question is rendered as a selectable list of these levels plus one synthetic entry at the end labelled `default configured effort`.
+- **`codex`** — the effort levels Codex CLI documents are `minimal`, `low`, `medium`, `high`, `xhigh`. `xhigh` is model-dependent but remains in the list — `install` does not pre-filter by model. This set is **closed**: the only valid effort values for `codex` are these documented levels and the empty "default configured effort".
+- **`claude`** — the effort levels Claude Code documents for its `--effort` selection are `low`, `medium`, `high`, `xhigh`, `max`. `xhigh` and `max` are model-dependent but remain in the list — `install` does not pre-filter by model. The `ultracode` entry Claude Code's effort menu offers is not in the set, because it is a Claude Code session setting rather than a value the `--effort` flag accepts. This set is **open**: the documented levels are suggestions, and the user reaches any effort value Claude Code accepts but the set omits through the custom entry pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`.
 
 ## Rendering the question
 
-When the tool exposes a closed set, the question is rendered as a selectable list whose entries are that set's levels, plus one synthetic entry at the end labelled `default configured effort`. Picking the synthetic entry resolves to the empty string `""` when persisted in `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`.
+- For **`codex`**, the question is rendered as a selectable list whose entries are the closed documented set above, plus one synthetic entry at the end labelled `default configured effort`.
+- For **`claude`**, the question is rendered as a selectable list whose entries are the documented set above, plus the synthetic `default configured effort` entry, plus the custom entry pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`.
 
-When the tool does not expose a closed set, the question is rendered as a free-text input with the placeholder `leave empty for the default configured effort`. An empty answer resolves to the empty string `""` when persisted.
+Picking the synthetic `default configured effort` entry resolves to the empty string `""` when persisted in `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`.
 
-## Equivalence between the two modes
+## Equivalence between selecting and typing
 
-The two modes never produce different persisted values for the same user intent: picking `default configured effort` in the list form and leaving the free-text input empty both resolve to `""`. Picking a specific effort level (whether by list selection or by typing it verbatim into the free-text input) persists the exact level string the user selected or typed, with no trimming, no case folding, no further validation.
+The available paths never produce different persisted values for the same user intent: picking `default configured effort` resolves to `""`. Picking a specific effort level by selecting a list entry persists the exact level string the user selected, with no trimming, no case folding, no further validation. The `claude` custom entry is a further path whose persistence is pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`.
 
 ## Failure signals
 
-- `install` ships an effort set that diverges from what the tool's CLI documents, instead of tracking that documentation.
-- The list form and the free-text form persist different values for the same user intent (for example, the list form persists the literal string `"default configured effort"` instead of the empty string).
+- `install` ships a `codex` effort set that diverges from what Codex CLI documents, or a `claude` effort set that diverges from what Claude Code documents, instead of tracking that documentation.
+- A list selection and a typed value persist different values for the same user intent (for example, persisting the literal string `"default configured effort"` instead of the empty string).
 - `install` proceeds to persist an effort level the user did not actually select (for example, defaulting to the first entry of the list when the user did not pick one).
-- `install` pre-filters the Codex effort list by the chosen model, dropping `xhigh` when it judges the model unsupported, instead of presenting the full documented set.
+- `install` pre-filters the effort list by the chosen model, dropping `xhigh` or `max` when it judges the model unsupported, instead of presenting the full documented set.
+- `install` includes `ultracode` in the `claude` effort set, even though it is not a value the `--effort` flag accepts.

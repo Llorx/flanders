@@ -25,7 +25,7 @@ The adversarial reviewers form an ordered list of one or more reviewers, address
 
 `N` is an integer of `2` or greater. The reviewer indices supplied via flags must form a contiguous run starting at reviewer 1 (1, then 2, then 3, …); a gap in the indices (for example supplying `--reviewer-2-tool` without `--reviewer-tool`) is a usage error. When at least one reviewer flag is present, the flag-supplied reviewers are the complete reviewer list and the interactive "configure another reviewer?" prompt is not shown.
 
-Any tool, model, or effort question whose answer was not supplied via flags is prompted interactively (see `Interactive prompts`). Any question whose answer was supplied via a flag is not prompted again. A flag value that does not match one of the allowed values for its question is a usage error.
+Any tool, model, or effort question whose answer was not supplied via flags is prompted interactively (see `Interactive prompts`). Any question whose answer was supplied via a flag is not prompted again. The questions whose values form a closed set — every tool question and the `codex` effort question — reject a flag value outside that set as a usage error. The questions whose values are open — every model question and the `claude` effort question — accept any flag value verbatim and are never rejected on value-set grounds.
 
 ## Interactive prompts
 When run interactively, the command asks the following questions, in order, skipping any question whose answer was provided via flags:
@@ -50,18 +50,18 @@ The loop always configures at least reviewer 1; the `Configure another reviewer?
 When at least one reviewer flag is present (see `Tool, model, and effort flags`), the reviewer list's length is fixed by the contiguous reviewer indices those flags supply, so the `Configure another reviewer?` question is not shown. Within that fixed list, each reviewer field still follows the same flag-versus-prompt behavior as the worker fields: a field whose flag is present is taken from the flag, and a field whose flag is absent is prompted interactively. The `Configure another reviewer?` question is shown only when no reviewer flag is present at all.
 
 ### Model selection
-For each tool selected as the worker or as any reviewer, the model question is rendered according to the tool's CLI capabilities:
-- When the tool's CLI exposes a list of available models, the question is rendered as a selectable list of those models with one additional entry, `default configured model`, that resolves to "do not pass an explicit model and let the tool use its default".
-- When the tool's CLI does not expose a list of available models, the question is rendered as a free-text input with the placeholder `leave empty for the default configured model`. An empty answer resolves to the same "default configured model" semantics.
+For each tool selected as the worker or as any reviewer, the model question is rendered as a selectable list, sourced according to the tool:
+- For `codex`, the list is the set of models the tool reports as available for the user's account, plus one entry, `default configured model`, that resolves to "do not pass an explicit model and let the tool use its default". When the tool reports no such set, the question falls back to a free-text input with the placeholder `leave empty for the default configured model`, whose empty answer resolves to the same "default configured model" semantics.
+- For `claude`, the list is a curated set of the models Claude Code is known to accept, plus `default configured model`, plus a final custom entry that opens a free-text input accepting any model identifier the user types. The curated set is a set of suggestions, not a closed set: through the custom entry the user reaches any model the curated set omits.
 
-The `--worker-model`, `--reviewer-model`, and `--reviewer-N-model` flag equivalents follow the same rule: an empty value or an omitted flag answered as empty resolves to "default configured model".
+A model identifier is always an open value: whatever the user selects from a list, types into the `codex` free-text fallback, or types into the `claude` custom entry is persisted verbatim. The `--worker-model`, `--reviewer-model`, and `--reviewer-N-model` flag equivalents follow the same rule: any value is accepted verbatim, and an empty value or an omitted flag answered as empty resolves to "default configured model".
 
 ### Effort selection
-For each tool selected as the worker or as any reviewer, the effort question is rendered according to the tool's CLI capabilities:
-- When the tool's CLI exposes a discrete set of effort levels, the question is rendered as a selectable list of those levels with one additional entry, `default configured effort`, that resolves to "do not pass an explicit effort and let the tool use its default".
-- When the tool's CLI does not expose a discrete set of effort levels, the question is rendered as a free-text input with the placeholder `leave empty for the default configured effort`. An empty answer resolves to the same "default configured effort" semantics.
+For each tool selected as the worker or as any reviewer, the effort question is rendered as a selectable list, sourced according to the tool:
+- For `codex`, the list is the closed set of reasoning-effort levels the tool documents, plus one entry, `default configured effort`, that resolves to "do not pass an explicit effort and let the tool use its default". This set is closed: the only valid effort values for `codex` are the documented levels and the empty "default configured effort".
+- For `claude`, the list is a curated set of the reasoning-effort levels Claude Code is known to accept, plus `default configured effort`, plus a final custom entry that opens a free-text input accepting any effort identifier the user types. The curated set is a set of suggestions, not a closed set: through the custom entry the user reaches any effort level the curated set omits, so any effort value is valid for `claude`.
 
-The `--worker-effort`, `--reviewer-effort`, and `--reviewer-N-effort` flag equivalents follow the same rule: an empty value or an omitted flag answered as empty resolves to "default configured effort".
+The `--worker-effort`, `--reviewer-effort`, and `--reviewer-N-effort` flag equivalents follow the same rule per tool: for `claude` any value is accepted verbatim; for `codex` only a documented level or an empty value is accepted, and a value outside that closed set is a usage error. An empty value or an omitted flag answered as empty resolves to "default configured effort".
 
 ## Tool availability check
 Before writing any file, the command verifies that each AI tool selected by the user's answers (for skills, worker, or any reviewer) has its CLI available on `PATH`. If any selected tool's CLI is missing, the command exits non-zero with a diagnostic that names every missing tool. Nothing is written to disk in that case — no skill files, no `.flanders/` configuration.
@@ -86,7 +86,7 @@ On success, the command prints to standard output the list of files it wrote, on
 
 ## Errors
 - `--global` and `--project` supplied together: exits non-zero with a diagnostic naming the conflict.
-- A tool, model, or effort flag is supplied with a value that does not match one of the allowed values for its question: exits non-zero with a diagnostic that names the offending flag and value.
+- A flag for a closed-set question — any tool flag, or the `codex` effort flag — is supplied with a value outside that closed set: exits non-zero with a diagnostic that names the offending flag and value. Model flags and the `claude` effort flag are open and never trigger this error.
 - Reviewer index flags do not form a contiguous run starting at reviewer 1 (for example a `--reviewer-2-*` flag is supplied without any reviewer-1 flag): exits non-zero with a diagnostic that names the gap.
 - A selected AI tool's CLI is not available on `PATH`: exits non-zero with a diagnostic that names every missing tool. No file is written.
 - Destination folder cannot be created or written to (permissions, read-only filesystem, etc.): exits non-zero with a diagnostic that names the offending path.

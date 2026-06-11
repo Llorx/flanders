@@ -38,7 +38,7 @@ For `--worker-model`, `--worker-effort`, `--reviewer-model`, `--reviewer-effort`
 - Flag not supplied → the question is asked interactively.
 - Flag supplied with an empty value (for example `--worker-model=`) → the question is not asked; the persisted value is `""` ("default configured model"/"default configured effort").
 
-For `--worker-tool`, `--worker-effort` (when discrete), `--reviewer-tool`, `--reviewer-N-tool`, `--reviewer-effort` (when discrete), `--reviewer-N-effort` (when discrete), and `--skills-tool`, the set of valid values is closed (see the install contract). A supplied value outside the closed set is a usage error pinned by the contract — this rule does not relax that.
+The set of valid values is closed for the tool flags — `--worker-tool`, `--reviewer-tool`, `--reviewer-N-tool`, and `--skills-tool` — and for the effort flags when the tool they apply to is `codex`: `--worker-effort` / `--reviewer-effort` / `--reviewer-N-effort` then validate against Codex's documented effort set. A supplied value outside a closed set is a usage error pinned by the install contract, and this rule does not relax that. By contrast, the model flags (`--worker-model`, `--reviewer-model`, `--reviewer-N-model`) for every tool, and the effort flags when the tool they apply to is `claude`, are open: they accept any value verbatim and are never rejected on value-set grounds (see `.docs/contracts/cli-commands/install.md`).
 
 ## Order of validation
 
@@ -51,3 +51,4 @@ Flag-value validation runs before any interactive prompt is shown. A flag with a
 - A flag's value is ignored and the interactive answer overrides it.
 - The empty-value semantics differ between flag and interactive: for example, leaving the model question empty interactively persists `""`, but `--worker-model=` either errors or persists something else.
 - The flag-driven skip silently overrides the contract's prompt order — for example, `--reviewer-tool=claude` is supplied but the worker tool question is rendered after the reviewer tool question instead of before it. The contract's order is fixed even when some questions are skipped.
+- A model flag value, or a `claude` effort flag value, that is not among the curated suggestions is rejected as a usage error instead of being accepted verbatim.
