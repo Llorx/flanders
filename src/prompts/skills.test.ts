@@ -176,6 +176,49 @@ test.describe("skills – planSkillBody", test => {
         }
     });
 
+    test("covers interaction language obligation", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "has interaction language heading"(body) {
+                Assert.ok(body.includes("## Interaction language"), "must have interaction language section");
+            },
+            "user-facing messages follow the language of the user's most recent message"(body) {
+                Assert.ok(body.includes("the natural language of the user's most recent message in the conversation"), "must state user-facing messages follow the language of the user's most recent message");
+            },
+            "follows a mid-conversation language switch"(body) {
+                Assert.ok(body.includes("every subsequent message you address to the user follows the language of their latest message"), "must state the language follows a mid-conversation switch");
+            },
+            "resolved independently of the output language"(body) {
+                Assert.ok(body.includes("resolved independently of the Output language above"), "must state the interaction language is resolved independently of the output language");
+            },
+            "never governs the language of the plan file written"(body) {
+                Assert.ok(body.includes("never the language of the plan file you write"), "must state it never governs the language of the plan file written");
+            }
+        }
+    });
+
+    test("places the interaction-language section verbatim between Output language and Missing contracts or rules", {
+        ARRANGE() {
+            const section = `## Interaction language
+
+Every message you address to the user during the run — your clarifying questions, the recommendation to create a rule via /flanders-spec, the warnings printed when the project has no contracts or no rules, the end-of-run summary, and any other text you print in chat — is written in the natural language of the user's most recent message in the conversation. When the user switches the language they write in partway through the interaction, every subsequent message you address to the user follows the language of their latest message. This is resolved independently of the Output language above: it governs only what you say to the user in the conversation, never the language of the plan file you write.`;
+            return { section };
+        },
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "contains the interaction-language section verbatim"(body, { section }) {
+                Assert.ok(body.includes(section), "planSkillBody must contain the interaction-language section verbatim");
+            },
+            "section appears after the Output language section"(body) {
+                Assert.ok(body.indexOf("## Interaction language") > body.indexOf("## Output language"), "the Interaction language section must appear after the Output language section");
+            },
+            "section appears before the Missing contracts or rules section"(body) {
+                Assert.ok(body.indexOf("## Interaction language") < body.indexOf("## Missing contracts or rules"), "the Interaction language section must appear before the Missing contracts or rules section");
+            }
+        }
+    });
+
     test("covers missing contracts or rules warning", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
@@ -556,6 +599,9 @@ test.describe("skills – planSkillBody", test => {
             },
             "does not name the runtime-premise rule file even without a path"(body) {
                 Assert.ok(!body.includes("runtime-premise-backed-or-escalated.md"), "must not name the runtime-premise rule file");
+            },
+            "does not name the interaction-language contract file even without a path"(body) {
+                Assert.ok(!body.includes("interaction-language.md"), "must not name the interaction-language contract file");
             },
             "inlines the narrower clarification-scope criteria"(body) {
                 Assert.ok(body.includes("implementation choice in the code the tasks will produce that the request does not specify, or a task-scope ambiguity"), "must inline the narrower clarification-scope criteria");

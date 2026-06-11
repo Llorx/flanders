@@ -200,6 +200,10 @@ After the final validator returns PASS, print a summary in chat containing:
 
 Write the plan file in the same natural language as the input request, unless the user says otherwise.
 
+## Interaction language
+
+Every message you address to the user during the run — your clarifying questions, the recommendation to create a rule via /flanders-spec, the warnings printed when the project has no contracts or no rules, the end-of-run summary, and any other text you print in chat — is written in the natural language of the user's most recent message in the conversation. When the user switches the language they write in partway through the interaction, every subsequent message you address to the user follows the language of their latest message. This is resolved independently of the Output language above: it governs only what you say to the user in the conversation, never the language of the plan file you write.
+
 ## Missing contracts or rules
 
 If no \`.docs/contracts\` folder contains any file, warn the user in chat and produce a plan that includes whatever contracts the request implicitly requires before any implementation work. If no \`.docs/rules\` folder contains any file, warn the user in chat and proceed without rule references on the resulting tasks.`;
