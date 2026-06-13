@@ -27,6 +27,179 @@ When a test-guarded regression argument cannot be soundly constructed — the as
 const foregroundBoundary =
 `Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. You must not start any command in the background and must not end your turn while a command you spawned is still running. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example \`run_in_background: true\`), shell-level detachment (a trailing \`&\`, \`nohup\`, \`setsid\`, \`disown\`, \`start\`, \`Start-Process\`, \`Start-Job\`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.`;
 
+// Citation-free variant of the claim-classification taxonomy: the same text as
+// `claimClassification` with the only flanders-internal citation it carries removed,
+// so the surface-agnostic reviewer-methodology core stays citation-free. The implement
+// reviewer keeps the citation-bearing `claimClassification`; the shared core uses this one.
+const claimClassificationCitationFree = claimClassification.replace(
+    " per `rules/testing/assert-via-public-surface.md`",
+    ""
+);
+
+// The surface-specific framing and citations a Flanders adversarial reviewer prompt weaves
+// into the shared methodology. Every field is the only thing that differs between surfaces:
+// the implement command fills them with plan-task framing and flanders-internal citations,
+// while the citation-free core fills them with surface-neutral, citation-free text.
+export interface ReviewerMethodologySurface {
+    changeSetIntro: string;
+    specRef: string;
+    ownerChanges: string;
+    ownerProducedNoDiff: string;
+    critRef: string;
+    critRefShort: string;
+    critRefShortPlural: string;
+    passObject: string;
+    errorLogInline: string;
+    emptyChangeSetCitation: string;
+    readOnlyParagraph: string;
+    failCondition1: string;
+    critProtocolName: string;
+    nextWorker: string;
+    critProtocolHeading: string;
+    ownerChangesEvidence: string;
+    taxonomy: string;
+    reviewProtocolIntro: string;
+    ownerChangesShort: string;
+    errorLogPath: string;
+    nextWorkerActor: string;
+    errorLogPlain: string;
+}
+
+// The surface-agnostic adversarial-reviewer methodology, shared across every Flanders
+// reviewer prompt. It is returned in two parts because the implement reviewer interleaves
+// the available-contracts/rules/behavior listings between the change-set determination and
+// the FAIL-condition audit. The only per-surface variation is carried by `s`.
+export function buildReviewerMethodology(s: ReviewerMethodologySurface): { changeSet: string; audit: string } {
+    const changeSet =
+`You must derive ${s.changeSetIntro}:
+
+1. **Enumerate with \`git status --porcelain\`.** Run \`git status --porcelain\` and treat its output as the authoritative, complete enumeration of ${s.ownerChanges}: tracked modifications (\` M\`, \`M \`), untracked creations (\`??\`), deletions (\` D\`, \`D \`), and renames (\`R \`). This enumeration — not the list of files ${s.specRef} happens to name — is the set you must account for.
+
+2. **Inspect every file in the set.** Inspect each file the enumeration reports. Do not narrow your inspection to the files ${s.specRef} references when \`git status\` reports more, and do not skip a created or deleted file because ${s.specRef} did not mention it.
+
+3. **Read content the right way per file kind.** For tracked modifications, inspect content with \`git diff\` (and \`git diff --cached\` for staged hunks). For untracked created files — which \`git diff\` does not surface — read the file directly from disk. A created file is never left uninspected on the grounds that \`git diff\` showed nothing for it.
+
+When the enumerated change set is empty — \`git status --porcelain\` reports no files and both the unstaged and staged diffs are empty — the empty change set is not, on its own, a failure. You must not record a violation for the sole reason that ${s.ownerProducedNoDiff} this cycle; an absent diff is the expected shape of an idempotent re-application of already-committed work. Judge each ${s.critRef} against the committed working tree at \`HEAD\`, drawing the evidence each ${s.critRefShort}'s classification requires: for a toolchain-guarded ${s.critRefShort}, the automated signal the project already runs; for a test-guarded ${s.critRefShort}, an existing passing test whose assertion a regression would trip; for a review-adjudicated ${s.critRefShort}, your inspection of the full working tree at \`HEAD\`. You must not require a ${s.critRefShort}'s evidence to originate from an uncommitted diff. The verdict follows from the ${s.critRefShortPlural}, not from the diff's size: pass the ${s.passObject} — creating your per-reviewer ${s.errorLogInline} empty as your final act — when every ${s.critRef} is satisfied at \`HEAD\`, and record a violation only for an ${s.critRef}, contract, or rule that is genuinely unsatisfied at \`HEAD\`.${s.emptyChangeSetCitation}
+
+${s.readOnlyParagraph}`;
+
+    const audit =
+`Your job is adversarial: find why the working-tree changes FAIL. You MUST check all five conditions below — a violation of ANY of them is a FAIL:
+
+1. ${s.failCondition1}
+2. A contract referenced by ${s.specRef} is not honored.
+3. A rule referenced by ${s.specRef} is not applied in the changes — you have the positive obligation to verify that every referenced rule is actively applied; a referenced rule that is not applied is FAIL.
+4. A contract or rule from the global lists above that you determine should have been applied but was not, even if not referenced by ${s.specRef}, is FAIL.
+5. A behavior rule from the behavior-rule list above whose \`.docs/flanders\` scope encloses the files the working-tree changes touch is not honored by the changes, even if ${s.specRef} did not reference it, is FAIL.
+
+Exhaustiveness: do not stop at the first violation. Run every verification you are required to run and every additional check your judgment deems applicable, even after one of them has already produced a FAIL. The five conditions above and the ${s.critProtocolName} are executed in full on every invocation; encountering a violation in one of them does not exempt you from completing the rest. The goal is that a single review produces the complete list of fixes ${s.nextWorker} needs to apply.
+
+Pattern-based violations require occurrence enumeration. When a violation you find is an instance of a pattern (e.g., "this catch block silently swallows the error", "this function lacks the input validation other similar functions perform", "this code path writes directly to stdout instead of using the injected logger", "this constant is duplicated across files"), do not stop at the first cited location. Grep the affected file — and every other file in the same module or test suite where the same pattern could plausibly recur — for every occurrence of the same violation. Enumerate ALL of them in the FAIL message, each as its own independently-actionable entry with its file:line. A FAIL message that cites only a subset of a pattern's occurrences forces the next iteration to rediscover the rest, which directly violates the exhaustiveness contract above.
+
+${s.critProtocolHeading} (mandatory before deciding PASS on condition 1):
+
+a. Enumerate every ${s.critRef} in ${s.specRef} as a separate numbered item. Do this enumeration explicitly in your reasoning — do not skip it even if the code "looks right".
+
+b. For each enumerated ${s.critRefShort}, classify it by the regression-signal question and confirm ${s.ownerChangesEvidence} carry evidence of the type that classification requires. A ${s.critRefShort} lacking that evidence is FAIL.
+
+${s.taxonomy}
+
+## Review protocol
+
+${s.reviewProtocolIntro}
+
+The three sections of the internal audit, in order:
+
+**Acceptance-criterion claims**
+
+Number each ${s.critRef} as AC<n> and classify it by the regression-signal question. Confirm ${s.ownerChangesShort} carry evidence of the type that classification requires. A ${s.critRefShort} lacking that evidence is a violation.
+
+**Rule claims**
+
+One entry per rule you determine should have applied — the union of rules ${s.specRef} linked and rules whose obligation the working-tree changes trigger. Confirm the evidence of compliance for each.
+
+**Contract claims**
+
+One entry per contract you determine should have applied. Confirm the evidence of compliance for each.
+
+## Recording your result
+
+As you discover each violation during the audit, you MUST append every violation to ${s.errorLogPath} immediately — append mode, never overwrite, so partial findings survive even if you are interrupted mid-review.
+
+Each appended violation entry must be independently actionable: precise enough that ${s.nextWorkerActor} can act on it from ${s.errorLogPlain} alone, citing concrete \`file:line\` references, contract/rule paths, and the exact behavior or evidence that is missing.
+
+When your audit finds no violation across every verification, you must still create ${s.errorLogPath} as an empty file as your final act, so the file always exists once you have reached a verdict. Do not write a pass confirmation or any non-violation content into that file; any content there is read as a failure.
+
+Your streamed output — the text you print during the review — has no prescribed format. You may narrate, summarize, or format your reasoning however you want. The orchestrator does not parse your output for a verdict token.`;
+
+    return { changeSet, audit };
+}
+
+// The implement command's reviewer surface: plan-task framing plus the flanders-internal
+// citations the implement reviewer states (two of them relocated by the rule move that
+// preceded this code: the empty-change-set and derives-change-set rules now live under
+// `rules/ai/review/`).
+const implementReviewerSurface: ReviewerMethodologySurface = {
+    changeSetIntro: "the worker's complete change set from git, not from the task description alone",
+    specRef: "the task",
+    ownerChanges: "the worker's uncommitted changes",
+    ownerProducedNoDiff: "the worker produced no diff",
+    critRef: "acceptance criterion",
+    critRefShort: "criterion",
+    critRefShortPlural: "criteria",
+    passObject: "task",
+    errorLogInline: "`error.log`",
+    emptyChangeSetCitation: " See `rules/ai/review/reviewer-empty-change-set-judged-against-head.md` for the full obligation.",
+    readOnlyParagraph: "All of the above are read-only git operations, permitted under and consistent with `rules/ai/agents/no-git-writes.md`. Nothing here authorizes you to mutate repository state. See `rules/ai/review/reviewer-derives-change-set-from-git.md` for the full obligation.",
+    failCondition1: "The task spec is not satisfied.",
+    critProtocolName: "acceptance-criteria verification protocol",
+    nextWorker: "the next worker",
+    critProtocolHeading: "Acceptance-criteria verification protocol",
+    ownerChangesEvidence: "the worker's working-tree changes",
+    taxonomy: claimClassification,
+    reviewProtocolIntro: "Use the three-section claim checklist to audit the full working tree — applying `rules/ai/agents/evidence-report.md` as a checklist structure, the classification framework from `rules/ai/agents/evidence/claim-evidence-classification.md`, and the N-fact-coverage discipline from `rules/ai/agents/evidence/enumerated-claim-coverage.md` to every claim. The checklist is your internal audit framework for discovering violations; it is not a deliverable you emit as final output.",
+    ownerChangesShort: "the worker's changes",
+    errorLogPath: `\`${Placeholders.ERROR_LOG_PATH}\``,
+    nextWorkerActor: "the next iteration's worker",
+    errorLogPlain: "`error.log`"
+};
+
+// The surface-neutral, citation-free instantiation: this is the shared reviewer-methodology
+// core a shipped skill artifact embeds (task 2), so it names no flanders-internal spec file
+// and frames the work generically as "the spec under review".
+const citationFreeReviewerSurface: ReviewerMethodologySurface = {
+    changeSetIntro: "the complete change set under review from git, not from the spec under review alone",
+    specRef: "the spec under review",
+    ownerChanges: "the changes under review",
+    ownerProducedNoDiff: "no diff was produced",
+    critRef: "spec element",
+    critRefShort: "element",
+    critRefShortPlural: "elements",
+    passObject: "work",
+    errorLogInline: "error-log file",
+    emptyChangeSetCitation: "",
+    readOnlyParagraph: "All of the above are read-only git operations, consistent with the no-git-writes boundary that binds every Flanders agent. Nothing here authorizes you to mutate repository state.",
+    failCondition1: "The spec under review is not satisfied.",
+    critProtocolName: "spec-verification protocol",
+    nextWorker: "the next round of work",
+    critProtocolHeading: "Spec-verification protocol",
+    ownerChangesEvidence: "the changes under review",
+    taxonomy: claimClassificationCitationFree,
+    reviewProtocolIntro: "Use the three-section claim checklist to audit the full working tree, applying the claim-evidence classification framework and the N-fact-coverage discipline to every claim. The checklist is your internal audit framework for discovering violations; it is not a deliverable you emit as final output.",
+    ownerChangesShort: "the changes under review",
+    errorLogPath: "the error-log file",
+    nextWorkerActor: "the next round of work",
+    errorLogPlain: "the error-log file"
+};
+
+const implementReviewerMethodology = buildReviewerMethodology(implementReviewerSurface);
+const citationFreeReviewerMethodology = buildReviewerMethodology(citationFreeReviewerSurface);
+
+// The citation-free shared reviewer-methodology core, exported for skill artifacts to embed.
+export const reviewerMethodologyCore = `${citationFreeReviewerMethodology.changeSet}
+
+${citationFreeReviewerMethodology.audit}`;
+
 export const prompts = {
     detectBuildAndTest:
 `You are the build/test detection agent for the Flanders implement command.
@@ -140,17 +313,7 @@ Read the task's full description, its acceptance criteria, every contract refere
 
 ## Determining the worker's change set
 
-You must derive the worker's complete change set from git, not from the task description alone:
-
-1. **Enumerate with \`git status --porcelain\`.** Run \`git status --porcelain\` and treat its output as the authoritative, complete enumeration of the worker's uncommitted changes: tracked modifications (\` M\`, \`M \`), untracked creations (\`??\`), deletions (\` D\`, \`D \`), and renames (\`R \`). This enumeration — not the list of files the task happens to name — is the set you must account for.
-
-2. **Inspect every file in the set.** Inspect each file the enumeration reports. Do not narrow your inspection to the files the task references when \`git status\` reports more, and do not skip a created or deleted file because the task did not mention it.
-
-3. **Read content the right way per file kind.** For tracked modifications, inspect content with \`git diff\` (and \`git diff --cached\` for staged hunks). For untracked created files — which \`git diff\` does not surface — read the file directly from disk. A created file is never left uninspected on the grounds that \`git diff\` showed nothing for it.
-
-When the enumerated change set is empty — \`git status --porcelain\` reports no files and both the unstaged and staged diffs are empty — the empty change set is not, on its own, a failure. You must not record a violation for the sole reason that the worker produced no diff this cycle; an absent diff is the expected shape of an idempotent re-application of already-committed work. Judge each acceptance criterion against the committed working tree at \`HEAD\`, drawing the evidence each criterion's classification requires: for a toolchain-guarded criterion, the automated signal the project already runs; for a test-guarded criterion, an existing passing test whose assertion a regression would trip; for a review-adjudicated criterion, your inspection of the full working tree at \`HEAD\`. You must not require a criterion's evidence to originate from an uncommitted diff. The verdict follows from the criteria, not from the diff's size: pass the task — creating your per-reviewer \`error.log\` empty as your final act — when every acceptance criterion is satisfied at \`HEAD\`, and record a violation only for an acceptance criterion, contract, or rule that is genuinely unsatisfied at \`HEAD\`. See \`rules/ai/agents/reviewer-empty-change-set-judged-against-head.md\` for the full obligation.
-
-All of the above are read-only git operations, permitted under and consistent with \`rules/ai/agents/no-git-writes.md\`. Nothing here authorizes you to mutate repository state. See \`rules/ai/agents/reviewer-enumerates-worker-changes-via-git.md\` for the full obligation.
+${implementReviewerMethodology.changeSet}
 
 ## Available contracts
 
@@ -170,53 +333,7 @@ Each path below is a behavior rule's namespace. A behavior rule governs how the 
 
 ${Placeholders.BEHAVIOR_RULE_LIST}
 
-Your job is adversarial: find why the working-tree changes FAIL. You MUST check all five conditions below — a violation of ANY of them is a FAIL:
-
-1. The task spec is not satisfied.
-2. A contract referenced by the task is not honored.
-3. A rule referenced by the task is not applied in the changes — you have the positive obligation to verify that every referenced rule is actively applied; a referenced rule that is not applied is FAIL.
-4. A contract or rule from the global lists above that you determine should have been applied but was not, even if not referenced by the task, is FAIL.
-5. A behavior rule from the behavior-rule list above whose \`.docs/flanders\` scope encloses the files the working-tree changes touch is not honored by the changes, even if the task did not reference it, is FAIL.
-
-Exhaustiveness: do not stop at the first violation. Run every verification you are required to run and every additional check your judgment deems applicable, even after one of them has already produced a FAIL. The five conditions above and the acceptance-criteria verification protocol are executed in full on every invocation; encountering a violation in one of them does not exempt you from completing the rest. The goal is that a single review produces the complete list of fixes the next worker needs to apply.
-
-Pattern-based violations require occurrence enumeration. When a violation you find is an instance of a pattern (e.g., "this catch block silently swallows the error", "this function lacks the input validation other similar functions perform", "this code path writes directly to stdout instead of using the injected logger", "this constant is duplicated across files"), do not stop at the first cited location. Grep the affected file — and every other file in the same module or test suite where the same pattern could plausibly recur — for every occurrence of the same violation. Enumerate ALL of them in the FAIL message, each as its own independently-actionable entry with its file:line. A FAIL message that cites only a subset of a pattern's occurrences forces the next iteration to rediscover the rest, which directly violates the exhaustiveness contract above.
-
-Acceptance-criteria verification protocol (mandatory before deciding PASS on condition 1):
-
-a. Enumerate every acceptance criterion in the task as a separate numbered item. Do this enumeration explicitly in your reasoning — do not skip it even if the code "looks right".
-
-b. For each enumerated criterion, classify it by the regression-signal question and confirm the worker's working-tree changes carry evidence of the type that classification requires. A criterion lacking that evidence is FAIL.
-
-${claimClassification}
-
-## Review protocol
-
-Use the three-section claim checklist to audit the full working tree — applying \`rules/ai/agents/evidence-report.md\` as a checklist structure, the classification framework from \`rules/ai/agents/evidence/claim-evidence-classification.md\`, and the N-fact-coverage discipline from \`rules/ai/agents/evidence/enumerated-claim-coverage.md\` to every claim. The checklist is your internal audit framework for discovering violations; it is not a deliverable you emit as final output.
-
-The three sections of the internal audit, in order:
-
-**Acceptance-criterion claims**
-
-Number each acceptance criterion as AC<n> and classify it by the regression-signal question. Confirm the worker's changes carry evidence of the type that classification requires. A criterion lacking that evidence is a violation.
-
-**Rule claims**
-
-One entry per rule you determine should have applied — the union of rules the task linked and rules whose obligation the working-tree changes trigger. Confirm the evidence of compliance for each.
-
-**Contract claims**
-
-One entry per contract you determine should have applied. Confirm the evidence of compliance for each.
-
-## Recording your result
-
-As you discover each violation during the audit, you MUST append every violation to \`${Placeholders.ERROR_LOG_PATH}\` immediately — append mode, never overwrite, so partial findings survive even if you are interrupted mid-review.
-
-Each appended violation entry must be independently actionable: precise enough that the next iteration's worker can act on it from \`error.log\` alone, citing concrete \`file:line\` references, contract/rule paths, and the exact behavior or evidence that is missing.
-
-When your audit finds no violation across every verification, you must still create \`${Placeholders.ERROR_LOG_PATH}\` as an empty file as your final act, so the file always exists once you have reached a verdict. Do not write a pass confirmation or any non-violation content into that file; any content there is read as a failure.
-
-Your streamed output — the text you print during the review — has no prescribed format. You may narrate, summarize, or format your reasoning however you want. The orchestrator does not parse your output for a verdict token.
+${implementReviewerMethodology.audit}
 
 Git boundary: you are an inspection-only agent. You must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, no edits under \`.git/\`, and no remote git operations. Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed and are how you should inspect the worker's changes. The full obligation lives in rules/ai/agents/no-git-writes.md.
 
