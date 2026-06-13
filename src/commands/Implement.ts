@@ -99,6 +99,7 @@ export class Implement {
     private _taskRateLimitMs:number = 0;
     private _taskRateLimitStartedAt:number|null = null;
     private _taskTokens = {it:0, ot:0};
+    private _restingFooterKind:"working"|"preparing" = "working";
     private _runPromise:Promise<number>;
     /** Public for testing: the stashed config is otherwise observable only as downstream AI invocation arguments (tool/model/effort). */
     get config():FlandersConfig|null { return this._config; }
@@ -278,12 +279,12 @@ export class Implement {
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList));
         await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt);
     }
-    private _setActivity(activity:Activity):void {
+    private _setActivity(activity:Activity, iteration?:number|null):void {
         /* coverage ignore next */ // — Defensive: _setActivity is only called within _runTask which always sets _currentTask.
         if (!this._currentTask) return;
         this._block!.setHeader({
             indexLabel: this._currentIndexLabel,
-            iteration: this._currentIteration,
+            iteration: iteration === undefined ? this._currentIteration : iteration,
             activity,
             taskNumber: this._currentTask.taskNumber || undefined,
             title: this._currentTask.title
@@ -327,6 +328,9 @@ export class Implement {
         this._updateMetrics(plan);
         const prepActive = this._prepActive();
         if (prepActive) {
+            this._setActivity("preparing", null);
+            this._restingFooterKind = "preparing";
+            this._block!.setFooter({ kind: "preparing" });
             const prepOk = await this._prepStage(plan, task, ws, taskIndex);
             if (this._disposed) {
                 return false;
@@ -334,6 +338,8 @@ export class Implement {
             if (!prepOk) {
                 return false;
             }
+            this._restingFooterKind = "working";
+            this._block!.setFooter({ kind: "working" });
         }
         let iteration = 0;
         for (;;) {
@@ -701,7 +707,7 @@ export class Implement {
                     this._taskRateLimitStartedAt = null;
                 }
                 if (this._disposed) return;
-                this._block!.setFooter({ kind: "working" });
+                this._block!.setFooter({ kind: this._restingFooterKind });
             },
             register: (session) => {
                 this._activeSession = { session };

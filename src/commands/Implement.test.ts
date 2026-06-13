@@ -1497,6 +1497,70 @@ async function flush(rounds = 20) {
     }
 }
 
+// Records the FooterState kind of every BottomBlock.setFooter call (the public footer surface) so a
+// test can observe footer transitions without piercing private state. Call restore() in a finally.
+function recordFooterKinds() {
+    const footerKinds:string[] = [];
+    const origSetFooter = BottomBlock.prototype.setFooter;
+    BottomBlock.prototype.setFooter = function(state) {
+        footerKinds.push(state.kind);
+        origSetFooter.call(this, state);
+    };
+    return {
+        footerKinds,
+        restore() { BottomBlock.prototype.setFooter = origSetFooter; }
+    };
+}
+
+// A claude spawn whose designated spawns (hold(...)) are held open — their result is not emitted until
+// release(n) — so a test can observe live header/footer state while a specific AI call is in flight.
+function gatedClaudeStub(planContent:string) {
+    const s = stubContexts();
+    gitRunQueue(s.gitQueue);
+    s.files.set(PLAN_PATH, planContent);
+    let spawnCount = 0;
+    const holdSet = new Set<number>();
+    const releasers = new Map<number, () => void>();
+    (s.contexts.claude as any).spawn = (_command:string, args:readonly string[]) => {
+        s.claudeSpawnedArgs.push([...args]);
+        spawnCount++;
+        const mySpawn = spawnCount;
+        const proc = fakeProcess();
+        const origStdin = proc.stdin!;
+        let capturedPrompt = "";
+        (proc as any).stdin = {
+            write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; s.promptQueue.push(p.message.content); } } catch {} },
+            end() { origStdin.end(); }
+        };
+        const response = s.claudeQueue.shift();
+        const emit = () => {
+            if (!response) {
+                proc.$emit("error", new Error("claude queue exhausted"));
+                return;
+            }
+            if (response.errorLog !== undefined) {
+                s.files.set(targetErrorLogFromPrompt(capturedPrompt), response.errorLog);
+            }
+            if (response.stderr) {
+                proc.$emitStderr(response.stderr);
+            }
+            proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
+            proc.$emit("exit", 0);
+        };
+        if (holdSet.has(mySpawn)) {
+            releasers.set(mySpawn, () => setImmediate(emit));
+        } else {
+            setImmediate(emit);
+        }
+        return proc;
+    };
+    return {
+        s,
+        hold(...spawns:number[]) { for (const n of spawns) holdSet.add(n); },
+        release(spawn:number) { const r = releasers.get(spawn); if (r) { releasers.delete(spawn); r(); } }
+    };
+}
+
 test.describe("Implement rate-limit footer", test => {
     test("footer switches to rate-limit state during AI wait", {
         ARRANGE() {
@@ -1675,6 +1739,203 @@ test.describe("Implement rate-limit footer", test => {
         },
         ASSERT(output) {
             Assert.ok(output.includes("1 hours 30 minutes"), "should format as hours and minutes for >= 1h wait");
+        }
+    });
+});
+
+test.describe("Implement preparing stage header and footer", test => {
+    test("prep-active task: header/footer are preparing while the prep call is in flight and switch to implementing/Working at the worker stage", {
+        ARRANGE() {
+            // DEFAULT_CONFIG: worker and the single reviewer are both {claude,"",""} → prep is active.
+            // A numbered plan so the prep header exercises index, plan number and title together.
+            // The prep (spawn 2) and the worker (spawn 3) are held so the live state is observed mid-call.
+            const numberedPlan = '# Plan\n\n## 3. Section\n\n### 3.2 Subsection\n\n- [ ]{"it":0,"ot":0,"t":0} Do the thing\n';
+            const gated = gatedClaudeStub(numberedPlan);
+            gated.hold(2, 3);
+            gated.s.claudeQueue.push({ text: "ok" });            // detect (spawn 1)
+            gated.s.claudeQueue.push(PREP_RESPONSE);             // prep (spawn 2, held)
+            gated.s.claudeQueue.push({ text: "worker" });        // worker (spawn 3, held)
+            gated.s.claudeQueue.push({ text: "reviewer ok", errorLog: "" }); // reviewer (spawn 4)
+            const { footerKinds, restore } = recordFooterKinds();
+            return { gated, footerKinds, restore };
+        },
+        async ACT({ gated, footerKinds, restore }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, gated.s.contexts);
+                await flush();
+                const outputDuringPrep = gated.s.written.join("");
+                const footerKindsDuringPrep = [...footerKinds];
+                gated.release(2);
+                await flush();
+                const outputDuringWorker = gated.s.written.join("");
+                const footerKindsAtWorker = [...footerKinds];
+                gated.release(3);
+                const code = await cmd.result();
+                await cmd.dispose();
+                return { code, outputDuringPrep, footerKindsDuringPrep, outputDuringWorker, footerKindsAtWorker };
+            } finally {
+                restore();
+            }
+        },
+        ASSERTS: {
+            "exits successfully"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "while the prep call is in flight the header is the contiguous '<index> preparing <plan number> <title>' with no iter token"({ outputDuringPrep }) {
+                Assert.ok(
+                    stripAnsi(outputDuringPrep).includes("1/1 preparing 3.2 Do the thing"),
+                    "prep header should show index, preparing, plan number and title with a blank iteration field while the prep runs"
+                );
+            },
+            "while the prep call is in flight the live footer line shows the Preparing label"({ outputDuringPrep }) {
+                const footerLine = stripAnsi(outputDuringPrep.split("\n").pop() ?? "");
+                Assert.ok(footerLine.endsWith("Preparing"), `live footer during prep should end with 'Preparing', got: ${JSON.stringify(footerLine)}`);
+            },
+            "while the prep call is in flight the only footer state set is preparing"({ footerKindsDuringPrep }) {
+                Assert.deepStrictEqual(footerKindsDuringPrep, ["preparing"]);
+            },
+            "while the worker call is in flight the header shows 'iter 1 implementing' for the same task"({ outputDuringWorker }) {
+                Assert.ok(
+                    stripAnsi(outputDuringWorker).includes("1/1 iter 1 implementing 3.2 Do the thing"),
+                    "worker-stage header should show iter 1 and the implementing activity while the worker runs"
+                );
+            },
+            "while the worker call is in flight the live footer line shows the Working label"({ outputDuringWorker }) {
+                const footerLine = stripAnsi(outputDuringWorker.split("\n").pop() ?? "");
+                Assert.ok(footerLine.endsWith("Working"), `live footer at worker start should end with 'Working', got: ${JSON.stringify(footerLine)}`);
+            },
+            "the footer state transitioned exactly preparing→working by the time the worker stage begins"({ footerKindsAtWorker }) {
+                Assert.deepStrictEqual(footerKindsAtWorker, ["preparing", "working"]);
+            }
+        }
+    });
+
+    test("prep-skipped task: the worker stage runs at implementing/iter 1 with the Working footer and no preparing state ever appears", {
+        ARRANGE() {
+            // Reviewer tool (codex) differs from the worker (claude) → no reviewer matches → prep skipped.
+            // The worker (claude spawn 2; spawn 1 is detect, no prep) is held so the live state is observed mid-call.
+            const gated = gatedClaudeStub(PLAN_ONE_TASK);
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
+            gated.s.files.set(CONFIG_PATH, JSON.stringify(config));
+            gated.hold(2);
+            gated.s.claudeQueue.push({ text: "ok" });        // detect (spawn 1)
+            gated.s.claudeQueue.push({ text: "worker" });     // worker (spawn 2, held)
+            gated.s.codexQueue.push({ text: "reviewer ok", errorLog: "" }); // reviewer (codex)
+            const { footerKinds, restore } = recordFooterKinds();
+            return { gated, footerKinds, restore };
+        },
+        async ACT({ gated, footerKinds, restore }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, gated.s.contexts);
+                await flush();
+                const outputDuringWorker = gated.s.written.join("");
+                const footerKindsAtWorker = [...footerKinds];
+                gated.release(2);
+                const code = await cmd.result();
+                await cmd.dispose();
+                return { code, fullOutput: gated.s.written.join(""), outputDuringWorker, footerKindsAtWorker, footerKinds: [...footerKinds] };
+            } finally {
+                restore();
+            }
+        },
+        ASSERTS: {
+            "exits successfully"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the Preparing footer label never appears in the output"({ fullOutput }) {
+                Assert.ok(!fullOutput.includes("Preparing"), "no Preparing footer should be rendered when prep is skipped");
+            },
+            "the preparing activity never appears in the header"({ fullOutput }) {
+                Assert.ok(!stripAnsi(fullOutput).includes("preparing"), "no preparing activity should be shown when prep is skipped");
+            },
+            "the footer never enters the preparing state"({ footerKinds }) {
+                Assert.ok(!footerKinds.includes("preparing"), `footer kinds should not include preparing, got: ${footerKinds.join(", ")}`);
+            },
+            "while the worker call is in flight the header shows 'iter 1 implementing' for the first task"({ outputDuringWorker }) {
+                Assert.ok(
+                    stripAnsi(outputDuringWorker).includes("1/1 iter 1 implementing Implement feature A"),
+                    "first activity should be implementing with iter 1"
+                );
+            },
+            "no footer state is set before the worker stage — the footer stays the initial Working render"({ footerKindsAtWorker }) {
+                Assert.deepStrictEqual(footerKindsAtWorker, []);
+            },
+            "while the worker call is in flight the live footer line shows the Working label"({ outputDuringWorker }) {
+                const footerLine = stripAnsi(outputDuringWorker.split("\n").pop() ?? "");
+                Assert.ok(footerLine.endsWith("Working"), `live footer at worker start should end with 'Working', got: ${JSON.stringify(footerLine)}`);
+            }
+        }
+    });
+
+    test("a rate-limit wait that ends during the prep stage returns the footer to Preparing, not Working", {
+        ARRANGE() {
+            // Rate-limit fires on spawn 2 = the prep call (spawn 1 is detect). Prep is active under DEFAULT_CONFIG.
+            const { s, time } = rateLimitStub(2, 300);
+            s.claudeQueue.push({ text: "ok" });            // detect (spawn 1)
+            s.claudeQueue.push(PREP_RESPONSE);             // prep retry (spawn 3)
+            s.claudeQueue.push({ text: "worker" });        // worker (spawn 4)
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" }); // reviewer (spawn 5)
+            const { footerKinds, restore } = recordFooterKinds();
+            return { s, time, footerKinds, restore };
+        },
+        async ACT({ s, time, footerKinds, restore }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+                await flush();
+                time.advance(300000);
+                await flush();
+                const code = await cmd.result();
+                await cmd.dispose();
+                return { code, footerKinds: [...footerKinds] };
+            } finally {
+                restore();
+            }
+        },
+        ASSERTS: {
+            "exits successfully"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the footer set when the prep-stage wait ends is preparing"({ footerKinds }) {
+                const waitingIdx = footerKinds.indexOf("waiting");
+                Assert.ok(waitingIdx >= 0, "precondition: a waiting footer was set during the prep rate-limit");
+                Assert.strictEqual(footerKinds[waitingIdx + 1], "preparing");
+            }
+        }
+    });
+
+    test("a rate-limit wait that ends during the worker stage returns the footer to Working", {
+        ARRANGE() {
+            // Rate-limit fires on spawn 3 = the worker call (spawn 1 detect, spawn 2 prep). Prep is active under DEFAULT_CONFIG.
+            const { s, time } = rateLimitStub(3, 300);
+            s.claudeQueue.push({ text: "ok" });            // detect (spawn 1)
+            s.claudeQueue.push(PREP_RESPONSE);             // prep (spawn 2)
+            s.claudeQueue.push({ text: "worker" });        // worker retry (spawn 4)
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" }); // reviewer (spawn 5)
+            const { footerKinds, restore } = recordFooterKinds();
+            return { s, time, footerKinds, restore };
+        },
+        async ACT({ s, time, footerKinds, restore }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+                await flush();
+                time.advance(300000);
+                await flush();
+                const code = await cmd.result();
+                await cmd.dispose();
+                return { code, footerKinds: [...footerKinds] };
+            } finally {
+                restore();
+            }
+        },
+        ASSERTS: {
+            "exits successfully"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the footer set when the worker-stage wait ends is working"({ footerKinds }) {
+                const waitingIdx = footerKinds.indexOf("waiting");
+                Assert.ok(waitingIdx >= 0, "precondition: a waiting footer was set during the worker rate-limit");
+                Assert.strictEqual(footerKinds[waitingIdx + 1], "working");
+            }
         }
     });
 });
