@@ -1,5 +1,5 @@
 import type { TimeContext, TimeoutHandle } from "../contexts";
-import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWaitingFooter, formatWorkingFooter, ORANGE, RESET, SEPARATOR_GLYPH, stripAnsi } from "./formatters";
+import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatPreparingFooter, formatReviewingFooter, formatWaitingFooter, formatWorkingFooter, ORANGE, RESET, SEPARATOR_GLYPH, stripAnsi } from "./formatters";
 import type { ReviewerEntry } from "./formatters";
 
 export type { ReviewerEntry, ReviewerState, ReviewerTool } from "./formatters";
@@ -10,7 +10,7 @@ export type BottomBlockIO = {
     onResize(listener:() => void):() => void;
 };
 
-export type Activity = "implementing" | "reviewing" | "building" | "testing";
+export type Activity = "preparing" | "implementing" | "reviewing" | "building" | "testing";
 
 export type HeaderFields = {
     indexLabel?:string|null;
@@ -34,6 +34,7 @@ const WAIT_HEADINGS:Record<WaitKind, string> = {
 export type FooterState =
     | { kind:"blank" }
     | { kind:"working" }
+    | { kind:"preparing" }
     | { kind:"waiting"; waitKind:WaitKind; endTime:number }
     | { kind:"reviewing"; reviewers:readonly ReviewerEntry[] }
     | { kind:"terminal"; label:TerminalLabel };
@@ -100,7 +101,7 @@ export class BottomBlock {
         if (this._disposed || this._finalized) return;
         this._cancelTimers();
         this._footer = state;
-        if (state.kind === "working") {
+        if (state.kind === "working" || state.kind === "preparing") {
             this._animFrame = 0;
         }
         if (this._mounted) {
@@ -160,7 +161,7 @@ export class BottomBlock {
     }
 
     private _startFooterTimer():void {
-        if (this._footer.kind === "working") {
+        if (this._footer.kind === "working" || this._footer.kind === "preparing") {
             this._scheduleAnimTick();
         } else if (this._footer.kind === "waiting") {
             this._scheduleCountdownTick();
@@ -171,7 +172,7 @@ export class BottomBlock {
         this._animTimer = this._time.setTimeout(() => {
             this._animTimer = null;
             /* coverage ignore next */ // — Defensive: _cancelTimers prevents this callback from firing after dispose/finalize/footer-change.
-            if (this._disposed || this._finalized || this._footer.kind !== "working") return;
+            if (this._disposed || this._finalized || (this._footer.kind !== "working" && this._footer.kind !== "preparing")) return;
             this._animFrame = (this._animFrame + 1) % FRAMES.length;
             this._clearBlock();
             this._drawBlock();
@@ -253,6 +254,8 @@ export class BottomBlock {
                 return "";
             case "working":
                 return formatWorkingFooter(FRAMES[this._animFrame]!, cols);
+            case "preparing":
+                return formatPreparingFooter(FRAMES[this._animFrame]!, cols);
             case "waiting": {
                 const remaining = Math.max(0, this._footer.endTime - this._time.now());
                 const dateStr = formatDateTime(new Date(this._footer.endTime));

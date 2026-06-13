@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 import { Terminal } from "@xterm/headless";
 
 import { BottomBlock } from "./BottomBlock";
-import type { BottomBlockIO, ReviewerEntry } from "./BottomBlock";
+import type { BottomBlockIO, FooterState, ReviewerEntry } from "./BottomBlock";
 import type { TimeoutHandle } from "../contexts";
 import { CYAN, YELLOW, MAGENTA, GREEN, ORANGE, RESET, SEPARATOR_GLYPH, formatDateTime, stripAnsi } from "./formatters";
 
@@ -88,18 +88,20 @@ function readEmulatorViewport(term:Terminal):string[] {
     return rows;
 }
 
-// Drives a real BottomBlock through an @xterm/headless terminal: mounts it
-// pinned to the bottom of an `initialCols`-wide screen with representative
-// header/metrics fields, then applies a single resize to `newCols` via the
-// production resize-listener path and returns the rendered viewport rows.
-// Used to assert the rendered terminal geometry (exactly four bottom rows, no
-// stale reflowed separator rows) across shrink ratios, per
-// rules/testing/terminal-geometry-tested-against-emulator.md. The full-width
-// separator reflows into ceil(initialCols/newCols) physical rows on a shrink,
-// so this exercises the reflow the string-concatenating fake IO cannot model.
-async function renderEmulatorShrink(initialCols:number, newCols:number, termRows:number):Promise<string[]> {
+// Builds a real BottomBlock driven through an @xterm/headless terminal pinned to
+// the bottom of a `cols`-wide, `termRows`-tall screen with representative
+// header/metrics fields, and returns the live block together with the terminal,
+// the fake clock that drives its animation, a `flush` that waits for the emulator
+// to parse pending bytes, and a `resize` that applies a width change through the
+// production resize-listener path. Shared setup for every test that asserts
+// rendered terminal geometry against the emulator's rendered grid — shrink-reflow,
+// footer-state transitions, and the preparing animation — per
+// rules/testing/terminal-geometry-tested-against-emulator.md. Callers drive
+// setFooter / resize / time.advance, await `flush`, read the grid via
+// readEmulatorViewport, then dispose the block and the terminal.
+async function mountEmulatorBlock(cols:number, termRows:number) {
     // convertEol mirrors how the OS layer translates LF to CRLF when stdout is a real TTY.
-    const term = new Terminal({ cols: initialCols, rows: termRows, convertEol: true, allowProposedApi: true });
+    const term = new Terminal({ cols, rows: termRows, convertEol: true, allowProposedApi: true });
     const resizeListeners = new Set<() => void>();
     const io:BottomBlockIO = {
         write(text:string) { term.write(text); },
@@ -109,17 +111,33 @@ async function renderEmulatorShrink(initialCols:number, newCols:number, termRows
             return () => { resizeListeners.delete(listener); };
         }
     };
+    const time = fakeTime();
     const flush = () => new Promise<void>(resolve => { term.write("", resolve); });
+    // Apply a width change through the production resize-listener path.
+    const resize = (newCols:number) => {
+        term.resize(newCols, term.rows);
+        for (const listener of resizeListeners) listener();
+    };
     // Push the cursor down so the block lands at the bottom of the viewport,
     // matching the live UI which is always pinned to the bottom of the terminal.
     await new Promise<void>(resolve => { term.write("\n".repeat(termRows - 4), resolve); });
-    const block = new BottomBlock(io, fakeTime());
+    const block = new BottomBlock(io, time);
     block.mount();
     block.setHeader({ indexLabel: "5/12", iteration: 2, activity: "implementing", taskNumber: "7.3", title: "Task title" });
     block.setMetrics({ task: { tokens: 100, seconds: 5 }, plan: { tokens: 200, seconds: 10 } });
     await flush();
-    term.resize(newCols, term.rows);
-    for (const listener of resizeListeners) listener();
+    return { term, block, time, flush, resize };
+}
+
+// Mounts an emulator-backed block (via mountEmulatorBlock) and applies a single
+// shrink to `newCols` through the production resize path, returning the rendered
+// viewport rows. The full-width separator reflows into ceil(initialCols/newCols)
+// physical rows on a shrink, so this exercises the reflow the string-concatenating
+// fake IO cannot model. Thin wrapper so the shrink and transition tests share one
+// terminal/block setup, per docs/rules/code-deduplication.md.
+async function renderEmulatorShrink(initialCols:number, newCols:number, termRows:number):Promise<string[]> {
+    const { term, block, flush, resize } = await mountEmulatorBlock(initialCols, termRows);
+    resize(newCols);
     await flush();
     const rows = readEmulatorViewport(term);
     block.dispose();
@@ -1445,4 +1463,266 @@ test.describe("BottomBlock", test => {
             }
         });
     }
+
+    test("setFooter preparing draws the Preparing footer line in orange with the current animation frame", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.mount();
+            io.reset();
+            return { io, block };
+        },
+        ACT({ io, block }) {
+            block.setFooter({ kind: "preparing" });
+            return io.output;
+        },
+        ASSERTS: {
+            "footer line plain text is exactly the first frame followed by Preparing"(output) {
+                const footerPlain = stripAnsi(output.split("\n").pop() ?? "");
+                Assert.strictEqual(footerPlain, "⣋ Preparing");
+            },
+            "the Preparing footer line is wrapped in ORANGE"(output) {
+                Assert.ok(output.includes(ORANGE + "⣋ Preparing" + RESET));
+            },
+            "no Working label is rendered while preparing"(output) {
+                const lastDraw = output.split(CLEAR_SEQ).pop() ?? "";
+                Assert.ok(!lastDraw.includes("Working"));
+            }
+        }
+    });
+
+    test("preparing footer truncates at narrow width and re-expands after resize to a wider width", {
+        ARRANGE() {
+            const io = stubIO(5);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "preparing" });
+            block.mount();
+            return { io };
+        },
+        ACT({ io }) {
+            const narrowDraw = io.output;
+            io.reset();
+            io.setCols(20);
+            io.emitResize();
+            const wideDraw = io.output;
+            return { narrowDraw, wideDraw };
+        },
+        ASSERTS: {
+            "narrow draw shows the preparing footer truncated with a trailing ellipsis"(result) {
+                const footerPlain = stripAnsi(result.narrowDraw.split("\n").pop() ?? "");
+                Assert.strictEqual(footerPlain, "⣋ Pr…");
+            },
+            "wide draw after resize shows the full Preparing label without ellipsis"(result) {
+                const lastDraw = result.wideDraw.split(CLEAR_SEQ).pop() ?? "";
+                const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
+                Assert.strictEqual(footerPlain, "⣋ Preparing");
+            }
+        }
+    });
+
+    test("setFooter preparing from rate-limit cancels the countdown timer and starts the animation", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "waiting", waitKind: "rate-limit", endTime: 600000 });
+            block.mount();
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            block.setFooter({ kind: "preparing" });
+            const pendingAfterSet = time.pendingCount;
+            io.reset();
+            time.advance(200);
+            const afterTick = io.output;
+            return { pendingAfterSet, afterTick };
+        },
+        ASSERTS: {
+            "exactly one timer is pending after entering preparing (countdown cancelled, animation scheduled)"(result) {
+                Assert.strictEqual(result.pendingAfterSet, 1);
+            },
+            "no countdown label remains after switching to preparing"(result) {
+                Assert.ok(!result.afterTick.includes("Waiting rate limit"));
+            },
+            "the 200ms animation tick redraws the preparing footer"(result) {
+                Assert.ok(result.afterTick.includes("Preparing"));
+            }
+        }
+    });
+
+    test("setFooter reviewing from preparing cancels the animation timer and schedules no new timer", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "preparing" });
+            block.mount();
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            const pendingAfterSet = time.pendingCount;
+            io.reset();
+            time.advance(2000);
+            const writesAfterAdvance = io.writes.length;
+            return { pendingAfterSet, writesAfterAdvance };
+        },
+        ASSERTS: {
+            "no timer pending after entering reviewing from preparing"(result) {
+                Assert.strictEqual(result.pendingAfterSet, 0);
+            },
+            "no writes occur while time passes after leaving preparing"(result) {
+                Assert.strictEqual(result.writesAfterAdvance, 0);
+            }
+        }
+    });
+
+    test("finalize from preparing paints the terminal footer, cancels the animation timer, stays idempotent, and emits no further tick", {
+        ARRANGE() {
+            const io = stubIO(20);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "preparing" });
+            block.mount();
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            block.finalize("Done");
+            const afterFinalize = io.output;
+            io.reset();
+            block.finalize("Done");
+            const afterSecondFinalize = io.output;
+            time.advance(1000);
+            const afterTimerAdvance = io.output;
+            return { afterFinalize, afterSecondFinalize, afterTimerAdvance, pendingCount: time.pendingCount };
+        },
+        ASSERTS: {
+            "footer shows Done in orange after finalizing from preparing"(result) {
+                Assert.ok(result.afterFinalize.includes(ORANGE + "Done" + RESET));
+            },
+            "no timers pending after finalize"(result) {
+                Assert.strictEqual(result.pendingCount, 0);
+            },
+            "second finalize produces no output"(result) {
+                Assert.strictEqual(result.afterSecondFinalize, "");
+            },
+            "no tick fires after finalize"(result) {
+                Assert.strictEqual(result.afterTimerAdvance, "");
+            }
+        }
+    });
+
+    test("dispose from preparing cancels the animation timer, stays idempotent, and emits no further tick", {
+        ARRANGE() {
+            const io = stubIO(20);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "preparing" });
+            block.mount();
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            block.dispose();
+            const afterDispose = io.output;
+            const before = io.writes.length;
+            block.dispose();
+            const secondAdded = io.writes.length - before;
+            time.advance(1000);
+            const afterAdvance = io.output;
+            return { afterDispose, secondAdded, afterAdvance, pendingCount: time.pendingCount };
+        },
+        ASSERTS: {
+            "no writes from dispose itself"(result) {
+                Assert.strictEqual(result.afterDispose, "");
+            },
+            "no pending timers after dispose"(result) {
+                Assert.strictEqual(result.pendingCount, 0);
+            },
+            "second dispose adds no writes"(result) {
+                Assert.strictEqual(result.secondAdded, 0);
+            },
+            "no tick fires after dispose"(result) {
+                Assert.strictEqual(result.afterAdvance, "");
+            }
+        }
+    });
+
+    // Each scenario applies its `footers` sequence (one setFooter + flush per
+    // entry) to a freshly mounted emulator block, then asserts the rendered grid
+    // shows exactly the four bottom block rows ending in `footerRow` with no stale
+    // rows above — the working↔preparing and waiting→preparing transitions the
+    // task requires. Parameterized rather than copied per transition, per
+    // docs/rules/code-deduplication.md and mirroring the shrink loop above.
+    for (const scenario of [
+        { label: "working→preparing", footers: [{ kind: "preparing" }], footerRow: "⣋ Preparing" },
+        { label: "preparing→working", footers: [{ kind: "preparing" }, { kind: "working" }], footerRow: "⣋ Working" },
+        { label: "waiting(rate-limit)→preparing", footers: [{ kind: "waiting", waitKind: "rate-limit", endTime: 600000 }, { kind: "preparing" }], footerRow: "⣋ Preparing" }
+    ] as { label:string; footers:readonly FooterState[]; footerRow:string }[]) {
+        test(`@xterm/headless: transitioning ${scenario.label} re-anchors to exactly four bottom rows ending in "${scenario.footerRow}" with no stale rows`, {
+            ARRANGE() {
+                return { cols: 80, termRows: 24, footers: scenario.footers, footerRow: scenario.footerRow };
+            },
+            async ACT({ cols, termRows, footers }) {
+                const { term, block, flush } = await mountEmulatorBlock(cols, termRows);
+                for (const footer of footers) {
+                    block.setFooter(footer);
+                    await flush();
+                }
+                const rows = readEmulatorViewport(term);
+                block.dispose();
+                term.dispose();
+                return rows;
+            },
+            ASSERTS: {
+                "the separator row spans the full width at the third-from-bottom position"(rows, { cols, termRows }) {
+                    Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(cols));
+                },
+                "the footer row at the bottom shows the expected label for this transition"(rows, { termRows, footerRow }) {
+                    Assert.strictEqual(rows[termRows - 1], footerRow);
+                },
+                "every row above the bottom four is empty — no stale rows survive the transition"(rows, { termRows }) {
+                    Assert.deepStrictEqual(rows.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
+                }
+            }
+        });
+    }
+
+    test("@xterm/headless: the preparing animation advances one frame per 200ms tick on the rendered grid (5fps), like working", {
+        ARRANGE() {
+            return { cols: 80, termRows: 24 };
+        },
+        async ACT({ cols, termRows }) {
+            const { term, block, time, flush } = await mountEmulatorBlock(cols, termRows);
+            block.setFooter({ kind: "preparing" });
+            await flush();
+            const frame0 = readEmulatorViewport(term)[termRows - 1];
+            time.advance(200);
+            await flush();
+            const frame1 = readEmulatorViewport(term)[termRows - 1];
+            time.advance(200);
+            await flush();
+            const frame2 = readEmulatorViewport(term)[termRows - 1];
+            block.dispose();
+            term.dispose();
+            return { frame0, frame1, frame2 };
+        },
+        ASSERTS: {
+            "the initial preparing frame is the first glyph"(result) {
+                Assert.strictEqual(result.frame0, "⣋ Preparing");
+            },
+            "after one 200ms tick the footer shows the second frame"(result) {
+                Assert.strictEqual(result.frame1, "⣙ Preparing");
+            },
+            "after a second 200ms tick the footer shows the third frame"(result) {
+                Assert.strictEqual(result.frame2, "⣹ Preparing");
+            }
+        }
+    });
 });
