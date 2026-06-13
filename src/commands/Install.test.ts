@@ -79,7 +79,7 @@ test.describe("Install --project", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/myproject" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/myproject" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -123,7 +123,7 @@ test.describe("Install --project", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             await cmd.result();
             await cmd.dispose();
         },
@@ -154,7 +154,7 @@ test.describe("Install --global", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--global", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--global", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -224,8 +224,10 @@ test.describe("Install interactive prompt", test => {
             s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
             s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
             return s;
         },
@@ -258,8 +260,10 @@ test.describe("Install interactive prompt", test => {
             s.askResponses.push([{ picked: [{ label: "global" }] }]); // scope
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
             s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
             return s;
         },
@@ -330,7 +334,7 @@ test.describe("Install filesystem errors", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -354,7 +358,7 @@ test.describe("Install filesystem errors", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -379,7 +383,7 @@ test.describe("Install overwrites", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -404,7 +408,7 @@ test.describe("Install dispose", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             await cmd.result();
             await cmd.dispose();
             await cmd.dispose();
@@ -499,7 +503,7 @@ test.describe("Install dispose", test => {
             return { ...s, setCmdRef: (cmd:Install) => { cmdRef = cmd; } };
         },
         async ACT({ contexts, setCmdRef }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             setCmdRef(cmd);
             const code = await cmd.result();
             await cmd.dispose();
@@ -626,7 +630,7 @@ test.describe("Install dispose", test => {
             return { ...s, setCmdRef: (cmd:Install) => { cmdRef = cmd; }, getResolveSpawn: () => resolveSpawn, getCmdRef: () => cmdRef };
         },
         async ACT({ contexts, setCmdRef, getResolveSpawn }) {
-            const cmd = new Install(["--project", "--worker-tool=claude", "--skills-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--worker-tool=claude", "--skills-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             setCmdRef(cmd);
             while (!getResolveSpawn()) {
                 await new Promise(r => setTimeout(r, 1));
@@ -954,7 +958,7 @@ test.describe("Install tool availability check", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=both", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=both", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1002,7 +1006,7 @@ test.describe("Install tool availability check", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=codex", "--reviewer-effort=", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-effort=", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1032,7 +1036,7 @@ test.describe("Install tool availability check", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--worker-tool=claude", "--skills-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--worker-tool=claude", "--skills-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1098,7 +1102,7 @@ test.describe("Install tool availability check", test => {
             return { ...s, writeDuringProbe, errorDuringProbe };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--worker-tool=claude", "--skills-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--worker-tool=claude", "--skills-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1168,7 +1172,7 @@ test.describe("Install tool availability check", test => {
             return { ...s, spawnedCommands };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=both", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=both", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1210,7 +1214,7 @@ test.describe("Install tool availability check", test => {
             return { ...s, spawnedCommands };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1235,8 +1239,10 @@ test.describe("Install prompt order", test => {
             s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
             s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
             return s;
         },
@@ -1251,7 +1257,7 @@ test.describe("Install prompt order", test => {
                 Assert.strictEqual(code, 0);
             },
             "headers are in canonical order"(_code, { askedHeaders }) {
-                Assert.deepStrictEqual(askedHeaders, ["Skills tool", "Install destination", "Worker tool", "Worker model", "Reviewer tool", "Reviewer model", "Configure another reviewer?"]);
+                Assert.deepStrictEqual(askedHeaders, ["Skills tool", "Install destination", "Worker tool", "Worker model", "Worker effort", "Reviewer tool", "Reviewer model", "Reviewer effort", "Configure another reviewer?"]);
             }
         }
     });
@@ -1264,7 +1270,7 @@ test.describe("Install prompt order", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--worker-tool=claude", "--worker-model=", "--reviewer-tool=codex", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1332,7 +1338,7 @@ test.describe("Install Ctrl+C during tool prompts", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1438,7 +1444,7 @@ test.describe("Install dispose during tool prompts", test => {
             return { ...s, getResolvePrompt: () => resolvePrompt };
         },
         async ACT({ contexts, getResolvePrompt }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort="], { projectRoot: "/proj" }, contexts);
             while (!getResolvePrompt()) {
                 await new Promise(r => setTimeout(r, 1));
             }
@@ -1506,8 +1512,10 @@ test.describe("Install scope prompt descriptions derived from skills tool", test
             s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
             s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
             return { ...s, getScopeOptions: () => scopeOptions };
         },
@@ -1618,8 +1626,10 @@ test.describe("Install scope prompt descriptions derived from skills tool", test
             s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
             s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
             return { ...s, getScopeOptions: () => scopeOptions };
         },
@@ -1922,7 +1932,7 @@ test.describe("Install model question", test => {
             return { ...s, getCapturedOptions: () => capturedOptions };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -1987,7 +1997,7 @@ test.describe("Install model question", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -2024,7 +2034,7 @@ test.describe("Install model question", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -2082,7 +2092,7 @@ test.describe("Install model question", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -2105,7 +2115,7 @@ test.describe("Install model question", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=  My-Model-X  ", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=  My-Model-X  ", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
@@ -2476,7 +2486,7 @@ test.describe("Install effort question", test => {
             return { ...s, getCapturedOptions: () => capturedOptions };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -2497,13 +2507,26 @@ test.describe("Install effort question", test => {
         }
     });
 
-    test("claude tool uses askText for worker effort", {
+    test("claude tool renders a curated effort list ending with the synthetic default then the custom entry for worker effort", {
         ARRANGE() {
             const s = stubContexts();
-            return s;
+            let capturedOptions:readonly { label:string; description?:string }[] = [];
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
+                for (const q of questions) {
+                    s.askedHeaders.push(q.header);
+                    if (q.header === "Worker effort") {
+                        capturedOptions = q.options;
+                    }
+                }
+                const response = s.askResponses.shift();
+                return Promise.resolve(response ?? []);
+            };
+            s.askResponses.push([{ picked: [{ label: "high" }] }]); // worker effort
+            return { ...s, getCapturedOptions: () => capturedOptions };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -2512,13 +2535,180 @@ test.describe("Install effort question", test => {
             "exits 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "askText was called for worker effort"(_code, { askedTextPrompts }) {
-                const effortPrompts = askedTextPrompts.filter(p => p.includes("effort") && p.includes("worker"));
-                Assert.strictEqual(effortPrompts.length, 1);
-                Assert.strictEqual(effortPrompts[0], "What effort level should the worker use? (leave empty for the default configured effort): ");
+            "Worker effort header is present"(_code, { askedHeaders }) {
+                Assert.ok(askedHeaders.includes("Worker effort"));
             },
-            "no Worker effort header in askChoices"(_code, { askedHeaders }) {
-                Assert.ok(!askedHeaders.includes("Worker effort"));
+            "options are exactly the curated levels, then the synthetic default, then the custom entry, in order"(_code, { getCapturedOptions }) {
+                Assert.deepStrictEqual(
+                    getCapturedOptions().map(o => o.label),
+                    ["low", "medium", "high", "xhigh", "max", "default configured effort", "enter a custom value…"]
+                );
+            }
+        }
+    });
+
+    test("claude effort list is not pre-filtered by the chosen model — all five levels are always offered", {
+        ARRANGE() {
+            const s = stubContexts();
+            let capturedEffortOptions:readonly { label:string; description?:string }[] = [];
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
+                for (const q of questions) {
+                    s.askedHeaders.push(q.header);
+                    if (q.header === "Worker effort") {
+                        capturedEffortOptions = q.options;
+                    }
+                }
+                const response = s.askResponses.shift();
+                return Promise.resolve(response ?? []);
+            };
+            s.askResponses.push([{ picked: [{ label: "opus" }] }]); // worker model (a specific curated model)
+            s.askResponses.push([{ picked: [{ label: "max" }] }]); // worker effort
+            return { ...s, getCapturedEffortOptions: () => capturedEffortOptions };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "all five curated effort levels (plus default and custom) are offered regardless of the chosen model"(_code, { getCapturedEffortOptions }) {
+                Assert.deepStrictEqual(
+                    getCapturedEffortOptions().map(o => o.label),
+                    ["low", "medium", "high", "xhigh", "max", "default configured effort", "enter a custom value…"]
+                );
+            }
+        }
+    });
+
+    test("claude picking a curated effort level persists that level verbatim", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "xhigh" }] }]); // worker effort
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.effort is exactly the picked level"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "xhigh");
+            }
+        }
+    });
+
+    test("claude picking the synthetic default configured effort persists as empty string", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.effort is empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "");
+            }
+        }
+    });
+
+    test("claude custom effort entry opens a free-text input and persists the typed value verbatim", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // worker effort -> custom
+            s.askTextResponses.push("  Ultra-Effort-9  "); // worker effort custom text
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.effort is the typed custom value verbatim (surrounding whitespace and mixed case preserved, not trimmed or case-folded)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "  Ultra-Effort-9  ");
+            },
+            "the custom free-text prompt is the worker effort question with its placeholder"(_result, { askedTextPrompts }) {
+                Assert.ok(askedTextPrompts.includes("What effort level should the worker use? (leave empty for the default configured effort): "));
+            }
+        }
+    });
+
+    test("claude custom effort entry with an empty typed value persists the empty string", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // worker effort -> custom
+            // askTextResponses left empty -> the custom free-text input returns ""
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.effort is empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "");
+            }
+        }
+    });
+
+    test("claude reviewer custom effort entry persists the typed value verbatim", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // reviewer effort -> custom
+            s.askTextResponses.push("  Rev-Effort-Custom  "); // reviewer effort custom text
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config reviewer.effort is the typed custom value verbatim (surrounding whitespace and mixed case preserved, not trimmed or case-folded)"({ config }) {
+                Assert.ok(config);
+                const reviewer = config.reviewers[0];
+                Assert.ok(reviewer);
+                Assert.strictEqual(reviewer.effort, "  Rev-Effort-Custom  ");
             }
         }
     });
@@ -2538,7 +2728,7 @@ test.describe("Install effort question", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -2569,7 +2759,7 @@ test.describe("Install effort question", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -2745,12 +2935,10 @@ test.describe("Install effort question", test => {
         }
     });
 
-    test("Ctrl+C during worker effort askText exits non-zero", {
+    test("Ctrl+C during the claude worker effort choice exits non-zero", {
         ARRANGE() {
             const s = stubContexts();
-            (s.contexts.ask as { askText:typeof s.contexts.ask.askText }).askText = () => {
-                return Promise.reject(new Error("readline closed"));
-            };
+            s.askResponses.push([{ picked: [] }]); // worker effort choice -> Ctrl+C
             return s;
         },
         async ACT({ contexts }) {
@@ -2840,12 +3028,10 @@ test.describe("Install effort question", test => {
         }
     });
 
-    test("Ctrl+C during reviewer effort askText exits non-zero", {
+    test("Ctrl+C during the claude reviewer effort choice exits non-zero", {
         ARRANGE() {
             const s = stubContexts();
-            (s.contexts.ask as { askText:typeof s.contexts.ask.askText }).askText = () => {
-                return Promise.reject(new Error("readline closed"));
-            };
+            s.askResponses.push([{ picked: [] }]); // reviewer effort choice -> Ctrl+C
             return s;
         },
         async ACT({ contexts }) {
@@ -2933,7 +3119,7 @@ test.describe("Install skills-tool=codex", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/myproject" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/myproject" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -2973,7 +3159,7 @@ test.describe("Install skills-tool=codex", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             await cmd.result();
             await cmd.dispose();
         },
@@ -3002,7 +3188,7 @@ test.describe("Install skills-tool=codex", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--global", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--global", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3027,7 +3213,7 @@ test.describe("Install skills-tool=both", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=both", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=both", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3067,7 +3253,7 @@ test.describe("Install skills-tool stdout enumeration", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             await cmd.result();
             await cmd.dispose();
         },
@@ -3093,7 +3279,7 @@ test.describe("Install skills-tool stdout enumeration", test => {
             return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=both", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=both", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             await cmd.result();
             await cmd.dispose();
         },
@@ -3187,7 +3373,7 @@ test.describe("Install disposed during codex write", test => {
             return { ...s, setCmdRef: (cmd:Install) => { cmdRef = cmd; } };
         },
         async ACT({ contexts, setCmdRef }) {
-            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             setCmdRef(cmd);
             const code = await cmd.result();
             await cmd.dispose();
@@ -3221,7 +3407,7 @@ test.describe("Install codex mkdir failure", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3249,7 +3435,7 @@ test.describe("Install codex mkdir failure", test => {
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3301,7 +3487,7 @@ test.describe("Install config persistence (3.7)", test => {
         },
         async ACT({ contexts }) {
             const cmd = new Install(
-                ["--global", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="],
+                ["--global", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="],
                 { projectRoot: "/proj" },
                 contexts
             );
@@ -3367,7 +3553,7 @@ test.describe("Install config persistence (3.7)", test => {
         },
         async ACT({ contexts }) {
             const cmd = new Install(
-                ["--project", "--skills-tool=both", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=codex", "--reviewer-effort="],
+                ["--project", "--skills-tool=both", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-effort="],
                 { projectRoot: "/proj" },
                 contexts
             );
@@ -3386,7 +3572,7 @@ test.describe("Install config persistence (3.7)", test => {
         },
         async ACT({ contexts }) {
             const cmd = new Install(
-                ["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="],
+                ["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="],
                 { projectRoot: "/proj" },
                 contexts
             );
@@ -3597,8 +3783,10 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
                 "--skills-tool=claude",
                 "--worker-tool=claude",
                 "--worker-model=",
+                "--worker-effort=",
                 "--reviewer-tool=claude",
                 "--reviewer-model=",
+                "--reviewer-effort=",
                 "--reviewer-2-tool=codex",
                 "--reviewer-2-effort="
             ], { projectRoot: "/proj" }, contexts);
@@ -3692,8 +3880,10 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
                 "--skills-tool=claude",
                 "--worker-tool=claude",
                 "--worker-model=",
+                "--worker-effort=",
                 "--reviewer-tool=claude",
                 "--reviewer-model=",
+                "--reviewer-effort=",
                 "--reviewer-2-tool=codex",
                 "--reviewer-2-effort="
             ], { projectRoot: "/proj" }, contexts);
@@ -3720,11 +3910,14 @@ test.describe("Install interactive Configure another reviewer? loop", test => {
             s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 1 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 1 effort
             s.askResponses.push([{ picked: [{ label: "yes" }] }]); // Configure another?
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 2 tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 2 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 2 effort
             s.askResponses.push([{ picked: [{ label: "no" }] }]); // Configure another?
             return s;
         },
@@ -3762,8 +3955,10 @@ test.describe("Install interactive Configure another reviewer? loop", test => {
             s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
             s.askResponses.push([{ picked: [] }]); // Configure another? -> Ctrl+C
             return s;
         },
@@ -3790,14 +3985,16 @@ test.describe("Install interactive Configure another reviewer? loop", test => {
             s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
             let resolveAnotherPrompt:((v:readonly AskAnswer[]) => void) | null = null;
             let callIndex = 0;
             const origAsk = s.contexts.ask.askChoices;
             (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
                 callIndex++;
-                if (callIndex === 7) {
+                if (callIndex === 9) {
                     return new Promise<readonly AskAnswer[]>(resolve => {
                         resolveAnotherPrompt = resolve;
                     });

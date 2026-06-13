@@ -104,6 +104,8 @@ function validateClosedSet(value:string, allowed:readonly string[], flagName:str
 
 const CODEX_EFFORT_LEVELS:readonly string[] = ["minimal", "low", "medium", "high", "xhigh"];
 
+const CLAUDE_EFFORT_LEVELS:readonly string[] = ["low", "medium", "high", "xhigh", "max"];
+
 const CLAUDE_MODEL_ALIASES:readonly string[] = ["best", "fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku", "opusplan"];
 
 const REVIEWER_INDEXED_RE = /^--reviewer-(\d+)-(tool|model|effort)=/;
@@ -350,18 +352,15 @@ export class Install {
             }
             return option.label === "default configured effort" ? "" : option.label;
         }
-        const text = await promptText(contexts.ask, {
-            question: `What effort level should ${roleLabel} use?`,
-            placeholder: "leave empty for the default configured effort"
-        });
-        if (text === null) {
-            return null;
-        }
-        /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptText return and this check.
-        if (this._disposed) {
-            return null;
-        }
-        return text;
+        return await this._resolveCuratedChoice(
+            headerLabel,
+            `What effort level should ${roleLabel} use?`,
+            CLAUDE_EFFORT_LEVELS,
+            "default configured effort",
+            "enter a custom value…",
+            "leave empty for the default configured effort",
+            contexts
+        );
     }
     private async _resolveReviewer(idx:number, supplied:ReviewerFlagAnswers|undefined, contexts:InstallContexts):Promise<FlandersRole|null> {
         const ordinal = idx === 1 ? "" : ` ${idx}`;

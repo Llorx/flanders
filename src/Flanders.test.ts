@@ -153,7 +153,7 @@ test.describe("Flanders dispatch", test => {
             return { contexts, written, errors, files };
         },
         async ACT({ contexts }) {
-            const f = new Flanders(["install", "--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const f = new Flanders(["install", "--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await f.result();
             await f.dispose();
             return code;
