@@ -95,11 +95,19 @@ function readEmulatorViewport(term:Terminal):string[] {
 // to parse pending bytes, and a `resize` that applies a width change through the
 // production resize-listener path. Shared setup for every test that asserts
 // rendered terminal geometry against the emulator's rendered grid — shrink-reflow,
-// footer-state transitions, and the preparing animation — per
+// widen-reflow, footer-state transitions, and the preparing animation — per
 // rules/testing/terminal-geometry-tested-against-emulator.md. Callers drive
 // setFooter / resize / time.advance, await `flush`, read the grid via
 // readEmulatorViewport, then dispose the block and the terminal.
-async function mountEmulatorBlock(cols:number, termRows:number) {
+//
+// When `aboveContent` is supplied, those lines (each typically wider than `cols`
+// so the emulator wraps them) are written into the scrolling region *above* the
+// block before it mounts — modelling the populated, wrapped output region a real
+// run reflows on resize — and the cursor is then padded down so the block still
+// lands pinned to the bottom. With no `aboveContent` (the default) the region
+// above the block is the original blank filler, leaving the existing emulator
+// tests unaffected.
+async function mountEmulatorBlock(cols:number, termRows:number, aboveContent?:readonly string[]) {
     // convertEol mirrors how the OS layer translates LF to CRLF when stdout is a real TTY.
     const term = new Terminal({ cols, rows: termRows, convertEol: true, allowProposedApi: true });
     const resizeListeners = new Set<() => void>();
@@ -118,9 +126,21 @@ async function mountEmulatorBlock(cols:number, termRows:number) {
         term.resize(newCols, term.rows);
         for (const listener of resizeListeners) listener();
     };
-    // Push the cursor down so the block lands at the bottom of the viewport,
-    // matching the live UI which is always pinned to the bottom of the terminal.
-    await new Promise<void>(resolve => { term.write("\n".repeat(termRows - 4), resolve); });
+    // Seed the scrolling region above the block — real wrapped output when
+    // `aboveContent` is given, otherwise blank filler — then push the cursor down
+    // so the block lands at the bottom of the viewport, matching the live UI which
+    // is always pinned to the bottom of the terminal.
+    if (aboveContent && aboveContent.length > 0) {
+        let physicalRows = 0;
+        for (const line of aboveContent) {
+            await new Promise<void>(resolve => { term.write(line + "\n", resolve); });
+            physicalRows += Math.max(1, Math.ceil(line.length / cols));
+        }
+        const pad = Math.max(0, termRows - 4 - physicalRows);
+        if (pad > 0) await new Promise<void>(resolve => { term.write("\n".repeat(pad), resolve); });
+    } else {
+        await new Promise<void>(resolve => { term.write("\n".repeat(termRows - 4), resolve); });
+    }
     const block = new BottomBlock(io, time);
     block.mount();
     block.setHeader({ indexLabel: "5/12", iteration: 2, activity: "implementing", taskNumber: "7.3", title: "Task title" });
@@ -1463,6 +1483,100 @@ test.describe("BottomBlock", test => {
             }
         });
     }
+
+    // The shrink loops above cover narrowing; the obligation in ui.md § "Resizing"
+    // is symmetric, so a *widen* must re-expand the block to the new width — the
+    // separator spanning the wider terminal and the header/metrics shedding the
+    // ellipsis/compact form they needed at the narrow width. Every prior emulator
+    // resize test is a shrink; this loop adds the missing widen direction against
+    // the rendered grid for two ratios. The header carries a title long enough to
+    // truncate at both narrow widths, so the fuller-form restoration is observable.
+    const WIDEN_TITLE = "Implement the resize re-fit across both directions";
+    for (const { initialCols, wideCols } of [
+        { initialCols: 20, wideCols: 80 },
+        { initialCols: 40, wideCols: 160 }
+    ]) {
+        test(`@xterm/headless: after a widen resize (${initialCols}->${wideCols}) the block re-expands to the full new width with the header/metrics restored to their fuller form and no stale rows above`, {
+            ARRANGE() {
+                return { initialCols, wideCols, termRows: 24, title: WIDEN_TITLE };
+            },
+            async ACT({ initialCols, wideCols, termRows, title }) {
+                const { term, block, flush, resize } = await mountEmulatorBlock(initialCols, termRows);
+                block.setHeader({ indexLabel: "5/12", iteration: 2, activity: "implementing", taskNumber: "7.3", title });
+                await flush();
+                const narrow = readEmulatorViewport(term);
+                resize(wideCols);
+                await flush();
+                const wide = readEmulatorViewport(term);
+                block.dispose();
+                term.dispose();
+                return { narrow, wide };
+            },
+            ASSERTS: {
+                "the header is truncated with a trailing ellipsis at the narrow width before the widen"(result, { termRows }) {
+                    Assert.ok(result.narrow[termRows - 3]!.endsWith("…"), "header must be truncated at the narrow width");
+                },
+                "the separator row spans exactly the new wider width with only ─ glyphs"(result, { wideCols, termRows }) {
+                    Assert.strictEqual(result.wide[termRows - 4], SEPARATOR_GLYPH.repeat(wideCols));
+                },
+                "the header row is restored to its full untruncated form at the new width"(result, { termRows, title }) {
+                    Assert.strictEqual(result.wide[termRows - 3], `5/12 iter 2 implementing 7.3 ${title}`);
+                },
+                "the metrics row renders its full form at the new width"(result, { termRows }) {
+                    Assert.strictEqual(result.wide[termRows - 2], "task 100 5s  │  plan 200 10s");
+                },
+                "the footer row carries the Working label at the bottom of the terminal"(result, { termRows }) {
+                    Assert.strictEqual(result.wide[termRows - 1], "⣋ Working");
+                },
+                "every row above the four-row block is empty after the widen — no stale narrow separator or pre-widen content"(result, { termRows }) {
+                    Assert.deepStrictEqual(result.wide.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
+                }
+            }
+        });
+    }
+
+    test("@xterm/headless: shrinking with a populated wrapped output region above re-anchors the block to four bottom rows with the output preserved above and no stale separator rows", {
+        ARRANGE() {
+            // Ten 120-char lines wrap to two rows each at 80 cols, filling the
+            // 20 rows above the block exactly (no blank padding artifact) so the
+            // setup mirrors a real run whose output has scrolled the block to the
+            // bottom. On the shrink to 40 cols each line reflows to three rows and
+            // overflows into scrollback — the condition the blank-filler shrink
+            // tests never exercise.
+            const aboveContent:string[] = [];
+            for (let i = 0; i < 10; i++) aboveContent.push(`OUT${i} `.padEnd(120, "x"));
+            return { initialCols: 80, newCols: 40, termRows: 24, aboveContent };
+        },
+        async ACT({ initialCols, newCols, termRows, aboveContent }) {
+            const { term, block, flush, resize } = await mountEmulatorBlock(initialCols, termRows, aboveContent);
+            resize(newCols);
+            await flush();
+            const rows = readEmulatorViewport(term);
+            block.dispose();
+            term.dispose();
+            return rows;
+        },
+        ASSERTS: {
+            "the separator row spans exactly the new width with only ─ glyphs"(rows, { newCols, termRows }) {
+                Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(newCols));
+            },
+            "the header row carries the header fields at the new width"(rows, { termRows }) {
+                Assert.strictEqual(rows[termRows - 3], "5/12 iter 2 implementing 7.3 Task title");
+            },
+            "the metrics row carries the metrics fields at the new width"(rows, { termRows }) {
+                Assert.strictEqual(rows[termRows - 2], "task 100 5s  │  plan 200 10s");
+            },
+            "the footer row is the bottom row, proving the block re-anchored to the bottom"(rows, { termRows }) {
+                Assert.strictEqual(rows[termRows - 1], "⣋ Working");
+            },
+            "no row above the block is a stale separator chunk left by the reflow"(rows, { termRows }) {
+                Assert.ok(rows.slice(0, termRows - 4).every(r => !/^─+$/.test(r)), "no row above the block may be an all-separator row");
+            },
+            "the reflowed wrapped output region is preserved above the block"(rows, { termRows }) {
+                Assert.ok(rows.slice(0, termRows - 4).some(r => r.includes("OUT")), "the seeded output must remain visible above the block");
+            }
+        }
+    });
 
     test("setFooter preparing draws the Preparing footer line in orange with the current animation frame", {
         ARRANGE() {
