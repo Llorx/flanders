@@ -1,7 +1,7 @@
 # `install` Command Contract
 
 ## Purpose
-Configure Flanders for the chosen scope and deliver the Flanders skills (`/flanders-spec` and `/flanders-plan`) to the user's AI-tool environment(s) so the user can invoke them from inside an AI-tool session. This subcommand is the only way the library publishes those skills to disk and the only way it writes the persistent `.flanders/` configuration consumed by other Flanders commands.
+Configure Flanders for the chosen scope and deliver the Flanders skills (`/flanders-spec`, `/flanders-plan`, and `/flanders-work`) to the user's AI-tool environment(s) so the user can invoke them from inside an AI-tool session. This subcommand is the only way the library publishes those skills to disk and the only way it writes the persistent `.flanders/` configuration consumed by other Flanders commands.
 
 ## Invocation
     npx flanders install [scope-flag] [tool-flag ...] [model-flag ...] [effort-flag ...]
@@ -67,13 +67,13 @@ The `--worker-effort`, `--reviewer-effort`, and `--reviewer-N-effort` flag equiv
 Before writing any file, the command verifies that each AI tool selected by the user's answers (for skills, worker, or any reviewer) has its CLI available on `PATH`. If any selected tool's CLI is missing, the command exits non-zero with a diagnostic that names every missing tool. Nothing is written to disk in that case — no skill files, no `.flanders/` configuration.
 
 ## Skills produced
-For each AI tool the user picked for skills, the command writes one skill artifact per Flanders skill (`/flanders-spec`, `/flanders-plan`) into that tool's skill folder for the selected scope:
+For each AI tool the user picked for skills, the command writes one skill artifact per Flanders skill (`/flanders-spec`, `/flanders-plan`, `/flanders-work`) into that tool's skill folder for the selected scope:
 - Claude Code skills are written to `.claude/skills/` (project scope) or `~/.claude/skills/` (global scope), in the directory-plus-`SKILL.md` form Claude Code requires for user-installed skills.
 - Codex CLI prompts are written to `.codex/prompts/` (project scope) or `~/.codex/prompts/` (global scope), in the form Codex CLI requires for user-installed prompts.
 
 When `--skills-tool=both` is selected (or the interactive answer is `both`), the artifacts for both tools are written, each into its own tool-specific folder.
 
-The textual obligations a user sees when invoking a skill are pinned by the contract files in `.docs/contracts/ai-skills/`. The internal form of each skill artifact (frontmatter fields, body shape) is an implementation detail; what is pinned is that after a successful `install` run the user is able to invoke `/flanders-spec` and `/flanders-plan` from inside an AI-tool session of each selected tool whose skills root is the chosen scope.
+The textual obligations a user sees when invoking a skill are pinned by the contract files in `.docs/contracts/ai-skills/`. The internal form of each skill artifact (frontmatter fields, body shape) is an implementation detail; what is pinned is that after a successful `install` run the user is able to invoke `/flanders-spec`, `/flanders-plan`, and `/flanders-work` from inside an AI-tool session of each selected tool whose skills root is the chosen scope.
 
 ## Configuration written
 The command writes the persistent Flanders configuration at the chosen scope, as defined in `.docs/contracts/shared/flanders-config.md`. Only the answers downstream Flanders commands consume are persisted (worker tool, model, and effort; and, for each reviewer in the configured order, its tool, model, and effort). The skills-tool answer is consumed by `install` itself to decide which skill folders to write into and is not persisted to `.flanders/`.
@@ -93,6 +93,6 @@ On success, the command prints to standard output the list of files it wrote, on
 - Unable to produce a skill artifact (e.g., the source content for a skill is missing): exits non-zero with a diagnostic that names the affected skill.
 
 ## Out of scope
-- The exact internal contents of each skill artifact (frontmatter fields, body shape) are implementation choices and are not pinned by this contract. What is pinned is that after a successful `install` run, the user is able to invoke `/flanders-spec` and `/flanders-plan` from inside an AI-tool session of each selected tool whose skills root is the chosen scope.
+- The exact internal contents of each skill artifact (frontmatter fields, body shape) are implementation choices and are not pinned by this contract. What is pinned is that after a successful `install` run, the user is able to invoke `/flanders-spec`, `/flanders-plan`, and `/flanders-work` from inside an AI-tool session of each selected tool whose skills root is the chosen scope.
 - The exact file names, directory layout, and serialization format inside `.flanders/` are implementation choices. The location per scope, the set of fields persisted, and the read-time precedence are pinned in `.docs/contracts/shared/flanders-config.md`.
 - Uninstallation: this contract does not define a `flanders uninstall` subcommand. The user removes installed skills and the `.flanders/` folder manually if needed.
