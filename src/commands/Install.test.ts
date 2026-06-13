@@ -1761,11 +1761,11 @@ function captureModelMenu(s:ReturnType<typeof stubContexts>) {
 }
 
 test.describe("Install model question", test => {
-    test("claude tool renders the two-tier top-level menu: quick-pick aliases, pick-a-specific-version, the synthetic default, then the custom entry, in order", {
+    test("claude tool renders the family-grouped top-level menu: families, the cross-family Best alias, the synthetic default, then the custom entry, in order", {
         ARRANGE() {
             const s = stubContexts();
             const capture = captureModelMenu(s);
-            s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
             return { ...s, capture };
         },
@@ -1782,10 +1782,10 @@ test.describe("Install model question", test => {
             "Worker model header is present"(_code, { askedHeaders }) {
                 Assert.ok(askedHeaders.includes("Worker model"));
             },
-            "top-level options are exactly the eight quick-pick aliases, then pick-a-specific-version, then the synthetic default, then the custom entry, in order"(_code, { capture }) {
+            "top-level options are exactly the four families, the cross-family Best alias, the synthetic default, then the custom entry, in order"(_code, { capture }) {
                 Assert.deepStrictEqual(
                     capture.optionsForQuestion("Which model should the worker use?")[0],
-                    ["Latest Opus", "Latest Opus 1M", "Latest Sonnet", "Latest Sonnet 1M", "Latest Haiku", "Latest Fable", "Best (auto-pick)", "Opus Plan", "pick a specific version…", "default configured model", "enter a custom value…"]
+                    ["Opus", "Sonnet", "Haiku", "Fable", "Best (auto-pick)", "default configured model", "enter a custom value…"]
                 );
             }
         }
@@ -1817,10 +1817,10 @@ test.describe("Install model question", test => {
                     };
                 }
             };
-            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
-            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker family submenu -> Opus
-            s.askResponses.push([{ picked: [{ label: "Opus 4.8" }] }]); // worker version submenu -> Opus 4.8
-            s.askResponses.push([{ picked: [{ label: "Latest Sonnet" }] }]); // reviewer model (alias quick pick)
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
+            s.askResponses.push([{ picked: [{ label: "Opus 4.8" }] }]); // worker submenu -> Opus 4.8
+            s.askResponses.push([{ picked: [{ label: "Sonnet" }] }]); // reviewer model -> Sonnet family submenu
+            s.askResponses.push([{ picked: [{ label: "Latest Sonnet" }] }]); // reviewer submenu -> Latest Sonnet alias
             return { ...s, spawnCalls };
         },
         async ACT({ contexts }) {
@@ -1840,11 +1840,13 @@ test.describe("Install model question", test => {
         }
     });
 
-    test("claude picking an auto-updating alias quick pick persists its catalog value verbatim", {
+    test("claude picking a family's Latest alias inside its submenu persists the alias string verbatim", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "Latest Opus 1M" }] }]); // worker model
-            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
+            s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // worker submenu -> Latest Opus alias
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer model -> Opus family submenu
+            s.askResponses.push([{ picked: [{ label: "Latest Opus [1m context]" }] }]); // reviewer submenu -> Latest Opus 1M alias
             return s;
         },
         async ACT({ contexts }) {
@@ -1858,9 +1860,15 @@ test.describe("Install model question", test => {
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "config worker.model is exactly the picked alias"({ config }) {
+            "config worker.model is the Latest Opus alias string verbatim"({ config }) {
                 Assert.ok(config);
-                Assert.strictEqual(config.worker.model, "opus[1m]");
+                Assert.strictEqual(config.worker.model, "opus");
+            },
+            "config reviewer.model is the Latest Opus 1M alias string verbatim"({ config }) {
+                Assert.ok(config);
+                const reviewer = config.reviewers[0];
+                Assert.ok(reviewer);
+                Assert.strictEqual(reviewer.model, "opus[1m]");
             }
         }
     });
@@ -1945,13 +1953,12 @@ test.describe("Install model question", test => {
         }
     });
 
-    test("claude pick-a-specific-version drills into the family submenu then the Opus version submenu, each with exact options, and persists the full identifier", {
+    test("claude selecting the Opus family opens its submenu with exact options and persists a pinned version's full identifier", {
         ARRANGE() {
             const s = stubContexts();
             const capture = captureModelMenu(s);
-            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
-            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // family submenu -> Opus
-            s.askResponses.push([{ picked: [{ label: "Opus 4.8 (1M context)" }] }]); // version submenu -> Opus 4.8 1M
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
+            s.askResponses.push([{ picked: [{ label: "Opus 4.8 [1m context]" }] }]); // submenu -> Opus 4.8 1M
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
             return { ...s, capture };
         },
@@ -1966,16 +1973,10 @@ test.describe("Install model question", test => {
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "the family submenu options are exactly Opus, Sonnet, Haiku, Fable, then back, in catalog order"(_result, { capture }) {
+            "the Opus submenu options are exactly the Opus catalog entries then back, in order"(_result, { capture }) {
                 Assert.deepStrictEqual(
-                    capture.optionsForQuestion("Which model family should the worker use?")[0],
-                    ["Opus", "Sonnet", "Haiku", "Fable", "← back"]
-                );
-            },
-            "the Opus version submenu options are exactly the Opus versions then back, in catalog order"(_result, { capture }) {
-                Assert.deepStrictEqual(
-                    capture.optionsForQuestion("Which version should the worker use?")[0],
-                    ["Opus 4.8", "Opus 4.8 (1M context)", "Opus 4.7", "Opus 4.7 (1M context)", "Opus 4.6", "Opus 4.6 (1M context)", "← back"]
+                    capture.optionsForQuestion("Which Opus model should the worker use?")[0],
+                    ["Latest Opus", "Latest Opus [1m context]", "Opus 4.8", "Opus 4.8 [1m context]", "Opus 4.7", "Opus 4.7 [1m context]", "Opus 4.6", "Opus 4.6 [1m context]", "← back"]
                 );
             },
             "config worker.model is the full Opus 4.8 1M identifier verbatim"({ config }) {
@@ -1985,13 +1986,12 @@ test.describe("Install model question", test => {
         }
     });
 
-    test("claude single-version family Haiku still presents a one-entry version submenu and persists the full identifier", {
+    test("claude selecting the Sonnet family opens its submenu with exact options and persists a pinned version's full identifier", {
         ARRANGE() {
             const s = stubContexts();
             const capture = captureModelMenu(s);
-            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
-            s.askResponses.push([{ picked: [{ label: "Haiku" }] }]); // family submenu -> Haiku
-            s.askResponses.push([{ picked: [{ label: "Haiku 4.5" }] }]); // version submenu -> Haiku 4.5
+            s.askResponses.push([{ picked: [{ label: "Sonnet" }] }]); // worker model -> Sonnet family submenu
+            s.askResponses.push([{ picked: [{ label: "Sonnet 4.5" }] }]); // submenu -> Sonnet 4.5
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
             return { ...s, capture };
         },
@@ -2006,60 +2006,72 @@ test.describe("Install model question", test => {
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "the Haiku version submenu contains its one version plus back, rather than auto-selecting"(_result, { capture }) {
+            "the Sonnet submenu options are exactly the Sonnet catalog entries then back, in order"(_result, { capture }) {
                 Assert.deepStrictEqual(
-                    capture.optionsForQuestion("Which version should the worker use?")[0],
-                    ["Haiku 4.5", "← back"]
+                    capture.optionsForQuestion("Which Sonnet model should the worker use?")[0],
+                    ["Latest Sonnet", "Latest Sonnet [1m context]", "Sonnet 4.6", "Sonnet 4.6 [1m context]", "Sonnet 4.5", "Sonnet 4.5 [1m context]", "← back"]
+                );
+            },
+            "config worker.model is the full Sonnet 4.5 identifier verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "claude-sonnet-4-5");
+            }
+        }
+    });
+
+    test("claude two-entry families Haiku and Fable each open a submenu of their Latest alias, one pinned version, and back", {
+        ARRANGE() {
+            const s = stubContexts();
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "Haiku" }] }]); // worker model -> Haiku family submenu
+            s.askResponses.push([{ picked: [{ label: "Haiku 4.5" }] }]); // worker submenu -> Haiku 4.5
+            s.askResponses.push([{ picked: [{ label: "Fable" }] }]); // reviewer model -> Fable family submenu
+            s.askResponses.push([{ picked: [{ label: "Fable 5" }] }]); // reviewer submenu -> Fable 5
+            return { ...s, capture };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the Haiku submenu options are exactly Latest Haiku, Haiku 4.5, then back"(_result, { capture }) {
+                Assert.deepStrictEqual(
+                    capture.optionsForQuestion("Which Haiku model should the worker use?")[0],
+                    ["Latest Haiku", "Haiku 4.5", "← back"]
+                );
+            },
+            "the Fable submenu options are exactly Latest Fable, Fable 5, then back"(_result, { capture }) {
+                Assert.deepStrictEqual(
+                    capture.optionsForQuestion("Which Fable model should reviewer use?")[0],
+                    ["Latest Fable", "Fable 5", "← back"]
                 );
             },
             "config worker.model is the full Haiku identifier verbatim"({ config }) {
                 Assert.ok(config);
                 Assert.strictEqual(config.worker.model, "claude-haiku-4-5-20251001");
-            }
-        }
-    });
-
-    test("claude single-version family Fable still presents a one-entry version submenu and persists the full identifier", {
-        ARRANGE() {
-            const s = stubContexts();
-            const capture = captureModelMenu(s);
-            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
-            s.askResponses.push([{ picked: [{ label: "Fable" }] }]); // family submenu -> Fable
-            s.askResponses.push([{ picked: [{ label: "Fable 5" }] }]); // version submenu -> Fable 5
-            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
-            return { ...s, capture };
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
-            return { code, config };
-        },
-        ASSERTS: {
-            "exits 0"({ code }) {
-                Assert.strictEqual(code, 0);
             },
-            "the Fable version submenu contains its one version plus back, rather than auto-selecting"(_result, { capture }) {
-                Assert.deepStrictEqual(
-                    capture.optionsForQuestion("Which version should the worker use?")[0],
-                    ["Fable 5", "← back"]
-                );
-            },
-            "config worker.model is the full Fable identifier verbatim"({ config }) {
+            "config reviewer.model is the full Fable identifier verbatim"({ config }) {
                 Assert.ok(config);
-                Assert.strictEqual(config.worker.model, "claude-fable-5");
+                const reviewer = config.reviewers[0];
+                Assert.ok(reviewer);
+                Assert.strictEqual(reviewer.model, "claude-fable-5");
             }
         }
     });
 
-    test("claude back from the family submenu re-renders the top-level model menu and a subsequent alias selection persists", {
+    test("claude back from a family submenu re-renders the top-level menu and a subsequent top-level selection persists", {
         ARRANGE() {
             const s = stubContexts();
             const capture = captureModelMenu(s);
-            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
             s.askResponses.push([{ picked: [{ label: "← back" }] }]); // family submenu -> back to top level
-            s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // top-level menu again -> alias
+            s.askResponses.push([{ picked: [{ label: "Best (auto-pick)" }] }]); // top-level menu again -> Best
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
             return { ...s, capture };
         },
@@ -2077,22 +2089,18 @@ test.describe("Install model question", test => {
             "the worker top-level model menu is rendered exactly twice (initial, then again after back)"(_result, { capture }) {
                 Assert.strictEqual(capture.optionsForQuestion("Which model should the worker use?").length, 2);
             },
-            "config worker.model is the alias chosen after returning to the top level"({ config }) {
+            "config worker.model is the value chosen after returning to the top level"({ config }) {
                 Assert.ok(config);
-                Assert.strictEqual(config.worker.model, "opus");
+                Assert.strictEqual(config.worker.model, "best");
             }
         }
     });
 
-    test("claude back from a version submenu re-renders the family submenu and a subsequent version selection persists", {
+    test("claude selecting the cross-family Best alias persists best and opens no family submenu", {
         ARRANGE() {
             const s = stubContexts();
             const capture = captureModelMenu(s);
-            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
-            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // family submenu -> Opus
-            s.askResponses.push([{ picked: [{ label: "← back" }] }]); // version submenu -> back to family submenu
-            s.askResponses.push([{ picked: [{ label: "Sonnet" }] }]); // family submenu again -> Sonnet
-            s.askResponses.push([{ picked: [{ label: "Sonnet 4.6 (1M context)" }] }]); // version submenu -> Sonnet 4.6 1M
+            s.askResponses.push([{ picked: [{ label: "Best (auto-pick)" }] }]); // worker model -> Best (direct)
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
             return { ...s, capture };
         },
@@ -2107,30 +2115,26 @@ test.describe("Install model question", test => {
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "the family submenu is rendered exactly twice (initial, then again after version back)"(_result, { capture }) {
-                Assert.strictEqual(capture.optionsForQuestion("Which model family should the worker use?").length, 2);
-            },
-            "the Sonnet version submenu lists the Sonnet versions then back, in catalog order"(_result, { capture }) {
-                Assert.deepStrictEqual(
-                    capture.optionsForQuestion("Which version should the worker use?")[1],
-                    ["Sonnet 4.6", "Sonnet 4.6 (1M context)", "Sonnet 4.5", "Sonnet 4.5 (1M context)", "← back"]
-                );
-            },
-            "config worker.model is the version chosen after returning to the family submenu"({ config }) {
+            "config worker.model is exactly best"({ config }) {
                 Assert.ok(config);
-                Assert.strictEqual(config.worker.model, "claude-sonnet-4-6[1m]");
+                Assert.strictEqual(config.worker.model, "best");
+            },
+            "selecting Best opens no family submenu for the worker"(_result, { capture }) {
+                const submenusOpened = ["Opus", "Sonnet", "Haiku", "Fable"]
+                    .filter(f => capture.optionsForQuestion(`Which ${f} model should the worker use?`).length > 0);
+                Assert.deepStrictEqual(submenusOpened, []);
             }
         }
     });
 
-    test("claude drill-down behaves identically for a reviewer model question as for the worker", {
+    test("claude family submenu behaves identically for a reviewer model question as for the worker", {
         ARRANGE() {
             const s = stubContexts();
             const capture = captureModelMenu(s);
-            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
-            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // reviewer model -> drill-down
-            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer family submenu -> Opus
-            s.askResponses.push([{ picked: [{ label: "Opus 4.6" }] }]); // reviewer version submenu -> Opus 4.6
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
+            s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // worker submenu -> Latest Opus
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer model -> Opus family submenu
+            s.askResponses.push([{ picked: [{ label: "Opus 4.6" }] }]); // reviewer submenu -> Opus 4.6
             return { ...s, capture };
         },
         async ACT({ contexts }) {
@@ -2144,13 +2148,13 @@ test.describe("Install model question", test => {
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "the reviewer family submenu options match the worker family submenu exactly"(_result, { capture }) {
+            "the reviewer Opus submenu options match the worker Opus submenu options exactly"(_result, { capture }) {
                 Assert.deepStrictEqual(
-                    capture.optionsForQuestion("Which model family should reviewer use?")[0],
-                    ["Opus", "Sonnet", "Haiku", "Fable", "← back"]
+                    capture.optionsForQuestion("Which Opus model should reviewer use?")[0],
+                    capture.optionsForQuestion("Which Opus model should the worker use?")[0]
                 );
             },
-            "config reviewer.model is the full identifier chosen through the reviewer drill-down"({ config }) {
+            "config reviewer.model is the full identifier chosen through the reviewer submenu"({ config }) {
                 Assert.ok(config);
                 const reviewer = config.reviewers[0];
                 Assert.ok(reviewer);
@@ -2162,32 +2166,8 @@ test.describe("Install model question", test => {
     test("Ctrl+C during the claude family submenu exits non-zero", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
             s.askResponses.push([{ picked: [] }]); // family submenu -> Ctrl+C
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 1"(code) {
-                Assert.strictEqual(code, 1);
-            },
-            "no files written"(_code, { files }) {
-                Assert.strictEqual(files.size, 0);
-            }
-        }
-    });
-
-    test("Ctrl+C during the claude version submenu exits non-zero", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
-            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // family submenu -> Opus
-            s.askResponses.push([{ picked: [] }]); // version submenu -> Ctrl+C
             return s;
         },
         async ACT({ contexts }) {
@@ -2217,44 +2197,6 @@ test.describe("Install model question", test => {
                 }
                 callCount++;
                 if (callCount === 1) {
-                    return Promise.resolve([{ picked: [{ label: "pick a specific version…" }] }]);
-                }
-                return new Promise<readonly AskAnswer[]>(resolve => {
-                    resolvePrompt = resolve;
-                });
-            };
-            return { ...s, getResolvePrompt: () => resolvePrompt };
-        },
-        async ACT({ contexts, getResolvePrompt }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            while (!getResolvePrompt()) {
-                await new Promise(r => setTimeout(r, 1));
-            }
-            const disposePromise = cmd.dispose();
-            getResolvePrompt()!([{ picked: [{ label: "Opus" }] }]);
-            await disposePromise;
-            const code = await cmd.result();
-            return code;
-        },
-        ASSERT(code) {
-            Assert.strictEqual(code, 1);
-        }
-    });
-
-    test("disposed during the claude version submenu returns 1", {
-        ARRANGE() {
-            const s = stubContexts();
-            let resolvePrompt:((v:readonly AskAnswer[]) => void) | null = null;
-            let callCount = 0;
-            (s.contexts.ask as { askChoices:typeof s.contexts.ask.askChoices }).askChoices = (questions) => {
-                for (const q of questions) {
-                    s.askedHeaders.push(q.header);
-                }
-                callCount++;
-                if (callCount === 1) {
-                    return Promise.resolve([{ picked: [{ label: "pick a specific version…" }] }]);
-                }
-                if (callCount === 2) {
                     return Promise.resolve([{ picked: [{ label: "Opus" }] }]);
                 }
                 return new Promise<readonly AskAnswer[]>(resolve => {
@@ -2631,7 +2573,7 @@ test.describe("Install model question", test => {
                 await new Promise(r => setTimeout(r, 1));
             }
             const disposePromise = cmd.dispose();
-            getResolvePrompt()!([{ picked: [{ label: "Latest Opus" }] }]);
+            getResolvePrompt()!([{ picked: [{ label: "Opus" }] }]);
             await disposePromise;
             const code = await cmd.result();
             return code;
@@ -2969,7 +2911,8 @@ test.describe("Install effort question", test => {
                 const response = s.askResponses.shift();
                 return Promise.resolve(response ?? []);
             };
-            s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // worker model (a specific curated model)
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
+            s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // worker submenu -> a specific curated model
             s.askResponses.push([{ picked: [{ label: "max" }] }]); // worker effort
             return { ...s, getCapturedEffortOptions: () => capturedEffortOptions };
         },
@@ -4333,7 +4276,8 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
     test("--reviewer-2-tool with no --reviewer-2-model still prompts reviewer 2 model as a curated choice", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // reviewer 2 model choice
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer 2 model -> Opus family submenu
+            s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // reviewer 2 submenu -> Latest Opus
             return s;
         },
         async ACT({ contexts }) {
