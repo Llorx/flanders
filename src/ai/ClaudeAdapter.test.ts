@@ -157,7 +157,7 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
-    test("spawn args with effort high emits unsupported output event and no effort argv", {
+    test("spawn args with effort high appends --effort and emits no unsupported event", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
             const adapter = new ClaudeAdapter(contexts);
@@ -174,23 +174,33 @@ test.describe("ClaudeAdapter", test => {
             return { spawnArgs: claude.$spawned[0]!.args, events };
         },
         ASSERTS: {
-            "argv has no effort-related tokens"(result) {
-                Assert.deepStrictEqual(result.spawnArgs, BASE_ARGV);
+            "argv has --effort immediately followed by the effort value"(result) {
+                Assert.deepStrictEqual(result.spawnArgs, ["--effort", "high", ...BASE_ARGV]);
             },
-            "exactly one Effort unsupported output event"(result) {
+            "no Effort unsupported output event emitted"(result) {
                 const effortEvents = result.events.filter(e => e.type === "output" && e.title === "Effort unsupported");
-                Assert.strictEqual(effortEvents.length, 1);
-            },
-            "effort event has correct title"(result) {
-                const e = result.events.find(e => e.type === "output" && e.title === "Effort unsupported")!;
-                Assert.strictEqual(e.type, "output");
-                Assert.deepStrictEqual(e, {
-                    type: "output",
-                    title: "Effort unsupported",
-                    subtitle: "",
-                    details: "Claude CLI does not currently expose a stable effort flag; the supplied effort is ignored."
-                });
+                Assert.strictEqual(effortEvents.length, 0);
             }
+        }
+    });
+
+    test("spawn args with both model and effort appends --model then --effort", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs({ model: "claude-opus-4-6", effort: "high" });
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            proc.$emit("exit", 0);
+            for await (const _ of iterable) { void _; }
+            return claude.$spawned[0]!.args;
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, ["--model", "claude-opus-4-6", "--effort", "high", ...BASE_ARGV]);
         }
     });
 

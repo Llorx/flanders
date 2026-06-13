@@ -151,15 +151,6 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
     }
 
     private _start():void {
-        if (this._args.effort) {
-            this._queue.push({
-                type: "output",
-                title: "Effort unsupported",
-                subtitle: "",
-                details: "Claude CLI does not currently expose a stable effort flag; the supplied effort is ignored."
-            });
-        }
-
         const argv = this._buildArgv();
         const spawnOptions:SpawnOptions = { stdio: "pipe" };
         const proc = this._contexts.claude.spawn("claude", argv, spawnOptions);
@@ -249,6 +240,10 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
 
         if (this._args.model) {
             argv.push("--model", this._args.model);
+        }
+
+        if (this._args.effort) {
+            argv.push("--effort", this._args.effort);
         }
 
         argv.push(
