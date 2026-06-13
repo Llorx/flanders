@@ -107,7 +107,66 @@ const CODEX_EFFORT_LEVELS:readonly string[] = ["minimal", "low", "medium", "high
 
 const CLAUDE_EFFORT_LEVELS:readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 
-const CLAUDE_MODEL_ALIASES:readonly string[] = ["best", "fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku", "opusplan"];
+type ClaudeModelEntry = Readonly<{ label:string; value:string }>;
+
+type ClaudeModelFamily = Readonly<{ family:string; versions:readonly ClaudeModelEntry[] }>;
+
+// Auto-updating aliases (top-level quick picks): Claude Code's documented aliases that
+// auto-update to the recommended release over time. Display labels are distinct from the
+// persisted alias values. Pinned by `src/commands/.docs/rules/install/model-list-discovery.md`.
+const CLAUDE_MODEL_ALIASES:readonly ClaudeModelEntry[] = [
+    { label: "Latest Opus", value: "opus" },
+    { label: "Latest Opus 1M", value: "opus[1m]" },
+    { label: "Latest Sonnet", value: "sonnet" },
+    { label: "Latest Sonnet 1M", value: "sonnet[1m]" },
+    { label: "Latest Haiku", value: "haiku" },
+    { label: "Latest Fable", value: "fable" },
+    { label: "Best (auto-pick)", value: "best" },
+    { label: "Opus Plan", value: "opusplan" }
+];
+
+// Pinned-version identifiers grouped by family, in family order Opus, Sonnet, Haiku, Fable;
+// reached through the `pick a specific version…` drill-down. A `[1m]` entry is offered only for a
+// model that supports a 1M-context window. Pinned by
+// `src/commands/.docs/rules/install/model-list-discovery.md`.
+const CLAUDE_MODEL_VERSION_FAMILIES:readonly ClaudeModelFamily[] = [
+    {
+        family: "Opus",
+        versions: [
+            { label: "Opus 4.8", value: "claude-opus-4-8" },
+            { label: "Opus 4.8 (1M context)", value: "claude-opus-4-8[1m]" },
+            { label: "Opus 4.7", value: "claude-opus-4-7" },
+            { label: "Opus 4.7 (1M context)", value: "claude-opus-4-7[1m]" },
+            { label: "Opus 4.6", value: "claude-opus-4-6" },
+            { label: "Opus 4.6 (1M context)", value: "claude-opus-4-6[1m]" }
+        ]
+    },
+    {
+        family: "Sonnet",
+        versions: [
+            { label: "Sonnet 4.6", value: "claude-sonnet-4-6" },
+            { label: "Sonnet 4.6 (1M context)", value: "claude-sonnet-4-6[1m]" },
+            { label: "Sonnet 4.5", value: "claude-sonnet-4-5" },
+            { label: "Sonnet 4.5 (1M context)", value: "claude-sonnet-4-5[1m]" }
+        ]
+    },
+    {
+        family: "Haiku",
+        versions: [
+            { label: "Haiku 4.5", value: "claude-haiku-4-5-20251001" }
+        ]
+    },
+    {
+        family: "Fable",
+        versions: [
+            { label: "Fable 5", value: "claude-fable-5" }
+        ]
+    }
+];
+
+const CLAUDE_PICK_VERSION_LABEL = "pick a specific version…";
+
+const CLAUDE_BACK_LABEL = "← back";
 
 const REVIEWER_INDEXED_RE = /^--reviewer-(\d+)-(tool|model|effort)=/;
 
@@ -271,6 +330,85 @@ export class Install {
         }
         return option.label;
     }
+    private async _resolveClaudeModel(roleLabel:string, headerLabel:string, contexts:InstallContexts):Promise<string|null> {
+        const question = `Which model should ${roleLabel} use?`;
+        topLevel: for (;;) {
+            const topOptions:ChoiceOption[] = CLAUDE_MODEL_ALIASES.map(entry => ({ label: entry.label }));
+            topOptions.push({ label: CLAUDE_PICK_VERSION_LABEL });
+            topOptions.push({ label: "default configured model" });
+            topOptions.push({ label: "enter a custom value…" });
+            const top = await promptChoice(contexts.ask, {
+                header: headerLabel,
+                question,
+                options: topOptions
+            });
+            if (!top) {
+                return null;
+            }
+            if (this._disposed) {
+                return null;
+            }
+            if (top.label === "default configured model") {
+                return "";
+            }
+            if (top.label === "enter a custom value…") {
+                const text = await promptText(contexts.ask, {
+                    question,
+                    placeholder: "leave empty for the default configured model"
+                });
+                if (text === null) {
+                    return null;
+                }
+                if (this._disposed) {
+                    return null;
+                }
+                return text;
+            }
+            if (top.label === CLAUDE_PICK_VERSION_LABEL) {
+                for (;;) {
+                    const familyOptions:ChoiceOption[] = CLAUDE_MODEL_VERSION_FAMILIES.map(family => ({ label: family.family }));
+                    familyOptions.push({ label: CLAUDE_BACK_LABEL });
+                    const familyChoice = await promptChoice(contexts.ask, {
+                        header: headerLabel,
+                        question: `Which model family should ${roleLabel} use?`,
+                        options: familyOptions
+                    });
+                    if (!familyChoice) {
+                        return null;
+                    }
+                    if (this._disposed) {
+                        return null;
+                    }
+                    if (familyChoice.label === CLAUDE_BACK_LABEL) {
+                        continue topLevel;
+                    }
+                    const family = CLAUDE_MODEL_VERSION_FAMILIES.find(f => f.family === familyChoice.label)!;
+                    for (;;) {
+                        const versionOptions:ChoiceOption[] = family.versions.map(version => ({ label: version.label }));
+                        versionOptions.push({ label: CLAUDE_BACK_LABEL });
+                        const versionChoice = await promptChoice(contexts.ask, {
+                            header: headerLabel,
+                            question: `Which version should ${roleLabel} use?`,
+                            options: versionOptions
+                        });
+                        if (!versionChoice) {
+                            return null;
+                        }
+                        if (this._disposed) {
+                            return null;
+                        }
+                        if (versionChoice.label === CLAUDE_BACK_LABEL) {
+                            break;
+                        }
+                        const version = family.versions.find(v => v.label === versionChoice.label)!;
+                        return version.value;
+                    }
+                }
+            }
+            const alias = CLAUDE_MODEL_ALIASES.find(entry => entry.label === top.label)!;
+            return alias.value;
+        }
+    }
     private async _resolveRoleModel(roleLabel:string, headerLabel:string, tool:"claude"|"codex", suppliedModel:string|undefined, contexts:InstallContexts):Promise<string|null> {
         if (suppliedModel !== undefined) {
             return suppliedModel;
@@ -280,15 +418,7 @@ export class Install {
             return null;
         }
         if (tool === "claude") {
-            return await this._resolveCuratedChoice(
-                headerLabel,
-                `Which model should ${roleLabel} use?`,
-                CLAUDE_MODEL_ALIASES,
-                "default configured model",
-                "enter a custom value…",
-                "leave empty for the default configured model",
-                contexts
-            );
+            return await this._resolveClaudeModel(roleLabel, headerLabel, contexts);
         }
         if (!this._modelProbeCache.has(tool)) {
             const models = await probeModelList(contexts.script);

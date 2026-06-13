@@ -1743,25 +1743,31 @@ function makeModelScript(opts:{
     };
 }
 
+// Captures every askChoices question (header, question text, and option labels) so a test can
+// assert the exact options a given prompt rendered, and how many times a prompt was re-rendered
+// (used by the back-navigation tests). Selection still flows through the existing askResponses queue.
+function captureModelMenu(s:ReturnType<typeof stubContexts>) {
+    const snapshots:{ header:string; question:string; options:readonly string[] }[] = [];
+    const origAsk = s.contexts.ask.askChoices;
+    (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
+        for (const q of questions) {
+            s.askedHeaders.push(q.header);
+            snapshots.push({ header: q.header, question: q.question, options: q.options.map(o => o.label) });
+        }
+        const response = s.askResponses.shift();
+        return Promise.resolve(response ?? []);
+    };
+    return { optionsForQuestion: (question:string) => snapshots.filter(sn => sn.question === question).map(sn => sn.options) };
+}
+
 test.describe("Install model question", test => {
-    test("claude tool renders a curated model list ending with the synthetic default then the custom entry for worker model", {
+    test("claude tool renders the two-tier top-level menu: quick-pick aliases, pick-a-specific-version, the synthetic default, then the custom entry, in order", {
         ARRANGE() {
             const s = stubContexts();
-            let capturedOptions:readonly { label:string; description?:string }[] = [];
-            const origAsk = s.contexts.ask.askChoices;
-            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
-                for (const q of questions) {
-                    s.askedHeaders.push(q.header);
-                    if (q.header === "Worker model") {
-                        capturedOptions = q.options;
-                    }
-                }
-                const response = s.askResponses.shift();
-                return Promise.resolve(response ?? []);
-            };
-            s.askResponses.push([{ picked: [{ label: "opus" }] }]); // worker model
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // worker model
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
-            return { ...s, getCapturedOptions: () => capturedOptions };
+            return { ...s, capture };
         },
         async ACT({ contexts }) {
             const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
@@ -1776,10 +1782,10 @@ test.describe("Install model question", test => {
             "Worker model header is present"(_code, { askedHeaders }) {
                 Assert.ok(askedHeaders.includes("Worker model"));
             },
-            "options are exactly the curated aliases, then the synthetic default, then the custom entry, in order"(_code, { getCapturedOptions }) {
+            "top-level options are exactly the eight quick-pick aliases, then pick-a-specific-version, then the synthetic default, then the custom entry, in order"(_code, { capture }) {
                 Assert.deepStrictEqual(
-                    getCapturedOptions().map(o => o.label),
-                    ["best", "fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku", "opusplan", "default configured model", "enter a custom value…"]
+                    capture.optionsForQuestion("Which model should the worker use?")[0],
+                    ["Latest Opus", "Latest Opus 1M", "Latest Sonnet", "Latest Sonnet 1M", "Latest Haiku", "Latest Fable", "Best (auto-pick)", "Opus Plan", "pick a specific version…", "default configured model", "enter a custom value…"]
                 );
             }
         }
@@ -1811,8 +1817,10 @@ test.describe("Install model question", test => {
                     };
                 }
             };
-            s.askResponses.push([{ picked: [{ label: "opus" }] }]); // worker model (curated)
-            s.askResponses.push([{ picked: [{ label: "sonnet" }] }]); // reviewer model (curated)
+            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker family submenu -> Opus
+            s.askResponses.push([{ picked: [{ label: "Opus 4.8" }] }]); // worker version submenu -> Opus 4.8
+            s.askResponses.push([{ picked: [{ label: "Latest Sonnet" }] }]); // reviewer model (alias quick pick)
             return { ...s, spawnCalls };
         },
         async ACT({ contexts }) {
@@ -1832,10 +1840,10 @@ test.describe("Install model question", test => {
         }
     });
 
-    test("claude picking a curated model alias persists that alias verbatim", {
+    test("claude picking an auto-updating alias quick pick persists its catalog value verbatim", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "opus[1m]" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "Latest Opus 1M" }] }]); // worker model
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
             return s;
         },
@@ -1934,6 +1942,340 @@ test.describe("Install model question", test => {
                 Assert.ok(config);
                 Assert.strictEqual(config.worker.model, "");
             }
+        }
+    });
+
+    test("claude pick-a-specific-version drills into the family submenu then the Opus version submenu, each with exact options, and persists the full identifier", {
+        ARRANGE() {
+            const s = stubContexts();
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // family submenu -> Opus
+            s.askResponses.push([{ picked: [{ label: "Opus 4.8 (1M context)" }] }]); // version submenu -> Opus 4.8 1M
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            return { ...s, capture };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the family submenu options are exactly Opus, Sonnet, Haiku, Fable, then back, in catalog order"(_result, { capture }) {
+                Assert.deepStrictEqual(
+                    capture.optionsForQuestion("Which model family should the worker use?")[0],
+                    ["Opus", "Sonnet", "Haiku", "Fable", "← back"]
+                );
+            },
+            "the Opus version submenu options are exactly the Opus versions then back, in catalog order"(_result, { capture }) {
+                Assert.deepStrictEqual(
+                    capture.optionsForQuestion("Which version should the worker use?")[0],
+                    ["Opus 4.8", "Opus 4.8 (1M context)", "Opus 4.7", "Opus 4.7 (1M context)", "Opus 4.6", "Opus 4.6 (1M context)", "← back"]
+                );
+            },
+            "config worker.model is the full Opus 4.8 1M identifier verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "claude-opus-4-8[1m]");
+            }
+        }
+    });
+
+    test("claude single-version family Haiku still presents a one-entry version submenu and persists the full identifier", {
+        ARRANGE() {
+            const s = stubContexts();
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
+            s.askResponses.push([{ picked: [{ label: "Haiku" }] }]); // family submenu -> Haiku
+            s.askResponses.push([{ picked: [{ label: "Haiku 4.5" }] }]); // version submenu -> Haiku 4.5
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            return { ...s, capture };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the Haiku version submenu contains its one version plus back, rather than auto-selecting"(_result, { capture }) {
+                Assert.deepStrictEqual(
+                    capture.optionsForQuestion("Which version should the worker use?")[0],
+                    ["Haiku 4.5", "← back"]
+                );
+            },
+            "config worker.model is the full Haiku identifier verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "claude-haiku-4-5-20251001");
+            }
+        }
+    });
+
+    test("claude single-version family Fable still presents a one-entry version submenu and persists the full identifier", {
+        ARRANGE() {
+            const s = stubContexts();
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
+            s.askResponses.push([{ picked: [{ label: "Fable" }] }]); // family submenu -> Fable
+            s.askResponses.push([{ picked: [{ label: "Fable 5" }] }]); // version submenu -> Fable 5
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            return { ...s, capture };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the Fable version submenu contains its one version plus back, rather than auto-selecting"(_result, { capture }) {
+                Assert.deepStrictEqual(
+                    capture.optionsForQuestion("Which version should the worker use?")[0],
+                    ["Fable 5", "← back"]
+                );
+            },
+            "config worker.model is the full Fable identifier verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "claude-fable-5");
+            }
+        }
+    });
+
+    test("claude back from the family submenu re-renders the top-level model menu and a subsequent alias selection persists", {
+        ARRANGE() {
+            const s = stubContexts();
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
+            s.askResponses.push([{ picked: [{ label: "← back" }] }]); // family submenu -> back to top level
+            s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // top-level menu again -> alias
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            return { ...s, capture };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker top-level model menu is rendered exactly twice (initial, then again after back)"(_result, { capture }) {
+                Assert.strictEqual(capture.optionsForQuestion("Which model should the worker use?").length, 2);
+            },
+            "config worker.model is the alias chosen after returning to the top level"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "opus");
+            }
+        }
+    });
+
+    test("claude back from a version submenu re-renders the family submenu and a subsequent version selection persists", {
+        ARRANGE() {
+            const s = stubContexts();
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // family submenu -> Opus
+            s.askResponses.push([{ picked: [{ label: "← back" }] }]); // version submenu -> back to family submenu
+            s.askResponses.push([{ picked: [{ label: "Sonnet" }] }]); // family submenu again -> Sonnet
+            s.askResponses.push([{ picked: [{ label: "Sonnet 4.6 (1M context)" }] }]); // version submenu -> Sonnet 4.6 1M
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            return { ...s, capture };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the family submenu is rendered exactly twice (initial, then again after version back)"(_result, { capture }) {
+                Assert.strictEqual(capture.optionsForQuestion("Which model family should the worker use?").length, 2);
+            },
+            "the Sonnet version submenu lists the Sonnet versions then back, in catalog order"(_result, { capture }) {
+                Assert.deepStrictEqual(
+                    capture.optionsForQuestion("Which version should the worker use?")[1],
+                    ["Sonnet 4.6", "Sonnet 4.6 (1M context)", "Sonnet 4.5", "Sonnet 4.5 (1M context)", "← back"]
+                );
+            },
+            "config worker.model is the version chosen after returning to the family submenu"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "claude-sonnet-4-6[1m]");
+            }
+        }
+    });
+
+    test("claude drill-down behaves identically for a reviewer model question as for the worker", {
+        ARRANGE() {
+            const s = stubContexts();
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // reviewer model -> drill-down
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer family submenu -> Opus
+            s.askResponses.push([{ picked: [{ label: "Opus 4.6" }] }]); // reviewer version submenu -> Opus 4.6
+            return { ...s, capture };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the reviewer family submenu options match the worker family submenu exactly"(_result, { capture }) {
+                Assert.deepStrictEqual(
+                    capture.optionsForQuestion("Which model family should reviewer use?")[0],
+                    ["Opus", "Sonnet", "Haiku", "Fable", "← back"]
+                );
+            },
+            "config reviewer.model is the full identifier chosen through the reviewer drill-down"({ config }) {
+                Assert.ok(config);
+                const reviewer = config.reviewers[0];
+                Assert.ok(reviewer);
+                Assert.strictEqual(reviewer.model, "claude-opus-4-6");
+            }
+        }
+    });
+
+    test("Ctrl+C during the claude family submenu exits non-zero", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
+            s.askResponses.push([{ picked: [] }]); // family submenu -> Ctrl+C
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("Ctrl+C during the claude version submenu exits non-zero", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "pick a specific version…" }] }]); // worker model -> drill-down
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // family submenu -> Opus
+            s.askResponses.push([{ picked: [] }]); // version submenu -> Ctrl+C
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("disposed during the claude family submenu returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            let resolvePrompt:((v:readonly AskAnswer[]) => void) | null = null;
+            let callCount = 0;
+            (s.contexts.ask as { askChoices:typeof s.contexts.ask.askChoices }).askChoices = (questions) => {
+                for (const q of questions) {
+                    s.askedHeaders.push(q.header);
+                }
+                callCount++;
+                if (callCount === 1) {
+                    return Promise.resolve([{ picked: [{ label: "pick a specific version…" }] }]);
+                }
+                return new Promise<readonly AskAnswer[]>(resolve => {
+                    resolvePrompt = resolve;
+                });
+            };
+            return { ...s, getResolvePrompt: () => resolvePrompt };
+        },
+        async ACT({ contexts, getResolvePrompt }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            while (!getResolvePrompt()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolvePrompt()!([{ picked: [{ label: "Opus" }] }]);
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 1);
+        }
+    });
+
+    test("disposed during the claude version submenu returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            let resolvePrompt:((v:readonly AskAnswer[]) => void) | null = null;
+            let callCount = 0;
+            (s.contexts.ask as { askChoices:typeof s.contexts.ask.askChoices }).askChoices = (questions) => {
+                for (const q of questions) {
+                    s.askedHeaders.push(q.header);
+                }
+                callCount++;
+                if (callCount === 1) {
+                    return Promise.resolve([{ picked: [{ label: "pick a specific version…" }] }]);
+                }
+                if (callCount === 2) {
+                    return Promise.resolve([{ picked: [{ label: "Opus" }] }]);
+                }
+                return new Promise<readonly AskAnswer[]>(resolve => {
+                    resolvePrompt = resolve;
+                });
+            };
+            return { ...s, getResolvePrompt: () => resolvePrompt };
+        },
+        async ACT({ contexts, getResolvePrompt }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            while (!getResolvePrompt()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolvePrompt()!([{ picked: [{ label: "Opus 4.8" }] }]);
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 1);
         }
     });
 
@@ -2160,6 +2502,43 @@ test.describe("Install model question", test => {
             "no askText called for worker model"(_result, { askedTextPrompts }) {
                 const workerModelPrompts = askedTextPrompts.filter(p => p.includes("worker"));
                 Assert.strictEqual(workerModelPrompts.length, 0);
+            },
+            "the interactive worker model menu is never rendered for the worker"(_result, { askedHeaders }) {
+                Assert.ok(!askedHeaders.includes("Worker model"));
+            }
+        }
+    });
+
+    test("--worker-model= and --reviewer-model= (empty) skip the interactive model menu entirely and persist the empty string", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.model is the empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "");
+            },
+            "config reviewer.model is the empty string"({ config }) {
+                Assert.ok(config);
+                const reviewer = config.reviewers[0];
+                Assert.ok(reviewer);
+                Assert.strictEqual(reviewer.model, "");
+            },
+            "the interactive worker model menu is never rendered for the worker"(_result, { askedHeaders }) {
+                Assert.ok(!askedHeaders.includes("Worker model"));
+            },
+            "the interactive reviewer model menu is never rendered for the reviewer"(_result, { askedHeaders }) {
+                Assert.ok(!askedHeaders.includes("Reviewer model"));
             }
         }
     });
@@ -2252,7 +2631,7 @@ test.describe("Install model question", test => {
                 await new Promise(r => setTimeout(r, 1));
             }
             const disposePromise = cmd.dispose();
-            getResolvePrompt()!([{ picked: [{ label: "opus" }] }]);
+            getResolvePrompt()!([{ picked: [{ label: "Latest Opus" }] }]);
             await disposePromise;
             const code = await cmd.result();
             return code;
@@ -2590,7 +2969,7 @@ test.describe("Install effort question", test => {
                 const response = s.askResponses.shift();
                 return Promise.resolve(response ?? []);
             };
-            s.askResponses.push([{ picked: [{ label: "opus" }] }]); // worker model (a specific curated model)
+            s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // worker model (a specific curated model)
             s.askResponses.push([{ picked: [{ label: "max" }] }]); // worker effort
             return { ...s, getCapturedEffortOptions: () => capturedEffortOptions };
         },
@@ -2982,6 +3361,85 @@ test.describe("Install effort question", test => {
             "no files written"(_code, { files }) {
                 Assert.strictEqual(files.size, 0);
             }
+        }
+    });
+
+    test("Ctrl+C during the claude worker effort custom free-text input exits non-zero", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // worker effort -> custom
+            (s.contexts.ask as { askText:typeof s.contexts.ask.askText }).askText = () => Promise.reject(new Error("readline closed"));
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("disposed during the claude worker effort choice returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            let resolvePrompt:((v:readonly AskAnswer[]) => void) | null = null;
+            (s.contexts.ask as { askChoices:typeof s.contexts.ask.askChoices }).askChoices = () => {
+                return new Promise<readonly AskAnswer[]>(resolve => {
+                    resolvePrompt = resolve;
+                });
+            };
+            return { ...s, getResolvePrompt: () => resolvePrompt };
+        },
+        async ACT({ contexts, getResolvePrompt }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            while (!getResolvePrompt()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolvePrompt()!([{ picked: [{ label: "high" }] }]);
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 1);
+        }
+    });
+
+    test("disposed during the claude worker effort custom free-text input returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // worker effort -> custom
+            let resolveText:((v:string) => void) | null = null;
+            (s.contexts.ask as { askText:typeof s.contexts.ask.askText }).askText = (prompt) => {
+                s.askedTextPrompts.push(prompt);
+                return new Promise<string>(resolve => {
+                    resolveText = resolve;
+                });
+            };
+            return { ...s, getResolveText: () => resolveText };
+        },
+        async ACT({ contexts, getResolveText }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            while (!getResolveText()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolveText()!("typed-after-dispose");
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 1);
         }
     });
 
@@ -3875,7 +4333,7 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
     test("--reviewer-2-tool with no --reviewer-2-model still prompts reviewer 2 model as a curated choice", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "opus" }] }]); // reviewer 2 model choice
+            s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // reviewer 2 model choice
             return s;
         },
         async ACT({ contexts }) {
