@@ -1,6 +1,6 @@
-# The model list is sourced per tool: codex by probe, claude from a curated set
+# The model list is sourced per tool: codex by probe, claude from a hand-maintained catalog
 
-When `install` asks the user for a model identifier for the worker or the reviewer, the suggested models are sourced from the selected tool. For `codex`, `install` queries the tool's CLI for the models available to the user's account. For `claude`, whose CLI exposes no models-listing command, `install` presents a curated set of the models Claude Code is known to accept. The contract `.docs/contracts/cli-commands/install.md` pins the user-visible shape of each rendering; this rule pins, per tool, where the suggestions come from and how each path persists its value.
+When `install` asks the user for a model identifier for the worker or the reviewer, the suggested models are sourced from the selected tool. For `codex`, `install` queries the tool's CLI for the models available to the user's account. For `claude`, whose CLI exposes no models-listing command, `install` presents a hand-maintained catalog of the models Claude Code is known to accept. The contract `.docs/contracts/cli-commands/install.md` pins the user-visible shape of each rendering; this rule pins, per tool, where the suggestions come from and how each path persists its value.
 
 ## Who this applies to
 
@@ -10,18 +10,50 @@ When `install` asks the user for a model identifier for the worker or the review
 ## Per-tool model source
 
 - **`codex`** — `install` queries the tool's CLI for the model list. The probe is a specific subprocess invocation that runs at most once per tool per `install` run, even if the same tool is asked about twice (worker and reviewer); the result is cached for the second question. The invocation is `codex debug models` (no `--bundled`, so the catalog is refreshed for the user's account rather than read from the binary's bundled snapshot). The probe redirects stdout/stderr away from the user's terminal. On exit code 0, the captured stdout is parsed as a JSON object of the shape `{"models":[{"slug":"…","visibility":"…"}, …]}`; the list is the `slug` of every entry whose `visibility` is `"list"`, in catalog order. Entries with any other `visibility` (for example `"hide"`, used for internal models) are excluded, mirroring Codex's own `/model` picker. Any parse failure, a payload with no `"list"`-visible entries, or a non-zero exit is treated as "no list available". If a future Codex CLI removes `codex debug models`, the probe's non-zero exit drives the free-text fallback, and this rule must be updated to pin the replacement command.
-- **`claude`** — the Claude Code CLI exposes no command that lists models, so `install` does not probe it. Instead, `install` presents a curated set of model identifiers that tracks the model aliases Claude Code documents for its `--model` selection: `best`, `fable`, `opus`, `opus[1m]`, `sonnet`, `sonnet[1m]`, `haiku`, and `opusplan`. The `default` alias is not in the curated set, because the synthetic `default configured model` entry already covers it. The curated set is a set of suggestions, not a closed set; the user reaches any model Claude Code accepts but the curated set omits through the custom entry pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`. When Claude Code documents new `--model` aliases, this rule is updated to track them.
+- **`claude`** — the Claude Code CLI exposes no command that lists models, so `install` does not probe it. Instead, `install` presents a hand-maintained catalog of the model identifiers Claude Code documents for its `--model` selection. Each catalog entry has a human-readable display label and the value persisted when it is chosen; the value is persisted verbatim. The catalog has two groups.
+
+  **Auto-updating aliases** — the aliases Claude Code documents, which auto-update to the recommended version over time. Each persists the alias string verbatim. The `default` alias is not in the catalog, because the synthetic `default configured model` entry already covers it.
+
+  | Display label | Persisted value |
+  |---|---|
+  | `Latest Opus` | `opus` |
+  | `Latest Opus 1M` | `opus[1m]` |
+  | `Latest Sonnet` | `sonnet` |
+  | `Latest Sonnet 1M` | `sonnet[1m]` |
+  | `Latest Haiku` | `haiku` |
+  | `Latest Fable` | `fable` |
+  | `Best (auto-pick)` | `best` |
+  | `Opus Plan` | `opusplan` |
+
+  **Pinned versions**, grouped by family — the full version identifiers, each pinning a specific release. Each persists the full model identifier verbatim. A `[1m]` suffix names the 1M-context variant of a model that supports one; Claude Code accepts the `[1m]` suffix appended to a full model name as well as to an alias, and the suffix is offered only for a model that supports a 1M-context window.
+
+  | Family | Display label | Persisted value |
+  |---|---|---|
+  | Opus | `Opus 4.8` | `claude-opus-4-8` |
+  | Opus | `Opus 4.8 (1M context)` | `claude-opus-4-8[1m]` |
+  | Opus | `Opus 4.7` | `claude-opus-4-7` |
+  | Opus | `Opus 4.7 (1M context)` | `claude-opus-4-7[1m]` |
+  | Opus | `Opus 4.6` | `claude-opus-4-6` |
+  | Opus | `Opus 4.6 (1M context)` | `claude-opus-4-6[1m]` |
+  | Sonnet | `Sonnet 4.6` | `claude-sonnet-4-6` |
+  | Sonnet | `Sonnet 4.6 (1M context)` | `claude-sonnet-4-6[1m]` |
+  | Sonnet | `Sonnet 4.5` | `claude-sonnet-4-5` |
+  | Sonnet | `Sonnet 4.5 (1M context)` | `claude-sonnet-4-5[1m]` |
+  | Haiku | `Haiku 4.5` | `claude-haiku-4-5-20251001` |
+  | Fable | `Fable 5` | `claude-fable-5` |
+
+  The catalog is a set of suggestions, not a closed set; the user reaches any model Claude Code accepts but the catalog omits through the custom entry pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`. When Claude Code documents new `--model` aliases or model versions, or retires a listed one, this rule is updated to track that change.
 
 ## Rendering the question
 
 - For **`codex`**, when the probe yields a non-empty list, the question is rendered as a selectable list whose entries are the model identifiers the probe returned, plus one synthetic entry at the end labelled `default configured model`. When the probe yields an empty list, is skipped, or fails, the question is rendered as a free-text input with the placeholder `leave empty for the default configured model`.
-- For **`claude`**, the question is rendered as a selectable list whose entries are the curated set above, plus the synthetic `default configured model` entry, plus the custom entry pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`.
+- For **`claude`**, the question is rendered as the two-tier menu pinned in `src/commands/.docs/rules/install/claude-model-menu-quick-picks-plus-version-drilldown.md`: the auto-updating aliases as top-level quick picks, the pinned versions reached through a `pick a specific version…` drill-down by family, plus the synthetic `default configured model` entry, plus the custom entry pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`.
 
 Picking the synthetic `default configured model` entry resolves to the empty string `""` when persisted in `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`. Leaving the `codex` free-text input empty resolves to the same `""`.
 
 ## Equivalence between selecting and typing
 
-The available paths never produce different persisted values for the same user intent: picking `default configured model` and leaving the `codex` free-text input empty both resolve to `""`. Picking a specific model identifier — by selecting a list entry or by typing it into the `codex` free-text fallback — persists the exact identifier string the user selected or typed, with no trimming, no case folding, no further validation. The `claude` custom entry is a further path whose persistence is pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`.
+The available paths never produce different persisted values for the same user intent: picking `default configured model` and leaving the `codex` free-text input empty both resolve to `""`. Picking a specific model identifier — by selecting a top-level entry, by selecting a `claude` version-drill-down submenu entry, or by typing it into the `codex` free-text fallback — persists the exact identifier string the entry maps to or the user typed, with no trimming, no case folding, no further validation. The `claude` custom entry is a further path whose persistence is pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`.
 
 ## Failure signals
 
