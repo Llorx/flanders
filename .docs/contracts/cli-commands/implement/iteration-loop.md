@@ -35,9 +35,9 @@ Each iteration walks through the stages below in order. Any stage that fails wri
    - Instructions stating that, if the implementation changes how the project builds or how its tests run, the worker also updates the build and test scripts inside the temporary folder.
    - On every iteration after the first, the previous-iteration briefing (see below).
 
-3. **Build stage.** Run the build script (when one exists). On non-zero exit, capture both stdout and stderr to the `error.log` file inside the temporary folder and restart the inner loop.
+3. **Build stage.** Run the build gate — the build script (when one exists) — per the gate semantics of `.docs/contracts/shared/build-test-validation.md`. On a failing gate, capture both stdout and stderr to the `error.log` file inside the temporary folder and restart the inner loop.
 
-4. **Test stage.** Run the test script (when one exists). On non-zero exit, capture both stdout and stderr to the `error.log` file and restart the inner loop.
+4. **Test stage.** Run the test gate — the test script (when one exists) — per the gate semantics of `.docs/contracts/shared/build-test-validation.md`. On a failing gate, capture both stdout and stderr to the `error.log` file and restart the inner loop.
 
 5. **Adversarial review stage.** The Flanders configuration holds an ordered list of one or more reviewers (see `.docs/contracts/shared/flanders-config.md`), each with its own AI tool, model, and effort that may be the same as or different from the worker's and from one another's. The orchestrator runs all configured reviewers for this iteration and only then forms a single verdict from their combined output.
 
