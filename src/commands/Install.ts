@@ -4,7 +4,7 @@ import { write as writeConfig } from "../workspace/FlandersConfig";
 import { askChoice, askText } from "../ui/PromptHelper";
 import type { AskChoiceArgs, AskTextArgs } from "../ui/PromptHelper";
 import { joinPath } from "../system/fsUtils";
-import { planSkillBody, specSkillBody } from "../prompts/skills";
+import { planSkillBody, specSkillBody, workSkillBody } from "../prompts/skills";
 import type { PlatformContext } from "../workspace/Workspace";
 import { verifyToolAvailability } from "./InstallAvailabilityCheck";
 import { probeModelList } from "./InstallModelProbe";
@@ -28,7 +28,8 @@ type SkillDef = Readonly<{
 
 const SKILLS:readonly SkillDef[] = [
     { name: "flanders-spec", body: specSkillBody },
-    { name: "flanders-plan", body: planSkillBody }
+    { name: "flanders-plan", body: planSkillBody },
+    { name: "flanders-work", body: workSkillBody }
 ];
 
 export function stripYamlFrontmatter(body:string):string {

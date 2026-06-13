@@ -2,7 +2,9 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { prompts } from "./prompts";
+import { prompts, reviewerMethodologyCore } from "./prompts";
+
+const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
 
 const EXPECTED_CLAIM_CLASSIFICATION =
 `Classify every claim by ONE question: what kind of signal would soundly observe a plausible regression of the claim? Place the claim in exactly one of these three branches, and name the concrete observer the branch requires — an automated failure, an asserting test, or reviewer inspection.
@@ -1142,7 +1144,7 @@ test.describe("prompts – reviewer – git-status change-set enumeration", test
         ACT() { return prompts.reviewer; },
         ASSERTS: {
             "cites the full rule path"(template) {
-                Assert.ok(template.includes("rules/ai/agents/reviewer-enumerates-worker-changes-via-git.md"));
+                Assert.ok(template.includes("rules/ai/review/reviewer-derives-change-set-from-git.md"));
             },
             "states read-only consistency with no-git-writes"(template) {
                 Assert.ok(template.includes("read-only git operations, permitted under and consistent with"));
@@ -1196,7 +1198,7 @@ test.describe("prompts – reviewer – empty change set judged against HEAD", t
                 Assert.ok(template.includes("record a violation only for an acceptance criterion, contract, or rule that is genuinely unsatisfied at `HEAD`"));
             },
             "cites the empty-change-set rule"(template) {
-                Assert.ok(template.includes("rules/ai/agents/reviewer-empty-change-set-judged-against-head.md"));
+                Assert.ok(template.includes("rules/ai/review/reviewer-empty-change-set-judged-against-head.md"));
             }
         }
     });
@@ -1232,7 +1234,7 @@ test.describe("prompts – reviewer – empty change set judged against HEAD", t
                 Assert.ok(section.includes("pass the task — creating your per-reviewer `error.log` empty as your final act — when every acceptance criterion is satisfied at `HEAD`"));
             },
             "section cites the empty-change-set rule"(section) {
-                Assert.ok(section.includes("rules/ai/agents/reviewer-empty-change-set-judged-against-head.md"));
+                Assert.ok(section.includes("rules/ai/review/reviewer-empty-change-set-judged-against-head.md"));
             },
             "section does not bleed into the next H2"(section) {
                 Assert.strictEqual(section.includes("## Available contracts"), false);
@@ -1326,6 +1328,176 @@ test.describe("prompts – foreground execution boundary", test => {
             const end = template.indexOf("\n\n", start);
             const foreground = template.substring(start, end === -1 ? undefined : end);
             Assert.strictEqual(foreground, "Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. You must not start any command in the background and must not end your turn while a command you spawned is still running. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example `run_in_background: true`), shell-level detachment (a trailing `&`, `nohup`, `setsid`, `disown`, `start`, `Start-Process`, `Start-Job`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.");
+        }
+    });
+});
+
+test.describe("prompts – reviewer – relocated reviewer citations", test => {
+    test("cites the two relocated rules at their new rules/ai/review/ paths", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "cites the relocated empty-change-set rule at its new path"(template) {
+                Assert.ok(template.includes("rules/ai/review/reviewer-empty-change-set-judged-against-head.md"));
+            },
+            "cites the relocated derives-change-set rule at its new path"(template) {
+                Assert.ok(template.includes("rules/ai/review/reviewer-derives-change-set-from-git.md"));
+            }
+        }
+    });
+
+    test("no longer cites either relocated rule at its old rules/ai/agents/ path", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "drops the old empty-change-set path"(template) {
+                Assert.strictEqual(template.includes("rules/ai/agents/reviewer-empty-change-set-judged-against-head.md"), false);
+            },
+            "drops the old reviewer-enumerates-worker-changes path"(template) {
+                Assert.strictEqual(template.includes("rules/ai/agents/reviewer-enumerates-worker-changes-via-git.md"), false);
+            }
+        }
+    });
+
+    test("retains the implement-specific citations that were not relocated", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "still cites no-git-writes"(template) {
+                Assert.ok(template.includes("rules/ai/agents/no-git-writes.md"));
+            },
+            "still cites the evidence-report checklist rule"(template) {
+                Assert.ok(template.includes("rules/ai/agents/evidence-report.md"));
+            },
+            "still cites the claim-evidence-classification rule"(template) {
+                Assert.ok(template.includes("rules/ai/agents/evidence/claim-evidence-classification.md"));
+            },
+            "still cites the enumerated-claim-coverage rule"(template) {
+                Assert.ok(template.includes("rules/ai/agents/evidence/enumerated-claim-coverage.md"));
+            },
+            "still cites assert-via-public-surface inside the implement claim taxonomy"(template) {
+                Assert.ok(template.includes("rules/testing/assert-via-public-surface.md"));
+            }
+        }
+    });
+});
+
+test.describe("reviewerMethodologyCore", test => {
+    test("is a non-empty string", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERTS: {
+            "is a string"(core) {
+                Assert.strictEqual(typeof core, "string");
+            },
+            "is non-empty"(core) {
+                Assert.ok(core.length > 0);
+            }
+        }
+    });
+
+    test("is citation-free — names no flanders-internal spec file", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERTS: {
+            "matches no internal spec-path citation pattern"(core) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(core), false);
+            },
+            "contains no .md path at all"(core) {
+                Assert.strictEqual(core.includes(".md"), false);
+            },
+            "drops the assert-via-public-surface citation the taxonomy used to carry"(core) {
+                Assert.strictEqual(core.includes("assert-via-public-surface"), false);
+            }
+        }
+    });
+
+    test("states the change-set-determination obligation", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERTS: {
+            "enumerates the change set with git status --porcelain"(core) {
+                Assert.ok(core.includes("git status --porcelain"));
+            },
+            "requires inspecting every file in the set"(core) {
+                Assert.ok(core.includes("Inspect every file in the set"));
+            },
+            "requires reading content the right way per file kind"(core) {
+                Assert.ok(core.includes("Read content the right way per file kind"));
+            }
+        }
+    });
+
+    test("states the empty-change-set-judged-against-HEAD obligation", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERTS: {
+            "an empty change set is not on its own a failure"(core) {
+                Assert.ok(core.includes("the empty change set is not, on its own, a failure"));
+            },
+            "judges the spec against the committed working tree at HEAD"(core) {
+                Assert.ok(core.includes("against the committed working tree at `HEAD`"));
+            }
+        }
+    });
+
+    test("states the FAIL-conditions, exhaustiveness, pattern-enumeration, and verification protocol", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERTS: {
+            "lists exactly five FAIL conditions"(core) {
+                const blockStart = core.indexOf("You MUST check all five conditions below");
+                const blockEnd = core.indexOf("Exhaustiveness:", blockStart);
+                const block = core.substring(blockStart, blockEnd);
+                const count = (block.match(/\n\d+\. /g) ?? []).length;
+                Assert.strictEqual(count, 5);
+            },
+            "demands exhaustive enumeration"(core) {
+                Assert.ok(core.includes("Exhaustiveness:"));
+            },
+            "demands pattern-occurrence enumeration"(core) {
+                Assert.ok(core.includes("Pattern-based violations require occurrence enumeration"));
+            },
+            "classifies each element by the regression-signal question"(core) {
+                Assert.ok(core.includes("what kind of signal would soundly observe a plausible regression of the claim?"));
+            }
+        }
+    });
+
+    test("states the verdict-via-error-log obligation", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERTS: {
+            "appends each violation"(core) {
+                Assert.ok(core.includes("append every violation"));
+            },
+            "creates the file empty when there is no violation"(core) {
+                Assert.ok(core.includes("as an empty file as your final act"));
+            },
+            "never records the verdict via streamed output"(core) {
+                Assert.ok(core.includes("does not parse your output for a verdict token"));
+            }
+        }
+    });
+
+    test("supplies the methodology the implement reviewer is assembled from", {
+        ARRANGE() {},
+        ACT() {
+            return { core: reviewerMethodologyCore, reviewer: prompts.reviewer };
+        },
+        ASSERTS: {
+            "both carry the change-set enumeration command"({ core, reviewer }) {
+                Assert.ok(core.includes("git status --porcelain") && reviewer.includes("git status --porcelain"));
+            },
+            "both carry the five-condition FAIL gate"({ core, reviewer }) {
+                Assert.ok(core.includes("You MUST check all five conditions below") && reviewer.includes("You MUST check all five conditions below"));
+            },
+            "both carry the pattern-occurrence-enumeration discipline"({ core, reviewer }) {
+                Assert.ok(core.includes("Pattern-based violations require occurrence enumeration") && reviewer.includes("Pattern-based violations require occurrence enumeration"));
+            },
+            "both carry the verdict-recording obligation"({ core, reviewer }) {
+                Assert.ok(core.includes("does not parse your output for a verdict token") && reviewer.includes("does not parse your output for a verdict token"));
+            }
         }
     });
 });

@@ -1,4 +1,5 @@
 import { TASK_LINE } from "../plan/PlanFile";
+import { reviewerMethodologyCore } from "./prompts";
 
 export const planSkillBody =
 `---
@@ -365,3 +366,92 @@ Every message you address to the user during the run — your clarifying questio
 ## Idempotency and overwrites
 
 Existing files in the project's \`.docs/contracts\` and \`.docs/rules\` folders are not protected. Because you receive the current state of both folders and update related files in place, re-running with related input will modify those files rather than create parallel duplicates. Preserving prior versions is the user's responsibility (typically through version control).`;
+
+export const workSkillBody =
+`---
+description: Carry a single self-contained piece of work from request to reviewed completion in the current session, gating the result through one adversarial reviewer subagent, without authoring a plan or running the implement pipeline.
+---
+
+You are the /flanders-work skill. You carry a single, self-contained piece of work from the user's request to reviewed completion in one invocation, directly in the session you are running in. You implement the request yourself — editing the project's code and tests — and then gate the result through an adversarial reviewer you run as a subagent, reworking until the review is clean. You do not author a plan and you do not run the implement pipeline.
+
+## Input resolution
+
+The user invokes you as: /flanders-work [<data>]
+
+- If <data> is omitted, take the user's natural-language request from the conversation.
+- If <data> is supplied and resolves to an existing file path, read the file's content and use it as input.
+- If <data> is supplied and does not resolve to an existing file, use the value verbatim as inline input.
+
+## Procedure
+
+1. Resolve the input from the invocation rule above. This request is the spec under review for the rest of the run.
+2. **Work.** Implement the request directly in this session (see Performing the work below).
+3. **Review.** Validate the result through a single adversarial reviewer you run as a subagent (see The reviewer and The review loop below).
+4. **Iterate.** While the reviewer reports violations, rework the implementation to address them and review again, with no fixed upper bound.
+5. **Finish.** When a review reports no violations, finalize without committing, without writing a plan, and without writing any configuration (see Finalization below).
+
+## Performing the work
+
+Implement the request directly in this session: edit the project's code and update or extend its tests so the new behavior is covered. Honor every contract, rule, and behavior rule in the project's spec corpus whose scope your changes touch — discovered across the project's \`.docs\` folders (the files under each \`.docs/contracts\` folder are contracts, the files under each \`.docs/rules\` folder are rules, and the files under each \`.docs/flanders\` folder are behavior rules) — whether or not the request names them. A contract or rule whose scope your changes touch is binding even when the request never mentions it; a behavior rule whose \`.docs/flanders\` scope encloses a file you author or change governs how you name, place, and organize that file. Treat the corpus as part of your specification, not optional reading.
+
+## Spec-folder write boundary
+
+Neither the work you perform nor the reviewer subagent creates, modifies, deletes, or renames any file inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder. Those folders are the project's source of truth, governed by their own dedicated skills; consult them freely but never write to them.
+
+## The reviewer
+
+Once the work is done, validate it through exactly one adversarial reviewer that you run as a subagent of this same session, using the host AI tool's own subagent mechanism, in a fresh subagent session that does not share context with the work you just performed. The fresh session is load-bearing: it forces the reviewer to re-derive its judgment from the working tree rather than from the reasoning you used while doing the work.
+
+The subagent mechanism is tool-specific. In Claude Code, you spawn the reviewer through the Agent tool. In Codex CLI, you spawn it through whatever Codex documents as its subagent surface at the time of the run.
+
+You run a single reviewer per review round — never a list of reviewers and never several reviewers concurrently. The reviewer's tool, model, and effort are the host session's. You do not read or consult any \`.flanders/\` configuration to choose the reviewer — not its worker or reviewer tool, model, or effort, and not any reviewer list; /flanders-work relies only on having been installed and consumes no configuration.
+
+### Inline fallback
+
+You may fall back to running the review inline in this same session only when the host AI tool exposes no subagent mechanism, or when a subagent invocation returns an unrecoverable error (spawn failure, transport error, environment refusal). When you take the inline path, state in chat that you are falling back and name the concrete reason; a silent fallback is a violation. Inline fallback for ergonomic reasons — the change looks small, tokens feel tight, you are confident — is forbidden.
+
+### The reviewer's prompt
+
+Assemble the reviewer subagent's prompt as four parts, in order:
+
+1. A framing that states the spec under review is the user's request that you implemented, quoting or summarizing that request so the reviewer can measure the work against it.
+2. The available contracts, the available rules, and the available behavior rules as lists of their namespaces (each namespace is a path relative to the project root), discovered across the project's \`.docs\` folders, placed above the methodology so the methodology's references to "the global lists above" and "the behavior-rule list above" resolve.
+3. The absolute path of the error-log file you provisioned for this round — this is the "error-log file" the methodology refers to — with the instruction to record its verdict there.
+4. The methodology below, verbatim.
+
+The methodology is self-contained: keep it that way and add no citation to any file inside the project's spec folders.
+
+${reviewerMethodologyCore}
+
+The reviewer is inspection-only. Its prompt also states the boundaries every Flanders subagent honors:
+
+- **Git.** It runs only read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) to inspect the change set, and never a command that mutates repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout\`, \`git branch\`, \`git tag\`, \`git rebase\`, \`git merge\`, \`git cherry-pick\`, no edits under \`.git/\`, and no remote operations.
+- **Foreground.** It runs every command it executes in the foreground and keeps its turn active until that command finishes; it never starts a command in the background, never detaches one, and never ends its turn while a spawned command is still running.
+
+## The review loop
+
+Drive the work-then-review cycle entirely from a temporary error-log file — the reviewer's verdict file. For each review round:
+
+1. **Provision the verdict file as absent.** Before launching the reviewer, ensure the temporary error-log file does not exist, deleting it if a previous round left one, so the reviewer recreating it is observable. Pass the reviewer the path to that file.
+2. **Launch the reviewer and wait for it to complete.** Spawn the reviewer as described above and wait until it finishes.
+3. **Branch on the file once the reviewer has completed:**
+   - **Absent** — the reviewer did not produce the file it was required to produce, so it did not run to a verdict. Relaunch the reviewer for the same round, repeating with no maximum count until the file exists. An absent file is never read as a pass.
+   - **Present and empty** — the reviewer ran to a verdict and found no violation. Accept the work; the loop ends and you finalize.
+   - **Present and non-empty** — the reviewer ran to a verdict and recorded violations. Rework the implementation to address every recorded violation, then start a new review round from step 1 against a freshly-provisioned absent file.
+4. **No fixed upper bound.** The cycle repeats until a round ends with a present empty file. There is no iteration cap; the user interrupts the session to stop it.
+
+Read the verdict only from the file's presence and content, never from the reviewer's streamed output or its exit code.
+
+## Finalization
+
+When a review round ends with a present empty verdict file, the work is complete and you stop there:
+
+- **No commit.** Run no \`git add\`, \`git commit\`, or any other git command that mutates repository state. The implemented changes are left in the working tree as an uncommitted change set for the user to review, amend, commit, or discard.
+- **No plan.** Create, modify, delete, or rename nothing in the \`plans/\` folder. /flanders-work has no plan file: its spec is the user's request, so there is no checkbox to flip and no metrics to record.
+- **No configuration.** Write nothing to \`.flanders/\`. The skill consumes no configuration and produces none.
+
+Then report completion to the user in chat.
+
+## Interaction language
+
+Every message you address to the user during the run — your progress messages, the summary you print when the work is done or when you surface a review that keeps failing, and any other text you print in chat — is written in the natural language of the user's most recent message in the conversation. When the user switches the language they write in partway through the interaction, every subsequent message you address to the user follows the language of their latest message. This is resolved independently of the code you write: it governs only what you say to the user in the conversation, never the language or content of the code you produce.`;

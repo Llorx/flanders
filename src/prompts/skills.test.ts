@@ -3,7 +3,8 @@ import * as Assert from "assert";
 import test from "arrange-act-assert";
 
 import { TASK_LINE } from "../plan/PlanFile";
-import { planSkillBody, specSkillBody } from "./skills";
+import { reviewerMethodologyCore } from "./prompts";
+import { planSkillBody, specSkillBody, workSkillBody } from "./skills";
 
 // A citation of a flanders-internal spec file: a path under contracts/, rules/, or plans/ that names a specific .md file. Skill bodies ship into arbitrary user projects where those files do not exist, so such a citation must never appear. Shared by the plan-skill and spec-skill self-containedness guards so the pattern has one source of truth.
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
@@ -1466,6 +1467,310 @@ Every message you address to the user during the run — your clarifying questio
             "is reported only as a statement about the run's own output"(body) {
                 const finalValidation = body.slice(body.indexOf("## Final validation"), body.indexOf("## Output language"));
                 Assert.ok(finalValidation.includes("Report a pass as a statement about this run's own output, never as a statement that the whole spec is globally sound"), "Final validation must report a pass only as a statement about the run's own output");
+            }
+        }
+    });
+});
+
+test.describe("skills – workSkillBody", test => {
+    test("is a non-empty string beginning with a description frontmatter block", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "is a string"(body) {
+                Assert.strictEqual(typeof body, "string");
+            },
+            "is non-empty"(body) {
+                Assert.ok(body.length > 0);
+            },
+            "begins with a YAML frontmatter opener"(body) {
+                Assert.ok(body.startsWith("---\n"), "must begin with a YAML frontmatter opener");
+            },
+            "frontmatter carries a description field"(body) {
+                const frontmatter = body.slice(0, body.indexOf("\n---\n"));
+                Assert.ok(frontmatter.includes("description:"), "frontmatter must carry a description field");
+            }
+        }
+    });
+
+    test("resolves the [<data>] argument with the three documented cases", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "omitted: takes the request from the conversation"(body) {
+                Assert.ok(body.includes("If <data> is omitted, take the user's natural-language request from the conversation."), "must take the request from the conversation when <data> is omitted");
+            },
+            "existing file path: reads the file's content"(body) {
+                Assert.ok(body.includes("resolves to an existing file path, read the file's content and use it as input."), "must read the file's content when <data> resolves to an existing file path");
+            },
+            "otherwise: uses the value verbatim"(body) {
+                Assert.ok(body.includes("does not resolve to an existing file, use the value verbatim as inline input."), "must use the value verbatim when <data> does not resolve to an existing file");
+            }
+        }
+    });
+
+    test("instructs in-session work honoring the in-scope spec corpus and updating tests", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "implements the request directly in this session"(body) {
+                Assert.ok(body.includes("Implement the request directly in this session"), "must implement the request directly in this session");
+            },
+            "updates or extends tests so the new behavior is covered"(body) {
+                Assert.ok(body.includes("update or extend its tests so the new behavior is covered"), "must update or extend tests so the new behavior is covered");
+            },
+            "honors every contract, rule, and behavior rule whose scope the changes touch"(body) {
+                Assert.ok(body.includes("Honor every contract, rule, and behavior rule in the project's spec corpus whose scope your changes touch"), "must honor every contract, rule, and behavior rule whose scope the changes touch");
+            },
+            "discovers the corpus across the project's .docs folders"(body) {
+                Assert.ok(body.includes("discovered across the project's \`.docs\` folders"), "must discover the corpus across the project's .docs folders");
+            },
+            "applies whether or not the request names them"(body) {
+                Assert.ok(body.includes("whether or not the request names them"), "must apply whether or not the request names them");
+            }
+        }
+    });
+
+    test("launches exactly one reviewer as a fresh-session subagent via the host tool's mechanism", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "runs exactly one adversarial reviewer as a subagent"(body) {
+                Assert.ok(body.includes("validate it through exactly one adversarial reviewer that you run as a subagent of this same session"), "must run exactly one adversarial reviewer as a subagent of the same session");
+            },
+            "uses a fresh subagent session that does not share context"(body) {
+                Assert.ok(body.includes("in a fresh subagent session that does not share context with the work you just performed"), "must use a fresh subagent session that does not share context");
+            },
+            "names the Claude Code Agent tool"(body) {
+                Assert.ok(body.includes("In Claude Code, you spawn the reviewer through the Agent tool."), "must name the Claude Code Agent tool");
+            },
+            "names the Codex CLI subagent surface"(body) {
+                Assert.ok(body.includes("In Codex CLI, you spawn it through whatever Codex documents as its subagent surface at the time of the run."), "must name the Codex CLI subagent surface");
+            },
+            "runs a single reviewer per round, never a list and never concurrently"(body) {
+                Assert.ok(body.includes("You run a single reviewer per review round — never a list of reviewers and never several reviewers concurrently."), "must run a single reviewer per round, never a list and never concurrently");
+            },
+            "the reviewer's tool, model, and effort are the host session's"(body) {
+                Assert.ok(body.includes("The reviewer's tool, model, and effort are the host session's."), "the reviewer's tool, model, and effort must be the host session's");
+            },
+            "consults no .flanders/ configuration to choose the reviewer"(body) {
+                Assert.ok(body.includes("You do not read or consult any \`.flanders/\` configuration to choose the reviewer"), "must consult no .flanders/ configuration to choose the reviewer");
+            }
+        }
+    });
+
+    test("states the inline-fallback conditions and forbids ergonomic fallback", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "permits inline fallback when the host exposes no subagent mechanism"(body) {
+                Assert.ok(body.includes("when the host AI tool exposes no subagent mechanism"), "must permit inline fallback when the host exposes no subagent mechanism");
+            },
+            "permits inline fallback on an unrecoverable subagent error"(body) {
+                Assert.ok(body.includes("unrecoverable error (spawn failure, transport error, environment refusal)"), "must permit inline fallback on an unrecoverable subagent error");
+            },
+            "requires stating the fallback and its concrete reason in chat"(body) {
+                Assert.ok(body.includes("state in chat that you are falling back and name the concrete reason"), "must require stating the fallback and its concrete reason in chat");
+            },
+            "names a silent fallback as a violation"(body) {
+                Assert.ok(body.includes("a silent fallback is a violation"), "must name a silent fallback as a violation");
+            },
+            "forbids ergonomic inline fallback"(body) {
+                Assert.ok(body.includes("Inline fallback for ergonomic reasons"), "must name ergonomic inline fallback");
+                Assert.ok(body.includes("is forbidden"), "must forbid ergonomic inline fallback");
+            }
+        }
+    });
+
+    test("embeds the shared reviewer-methodology core framed against the user's request", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "embeds the shared reviewer-methodology core verbatim"(body) {
+                Assert.ok(body.includes(reviewerMethodologyCore), "must embed the shared reviewer-methodology core verbatim");
+            },
+            "frames the spec under review as the user's request"(body) {
+                Assert.ok(body.includes("the spec under review is the user's request that you implemented"), "must frame the spec under review as the user's request");
+            },
+            "core carries change-set determination via git status --porcelain"(body) {
+                Assert.ok(body.includes("git status --porcelain"), "embedded core must carry change-set determination via git status --porcelain");
+            },
+            "core carries the empty-change-set judgment against HEAD"(body) {
+                Assert.ok(body.includes("Judge each spec element against the committed working tree at \`HEAD\`"), "embedded core must judge an empty change set against HEAD");
+            },
+            "core carries the five FAIL conditions"(body) {
+                Assert.ok(body.includes("You MUST check all five conditions below"), "embedded core must carry the five FAIL conditions");
+            },
+            "core carries the exhaustiveness obligation"(body) {
+                Assert.ok(body.includes("Exhaustiveness: do not stop at the first violation."), "embedded core must carry the exhaustiveness obligation");
+            },
+            "core carries the spec-verification protocol"(body) {
+                Assert.ok(body.includes("Spec-verification protocol"), "embedded core must carry the spec-verification protocol");
+            },
+            "core records the verdict by appending violations to the error-log file"(body) {
+                Assert.ok(body.includes("you MUST append every violation to the error-log file immediately"), "embedded core must record the verdict by appending violations to the error-log file");
+            },
+            "core creates the error-log file empty when there is no violation"(body) {
+                Assert.ok(body.includes("you must still create the error-log file as an empty file as your final act"), "embedded core must create the error-log file empty when there is no violation");
+            }
+        }
+    });
+
+    test("drives the loop from the error-log file with the three-way branch and no cap", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "provisions the verdict file as absent before each round"(body) {
+                Assert.ok(body.includes("ensure the temporary error-log file does not exist, deleting it if a previous round left one"), "must provision the verdict file as absent before each round");
+            },
+            "absent: relaunches the reviewer with no maximum count"(body) {
+                Assert.ok(body.includes("Relaunch the reviewer for the same round, repeating with no maximum count until the file exists."), "absent branch must relaunch the reviewer unbounded");
+            },
+            "absent is never read as a pass"(body) {
+                Assert.ok(body.includes("An absent file is never read as a pass."), "an absent file must never be read as a pass");
+            },
+            "present and empty: accepts and finalizes"(body) {
+                Assert.ok(body.includes("the reviewer ran to a verdict and found no violation. Accept the work; the loop ends and you finalize."), "present-and-empty branch must accept the work and finalize");
+            },
+            "present and non-empty: reworks every recorded violation"(body) {
+                Assert.ok(body.includes("Rework the implementation to address every recorded violation, then start a new review round from step 1 against a freshly-provisioned absent file."), "present-and-non-empty branch must rework every violation and start a fresh round");
+            },
+            "states there is no iteration cap"(body) {
+                Assert.ok(body.includes("There is no iteration cap"), "must state there is no iteration cap");
+            },
+            "reads the verdict only from the file, never from streamed output or exit code"(body) {
+                Assert.ok(body.includes("Read the verdict only from the file's presence and content, never from the reviewer's streamed output or its exit code."), "must read the verdict only from the file, never from streamed output or exit code");
+            }
+        }
+    });
+
+    test("finalizes without commit, plan write, or configuration write, leaving changes in the working tree", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "performs no commit or other git mutation"(body) {
+                Assert.ok(body.includes("Run no \`git add\`, \`git commit\`, or any other git command that mutates repository state."), "must perform no commit or other git mutation");
+            },
+            "leaves the implemented changes in the working tree"(body) {
+                Assert.ok(body.includes("The implemented changes are left in the working tree as an uncommitted change set"), "must leave the implemented changes in the working tree");
+            },
+            "writes or updates no plan file"(body) {
+                Assert.ok(body.includes("Create, modify, delete, or rename nothing in the \`plans/\` folder."), "must write or update no plan file");
+            },
+            "writes no Flanders configuration"(body) {
+                Assert.ok(body.includes("Write nothing to \`.flanders/\`. The skill consumes no configuration and produces none."), "must write no Flanders configuration");
+            }
+        }
+    });
+
+    test("contains no instruction for the in-session worker to produce an Evidence Report", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERT(body) {
+            Assert.ok(!body.includes("Evidence Report"), "must contain no instruction to produce an Evidence Report");
+        }
+    });
+
+    test("carries the interaction-language obligation resolved independently of the code it writes", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "has interaction language heading"(body) {
+                Assert.ok(body.includes("## Interaction language"), "must have interaction language section");
+            },
+            "user-facing messages follow the language of the user's most recent message"(body) {
+                Assert.ok(body.includes("the natural language of the user's most recent message in the conversation"), "must state user-facing messages follow the language of the user's most recent message");
+            },
+            "follows a mid-conversation language switch"(body) {
+                Assert.ok(body.includes("every subsequent message you address to the user follows the language of their latest message"), "must state the language follows a mid-conversation switch");
+            },
+            "resolved independently of the code written"(body) {
+                Assert.ok(body.includes("This is resolved independently of the code you write"), "must state the interaction language is resolved independently of the code written");
+            },
+            "never governs the language or content of the code produced"(body) {
+                Assert.ok(body.includes("never the language or content of the code you produce"), "must state it never governs the language or content of the code produced");
+            }
+        }
+    });
+
+    test("self-contained body: no flanders-internal citations and no deferral to a spec file", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "no path under contracts/, rules/, or plans/ names a specific .md file"(body) {
+                Assert.strictEqual(
+                    INTERNAL_SPEC_PATH_CITATION.test(body),
+                    false
+                );
+            },
+            "does not defer an obligation to a spec file"(body) {
+                Assert.ok(!body.includes("the full obligation lives in"), "must not defer an obligation to a spec file");
+            },
+            "does not name the work-skill contract file"(body) {
+                Assert.ok(!body.includes("work-skill.md"), "must not name the work-skill contract file");
+            },
+            "does not name the reviewer-hosted rule file"(body) {
+                Assert.ok(!body.includes("reviewer-hosted-as-in-session-subagent.md"), "must not name the reviewer-hosted rule file");
+            },
+            "does not name the review-loop rule file"(body) {
+                Assert.ok(!body.includes("review-loop-driven-by-error-log-presence.md"), "must not name the review-loop rule file");
+            },
+            "does not name the finalization rule file"(body) {
+                Assert.ok(!body.includes("finalization-without-commit-or-plan.md"), "must not name the finalization rule file");
+            },
+            "does not name the flanders-config contract file"(body) {
+                Assert.ok(!body.includes("flanders-config.md"), "must not name the flanders-config contract file");
+            },
+            "does not name the spec-folder-write-authority contract file"(body) {
+                Assert.ok(!body.includes("spec-folder-write-authority.md"), "must not name the spec-folder-write-authority contract file");
+            }
+        }
+    });
+
+    test("states the spec-folder write boundary binding the work and the reviewer", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "binds both the work and the reviewer subagent"(body) {
+                Assert.ok(body.includes("Neither the work you perform nor the reviewer subagent creates, modifies, deletes, or renames any file inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder."), "must forbid the work and the reviewer from writing inside .docs/contracts, .docs/rules, or plans/");
+            },
+            "allows reading the spec corpus but never writing to it"(body) {
+                Assert.ok(body.includes("consult them freely but never write to them"), "must allow consulting the spec corpus but never writing to it");
+            }
+        }
+    });
+
+    test("the embedded reviewer prompt states the git and foreground boundaries citation-free", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "states the read-only git boundary"(body) {
+                Assert.ok(body.includes("It runs only read-only git commands"), "must state the reviewer runs only read-only git commands");
+            },
+            "forbids commands that mutate repository state"(body) {
+                Assert.ok(body.includes("never a command that mutates repository state"), "must forbid commands that mutate repository state");
+            },
+            "states the foreground boundary"(body) {
+                Assert.ok(body.includes("It runs every command it executes in the foreground and keeps its turn active until that command finishes"), "must state the reviewer runs every command in the foreground");
+            },
+            "forbids backgrounding a command"(body) {
+                Assert.ok(body.includes("never starts a command in the background, never detaches one, and never ends its turn while a spawned command is still running"), "must forbid backgrounding or detaching a command");
+            }
+        }
+    });
+
+    test("has no unresolved placeholders or TODOs", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "does not contain TODO"(body) {
+                Assert.ok(!body.includes("TODO"), "must not contain TODO");
+            },
+            "does not contain {{ placeholders"(body) {
+                Assert.ok(!body.includes("{{"), "must not contain {{ placeholders");
+            },
+            "does not contain }} placeholders"(body) {
+                Assert.ok(!body.includes("}}"), "must not contain }} placeholders");
             }
         }
     });
