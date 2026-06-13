@@ -6,7 +6,7 @@ import { prompts, reviewerMethodologyCore } from "./prompts";
 
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
 
-const EXPECTED_CLAIM_CLASSIFICATION =
+const EXPECTED_CLAIM_CLASSIFICATION_CORE =
 `Classify every claim by ONE question: what kind of signal would soundly observe a plausible regression of the claim? Place the claim in exactly one of these three branches, and name the concrete observer the branch requires — an automated failure, an asserting test, or reviewer inspection.
 
 - **Toolchain-guarded** — a plausible regression triggers an automated failure signal WITHOUT any new test being added: a build error, a type error, a linker error, a linter or other static-analysis error from a checker the project actually runs, an existing test failing, or a runtime crash on a code path the test suite already exercises. The evidence is a \`file:line\` citation in the change plus the name of the automated failure a regression would trigger. A linter signal qualifies only when the project actually runs that linter as part of its build or test flow.
@@ -15,15 +15,42 @@ const EXPECTED_CLAIM_CLASSIFICATION =
 
 Literal content, absence of a pattern, order, and count are classified by observability. When the property is observable through the public surface, it is test-guarded and needs an exact-match, zero-match or recorded-call, positional, or counting assertion that would fail under the regression. When the property is observable only by reading the subject's source as text, it is review-adjudicated. Semantic-judgment properties are always review-adjudicated.
 
-A claim that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") needs N independent guards; evidence covering only K of N facts (K < N) leaves the uncovered facts unguarded even when they currently hold. An enumerated-minimum guard list is a floor, never a ceiling.
+A claim that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") needs N independent guards; evidence covering only K of N facts (K < N) leaves the uncovered facts unguarded even when they currently hold. An enumerated-minimum guard list is a floor, never a ceiling.`;
 
-When a test-guarded regression argument cannot be soundly constructed — the asserting call would still pass under a regression the claim forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
+const EXPECTED_WORKER_TOOLCHAIN_RERUN_STEP =
+`When a test-guarded regression argument cannot be soundly constructed — the asserting call would still pass under a regression the claim forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
+
+// The full worker-facing taxonomy is the core followed by the worker-only step. The reviewer
+// prohibition split leaves the worker text unchanged, so this still matches it verbatim.
+const EXPECTED_CLAIM_CLASSIFICATION = `${EXPECTED_CLAIM_CLASSIFICATION_CORE}
+
+${EXPECTED_WORKER_TOOLCHAIN_RERUN_STEP}`;
+
+// The citation-free core the shared reviewer-methodology core embeds: the canonical core with
+// its single flanders-internal citation removed.
+const EXPECTED_CLAIM_CLASSIFICATION_CORE_CITATION_FREE = EXPECTED_CLAIM_CLASSIFICATION_CORE.replace(
+    " per `rules/testing/assert-via-public-surface.md`",
+    ""
+);
+
+// The surface-neutral build/test prohibition every Flanders adversarial reviewer carries.
+const EXPECTED_REVIEWER_BUILD_TEST_PROHIBITION = "You do not run the build command or the test command to establish any of this — not directly, not through the project's package manager, and not through any wrapper. By the time you review, the build and test gates have already passed against the changes under review, so you rely on that already-green result instead of producing it again: you confirm a toolchain-guarded claim by naming the automated failure — a build, type, link, lint, or runtime failure — that a regression would trigger, and you confirm a test-guarded claim by naming the asserting test whose assertion a regression would trip. The only commands you run are the read-only git operations that derive the change set.";
 
 const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per `rules/ai/agents/evidence/scope-driven-self-audit.md`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (its path relative to the project root), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape are classified by observability: a test-observable absence needs a search-based or recorded-call assertion that confirms zero matches over the observable surface, while a source-text structural absence or semantic-judgment absence is review-adjudicated and must not be guarded by a test that reads source as text. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per `rules/ai/agents/evidence/enumerated-claim-coverage.md`.";
 
 function claimClassificationBlock(template: string, endMarker: string) {
     const start = template.indexOf("Classify every claim by ONE question:");
     const end = template.indexOf(endMarker, start);
+    return template.substring(start, end);
+}
+
+// Extract just the classification core (the three branches, the observability paragraph, and
+// the N-independent-facts paragraph) from any prompt that embeds it, stopping at the shared
+// closing sentence so neither the worker-only step nor the reviewer prohibition is included.
+function claimClassificationCoreBlock(template: string) {
+    const start = template.indexOf("Classify every claim by ONE question:");
+    const endMarker = "An enumerated-minimum guard list is a floor, never a ceiling.";
+    const end = template.indexOf(endMarker, start) + endMarker.length;
     return template.substring(start, end);
 }
 
@@ -818,29 +845,31 @@ test.describe("prompts – reviewer – acceptance-criteria classification taxon
             },
             "N-facts-need-N-guards rule"(template) {
                 Assert.ok(template.includes("needs N independent guards"));
-            },
-            "test-guarded regression-argument soundness step"(template) {
-                Assert.ok(template.includes("When a test-guarded regression argument cannot be soundly constructed"));
             }
         }
     });
 
-    test("shares the exact taxonomy block with the worker prompt", {
+    test("shares the classification core with the worker but carries it without the worker-only step", {
         ARRANGE() {},
         ACT() {
-            const workerBlock = claimClassificationBlock(prompts.worker, "\n\n   **Rule claims**");
-            const reviewerBlock = claimClassificationBlock(prompts.reviewer, "\n\n## Review protocol");
-            return { workerBlock, reviewerBlock };
+            return {
+                workerCore: claimClassificationCoreBlock(prompts.worker),
+                reviewerCore: claimClassificationCoreBlock(prompts.reviewer),
+                methodologyCore: claimClassificationCoreBlock(reviewerMethodologyCore)
+            };
         },
         ASSERTS: {
-            "worker block is byte-equal to the canonical wording"(blocks) {
-                Assert.strictEqual(blocks.workerBlock, EXPECTED_CLAIM_CLASSIFICATION);
+            "worker core is byte-equal to the canonical citation-bearing core"(cores) {
+                Assert.strictEqual(cores.workerCore, EXPECTED_CLAIM_CLASSIFICATION_CORE);
             },
-            "reviewer block is byte-equal to the canonical wording"(blocks) {
-                Assert.strictEqual(blocks.reviewerBlock, EXPECTED_CLAIM_CLASSIFICATION);
+            "reviewer core is byte-equal to the canonical citation-bearing core"(cores) {
+                Assert.strictEqual(cores.reviewerCore, EXPECTED_CLAIM_CLASSIFICATION_CORE);
             },
-            "reviewer block matches the worker block"(blocks) {
-                Assert.strictEqual(blocks.reviewerBlock, blocks.workerBlock);
+            "methodology core is the canonical core with the citation stripped"(cores) {
+                Assert.strictEqual(cores.methodologyCore, EXPECTED_CLAIM_CLASSIFICATION_CORE_CITATION_FREE);
+            },
+            "reviewer core matches the worker core"(cores) {
+                Assert.strictEqual(cores.reviewerCore, cores.workerCore);
             }
         }
     });
@@ -934,11 +963,11 @@ test.describe("prompts – reviewer – acceptance-criteria classification taxon
         }
     });
 
-    test("contains the test-guarded regression-argument-soundness conclusion", {
+    test("omits the worker-only too-weak/soundness conclusion — the reviewer never runs the toolchain", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERT(template) {
-            Assert.ok(template.includes("the assertion is too weak"));
+            Assert.strictEqual(template.includes("the assertion is too weak"), false);
         }
     });
 });
@@ -1497,6 +1526,103 @@ test.describe("reviewerMethodologyCore", test => {
             },
             "both carry the verdict-recording obligation"({ core, reviewer }) {
                 Assert.ok(core.includes("does not parse your output for a verdict token") && reviewer.includes("does not parse your output for a verdict token"));
+            }
+        }
+    });
+});
+
+test.describe("prompts – reviewer does not run build or test", test => {
+    test("prompts.reviewer carries the surface-neutral build/test prohibition", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "contains the prohibition paragraph verbatim"(reviewer) {
+                Assert.ok(reviewer.includes(EXPECTED_REVIEWER_BUILD_TEST_PROHIBITION));
+            },
+            "states it runs no build or test command via any of the three channels"(reviewer) {
+                Assert.ok(reviewer.includes("You do not run the build command or the test command to establish any of this — not directly, not through the project's package manager, and not through any wrapper."));
+            },
+            "confirms a toolchain-guarded claim by naming the automated failure"(reviewer) {
+                Assert.ok(reviewer.includes("you confirm a toolchain-guarded claim by naming the automated failure"));
+            },
+            "confirms a test-guarded claim by naming the asserting test a regression would trip"(reviewer) {
+                Assert.ok(reviewer.includes("you confirm a test-guarded claim by naming the asserting test whose assertion a regression would trip"));
+            },
+            "relies on the build and test gates that already passed before the review"(reviewer) {
+                Assert.ok(reviewer.includes("the build and test gates have already passed against the changes under review, so you rely on that already-green result"));
+            }
+        }
+    });
+
+    test("reviewerMethodologyCore states the same prohibition, citation-free", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERTS: {
+            "contains the prohibition paragraph verbatim"(core) {
+                Assert.ok(core.includes(EXPECTED_REVIEWER_BUILD_TEST_PROHIBITION));
+            },
+            "carries no flanders-internal spec-path citation"(core) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(core), false);
+            },
+            "carries no .md path at all"(core) {
+                Assert.strictEqual(core.includes(".md"), false);
+            }
+        }
+    });
+
+    test("neither reviewer surface re-runs the toolchain or carries the worker-only step", {
+        ARRANGE() {},
+        ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "prompts.reviewer omits the phrase re-run the toolchain"({ reviewer }) {
+                Assert.strictEqual(reviewer.includes("re-run the toolchain"), false);
+            },
+            "reviewerMethodologyCore omits the phrase re-run the toolchain"({ core }) {
+                Assert.strictEqual(core.includes("re-run the toolchain"), false);
+            },
+            "prompts.reviewer omits the worker-only step verbatim"({ reviewer }) {
+                Assert.strictEqual(reviewer.includes(EXPECTED_WORKER_TOOLCHAIN_RERUN_STEP), false);
+            },
+            "reviewerMethodologyCore omits the worker-only step verbatim"({ core }) {
+                Assert.strictEqual(core.includes(EXPECTED_WORKER_TOOLCHAIN_RERUN_STEP), false);
+            },
+            "prompts.reviewer omits the worker-only too-weak conclusion"({ reviewer }) {
+                Assert.strictEqual(reviewer.includes("the assertion is too weak"), false);
+            },
+            "reviewerMethodologyCore omits the worker-only too-weak conclusion"({ core }) {
+                Assert.strictEqual(core.includes("the assertion is too weak"), false);
+            }
+        }
+    });
+
+    test("prompts.worker keeps the worker-only toolchain-rerun step intact", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERTS: {
+            "contains the worker-only step verbatim"(worker) {
+                Assert.ok(worker.includes(EXPECTED_WORKER_TOOLCHAIN_RERUN_STEP));
+            },
+            "the worker-only step ends with re-run the toolchain, and update the report."(worker) {
+                Assert.ok(worker.includes("re-run the toolchain, and update the report."));
+            }
+        }
+    });
+
+    test("the prohibition is additive — five FAIL conditions and the verification protocol survive", {
+        ARRANGE() {},
+        ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "reviewer retains the five-condition FAIL gate"({ reviewer }) {
+                Assert.ok(reviewer.includes("You MUST check all five conditions below"));
+            },
+            "reviewer retains the acceptance-criteria verification protocol heading"({ reviewer }) {
+                Assert.ok(reviewer.includes("Acceptance-criteria verification protocol"));
+            },
+            "core retains the five-condition FAIL gate"({ core }) {
+                Assert.ok(core.includes("You MUST check all five conditions below"));
+            },
+            "core retains the spec-verification protocol heading"({ core }) {
+                Assert.ok(core.includes("Spec-verification protocol"));
             }
         }
     });
