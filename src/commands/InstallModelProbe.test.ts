@@ -72,33 +72,12 @@ function makeProbeStub(opts:{
 }
 
 test.describe("probeModelList", test => {
-    test("claude tool resolves to null without spawning", {
-        ARRANGE() {
-            let spawned = false;
-            const script:ScriptContext = {
-                spawn():never { spawned = true; throw new Error("should not spawn"); }
-            };
-            return { script, wasSpawned: () => spawned };
-        },
-        async ACT({ script }) {
-            return await probeModelList("claude", script);
-        },
-        ASSERTS: {
-            "returns null"(result) {
-                Assert.strictEqual(result, null);
-            },
-            "does not spawn"(_result, { wasSpawned }) {
-                Assert.strictEqual(wasSpawned(), false);
-            }
-        }
-    });
-
     test("codex spawns `codex debug models` with stdio pipe and no --bundled flag", {
         ARRANGE() {
             return makeProbeStub({ stdout: '{"models":[{"slug":"m","visibility":"list"}]}', exitCode: 0 });
         },
         async ACT({ script }) {
-            await probeModelList("codex", script);
+            await probeModelList(script);
         },
         ASSERTS: {
             "spawns exactly once"(_result, { calls }) {
@@ -131,7 +110,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, ["gpt-5-codex", "gpt-4.1", "o3"]);
@@ -146,7 +125,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, ["visible-a", "visible-b"]);
@@ -161,7 +140,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -173,7 +152,7 @@ test.describe("probeModelList", test => {
             return makeProbeStub({ stdout: '{"models":[]}', exitCode: 0 });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -188,7 +167,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -203,7 +182,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -218,7 +197,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -233,7 +212,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -248,7 +227,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -263,7 +242,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -278,7 +257,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -293,7 +272,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -305,7 +284,7 @@ test.describe("probeModelList", test => {
             return makeProbeStub({ stdout: '"hello"', exitCode: 0 });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -317,7 +296,7 @@ test.describe("probeModelList", test => {
             return makeProbeStub({ stdout: "null", exitCode: 0 });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -332,7 +311,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -347,7 +326,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -359,7 +338,7 @@ test.describe("probeModelList", test => {
             return makeProbeStub({ stdout: "not json", exitCode: 0 });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -371,7 +350,7 @@ test.describe("probeModelList", test => {
             return makeProbeStub({ stdout: undefined, exitCode: 0 });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -386,7 +365,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -398,7 +377,7 @@ test.describe("probeModelList", test => {
             return makeProbeStub({ exitCode: null, exitSignal: "SIGTERM" });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -410,7 +389,7 @@ test.describe("probeModelList", test => {
             return makeProbeStub({ spawnError: true });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -426,7 +405,7 @@ test.describe("probeModelList", test => {
             });
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.strictEqual(result, null);
@@ -463,7 +442,7 @@ test.describe("probeModelList", test => {
             return { script };
         },
         async ACT({ script }) {
-            return await probeModelList("codex", script);
+            return await probeModelList(script);
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, ["buf-model"]);

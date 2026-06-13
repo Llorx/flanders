@@ -1,9 +1,6 @@
 import type { ScriptContext, SpawnedProcess } from "../contexts";
 
-export function probeModelList(tool:"claude"|"codex", script:ScriptContext):Promise<readonly string[]|null> {
-    if (tool === "claude") {
-        return Promise.resolve(null);
-    }
+export function probeModelList(script:ScriptContext):Promise<readonly string[]|null> {
     return new Promise<readonly string[]|null>(resolve => {
         let proc:SpawnedProcess;
         try {

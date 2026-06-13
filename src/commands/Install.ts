@@ -104,6 +104,8 @@ function validateClosedSet(value:string, allowed:readonly string[], flagName:str
 
 const CODEX_EFFORT_LEVELS:readonly string[] = ["minimal", "low", "medium", "high", "xhigh"];
 
+const CLAUDE_MODEL_ALIASES:readonly string[] = ["best", "fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku", "opusplan"];
+
 const REVIEWER_INDEXED_RE = /^--reviewer-(\d+)-(tool|model|effort)=/;
 
 export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; answers:ResolvedAnswers}>|Readonly<{ok:false; diagnostic:string}> {
@@ -219,7 +221,7 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
 
 export class Install {
     private _disposed = false;
-    private _modelProbeCache = new Map<"claude"|"codex", readonly string[]|null>();
+    private _modelProbeCache = new Map<"codex", readonly string[]|null>();
     private _runPromise:Promise<number>;
     constructor(
         rawArgs:readonly string[],
@@ -233,6 +235,39 @@ export class Install {
     result():Promise<number> {
         return this._runPromise;
     }
+    private async _resolveCuratedChoice(headerLabel:string, question:string, curatedValues:readonly string[], defaultLabel:string, customLabel:string, customPlaceholder:string, contexts:InstallContexts):Promise<string|null> {
+        const options:ChoiceOption[] = curatedValues.map(v => ({ label: v }));
+        options.push({ label: defaultLabel });
+        options.push({ label: customLabel });
+        const option = await promptChoice(contexts.ask, {
+            header: headerLabel,
+            question,
+            options
+        });
+        if (!option) {
+            return null;
+        }
+        if (this._disposed) {
+            return null;
+        }
+        if (option.label === defaultLabel) {
+            return "";
+        }
+        if (option.label === customLabel) {
+            const text = await promptText(contexts.ask, {
+                question,
+                placeholder: customPlaceholder
+            });
+            if (text === null) {
+                return null;
+            }
+            if (this._disposed) {
+                return null;
+            }
+            return text;
+        }
+        return option.label;
+    }
     private async _resolveRoleModel(roleLabel:string, headerLabel:string, tool:"claude"|"codex", suppliedModel:string|undefined, contexts:InstallContexts):Promise<string|null> {
         if (suppliedModel !== undefined) {
             return suppliedModel;
@@ -241,8 +276,19 @@ export class Install {
         if (this._disposed) {
             return null;
         }
+        if (tool === "claude") {
+            return await this._resolveCuratedChoice(
+                headerLabel,
+                `Which model should ${roleLabel} use?`,
+                CLAUDE_MODEL_ALIASES,
+                "default configured model",
+                "enter a custom value…",
+                "leave empty for the default configured model",
+                contexts
+            );
+        }
         if (!this._modelProbeCache.has(tool)) {
-            const models = await probeModelList(tool, contexts.script);
+            const models = await probeModelList(contexts.script);
             if (this._disposed) {
                 return null;
             }
