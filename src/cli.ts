@@ -21,6 +21,8 @@ import type {
 import { Flanders } from "./Flanders";
 import { ShellScriptContext } from "./system/ShellScriptContext";
 import type { KillPrimitive, RawSpawnedChild, RawSpawner } from "./system/ShellScriptContext";
+import { TerminalSizeSource } from "./ui/TerminalSizeSource";
+import type { RawTerminalSizeReader } from "./ui/TerminalSizeSource";
 import type { PlatformContext } from "./workspace/Workspace";
 
 const rawSpawn:RawSpawner = (command, args, options) => {
@@ -113,6 +115,44 @@ const randomContext:RandomContext = {
     }
 };
 
+// How often each active resize subscription re-reads the real terminal size to
+// detect a change the runtime's native resize notification did not deliver.
+const RESIZE_POLL_MS = 200;
+
+// Reads the real terminal size straight from the OS on each call. process.stdout
+// `columns`/`rows` (and `getWindowSize()`, which returns the same pair) are a
+// value cached at the last resize notification and are unreliable on Windows;
+// the TTY handle's getWindowSize re-reads the live size without that cache.
+// Returns null when the size cannot be read (e.g. stdout is not a TTY), letting
+// TerminalSizeSource apply its fallback dimensions.
+const readTerminalSize:RawTerminalSizeReader = () => {
+    const stream = process.stdout as NodeJS.WriteStream & {
+        _handle?:{ getWindowSize?:(out:number[]) => number };
+    };
+    const handle = stream._handle;
+    if (!handle || typeof handle.getWindowSize !== "function") {
+        return null;
+    }
+    const size = [0, 0];
+    const err = handle.getWindowSize(size);
+    const cols = size[0] ?? 0;
+    const rows = size[1] ?? 0;
+    if (err || cols <= 0) {
+        return null;
+    }
+    return { columns: cols, rows };
+};
+
+const terminalSize = new TerminalSizeSource(
+    readTerminalSize,
+    listener => {
+        process.stdout.on("resize", listener);
+        return () => { process.stdout.off("resize", listener); };
+    },
+    timeContext,
+    RESIZE_POLL_MS
+);
+
 const outputContext:OutputContext = {
     write(text) {
         process.stdout.write(text);
@@ -121,14 +161,13 @@ const outputContext:OutputContext = {
         process.stderr.write(text);
     },
     columns() {
-        return process.stdout.columns || 80;
+        return terminalSize.columns();
     },
     rows() {
-        return process.stdout.rows || 24;
+        return terminalSize.rows();
     },
     onResize(listener) {
-        process.stdout.on("resize", listener);
-        return () => { process.stdout.off("resize", listener); };
+        return terminalSize.onResize(listener);
     }
 };
 
@@ -297,6 +336,7 @@ const end = async () => {
     outputContext.write("Shutting down...\n");
     try {
         await flanders.dispose();
+        terminalSize.dispose();
     } catch (e) {
         outputContext.writeError(`${e instanceof Error ? e.stack ?? e.message : String(e)}\n`);
     }
