@@ -1531,6 +1531,62 @@ test.describe("skills – workSkillBody", test => {
         }
     });
 
+    test("the Procedure runs a build-and-test gate between work and review and re-runs it on iterate", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "Procedure lists a build-and-test gate step"(body) {
+                Assert.ok(body.includes("3. **Build and test gate.** Determine the project's build and test commands and run them as ordered gates, reworking until both pass, before any review runs (see Build and test below)."), "Procedure must list a build-and-test gate step");
+            },
+            "the gate step comes after the Work step"(body) {
+                Assert.ok(body.indexOf("2. **Work.**") < body.indexOf("3. **Build and test gate.**"), "the build-and-test gate step must come after the Work step");
+            },
+            "the gate step comes before the Review step"(body) {
+                Assert.ok(body.indexOf("3. **Build and test gate.**") < body.indexOf("4. **Review.**"), "the build-and-test gate step must come before the Review step");
+            },
+            "the Iterate step re-runs the gate before the next review round"(body) {
+                Assert.ok(body.includes("5. **Iterate.** While the reviewer reports violations, rework the implementation to address them, re-run the build and test gate before the next review round, and review again, with no fixed upper bound."), "the Iterate step must re-run the gate after a review-driven rework before the next review round");
+            }
+        }
+    });
+
+    test("contains a self-contained build-and-test gate section reproducing the determination and ordered-gate semantics", {
+        ARRANGE() {},
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "has a Build and test section heading"(body) {
+                Assert.ok(body.includes("## Build and test"), "must have a Build and test section heading");
+            },
+            "(a) determines the commands by inspecting the project"(body) {
+                Assert.ok(body.includes("Determine the build and test commands yourself by inspecting the project"), "must determine the build and test commands by inspecting the project");
+            },
+            "(a) determines without asking the user or consulting a configuration file"(body) {
+                Assert.ok(body.includes("do not ask the user, and do not consult any configuration file"), "must determine without asking the user or consulting a configuration file");
+            },
+            "(a) determines the build and test commands independently"(body) {
+                Assert.ok(body.includes("The build command and the test command are determined independently — either one may be determinable while the other is not."), "must determine the build and test commands independently");
+            },
+            "(b) an undeterminable command marks that gate skipped with no fallback invented"(body) {
+                Assert.ok(body.includes("A command you cannot confidently determine leaves that gate skipped, and you invent no fallback command in its place."), "must skip the gate for an undeterminable command and invent no fallback");
+            },
+            "(c) runs the build command first, then the test command"(body) {
+                Assert.ok(body.includes("Run the two gates in order: the build command first, then the test command."), "must run the build command first, then the test command");
+            },
+            "(c) runs each in the foreground without backgrounding or detaching"(body) {
+                Assert.ok(body.includes("Run each in the foreground, keeping your turn active until that command finishes — never start either in the background, never detach it, and never end your turn while it is still running."), "must run each in the foreground and never background or detach");
+            },
+            "(d) captures each command's output"(body) {
+                Assert.ok(body.includes("Capture each command's output."), "must capture each command's output");
+            },
+            "(d) reworks on a non-zero exit using the captured output then re-runs the gate"(body) {
+                Assert.ok(body.includes("A command that completes with a non-zero exit status is a failing gate: rework the implementation using that command's captured output, then run the gate again."), "must rework using the captured output on a non-zero exit and run the gate again");
+            },
+            "(e) proceeds to the review only once both gates pass, a skipped gate counting as passed"(body) {
+                Assert.ok(body.includes("Proceed to the review only once the build and test gates have both passed; a gate whose command you could not determine is skipped, and a skipped gate counts as passed."), "must proceed to the review only once both gates pass, with a skipped gate counting as passed");
+            }
+        }
+    });
+
     test("launches exactly one reviewer as a fresh-session subagent via the host tool's mechanism", {
         ARRANGE() {},
         ACT() { return workSkillBody; },
@@ -1620,6 +1676,9 @@ test.describe("skills – workSkillBody", test => {
         ARRANGE() {},
         ACT() { return workSkillBody; },
         ASSERTS: {
+            "a review round is reached only after the build and test gate passes"(body) {
+                Assert.ok(body.includes("A review round is reached only after the build and test gate has passed, so every round runs against changes that already build and pass tests."), "a review round must be reached only after the build and test gate passes");
+            },
             "provisions the verdict file as absent before each round"(body) {
                 Assert.ok(body.includes("ensure the temporary error-log file does not exist, deleting it if a previous round left one"), "must provision the verdict file as absent before each round");
             },
@@ -1632,8 +1691,8 @@ test.describe("skills – workSkillBody", test => {
             "present and empty: accepts and finalizes"(body) {
                 Assert.ok(body.includes("the reviewer ran to a verdict and found no violation. Accept the work; the loop ends and you finalize."), "present-and-empty branch must accept the work and finalize");
             },
-            "present and non-empty: reworks every recorded violation"(body) {
-                Assert.ok(body.includes("Rework the implementation to address every recorded violation, then start a new review round from step 1 against a freshly-provisioned absent file."), "present-and-non-empty branch must rework every violation and start a fresh round");
+            "present and non-empty: reworks every recorded violation then re-runs the gate"(body) {
+                Assert.ok(body.includes("Rework the implementation to address every recorded violation, re-run the build and test gate (which must pass before the review runs again), then start a new review round from step 1 against a freshly-provisioned absent file."), "present-and-non-empty branch must rework every violation, re-run the gate, and start a fresh round");
             },
             "states there is no iteration cap"(body) {
                 Assert.ok(body.includes("There is no iteration cap"), "must state there is no iteration cap");

@@ -1,6 +1,6 @@
 # The `/flanders-work` review loop is driven by the presence and content of a temporary error-log file
 
-After it performs the work, the `/flanders-work` skill drives its work-then-review loop entirely from a temporary error-log file — the reviewer's verdict file. Before each review round the skill provisions that file as absent; the reviewer writes its verdict into it per the shared verdict rule; and the skill then branches on whether the file is absent, present and empty, or present and non-empty. The loop has no fixed upper bound.
+After it performs the work, the `/flanders-work` skill drives its work-then-review loop entirely from a temporary error-log file — the reviewer's verdict file. Before each review round the skill provisions that file as absent; the reviewer writes its verdict into it per the shared verdict rule; and the skill then branches on whether the file is absent, present and empty, or present and non-empty. The loop has no fixed upper bound. Each review round is preceded by the build and test gates passing, per `.docs/contracts/ai-skills/work-skill.md` and `.docs/contracts/shared/build-test-validation.md`, so the reviewer only ever runs against changes that already build and pass tests.
 
 ## Who this applies to
 
@@ -18,7 +18,7 @@ For each review round:
 3. **Branch on the file once the reviewer has completed:**
    - **Absent** — the reviewer did not produce the file it was required to produce, so it did not run to a verdict. The skill relaunches the reviewer for the same review round, repeating with no maximum count until the file exists. An absent file is never read as a pass.
    - **Present and empty** — the reviewer ran to a verdict and found no violation. The work is accepted; the loop ends and the skill finalizes per `src/prompts/.docs/rules/ai/skills/work/finalization-without-commit-or-plan.md`.
-   - **Present and non-empty** — the reviewer ran to a verdict and recorded violations. The skill reworks the implementation to address every recorded violation, then starts a new review round from step 1 against a freshly-provisioned absent file.
+   - **Present and non-empty** — the reviewer ran to a verdict and recorded violations. The skill reworks the implementation to address every recorded violation, re-runs the build and test gates per `.docs/contracts/ai-skills/work-skill.md` (which must pass before the review runs again), then starts a new review round from step 1 against a freshly-provisioned absent file.
 
 4. **No fixed upper bound.** The work-then-review cycle repeats until a round ends with a present empty file. There is no iteration cap; the user interrupts the session to stop it.
 

@@ -386,13 +386,22 @@ The user invokes you as: /flanders-work [<data>]
 
 1. Resolve the input from the invocation rule above. This request is the spec under review for the rest of the run.
 2. **Work.** Implement the request directly in this session (see Performing the work below).
-3. **Review.** Validate the result through a single adversarial reviewer you run as a subagent (see The reviewer and The review loop below).
-4. **Iterate.** While the reviewer reports violations, rework the implementation to address them and review again, with no fixed upper bound.
-5. **Finish.** When a review reports no violations, finalize without committing, without writing a plan, and without writing any configuration (see Finalization below).
+3. **Build and test gate.** Determine the project's build and test commands and run them as ordered gates, reworking until both pass, before any review runs (see Build and test below).
+4. **Review.** Validate the result through a single adversarial reviewer you run as a subagent (see The reviewer and The review loop below).
+5. **Iterate.** While the reviewer reports violations, rework the implementation to address them, re-run the build and test gate before the next review round, and review again, with no fixed upper bound.
+6. **Finish.** When a review reports no violations, finalize without committing, without writing a plan, and without writing any configuration (see Finalization below).
 
 ## Performing the work
 
 Implement the request directly in this session: edit the project's code and update or extend its tests so the new behavior is covered. Honor every contract, rule, and behavior rule in the project's spec corpus whose scope your changes touch — discovered across the project's \`.docs\` folders (the files under each \`.docs/contracts\` folder are contracts, the files under each \`.docs/rules\` folder are rules, and the files under each \`.docs/flanders\` folder are behavior rules) — whether or not the request names them. A contract or rule whose scope your changes touch is binding even when the request never mentions it; a behavior rule whose \`.docs/flanders\` scope encloses a file you author or change governs how you name, place, and organize that file. Treat the corpus as part of your specification, not optional reading.
+
+## Build and test
+
+Once the work is done, gate it through the project's build and test before any review runs. Determine the build and test commands yourself by inspecting the project — recognizing what kind of project it is and the build and test commands it exposes (for example, the \`build\` and \`test\` scripts a Node.js project exposes, or the compiler or build-system invocation a C++ project uses). Determine them by reading the project itself: do not ask the user, and do not consult any configuration file. The build command and the test command are determined independently — either one may be determinable while the other is not. A command you cannot confidently determine leaves that gate skipped, and you invent no fallback command in its place.
+
+Run the two gates in order: the build command first, then the test command. Run each in the foreground, keeping your turn active until that command finishes — never start either in the background, never detach it, and never end your turn while it is still running. Capture each command's output. A command that completes with a non-zero exit status is a failing gate: rework the implementation using that command's captured output, then run the gate again. Repeat until the build and test gates have both passed.
+
+Proceed to the review only once the build and test gates have both passed; a gate whose command you could not determine is skipped, and a skipped gate counts as passed.
 
 ## Spec-folder write boundary
 
@@ -430,14 +439,14 @@ The reviewer is inspection-only. Its prompt also states the boundaries every Fla
 
 ## The review loop
 
-Drive the work-then-review cycle entirely from a temporary error-log file — the reviewer's verdict file. For each review round:
+Drive the work-then-review cycle entirely from a temporary error-log file — the reviewer's verdict file. A review round is reached only after the build and test gate has passed, so every round runs against changes that already build and pass tests. For each review round:
 
 1. **Provision the verdict file as absent.** Before launching the reviewer, ensure the temporary error-log file does not exist, deleting it if a previous round left one, so the reviewer recreating it is observable. Pass the reviewer the path to that file.
 2. **Launch the reviewer and wait for it to complete.** Spawn the reviewer as described above and wait until it finishes.
 3. **Branch on the file once the reviewer has completed:**
    - **Absent** — the reviewer did not produce the file it was required to produce, so it did not run to a verdict. Relaunch the reviewer for the same round, repeating with no maximum count until the file exists. An absent file is never read as a pass.
    - **Present and empty** — the reviewer ran to a verdict and found no violation. Accept the work; the loop ends and you finalize.
-   - **Present and non-empty** — the reviewer ran to a verdict and recorded violations. Rework the implementation to address every recorded violation, then start a new review round from step 1 against a freshly-provisioned absent file.
+   - **Present and non-empty** — the reviewer ran to a verdict and recorded violations. Rework the implementation to address every recorded violation, re-run the build and test gate (which must pass before the review runs again), then start a new review round from step 1 against a freshly-provisioned absent file.
 4. **No fixed upper bound.** The cycle repeats until a round ends with a present empty file. There is no iteration cap; the user interrupts the session to stop it.
 
 Read the verdict only from the file's presence and content, never from the reviewer's streamed output or its exit code.

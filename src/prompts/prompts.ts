@@ -11,7 +11,11 @@ export const enum Placeholders {
     BEHAVIOR_RULE_LIST = "<BEHAVIOR_RULE_LIST>"
 }
 
-const claimClassification =
+// The classification core handed to every Flanders subagent that grades a claim. It is the
+// three branches plus the observability paragraph and the N-independent-facts paragraph, and
+// nothing more: the worker-only closing step lives in `workerToolchainRerunStep` so it never
+// reaches a reviewer surface.
+const claimClassificationCore =
 `Classify every claim by ONE question: what kind of signal would soundly observe a plausible regression of the claim? Place the claim in exactly one of these three branches, and name the concrete observer the branch requires — an automated failure, an asserting test, or reviewer inspection.
 
 - **Toolchain-guarded** — a plausible regression triggers an automated failure signal WITHOUT any new test being added: a build error, a type error, a linker error, a linter or other static-analysis error from a checker the project actually runs, an existing test failing, or a runtime crash on a code path the test suite already exercises. The evidence is a \`file:line\` citation in the change plus the name of the automated failure a regression would trigger. A linter signal qualifies only when the project actually runs that linter as part of its build or test flow.
@@ -20,18 +24,30 @@ const claimClassification =
 
 Literal content, absence of a pattern, order, and count are classified by observability. When the property is observable through the public surface, it is test-guarded and needs an exact-match, zero-match or recorded-call, positional, or counting assertion that would fail under the regression. When the property is observable only by reading the subject's source as text, it is review-adjudicated. Semantic-judgment properties are always review-adjudicated.
 
-A claim that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") needs N independent guards; evidence covering only K of N facts (K < N) leaves the uncovered facts unguarded even when they currently hold. An enumerated-minimum guard list is a floor, never a ceiling.
+A claim that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") needs N independent guards; evidence covering only K of N facts (K < N) leaves the uncovered facts unguarded even when they currently hold. An enumerated-minimum guard list is a floor, never a ceiling.`;
 
-When a test-guarded regression argument cannot be soundly constructed — the asserting call would still pass under a regression the claim forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
+// The worker-only closing step of the classification taxonomy. Only the worker produces the
+// work and runs the toolchain, so only the worker is told to strengthen a too-weak assertion
+// and re-run. No adversarial reviewer runs build or test — it confirms toolchain- and
+// test-guarded claims by naming the signal — so this sentence is kept out of the taxonomy
+// handed to either reviewer surface (see rules/ai/review/reviewer-does-not-run-build-or-test.md).
+const workerToolchainRerunStep =
+`When a test-guarded regression argument cannot be soundly constructed — the asserting call would still pass under a regression the claim forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
+
+// The full worker-facing taxonomy: the classification core followed by the worker-only step.
+const claimClassification = `${claimClassificationCore}
+
+${workerToolchainRerunStep}`;
 
 const foregroundBoundary =
 `Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. You must not start any command in the background and must not end your turn while a command you spawned is still running. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example \`run_in_background: true\`), shell-level detachment (a trailing \`&\`, \`nohup\`, \`setsid\`, \`disown\`, \`start\`, \`Start-Process\`, \`Start-Job\`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.`;
 
-// Citation-free variant of the claim-classification taxonomy: the same text as
-// `claimClassification` with the only flanders-internal citation it carries removed,
-// so the surface-agnostic reviewer-methodology core stays citation-free. The implement
-// reviewer keeps the citation-bearing `claimClassification`; the shared core uses this one.
-const claimClassificationCitationFree = claimClassification.replace(
+// Citation-free variant of the classification core: the same text as `claimClassificationCore`
+// with the only flanders-internal citation it carries removed, so the surface-agnostic
+// reviewer-methodology core stays citation-free. Both reviewer surfaces use the core without
+// the worker-only step: the implement reviewer keeps the citation-bearing `claimClassificationCore`,
+// and the shared citation-free core uses this one.
+const claimClassificationCitationFree = claimClassificationCore.replace(
     " per `rules/testing/assert-via-public-surface.md`",
     ""
 );
@@ -104,6 +120,8 @@ b. For each enumerated ${s.critRefShort}, classify it by the regression-signal q
 
 ${s.taxonomy}
 
+You do not run the build command or the test command to establish any of this — not directly, not through the project's package manager, and not through any wrapper. By the time you review, the build and test gates have already passed against the changes under review, so you rely on that already-green result instead of producing it again: you confirm a toolchain-guarded claim by naming the automated failure — a build, type, link, lint, or runtime failure — that a regression would trigger, and you confirm a test-guarded claim by naming the asserting test whose assertion a regression would trip. The only commands you run are the read-only git operations that derive the change set.
+
 ## Review protocol
 
 ${s.reviewProtocolIntro}
@@ -156,7 +174,7 @@ const implementReviewerSurface: ReviewerMethodologySurface = {
     nextWorker: "the next worker",
     critProtocolHeading: "Acceptance-criteria verification protocol",
     ownerChangesEvidence: "the worker's working-tree changes",
-    taxonomy: claimClassification,
+    taxonomy: claimClassificationCore,
     reviewProtocolIntro: "Use the three-section claim checklist to audit the full working tree — applying `rules/ai/agents/evidence-report.md` as a checklist structure, the classification framework from `rules/ai/agents/evidence/claim-evidence-classification.md`, and the N-fact-coverage discipline from `rules/ai/agents/evidence/enumerated-claim-coverage.md` to every claim. The checklist is your internal audit framework for discovering violations; it is not a deliverable you emit as final output.",
     ownerChangesShort: "the worker's changes",
     errorLogPath: `\`${Placeholders.ERROR_LOG_PATH}\``,
