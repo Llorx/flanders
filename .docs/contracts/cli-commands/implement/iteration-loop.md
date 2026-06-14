@@ -35,6 +35,8 @@ Each iteration walks through the stages below in order. Any stage that fails wri
    - Instructions stating that, if the implementation changes how the project builds or how its tests run, the worker also updates the build and test scripts inside the temporary folder.
    - On every iteration after the first, the previous-iteration briefing (see below).
 
+   When the worker invocation completes, and before the build gate runs, the orchestrator stages every change in the working tree with `git add -A`, so the worker's output — including any files it created that were never tracked — is in the index for the gates that follow and for the eventual commit (see [.docs/contracts/cli-commands/implement/git-integration.md](/.docs/contracts/cli-commands/implement/git-integration.md)).
+
 3. **Build stage.** Run the build gate — the build script (when one exists) — per the gate semantics of [.docs/contracts/shared/build-test-validation.md](/.docs/contracts/shared/build-test-validation.md). On a failing gate, capture both stdout and stderr to the `error.log` file inside the temporary folder and restart the inner loop.
 
 4. **Test stage.** Run the test gate — the test script (when one exists) — per the gate semantics of [.docs/contracts/shared/build-test-validation.md](/.docs/contracts/shared/build-test-validation.md). On a failing gate, capture both stdout and stderr to the `error.log` file and restart the inner loop.
