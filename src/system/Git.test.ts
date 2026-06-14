@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import * as path from "path";
 
-import { isGitAvailable, isInsideWorkTree, countPendingChangesExcept, addAll, commit, listNonIgnoredFiles, listIgnoredPaths } from "./Git";
+import { isGitAvailable, isInsideWorkTree, countUnstagedChangesExcept, addAll, commit, listNonIgnoredFiles, listIgnoredPaths } from "./Git";
 import type { OutputContext, ScriptContext, SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 
 type FakeProcess = SpawnedProcess & {
@@ -302,7 +302,21 @@ test.describe("isInsideWorkTree", test => {
 
 const CWD = path.resolve("/project");
 
-test.describe("countPendingChangesExcept", test => {
+// Builds a ScriptContext whose `git status` spawn emits the given porcelain stdout and exits 0.
+function statusScript(stdout:string):ScriptContext {
+    return {
+        spawn() {
+            const proc = fakeProcess();
+            setImmediate(() => {
+                if (stdout) proc.$emitStdout(stdout);
+                proc.$emit("exit", 0);
+            });
+            return proc;
+        }
+    };
+}
+
+test.describe("countUnstagedChangesExcept", test => {
     test("returns 0 with empty stdout", {
         ARRANGE() {
             const script:ScriptContext = {
@@ -315,7 +329,7 @@ test.describe("countPendingChangesExcept", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
             Assert.strictEqual(result, 0);
@@ -337,7 +351,7 @@ test.describe("countPendingChangesExcept", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
             Assert.strictEqual(result, 0);
@@ -359,7 +373,7 @@ test.describe("countPendingChangesExcept", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
             Assert.strictEqual(result, 2);
@@ -372,7 +386,7 @@ test.describe("countPendingChangesExcept", test => {
                 spawn() {
                     const proc = fakeProcess();
                     setImmediate(() => {
-                        proc.$emitStdout("R  old/plan.md -> plans/plan.md\n");
+                        proc.$emitStdout("RM old/plan.md -> plans/plan.md\n");
                         proc.$emit("exit", 0);
                     });
                     return proc;
@@ -381,7 +395,7 @@ test.describe("countPendingChangesExcept", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
             Assert.strictEqual(result, 0);
@@ -403,7 +417,7 @@ test.describe("countPendingChangesExcept", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
             Assert.strictEqual(result, 0);
@@ -425,7 +439,7 @@ test.describe("countPendingChangesExcept", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
             Assert.strictEqual(result, 2);
@@ -447,7 +461,7 @@ test.describe("countPendingChangesExcept", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countPendingChangesExcept(script, time, CWD, "./plans/plan.md");
+            return await countUnstagedChangesExcept(script, time, CWD, "./plans/plan.md");
         },
         ASSERT(result) {
             Assert.strictEqual(result, 0);
@@ -469,7 +483,7 @@ test.describe("countPendingChangesExcept", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countPendingChangesExcept(script, time, CWD, CWD + "/plans/plan.md");
+            return await countUnstagedChangesExcept(script, time, CWD, CWD + "/plans/plan.md");
         },
         ASSERT(result) {
             Assert.strictEqual(result, 0);
@@ -491,7 +505,7 @@ test.describe("countPendingChangesExcept", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countPendingChangesExcept(script, time, CWD, "plans/sub/../plan.md");
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/sub/../plan.md");
         },
         ASSERT(result) {
             Assert.strictEqual(result, 0);
@@ -514,7 +528,7 @@ test.describe("countPendingChangesExcept", test => {
                 return { script, time: stubTime() };
             },
             async ACT({ script, time }) {
-                return await countPendingChangesExcept(script, time, CWD, "plans\\plan.md");
+                return await countUnstagedChangesExcept(script, time, CWD, "plans\\plan.md");
             },
             ASSERT(result) {
                 Assert.strictEqual(result, 0);
@@ -536,7 +550,7 @@ test.describe("countPendingChangesExcept", test => {
                 return { script, time: stubTime() };
             },
             async ACT({ script, time }) {
-                return await countPendingChangesExcept(script, time, CWD, ".\\plans\\plan.md");
+                return await countUnstagedChangesExcept(script, time, CWD, ".\\plans\\plan.md");
             },
             ASSERT(result) {
                 Assert.strictEqual(result, 0);
@@ -558,7 +572,7 @@ test.describe("countPendingChangesExcept", test => {
                 return { script, time: stubTime() };
             },
             async ACT({ script, time }) {
-                return await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+                return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
             },
             ASSERT(result) {
                 Assert.strictEqual(result, 0);
@@ -583,7 +597,7 @@ test.describe("countPendingChangesExcept", test => {
         async ACT({ script, time }) {
             let caught:Error|null = null;
             try {
-                await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+                await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
             } catch (e) {
                 caught = e as Error;
             }
@@ -609,7 +623,7 @@ test.describe("countPendingChangesExcept", test => {
             return { script, time: stubTime(), captured: () => captured };
         },
         async ACT({ script, time }) {
-            await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+            await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
         },
         ASSERTS: {
             "command is git"(_result, { captured }) {
@@ -638,7 +652,7 @@ test.describe("countPendingChangesExcept", test => {
         async ACT({ script, time }) {
             let caught:Error|null = null;
             try {
-                await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+                await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
             } catch (e) {
                 caught = e as Error;
             }
@@ -668,7 +682,7 @@ test.describe("countPendingChangesExcept", test => {
         async ACT({ script, time }) {
             let caught:Error|null = null;
             try {
-                await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+                await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
             } catch (e) {
                 caught = e as Error;
             }
@@ -690,7 +704,7 @@ test.describe("countPendingChangesExcept", test => {
                 spawn() {
                     const proc = fakeProcess();
                     setImmediate(() => {
-                        proc.$emitStdout("R  some-renamed-file.ts\n");
+                        proc.$emitStdout("RM some-renamed-file.ts\n");
                         proc.$emit("exit", 0);
                     });
                     return proc;
@@ -699,7 +713,7 @@ test.describe("countPendingChangesExcept", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
             Assert.strictEqual(result, 1);
@@ -721,10 +735,97 @@ test.describe("countPendingChangesExcept", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countPendingChangesExcept(script, time, CWD, "plans/plan.md");
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
             Assert.strictEqual(result, 1);
+        }
+    });
+
+    test("staged-only modification (\"M \") is not counted", {
+        ARRANGE() {
+            return { script: statusScript("M  src/foo.ts\n"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, 0);
+        }
+    });
+
+    test("staged-only addition (\"A \") is not counted", {
+        ARRANGE() {
+            return { script: statusScript("A  src/foo.ts\n"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, 0);
+        }
+    });
+
+    test("staged-only deletion (\"D \") is not counted", {
+        ARRANGE() {
+            return { script: statusScript("D  src/foo.ts\n"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, 0);
+        }
+    });
+
+    test("staged-only rename (\"R \") is not counted", {
+        ARRANGE() {
+            return { script: statusScript("R  old.ts -> new.ts\n"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, 0);
+        }
+    });
+
+    test("partially-staged modification (\"MM\") is counted", {
+        ARRANGE() {
+            return { script: statusScript("MM src/foo.ts\n"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, 1);
+        }
+    });
+
+    test("partially-staged rename (\"RM\") is counted", {
+        ARRANGE() {
+            return { script: statusScript("RM old.ts -> new.ts\n"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, 1);
+        }
+    });
+
+    test("counts only the unstaged entries in a mixed list, excluding the plan path", {
+        ARRANGE() {
+            // ` M` unstaged (counted), `M ` staged-only (not counted), `??` untracked (counted),
+            // `MM` partially-staged on the plan path (excluded), `A ` staged-only (not counted).
+            const stdout = " M src/a.ts\nM  src/b.ts\n?? src/c.ts\nMM plans/plan.md\nA  src/d.ts\n";
+            return { script: statusScript(stdout), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, 2);
         }
     });
 });

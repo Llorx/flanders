@@ -6,7 +6,7 @@ import type { ToolAdapter, ToolName } from "../ai/ToolAdapter";
 import type { FlandersConfig, FlandersRole } from "../workspace/FlandersConfig";
 import { read as readConfig } from "../workspace/FlandersConfig";
 import { isNonEmptyFile, joinPath, listFilesRecursive } from "../system/fsUtils";
-import { isGitAvailable, isInsideWorkTree, countPendingChangesExcept, addAll, commit } from "../system/Git";
+import { isGitAvailable, isInsideWorkTree, countUnstagedChangesExcept, addAll, commit } from "../system/Git";
 import { discoverSpecs } from "../workspace/SpecDiscovery";
 import { PlanFile, PlanTask } from "../plan/PlanFile";
 import { Placeholders, prompts } from "../prompts/prompts";
@@ -188,9 +188,9 @@ export class Implement {
                 this._finalizeBlock("Failed");
                 return 1;
             }
-            const pending = await countPendingChangesExcept(this._contexts.script, this._contexts.time, this._options.projectRoot, planPath);
+            const pending = await countUnstagedChangesExcept(this._contexts.script, this._contexts.time, this._options.projectRoot, planPath);
             if (pending > 0) {
-                this._buffered.writeError("Working tree has uncommitted changes. Please commit or stash them before re-running.\n");
+                this._buffered.writeError("Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n");
                 this._finalizeBlock("Failed");
                 return 1;
             }

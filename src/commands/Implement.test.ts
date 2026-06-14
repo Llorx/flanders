@@ -831,9 +831,10 @@ test.describe("Implement block present on early routes", test => {
                 Assert.ok(written.join("").includes(SEP.repeat(80)));
             },
             "error text appears via writeAbove (preceded by block clear)"(_code, { written }) {
+                const msg = "Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n";
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes("commit or stash"), "error text should appear in output");
-                const clearIdx = allOutput.lastIndexOf(CLEAR_SEQ, allOutput.indexOf("commit or stash"));
+                Assert.ok(written.includes(msg), "exact unstaged diagnostic should appear in output");
+                const clearIdx = allOutput.lastIndexOf(CLEAR_SEQ, allOutput.indexOf(msg));
                 Assert.ok(clearIdx !== -1, "error should be preceded by block clear");
             }
         }
@@ -3346,6 +3347,43 @@ test.describe("Implement git preflight", test => {
         }
     });
 
+    test("working tree with only staged changes — preflight passes and the run proceeds to workspace setup", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });               // git --version
+            s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });          // rev-parse --is-inside-work-tree
+            s.gitQueue.push({ code: 0, stdout: "M  src/foo.ts\n", stderr: "" }); // status: staged-only change (index col set, worktree col is a space)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });               // ls-files discovery (empty → empty lists)
+            s.claudeQueue.push({ text: "ok" });
+            // prep
+            s.claudeQueue.push(PREP_RESPONSE);
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            // git add + commit after task accepted
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0 (staged-only changes do not fail the preflight)"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the preflight ran git status"(_code, { gitSpawns }) {
+                Assert.deepStrictEqual(gitSpawns[2]!.args, ["status", "--porcelain=v1", "--untracked-files=all"]);
+            },
+            "the run proceeds to workspace setup (mkdtemp recorded)"(_code, { mkdtempCalls }) {
+                Assert.ok(mkdtempCalls.length > 0);
+            }
+        }
+    });
+
     test("working tree with external changes — exit 1, generic message, block present, no workspace", {
         ARRANGE() {
             const s = stubContexts();
@@ -3365,8 +3403,8 @@ test.describe("Implement git preflight", test => {
             "exits with code 1"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "asks to commit or stash"(_code, { written }) {
-                Assert.ok(written.join("").includes("commit or stash"));
+            "emits the exact unstaged-changes diagnostic"(_code, { written }) {
+                Assert.ok(written.includes("Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n"));
             },
             "does not list individual file src/foo.ts"(_code, { written }) {
                 Assert.ok(!written.join("").includes("src/foo.ts"));
@@ -3377,8 +3415,14 @@ test.describe("Implement git preflight", test => {
             "block is mounted from the start"(_code, { written }) {
                 Assert.ok(written.join("").includes("─".repeat(80)));
             },
+            "finalizes the block as Failed"(_code, { written }) {
+                Assert.ok(stripAnsi(written.join("")).includes("Failed"));
+            },
             "workspace is not set up"(_code, { files }) {
                 Assert.ok(!files.has(WS_ROOT + "/build.sh"));
+            },
+            "never sets up a workspace (no temporary folder created)"(_code, { mkdtempCalls }) {
+                Assert.strictEqual(mkdtempCalls.length, 0);
             }
         }
     });
@@ -3742,8 +3786,8 @@ test.describe("Implement end-to-end git flow", test => {
             "exits with code 1"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "asks to commit or stash"(_code, { written }) {
-                Assert.ok(written.join("").includes("commit or stash"));
+            "emits the exact unstaged-changes diagnostic"(_code, { written }) {
+                Assert.ok(written.includes("Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n"));
             },
             "does not list individual files"(_code, { written }) {
                 Assert.ok(!written.join("").includes("src/dirty.ts"));

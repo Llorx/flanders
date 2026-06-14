@@ -58,7 +58,7 @@ function _streamingGit(script:ScriptContext, output:OutputContext, args:string[]
     });
 }
 
-export function countPendingChangesExcept(script:ScriptContext, _time:TimeContext, cwd:string, excludePath:string):Promise<number> {
+export function countUnstagedChangesExcept(script:ScriptContext, _time:TimeContext, cwd:string, excludePath:string):Promise<number> {
     return new Promise<number>((resolve, reject) => {
         const proc = script.spawn("git", ["status", "--porcelain=v1", "--untracked-files=all"], { stdio: "pipe", cwd });
         const stdoutChunks:string[] = [];
@@ -84,7 +84,12 @@ export function countPendingChangesExcept(script:ScriptContext, _time:TimeContex
                     entryPath = rawPath;
                 }
                 const normalizedEntry = path.normalize(path.resolve(cwd, entryPath));
-                if (normalizedEntry !== normalizedExclude) {
+                // Porcelain v1 status is the two-character field "XY": X is the index (staged)
+                // column and Y is the working-tree (unstaged) column. Count an entry only when it
+                // carries an unstaged change — Y (line[1]) is not a space — and is not the excluded
+                // plan path. Staged-only entries ("M ", "A ", "D ", "R " — Y is a space) are left
+                // in the index for the commit/check stage to fold into the first task's commit.
+                if (line[1] !== " " && normalizedEntry !== normalizedExclude) {
                     count++;
                 }
             }
