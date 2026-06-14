@@ -26,6 +26,8 @@ The output region receives:
 
 Output is line-buffered: only complete lines are written into the region. Each completed line is appended below the previous one and prior lines scroll upward. Long lines wrap at the terminal's natural wrap boundary. ANSI color and styling escape sequences emitted by the source program are passed through to the terminal unchanged.
 
+The streaming output of the AI agent — produced during the prep, `implementing`, and `reviewing` stages — is surfaced as a sequence of labeled messages: the agent's assistant replies, its reasoning, the tools or commands it runs, and the results of those. Each message is shown with a leading label colored according to its kind, as defined in `Colors`. The streaming output of the `building` and `testing` scripts is not an AI agent message: it is shown as-is, with its own ANSI passed through unchanged and no coloring added by Flanders.
+
 ## Header line content
 The header line shows the following fields on a single line, in this order:
 - Current task index out of total tasks (for example, `5/12`).
@@ -137,6 +139,15 @@ Metrics line fields:
 - The `│` separator between the two pairs — dim.
 
 The footer line keeps the orange rendering defined in `Footer line — normal state`, including while it shows the reviewing-state line defined in `Footer line — reviewing state`; the horizontal separators (both the one inside the bottom-fixed block and the ones framing each per-task completion snapshot) use the terminal default color.
+
+### AI agent message colors (output region)
+Each AI agent message surfaced in the output region (defined in `Output region content`) is shown with a leading label that names the message kind, colored by kind:
+- An assistant reply — green label.
+- Reasoning — dim label.
+- A tool or command action — its label, the name of the tool or command, in cyan; the one-line target qualifier the action operates on (for example the file it reads or edits, the command it runs, or the pattern it searches) in yellow.
+- A tool or command result — magenta label.
+
+The body of a message — the assistant's reply text, a result's content — is rendered in the terminal default color, with any ANSI color and styling escape sequences it already carries passed through unchanged. This coloring applies to AI agent messages only; the streaming output of the `building` and `testing` scripts is never recolored and keeps the pass-through behavior defined in `Output region content`.
 
 ## Resizing
 The bottom-fixed block always occupies exactly four terminal rows — the separator, the header, the metrics, and the footer, one row each. No line ever wraps onto a second row, and a redraw never leaves rows from a previous draw on screen: the block is, at every moment, exactly these four rows.
