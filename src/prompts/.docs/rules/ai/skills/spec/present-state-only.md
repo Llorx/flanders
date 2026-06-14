@@ -24,7 +24,7 @@ A spec file reads as if the present shape is simply how things are, with no memo
 
 - The `/flanders-spec` skill artifact body states this prohibition **actively in its drafting guidance** — a direct instruction not to write historical, transitional, or migration content into the contracts and rules it produces — placed where the body tells the skill how to draft, not deferred to the body's final-validation section alone. An obligation surfaced only as a validator check is reactive: the skill writes the past content and is then forced to undo it. The active prohibition stops it being written in the first place.
 - When the producing run needs to record that the spec changed — a merge, a rename, a removal — that record goes in the commit message or pull-request description for the change, never in the spec file itself.
-- The spec validator additionally gates this obligation, per `src/prompts/.docs/rules/ai/skills/spec/final-validator.md`. The active prohibition and the validator check are complementary, not alternatives.
+- The spec validator additionally gates this obligation, per [src/prompts/.docs/rules/ai/skills/spec/final-validator.md](/src/prompts/.docs/rules/ai/skills/spec/final-validator.md). The active prohibition and the validator check are complementary, not alternatives.
 
 ## Failure signals
 

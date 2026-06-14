@@ -1,22 +1,22 @@
 # The claude model question groups models by family: a family entry at the top, each opening a submenu of that family's models
 
-When `install` asks the user for a `claude` model identifier (for the worker or any reviewer), the question is a two-tier menu. The top level offers one entry per model family, the cross-family alias entry, the default entry, and the custom entry; selecting a family opens a submenu listing that family's models — its auto-updating "Latest" alias(es) and its pinned versions. This rule pins how that menu is laid out and navigated. The set of entries each level draws from, and the value each entry persists, are pinned in `src/commands/.docs/rules/install/model-list-discovery.md`; this rule does not redefine them.
+When `install` asks the user for a `claude` model identifier (for the worker or any reviewer), the question is a two-tier menu. The top level offers one entry per model family, the cross-family alias entry, the default entry, and the custom entry; selecting a family opens a submenu listing that family's models — its auto-updating "Latest" alias(es) and its pinned versions. This rule pins how that menu is laid out and navigated. The set of entries each level draws from, and the value each entry persists, are pinned in [src/commands/.docs/rules/install/model-list-discovery.md](/src/commands/.docs/rules/install/model-list-discovery.md); this rule does not redefine them.
 
 ## Who this applies to
 
 - **Subject:** the `install` command, on the `claude` model question only — the worker model question and each reviewer model question when the tool is `claude`.
-- **Not subject:** the `codex` model question, which is a flat probe-sourced list or a free-text fallback per `src/commands/.docs/rules/install/model-list-discovery.md`; every effort question, which is unaffected; and any later Flanders command, which consumes the persisted model string opaquely and never re-renders this menu.
+- **Not subject:** the `codex` model question, which is a flat probe-sourced list or a free-text fallback per [src/commands/.docs/rules/install/model-list-discovery.md](/src/commands/.docs/rules/install/model-list-discovery.md); every effort question, which is unaffected; and any later Flanders command, which consumes the persisted model string opaquely and never re-renders this menu.
 
 ## Top-level entries and their order
 
 The top-level selectable list is ordered as:
 
-1. One entry per model family — Opus, Sonnet, Haiku, Fable — in the family order of the `claude` catalog in `src/commands/.docs/rules/install/model-list-discovery.md`. A family entry opens that family's submenu (described below); selecting it does not by itself persist a value.
+1. One entry per model family — Opus, Sonnet, Haiku, Fable — in the family order of the `claude` catalog in [src/commands/.docs/rules/install/model-list-discovery.md](/src/commands/.docs/rules/install/model-list-discovery.md). A family entry opens that family's submenu (described below); selecting it does not by itself persist a value.
 2. The cross-family alias entries from the catalog — the `Best (auto-pick)` entry — as direct selections that answer the question immediately and persist the alias value. A cross-family alias entry does not open a submenu.
-3. The synthetic `default configured model` entry pinned in `src/commands/.docs/rules/install/model-list-discovery.md`.
-4. The custom entry pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`, as the final entry.
+3. The synthetic `default configured model` entry pinned in [src/commands/.docs/rules/install/model-list-discovery.md](/src/commands/.docs/rules/install/model-list-discovery.md).
+4. The custom entry pinned in [src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md](/src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md), as the final entry.
 
-The custom entry remains the final top-level entry, after the `default configured model` entry, consistent with `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`.
+The custom entry remains the final top-level entry, after the `default configured model` entry, consistent with [src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md](/src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md).
 
 ## The family submenu
 
@@ -30,7 +30,7 @@ The synthetic `default configured model` entry and the custom entry appear only 
 
 ## The resolved leaf is the answer
 
-Whatever entry the user lands on — a top-level cross-family alias, the top-level default entry, a family-submenu model entry, or the custom free-text value — is the question's single answer, persisted verbatim per `src/commands/.docs/rules/install/model-list-discovery.md`. Backing out of a family submenu does not answer the question; it returns to the top level so the user can choose again.
+Whatever entry the user lands on — a top-level cross-family alias, the top-level default entry, a family-submenu model entry, or the custom free-text value — is the question's single answer, persisted verbatim per [src/commands/.docs/rules/install/model-list-discovery.md](/src/commands/.docs/rules/install/model-list-discovery.md). Backing out of a family submenu does not answer the question; it returns to the top level so the user can choose again.
 
 ## Failure signals
 
@@ -40,4 +40,4 @@ Whatever entry the user lands on — a top-level cross-family alias, the top-lev
 - A family submenu omits the family's "Latest" alias, omits a pinned version, omits the 1M-context variant of an entry that offers one, or shows a 1M-context variant for a model that has none (for example Haiku).
 - A family submenu repeats the `default configured model` entry or the custom entry, instead of leaving those at the top level only.
 - A family submenu has no way back, trapping the user inside it, or backing out silently persists an answer instead of returning to the top level.
-- The family grouping is applied to the `codex` model question, which is flat per `src/commands/.docs/rules/install/model-list-discovery.md`.
+- The family grouping is applied to the `codex` model question, which is flat per [src/commands/.docs/rules/install/model-list-discovery.md](/src/commands/.docs/rules/install/model-list-discovery.md).

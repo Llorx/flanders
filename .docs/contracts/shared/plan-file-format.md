@@ -27,7 +27,7 @@ A line is reported as a malformed task line only when it attempts the checkbox-a
 
 A list item whose closing `]` is not immediately followed by `{` is never a task line and is never a malformed task line: it is ordinary document content. In particular, a markdown link list item — a list item of the form `- [text](url)`, where the `]` is followed by `(` — is ordinary content and is never reported as malformed, even when its bracketed text resembles a path or a reference.
 
-The implement command's plan validation reports malformed task lines and exits non-zero (see `.docs/contracts/cli-commands/implement/overview.md`) only for lines that attempt the checkbox-and-metrics shape per the above; it never rejects a plan because of ordinary list items such as link bullets.
+The implement command's plan validation reports malformed task lines and exits non-zero (see [.docs/contracts/cli-commands/implement/overview.md](/.docs/contracts/cli-commands/implement/overview.md)) only for lines that attempt the checkbox-and-metrics shape per the above; it never rejects a plan because of ordinary list items such as link bullets.
 
 ## Task metrics
 Every leaf task line carries a metrics object that tracks what the tool has consumed while working on that task. The object is a strict JSON literal of the form:
@@ -59,7 +59,7 @@ Tasks are numbered hierarchically. The numbering reflects the document structure
 - Sub-tasks of task `2`: `2.1`, `2.2`, `2.3`, ...
 - Deeper levels follow the same dotted convention.
 
-The numbering is part of the visible task identifier. The implement command uses these numbers in its UI header (see `.docs/contracts/cli-commands/implement/ui.md`).
+The numbering is part of the visible task identifier. The implement command uses these numbers in its UI header (see [.docs/contracts/cli-commands/implement/ui.md](/.docs/contracts/cli-commands/implement/ui.md)).
 
 ## Ordering
 Tasks are written in the order they must be implemented. A task that depends on another must appear after the task it depends on. The implement command processes tasks strictly top-to-bottom in document order.
@@ -68,7 +68,7 @@ Tasks are written in the order they must be implemented. A task that depends on 
 Each leaf task carries a description and an explicit acceptance criteria section. The acceptance criteria define what must be true after the task is implemented for the task to be considered complete by the adversarial reviewer.
 
 ## Contract and rule references
-Each leaf task lists the contract file or files that govern it, by relative path from the project root, and lists the rule file or files that apply to it, also by relative path from the project root. When a specific section or line range of a contract or rule is the relevant obligation, the task points at that section or line range in addition to the file.
+Each leaf task links the contract file or files that govern it and the rule file or files that apply to it. Each link is a markdown link, per [.docs/contracts/shared/cross-file-reference-links.md](/.docs/contracts/shared/cross-file-reference-links.md): its text is the file's namespace — its path relative to the project root — and its target resolves to that file. When a specific section or line range of a contract or rule is the relevant obligation, the link points at that section or line range in addition to the file.
 
 ## Updating tasks
 While the implement command works on a task, it rewrites the task line in place to keep the metrics object up to date with the latest accumulated values. When the task is accepted, the same rewrite flips the checkbox from `[ ]` to `[x]`. Every rewrite is confined to the matched task line; surrounding content is preserved verbatim.

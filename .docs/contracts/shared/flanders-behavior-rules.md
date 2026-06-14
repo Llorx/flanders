@@ -1,7 +1,7 @@
 # Flanders Behavior Rules — `.docs/flanders`
 
 ## Purpose
-Pin where a project records the rules that govern Flanders' own command behavior, and Flanders' commitment to honor them. A behavior rule constrains how Flanders acts when it works in the project — how its commands and skills name, place, organize, or otherwise produce the files and changes they author — as distinct from `.docs/contracts` and `.docs/rules`, which describe the host project's own code rather than Flanders' behavior. The `.docs` layout these folders sit in is pinned in `.docs/contracts/shared/spec-folder-layout.md`.
+Pin where a project records the rules that govern Flanders' own command behavior, and Flanders' commitment to honor them. A behavior rule constrains how Flanders acts when it works in the project — how its commands and skills name, place, organize, or otherwise produce the files and changes they author — as distinct from `.docs/contracts` and `.docs/rules`, which describe the host project's own code rather than Flanders' behavior. The `.docs` layout these folders sit in is pinned in [.docs/contracts/shared/spec-folder-layout.md](/.docs/contracts/shared/spec-folder-layout.md).
 
 ## Where behavior rules live
 A behavior rule lives in a `.docs/flanders` folder: a subfolder named exactly `flanders` inside a `.docs` folder, alongside that scope's `contracts/` and `rules/` subfolders. A `.docs/flanders` folder may appear in any `.docs` folder at any level of the project tree — at the project root and inside any other directory.

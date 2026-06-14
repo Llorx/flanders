@@ -11,12 +11,12 @@ The code a task builds on is the code as the tasks before it leave it: the curre
 
 Either way, the planner establishes the real starting state before writing the task — reading the source for code that exists, and consulting the producing task for code an earlier task will introduce — rather than drafting from assumption.
 
-A claim that the starting code neither shows nor can show — a claim about how something behaves only at execution time — is out of this rule's scope and is governed by `src/prompts/.docs/rules/ai/skills/plan/runtime-premise-backed-or-escalated.md`.
+A claim that the starting code neither shows nor can show — a claim about how something behaves only at execution time — is out of this rule's scope and is governed by [src/prompts/.docs/rules/ai/skills/plan/runtime-premise-backed-or-escalated.md](/src/prompts/.docs/rules/ai/skills/plan/runtime-premise-backed-or-escalated.md).
 
 ## Who this applies to
 
 - **Subject:** `/flanders-plan` during its drafting phase, for every leaf task that creates, modifies, or removes source code. The obligation also binds any re-entry of drafting triggered by the post-write fix loop.
-- **Not subject:** `/flanders-spec`, which writes behavior specs rather than code-touching tasks. Workers and reviewers are governed by their own rules; the plan validator's audit of each task against the code it builds on is pinned in `src/prompts/.docs/rules/ai/skills/plan/final-validator.md`.
+- **Not subject:** `/flanders-spec`, which writes behavior specs rather than code-touching tasks. Workers and reviewers are governed by their own rules; the plan validator's audit of each task against the code it builds on is pinned in [src/prompts/.docs/rules/ai/skills/plan/final-validator.md](/src/prompts/.docs/rules/ai/skills/plan/final-validator.md).
 
 ## Failure signals
 

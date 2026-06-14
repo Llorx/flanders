@@ -2,7 +2,7 @@
 
 The column count the live UI fits its lines to — the value supplied by the production implementation of the terminal context that the live bottom-fixed block reads its width from — equals the terminal's actual current width at the moment it is read. The production implementation determines that width by interrogating the terminal on each read. It does not surface a width that the language runtime cached at an earlier point and that can lag behind the real terminal or revert to a stale value.
 
-This applies to every read of the width that feeds a rendering decision, so that the per-redraw recompute required by `src/ui/.docs/rules/state-driven-redraw.md` and the resize re-fit required by `.docs/contracts/cli-commands/implement/ui.md` § Resizing operate on the true current width rather than a stale one.
+This applies to every read of the width that feeds a rendering decision, so that the per-redraw recompute required by [src/ui/.docs/rules/state-driven-redraw.md](/src/ui/.docs/rules/state-driven-redraw.md) and the resize re-fit required by [.docs/contracts/cli-commands/implement/ui.md](/.docs/contracts/cli-commands/implement/ui.md) § Resizing operate on the true current width rather than a stale one.
 
 ## Who this applies to
 
@@ -16,7 +16,7 @@ Node's `process.stdout.columns` is a cached value, refreshed only when the runti
 
 How to satisfy it: the terminal reports its own size in response to a Cursor Position Report query (`ESC [ 6 n`) issued after the cursor is moved to the far bottom-right corner; reading the reported position yields the real current width independently of the runtime's cache. This rule does not mandate that specific technique — it requires only that the value read reflect the real terminal — but the Cursor Position Report is the known technique that satisfies it across Windows consoles, Git Bash, and ConPTY alike.
 
-This rule constrains the production behavior of the terminal context; it does not relax `src/.docs/rules/external-access-through-contexts.md` — the width is still reached only through the injected context, never through a direct global from inside a UI class.
+This rule constrains the production behavior of the terminal context; it does not relax [src/.docs/rules/external-access-through-contexts.md](/src/.docs/rules/external-access-through-contexts.md) — the width is still reached only through the injected context, never through a direct global from inside a UI class.
 
 ## Failure signals
 

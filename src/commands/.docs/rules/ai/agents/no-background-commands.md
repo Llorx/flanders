@@ -15,7 +15,7 @@ A subagent does not inherit permission to background commands just because the s
 
 ## Why the foreground is mandatory
 
-A Flanders subagent runs as a single non-interactive turn that the orchestrator drives to completion and then awaits (see `src/ai/.docs/rules/runner/non-interactive-invocation.md`). When the subagent backgrounds a command, it yields its turn expecting a later notification that the command has finished — but a headless turn has no live channel through which that notification can arrive. The tool then holds the session open waiting for a notification that never comes, never emits its terminal result, and the orchestrator blocks indefinitely. Running every command in the foreground keeps the turn's completion tied to the command's completion, so the result is always reported back before the turn ends.
+A Flanders subagent runs as a single non-interactive turn that the orchestrator drives to completion and then awaits (see [src/ai/.docs/rules/runner/non-interactive-invocation.md](/src/ai/.docs/rules/runner/non-interactive-invocation.md)). When the subagent backgrounds a command, it yields its turn expecting a later notification that the command has finished — but a headless turn has no live channel through which that notification can arrive. The tool then holds the session open waiting for a notification that never comes, never emits its terminal result, and the orchestrator blocks indefinitely. Running every command in the foreground keeps the turn's completion tied to the command's completion, so the result is always reported back before the turn ends.
 
 ## What counts as backgrounding (forbidden)
 

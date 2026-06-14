@@ -8,7 +8,7 @@ Callers pass in the AI tool to invoke, the model to use (or the "default configu
 - The AI's result, once the tool has responded successfully.
 - A rejection with an unknown-error reason, when the failure is not retryable.
 
-The runner does not read the Flanders configuration on its own. Resolving which tool and model to use for a given invocation — for example, looking up the worker's configured tool from `.flanders/` (see `.docs/contracts/shared/flanders-config.md`) — is the caller's responsibility.
+The runner does not read the Flanders configuration on its own. Resolving which tool and model to use for a given invocation — for example, looking up the worker's configured tool from `.flanders/` (see [.docs/contracts/shared/flanders-config.md](/.docs/contracts/shared/flanders-config.md)) — is the caller's responsibility.
 
 When the invocation reports a retryable error, the runner absorbs it: it waits and re-invokes the same tool with the same prompt and options, repeating until the call either succeeds or fails with a non-retryable error. A caller never has to handle retryable errors itself. What counts as retryable for a given tool is determined by the transient-error surface that tool documents; the precise detection is implementation.
 

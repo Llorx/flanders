@@ -1,6 +1,6 @@
 # The worker resumes its captured session_id across iterations of the same task
 
-For iterations n>1 on the same task, the orchestrator launches the worker by resuming the `session_id` captured during iteration 1 (per `src/commands/.docs/rules/ai/task-context/worker-iter1-context.md`). The worker arrives at iteration n>1 knowing what it itself tried in previous iterations — not as a brand-new conversation. The contracts/rules content is not re-injected; the previous-iteration briefing and the worker's continuity from iteration 1 are what carry the necessary context forward.
+For iterations n>1 on the same task, the orchestrator launches the worker by resuming the `session_id` captured during iteration 1 (per [src/commands/.docs/rules/ai/task-context/worker-iter1-context.md](/src/commands/.docs/rules/ai/task-context/worker-iter1-context.md)). The worker arrives at iteration n>1 knowing what it itself tried in previous iterations — not as a brand-new conversation. The contracts/rules content is not re-injected; the previous-iteration briefing and the worker's continuity from iteration 1 are what carry the necessary context forward.
 
 ## Who this applies to
 
@@ -12,7 +12,7 @@ For iterations n>1 on the same task, the orchestrator launches the worker by res
 For each iteration n>1 of a task:
 
 1. The orchestrator looks up the worker `session_id` captured during the task's iteration 1 (or updated by a previous iteration n>1 per "Defensive capture" below).
-2. The orchestrator invokes the worker through the AI runner with that `session_id` for resumption. The runner translates this to the tool-specific resume invocation (Claude: `--resume <session_id>`; Codex: `codex resume <session_id>` per `src/ai/.docs/rules/runner/claude-invocation.md` and `src/ai/.docs/rules/runner/codex-invocation.md`).
+2. The orchestrator invokes the worker through the AI runner with that `session_id` for resumption. The runner translates this to the tool-specific resume invocation (Claude: `--resume <session_id>`; Codex: `codex resume <session_id>` per [src/ai/.docs/rules/runner/claude-invocation.md](/src/ai/.docs/rules/runner/claude-invocation.md) and [src/ai/.docs/rules/runner/codex-invocation.md](/src/ai/.docs/rules/runner/codex-invocation.md)).
 3. The worker prompt is the standard worker prompt for the iteration plus the previous-iteration briefing defined in the inner-loop contract. The orchestrator does NOT re-inject the contents of linked contracts/rules into the prompt for iteration n>1, regardless of how iteration 1 received them.
 4. **Defensive capture.** If, during iteration n>1, the worker returns a `session_id` different from the stored one (renegotiation, regeneration, etc.), the orchestrator updates the stored value for subsequent iterations.
 

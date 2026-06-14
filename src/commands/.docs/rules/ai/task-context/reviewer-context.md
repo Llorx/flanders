@@ -1,6 +1,6 @@
 # Every reviewer invocation is fresh, with context delivered per the prep-optimization branch
 
-Each configured adversarial reviewer is launched fresh on every call. There is no reviewer-to-reviewer continuity — neither across iterations of the same reviewer nor between the distinct reviewers of a single review round: the orchestrator never stores a reviewer's `session_id` and never resumes a previous reviewer. Each reviewer is invoked through the AI runner with its own configured tool, model, and effort (see `.docs/contracts/shared/flanders-config.md`). How a reviewer receives the task's reference material on each fresh call depends on whether, for that specific reviewer, the prep optimization applies — that is, whether the prep ran for the task and this reviewer's tool, model, and effort match the worker's triple (see `src/commands/.docs/rules/ai/task-context/prep-optimization.md`).
+Each configured adversarial reviewer is launched fresh on every call. There is no reviewer-to-reviewer continuity — neither across iterations of the same reviewer nor between the distinct reviewers of a single review round: the orchestrator never stores a reviewer's `session_id` and never resumes a previous reviewer. Each reviewer is invoked through the AI runner with its own configured tool, model, and effort (see [.docs/contracts/shared/flanders-config.md](/.docs/contracts/shared/flanders-config.md)). How a reviewer receives the task's reference material on each fresh call depends on whether, for that specific reviewer, the prep optimization applies — that is, whether the prep ran for the task and this reviewer's tool, model, and effort match the worker's triple (see [src/commands/.docs/rules/ai/task-context/prep-optimization.md](/src/commands/.docs/rules/ai/task-context/prep-optimization.md)).
 
 ## Who this applies to
 
@@ -11,7 +11,7 @@ Each configured adversarial reviewer is launched fresh on every call. There is n
 
 The branch is decided per reviewer, for every configured reviewer, across every iteration of every task:
 
-**Branch A — the prep ran and this reviewer matches the worker's triple.** This branch applies to a reviewer only when the prep was launched for the task (at least one reviewer matched the worker, per `src/commands/.docs/rules/ai/task-context/prep-optimization.md`) and this particular reviewer's tool, model, and effort all equal the worker's. The orchestrator invokes the reviewer through the AI runner as a **fork** of the task's prep `session_id`. Each matching reviewer call on the task forks from the same prep — there is no reviewer-to-reviewer continuity even though forks share a common ancestor. The reviewer prompt is the standard reviewer prompt (global contract/rule lists, instructions on the FAIL conditions, verdict format). The prompt does not inline the contents of the linked contracts/rules because the forked context already carries them.
+**Branch A — the prep ran and this reviewer matches the worker's triple.** This branch applies to a reviewer only when the prep was launched for the task (at least one reviewer matched the worker, per [src/commands/.docs/rules/ai/task-context/prep-optimization.md](/src/commands/.docs/rules/ai/task-context/prep-optimization.md)) and this particular reviewer's tool, model, and effort all equal the worker's. The orchestrator invokes the reviewer through the AI runner as a **fork** of the task's prep `session_id`. Each matching reviewer call on the task forks from the same prep — there is no reviewer-to-reviewer continuity even though forks share a common ancestor. The reviewer prompt is the standard reviewer prompt (global contract/rule lists, instructions on the FAIL conditions, verdict format). The prompt does not inline the contents of the linked contracts/rules because the forked context already carries them.
 
 **Branch B — the prep did not run, or this reviewer does not match the worker's triple.** This branch applies to a reviewer when the prep was skipped for the task, and also to any reviewer whose tool, model, or effort differs from the worker's even though the prep ran for other reviewers. The orchestrator invokes the reviewer through the AI runner as a **fresh** invocation (no fork parent, no resume). The reviewer prompt is the standard reviewer prompt plus the inlined full content of every contract file and every rule file the task explicitly links. The global listings (relative paths) are also passed so the reviewer can consult any additional file at its discretion.
 
@@ -31,9 +31,9 @@ The global listings' contents are not inlined; only relative paths, just like th
 
 ## Relationship with neighbouring rules
 
-- The prep optimization that decides branch A vs branch B is `src/commands/.docs/rules/ai/task-context/prep-optimization.md`.
-- The worker's context for iteration 1 — the symmetric companion of this rule for the worker side — is `src/commands/.docs/rules/ai/task-context/worker-iter1-context.md`.
-- The worker continuity rule `src/commands/.docs/rules/ai/task-context/worker-continuity.md` is explicitly disjoint from this rule. The reviewer is never given the worker's `session_id` and never stores one of its own.
+- The prep optimization that decides branch A vs branch B is [src/commands/.docs/rules/ai/task-context/prep-optimization.md](/src/commands/.docs/rules/ai/task-context/prep-optimization.md).
+- The worker's context for iteration 1 — the symmetric companion of this rule for the worker side — is [src/commands/.docs/rules/ai/task-context/worker-iter1-context.md](/src/commands/.docs/rules/ai/task-context/worker-iter1-context.md).
+- The worker continuity rule [src/commands/.docs/rules/ai/task-context/worker-continuity.md](/src/commands/.docs/rules/ai/task-context/worker-continuity.md) is explicitly disjoint from this rule. The reviewer is never given the worker's `session_id` and never stores one of its own.
 
 ## Failure signals
 
@@ -43,4 +43,4 @@ The global listings' contents are not inlined; only relative paths, just like th
 - Branch B is taken and the reviewer prompt does not inline the linked contracts/rules, leaving the reviewer to FAIL the worker on obligations it has no way to consult.
 - A reviewer whose tool, model, or effort differs from the worker's is forked from the prep (branch A) instead of taking branch B, or a reviewer that matches the worker is forced onto branch B even though the prep ran.
 - The orchestrator selects a reviewer's branch based on something other than the combination of "the prep ran for the task" and "this reviewer's triple equals the worker's".
-- The orchestrator launches the reviewer after a prep failure under the holding condition, instead of hard-stopping per `src/commands/.docs/rules/ai/task-context/prep-optimization.md`.
+- The orchestrator launches the reviewer after a prep failure under the holding condition, instead of hard-stopping per [src/commands/.docs/rules/ai/task-context/prep-optimization.md](/src/commands/.docs/rules/ai/task-context/prep-optimization.md).

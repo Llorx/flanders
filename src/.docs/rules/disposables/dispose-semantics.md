@@ -1,6 +1,6 @@
 # Dispose semantics
 
-`dispose()` is the single entry point through which an owner releases its resources. The points below describe what `dispose()` must guarantee on top of the ownership rules (see `ownership-and-lifecycle.md`) and the cancellation contract (see `cancellable-async-operations.md`).
+`dispose()` is the single entry point through which an owner releases its resources. The points below describe what `dispose()` must guarantee on top of the ownership rules (see [src/.docs/rules/disposables/ownership-and-lifecycle.md](/src/.docs/rules/disposables/ownership-and-lifecycle.md)) and the cancellation contract (see [src/.docs/rules/disposables/cancellable-async-operations.md](/src/.docs/rules/disposables/cancellable-async-operations.md)).
 
 ## Async dispose
 

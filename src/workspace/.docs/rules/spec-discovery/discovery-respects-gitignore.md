@@ -1,6 +1,6 @@
 # Recursive `.docs` discovery excludes git-ignored paths
 
-The recursive discovery of `.docs` folders (pinned in `src/workspace/.docs/rules/spec-discovery/docs-folders-enumerated-recursively.md`) does not descend into or collect from any path the project's git ignore rules exclude. A directory git ignores is not walked, and a `.docs` folder located under an ignored path contributes no contracts or rules to the corpus. This keeps the walk out of ignored trees such as dependency and build-output directories, and it relies on the project being a git repository as required by `.docs/contracts/cli-commands/implement/git-integration.md`.
+The recursive discovery of `.docs` folders (pinned in [src/workspace/.docs/rules/spec-discovery/docs-folders-enumerated-recursively.md](/src/workspace/.docs/rules/spec-discovery/docs-folders-enumerated-recursively.md)) does not descend into or collect from any path the project's git ignore rules exclude. A directory git ignores is not walked, and a `.docs` folder located under an ignored path contributes no contracts or rules to the corpus. This keeps the walk out of ignored trees such as dependency and build-output directories, and it relies on the project being a git repository as required by [.docs/contracts/cli-commands/implement/git-integration.md](/.docs/contracts/cli-commands/implement/git-integration.md).
 
 ## Who this applies to
 

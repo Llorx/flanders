@@ -4,7 +4,7 @@ Every Flanders adversarial reviewer treats git as the authoritative source for t
 
 ## Who this applies to
 
-- **Subject:** the construction of every Flanders adversarial reviewer prompt — the `implement` command's reviewer(s) (see `.docs/contracts/cli-commands/implement/iteration-loop.md`) and the `/flanders-work` skill's reviewer subagent (see `.docs/contracts/ai-skills/work-skill.md`) — at the point where the prompt instructs the reviewer how to determine the change set under review. The change set under review is the worker's uncommitted changes for `implement`, and the working-tree changes present when the review runs for `/flanders-work`. The project is always a git repository in both cases, so this enumeration is unconditional.
+- **Subject:** the construction of every Flanders adversarial reviewer prompt — the `implement` command's reviewer(s) (see [.docs/contracts/cli-commands/implement/iteration-loop.md](/.docs/contracts/cli-commands/implement/iteration-loop.md)) and the `/flanders-work` skill's reviewer subagent (see [.docs/contracts/ai-skills/work-skill.md](/.docs/contracts/ai-skills/work-skill.md)) — at the point where the prompt instructs the reviewer how to determine the change set under review. The change set under review is the worker's uncommitted changes for `implement`, and the working-tree changes present when the review runs for `/flanders-work`. The project is always a git repository in both cases, so this enumeration is unconditional.
 - **Not subject:** the worker and other agents; this rule governs only how the adversarial reviewer enumerates the change set, not any other reviewer obligation. It also does not govern how the orchestrator or skill provisions or inspects the reviewer's verdict file.
 
 ## Behavior
@@ -17,9 +17,9 @@ When the reviewer determines the change set under review:
 
 3. **Read content the right way per file kind.** For tracked modifications, the reviewer inspects content with `git diff` (and `git diff --cached` for staged hunks). For created files that are still untracked — which `git diff` does not surface — the reviewer inspects the file by reading it directly from disk. A created file is never left uninspected on the grounds that `git diff` showed nothing for it.
 
-When the enumeration above is empty — `git status --porcelain` reports no files — the verdict the reviewer reaches is pinned by `src/prompts/.docs/rules/ai/review/reviewer-empty-change-set-judged-against-head.md`.
+When the enumeration above is empty — `git status --porcelain` reports no files — the verdict the reviewer reaches is pinned by [src/prompts/.docs/rules/ai/review/reviewer-empty-change-set-judged-against-head.md](/src/prompts/.docs/rules/ai/review/reviewer-empty-change-set-judged-against-head.md).
 
-All of these are read-only git operations and are permitted under `src/commands/.docs/rules/ai/agents/no-git-writes.md`; this rule never authorizes the reviewer to mutate repository state.
+All of these are read-only git operations and are permitted under [src/commands/.docs/rules/ai/agents/no-git-writes.md](/src/commands/.docs/rules/ai/agents/no-git-writes.md); this rule never authorizes the reviewer to mutate repository state.
 
 ## Why
 

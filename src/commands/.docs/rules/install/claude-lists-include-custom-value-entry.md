@@ -5,17 +5,17 @@ The selectable list `install` shows for the `claude` model question, and the one
 ## Who this applies to
 
 - **Subject:** the `install` command, on exactly two questions — the `claude` worker/reviewer model question and the `claude` worker/reviewer effort question.
-- **Not subject:** the `codex` model question and the `codex` effort question, which carry no custom entry — the `codex` model list is the authoritative set the probe returns plus `default configured model`, and the `codex` effort set is the closed documented set plus `default configured effort` (see `src/commands/.docs/rules/install/model-list-discovery.md` and `src/commands/.docs/rules/install/effort-set-discovery.md`). Any later Flanders command is also not subject: the custom entry exists only at install time.
+- **Not subject:** the `codex` model question and the `codex` effort question, which carry no custom entry — the `codex` model list is the authoritative set the probe returns plus `default configured model`, and the `codex` effort set is the closed documented set plus `default configured effort` (see [src/commands/.docs/rules/install/model-list-discovery.md](/src/commands/.docs/rules/install/model-list-discovery.md) and [src/commands/.docs/rules/install/effort-set-discovery.md](/src/commands/.docs/rules/install/effort-set-discovery.md)). Any later Flanders command is also not subject: the custom entry exists only at install time.
 
 ## The custom entry
 
 On each of the two `claude` questions, the selectable list is ordered as: the curated suggestion entries, then the synthetic `default configured model` / `default configured effort` entry, then the custom entry as the final entry. The custom entry is labelled so the user understands it opens a free-text input (for example, `enter a custom value…`).
 
-Selecting the custom entry opens a free-text input rendered through the shared prompt helper's free-text function (see `src/commands/.docs/rules/install/interactive-prompts.md`). The value the user types in that input is the question's answer.
+Selecting the custom entry opens a free-text input rendered through the shared prompt helper's free-text function (see [src/commands/.docs/rules/install/interactive-prompts.md](/src/commands/.docs/rules/install/interactive-prompts.md)). The value the user types in that input is the question's answer.
 
 ## Persistence of the typed value
 
-The typed value is persisted verbatim — no trimming, no case folding, and no validation against the curated suggestions — identically to selecting a list entry. An empty typed value resolves to the empty string `""` in `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`, which is the same "default configured model" / "default configured effort" semantics as picking the synthetic default entry. Selecting a curated entry and selecting the synthetic default entry are pinned in `src/commands/.docs/rules/install/model-list-discovery.md` and `src/commands/.docs/rules/install/effort-set-discovery.md`.
+The typed value is persisted verbatim — no trimming, no case folding, and no validation against the curated suggestions — identically to selecting a list entry. An empty typed value resolves to the empty string `""` in `.flanders/config.json` per [src/workspace/.docs/rules/flanders-config/file-format.md](/src/workspace/.docs/rules/flanders-config/file-format.md), which is the same "default configured model" / "default configured effort" semantics as picking the synthetic default entry. Selecting a curated entry and selecting the synthetic default entry are pinned in [src/commands/.docs/rules/install/model-list-discovery.md](/src/commands/.docs/rules/install/model-list-discovery.md) and [src/commands/.docs/rules/install/effort-set-discovery.md](/src/commands/.docs/rules/install/effort-set-discovery.md).
 
 ## Failure signals
 

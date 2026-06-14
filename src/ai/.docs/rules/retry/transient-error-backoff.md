@@ -4,7 +4,7 @@ For retryable failures that do not carry a wait duration of their own, the AI ru
 
 ## Who this applies to
 
-- **Subject:** the AI runner (see `src/ai/.docs/contracts/ai-runner.md`).
+- **Subject:** the AI runner (see [src/ai/.docs/contracts/ai-runner.md](/src/ai/.docs/contracts/ai-runner.md)).
 
 ## How the backoff progresses
 

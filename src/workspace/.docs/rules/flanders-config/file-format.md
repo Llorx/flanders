@@ -1,6 +1,6 @@
 # The `.flanders/` folder contains a single `config.json` file
 
-The persistent Flanders configuration pinned by `.docs/contracts/shared/flanders-config.md` is materialized as a single JSON file at `.flanders/config.json` inside the chosen scope's folder. The file is written by `install` and read by every Flanders command that needs the configuration (today, `implement`). There are no other files inside `.flanders/`.
+The persistent Flanders configuration pinned by [.docs/contracts/shared/flanders-config.md](/.docs/contracts/shared/flanders-config.md) is materialized as a single JSON file at `.flanders/config.json` inside the chosen scope's folder. The file is written by `install` and read by every Flanders command that needs the configuration (today, `implement`). There are no other files inside `.flanders/`.
 
 ## Who this applies to
 
@@ -12,7 +12,7 @@ The persistent Flanders configuration pinned by `.docs/contracts/shared/flanders
 - **Project scope:** `<project root>/.flanders/config.json`.
 - **Global scope:** `<user home>/.flanders/config.json`.
 
-Both paths are resolved at the time `install` runs (writer) or at the time the consuming command starts (reader). The reader follows the precedence pinned in `.docs/contracts/shared/flanders-config.md`: a project `config.json` fully shadows a global one.
+Both paths are resolved at the time `install` runs (writer) or at the time the consuming command starts (reader). The reader follows the precedence pinned in [.docs/contracts/shared/flanders-config.md](/.docs/contracts/shared/flanders-config.md): a project `config.json` fully shadows a global one.
 
 ## Shape
 
@@ -56,7 +56,7 @@ A reader parses the file with `JSON.parse`. On any parse error, missing top-leve
 
 - A single JSON keeps the read path trivial (one parse, one object) and the precedence rule trivial to apply (one file's presence shadows the other).
 - A single JSON keeps the write path atomic per scope (one rename instead of N).
-- Field-by-field merge across scopes is forbidden by `.docs/contracts/shared/flanders-config.md`, so there is no use case that would benefit from splitting the file by role.
+- Field-by-field merge across scopes is forbidden by [.docs/contracts/shared/flanders-config.md](/.docs/contracts/shared/flanders-config.md), so there is no use case that would benefit from splitting the file by role.
 
 ## Failure signals
 

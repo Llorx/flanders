@@ -71,7 +71,7 @@ The footer line shows a single label, `Working`, accompanied by a smooth animate
 The `Working` label and its animation are present from the very first instant the command starts and persist across every phase — argv parsing, plan validation, git preflight, the `tasks completed` noop case, and the iteration loop — until the command is about to exit, at which point the footer line transitions to the terminal label defined in `Cleanup on exit`. Two phases interrupt the `Working` label: the prep stage, when the footer shows the preparing state defined in `Footer line — preparing state`; and the adversarial review stage, when it shows the reviewing state defined in `Footer line — reviewing state`.
 
 ## Footer line — preparing state
-While the prep stage runs for a newly selected task — when it runs (see `src/commands/.docs/rules/ai/task-context/prep-optimization.md`), the same stage during which the header activity field shows `preparing` — the footer line shows the single label `Preparing`, accompanied by the same smooth animated indicator as the normal state: a continuous motion running at 5 frames per second, with both the label and the indicator rendered in orange.
+While the prep stage runs for a newly selected task — when it runs (see [src/commands/.docs/rules/ai/task-context/prep-optimization.md](/src/commands/.docs/rules/ai/task-context/prep-optimization.md)), the same stage during which the header activity field shows `preparing` — the footer line shows the single label `Preparing`, accompanied by the same smooth animated indicator as the normal state: a continuous motion running at 5 frames per second, with both the label and the indicator rendered in orange.
 
 When the prep stage ends and the worker stage begins, the footer line transitions to the `Working` state. When the prep stage is skipped for a task, the footer line never enters the preparing state for that task and is in the `Working` state as the worker stage begins.
 
@@ -95,20 +95,20 @@ The line begins with the literal prefix `review: ` followed by one entry per con
 - **`(<model> <effort>)`** — the reviewer's model/effort descriptor. The model token is the reviewer's configured model, or the literal `default` when the configured model is the default configured model. The effort token is the reviewer's configured effort, or the literal `default` when the configured effort is the default configured effort. The effort token is appended after a single space only when the configured effort string differs from the configured model string; when the two configured strings are equal — including the common case where both are the default — only the model token is shown, so a reviewer left fully on defaults renders as `(default)` rather than `(default default)`.
 - **`<state>`** — one of:
   - `running` — the reviewer's invocation is in progress.
-  - `waiting` — the reviewer's invocation is in a rate-limit wait. A short transient-error backoff does not move a reviewer into `waiting`; it stays `running` (consistent with `src/ui/.docs/rules/waiting-footer-applies-to-long-waits-only.md`).
+  - `waiting` — the reviewer's invocation is in a rate-limit wait. A short transient-error backoff does not move a reviewer into `waiting`; it stays `running` (consistent with [src/ui/.docs/rules/waiting-footer-applies-to-long-waits-only.md](/src/ui/.docs/rules/waiting-footer-applies-to-long-waits-only.md)).
   - `ok` — the reviewer finished and recorded no violations.
   - `fail` — the reviewer finished and recorded one or more violations.
 
 The line is rendered in the same orange as the rest of the footer line.
 
 ### Compaction
-The reviewing footer line is compacted to fit the terminal width. The compaction decision is recomputed on every redraw against the current state and the current terminal width, never frozen at the width of the last state change (see `src/ui/.docs/rules/state-driven-redraw.md`). The tiers, applied in order, are:
+The reviewing footer line is compacted to fit the terminal width. The compaction decision is recomputed on every redraw against the current state and the current terminal width, never frozen at the width of the last state change (see [src/ui/.docs/rules/state-driven-redraw.md](/src/ui/.docs/rules/state-driven-redraw.md)). The tiers, applied in order, are:
 1. **Full form** — every entry shown as `<tool> (<model> <effort>): <state>`.
 2. **Compact form** — when the full form does not fit, the `(<model> <effort>)` descriptor is dropped from every entry, leaving `review: <tool>: <state>, …`.
 3. **Truncation** — when the compact form also does not fit, the line is truncated with an ellipsis at the end.
 
 ## Per-task completion snapshot
-Whenever a task is accepted at the commit/check stage (see `.docs/contracts/cli-commands/implement/iteration-loop.md`) and its checkbox is flipped to `[x]`, Flanders emits a snapshot of that task into the output region before work on the next task begins. The snapshot is emitted for every accepted task, including the last task in the plan; the run's final `all tasks completed` (or `tasks completed`) message is printed after the last snapshot.
+Whenever a task is accepted at the commit/check stage (see [.docs/contracts/cli-commands/implement/iteration-loop.md](/.docs/contracts/cli-commands/implement/iteration-loop.md)) and its checkbox is flipped to `[x]`, Flanders emits a snapshot of that task into the output region before work on the next task begins. The snapshot is emitted for every accepted task, including the last task in the plan; the run's final `all tasks completed` (or `tasks completed`) message is printed after the last snapshot.
 
 The snapshot consists of, in order:
 1. A horizontal separator line that spans the terminal width, using the same glyph as the separator inside the bottom-fixed block.

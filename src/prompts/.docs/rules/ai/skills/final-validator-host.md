@@ -1,12 +1,12 @@
 # Every Flanders content skill hosts its final validator the same way
 
-The Flanders content skills (`/flanders-spec`, `/flanders-plan`) each gate their persisted output through a final validator subagent. The host behavior of that validator — how it is spawned, what it receives, how it produces its verdict, and how the skill reacts to a FAIL — is identical across both skills. This rule pins that shared host behavior in one place. Each skill's per-skill rule under `src/prompts/.docs/rules/ai/skills/{spec,plan}/final-validator.md` pins only the check categories that are specific to that skill's artifact.
+The Flanders content skills (`/flanders-spec`, `/flanders-plan`) each gate their persisted output through a final validator subagent. The host behavior of that validator — how it is spawned, what it receives, how it produces its verdict, and how the skill reacts to a FAIL — is identical across both skills. This rule pins that shared host behavior in one place. Each skill's per-skill rule — [src/prompts/.docs/rules/ai/skills/spec/final-validator.md](/src/prompts/.docs/rules/ai/skills/spec/final-validator.md) and [src/prompts/.docs/rules/ai/skills/plan/final-validator.md](/src/prompts/.docs/rules/ai/skills/plan/final-validator.md) — pins only the check categories that are specific to that skill's artifact.
 
 ## Who this applies to
 
 - **Subject:** every Flanders content skill that owns a final-validator stage — today `/flanders-spec` and `/flanders-plan` — as the host that orchestrates the validator launch.
 - **Subject (when running as a subagent):** the validator instance, in the obligations described below about its read-only behavior and the shape of its output.
-- **Not subject:** skills or commands that do not have a final-validator stage. The `implement` command's adversarial reviewer is a separate gate with its own contract in `.docs/contracts/cli-commands/implement/iteration-loop.md`.
+- **Not subject:** skills or commands that do not have a final-validator stage. The `implement` command's adversarial reviewer is a separate gate with its own contract in [.docs/contracts/cli-commands/implement/iteration-loop.md](/.docs/contracts/cli-commands/implement/iteration-loop.md).
 
 ## How the validator is hosted
 
@@ -36,11 +36,11 @@ The validator reads the artifact(s) in full, plus any contract or rule from the 
 
 ## Validator read-only discipline
 
-The validator is read-only on the project: it does not edit, write, rename, or delete any file. It is also read-only on git, subject to `src/commands/.docs/rules/ai/agents/no-git-writes.md`. This obligation applies regardless of the host mechanism, including the inline fallback path.
+The validator is read-only on the project: it does not edit, write, rename, or delete any file. It is also read-only on git, subject to [src/commands/.docs/rules/ai/agents/no-git-writes.md](/src/commands/.docs/rules/ai/agents/no-git-writes.md). This obligation applies regardless of the host mechanism, including the inline fallback path.
 
 ## Output shape
 
-The validator's final output is a verdict, not a deliverable. Because it produces a verdict, it is **not subject** to the Evidence-Report obligation of `src/commands/.docs/rules/ai/agents/evidence-report.md` — the validator must not append an Evidence Report or any other multi-line content after the verdict line, and must not insert one before it.
+The validator's final output is a verdict, not a deliverable. Because it produces a verdict, it is **not subject** to the Evidence-Report obligation of [src/commands/.docs/rules/ai/agents/evidence-report.md](/src/commands/.docs/rules/ai/agents/evidence-report.md) — the validator must not append an Evidence Report or any other multi-line content after the verdict line, and must not insert one before it.
 
 The verdict has one of two shapes, on a single final line:
 
@@ -54,8 +54,8 @@ If the validator wants to show its work, it does so in the body of its response 
 When the validator returns FAIL, the host enters a triage-then-fix loop. The triage step is non-negotiable: the host MUST process every issue through it before reaching for any rewrite, so that failures requiring user input are surfaced as questions rather than silently patched.
 
 1. **Triage each issue.** For every issue enumerated in the FAIL report, the host classifies it against the clarification-scope of the originating skill's contract — the same criteria that govern that skill's initial clarification phase. The originating skill maps to its clarification-scope source as follows:
-   - `/flanders-spec` — the clarification phase in `.docs/contracts/ai-skills/spec-skill.md`.
-   - `/flanders-plan` — the clarification phase in `.docs/contracts/ai-skills/plan-skill.md`, further constrained by `src/prompts/.docs/rules/ai/skills/plan/clarification-scope.md`.
+   - `/flanders-spec` — the clarification phase in [.docs/contracts/ai-skills/spec-skill.md](/.docs/contracts/ai-skills/spec-skill.md).
+   - `/flanders-plan` — the clarification phase in [.docs/contracts/ai-skills/plan-skill.md](/.docs/contracts/ai-skills/plan-skill.md), further constrained by [src/prompts/.docs/rules/ai/skills/plan/clarification-scope.md](/src/prompts/.docs/rules/ai/skills/plan/clarification-scope.md).
 
    An issue lands in one of two buckets:
    - **Re-clarify bucket** — the issue's fix would commit the skill to an answer that, per the originating skill's clarification-scope, the user is the one who must give, and that the user did not give in the initial clarification phase of this invocation. The host re-enters the originating skill's clarification phase for that specific ambiguity before any rewrite happens. Re-entered clarification follows the same question mechanics the originating skill's contract already pins: one question per turn, multiple-choice preferred when the answer space is bounded, no bundling. The re-entered phase is scoped to the specific ambiguity the issue closes — it is not the original phase re-run wholesale, and it does not re-ask decisions the user has already given in this same invocation.

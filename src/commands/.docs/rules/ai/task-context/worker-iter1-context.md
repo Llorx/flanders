@@ -1,6 +1,6 @@
 # The worker's first iteration receives its context per the prep-optimization branch
 
-When the orchestrator launches the worker for iteration 1 on a task, the way the task's reference material reaches the worker depends on whether the prep optimization is active for the task (see `src/commands/.docs/rules/ai/task-context/prep-optimization.md`).
+When the orchestrator launches the worker for iteration 1 on a task, the way the task's reference material reaches the worker depends on whether the prep optimization is active for the task (see [src/commands/.docs/rules/ai/task-context/prep-optimization.md](/src/commands/.docs/rules/ai/task-context/prep-optimization.md)).
 
 ## Who this applies to
 
@@ -9,7 +9,7 @@ When the orchestrator launches the worker for iteration 1 on a task, the way the
 
 ## Behavior
 
-**Branch A — prep optimization is active for the task.** The orchestrator invokes the worker through the AI runner as a **fork** of the task's prep `session_id` captured per `src/commands/.docs/rules/ai/task-context/prep-optimization.md`. The worker prompt is the standard worker prompt defined by the inner-loop contract (plan path, task line/title verbatim, instructions, contract and rule lists, build/test script paths). The worker arrives at iteration 1 with the contracts and rules referenced by the task already in its loaded context, because the prep that produced the fork parent already read them.
+**Branch A — prep optimization is active for the task.** The orchestrator invokes the worker through the AI runner as a **fork** of the task's prep `session_id` captured per [src/commands/.docs/rules/ai/task-context/prep-optimization.md](/src/commands/.docs/rules/ai/task-context/prep-optimization.md). The worker prompt is the standard worker prompt defined by the inner-loop contract (plan path, task line/title verbatim, instructions, contract and rule lists, build/test script paths). The worker arrives at iteration 1 with the contracts and rules referenced by the task already in its loaded context, because the prep that produced the fork parent already read them.
 
 The worker prompt does NOT additionally inline the full content of those contracts and rules; doing so would duplicate the loaded context and inflate the prompt for no gain. The worker is still bound by its own prompt instructions to respect every linked contract and rule — that obligation is independent of how the content reached the context.
 
@@ -19,13 +19,13 @@ The orchestrator does NOT, in either branch, inject the global contracts/rules l
 
 ## Session capture
 
-In both branches, the orchestrator captures the worker's `session_id` from the runner's event stream as iteration 1 progresses. That captured `session_id` is what `src/commands/.docs/rules/ai/task-context/worker-continuity.md` uses to continue the worker across iterations n>1.
+In both branches, the orchestrator captures the worker's `session_id` from the runner's event stream as iteration 1 progresses. That captured `session_id` is what [src/commands/.docs/rules/ai/task-context/worker-continuity.md](/src/commands/.docs/rules/ai/task-context/worker-continuity.md) uses to continue the worker across iterations n>1.
 
 In branch A, the captured `session_id` represents the fork — distinct from the prep's `session_id` — not the prep itself.
 
 ## Why this split
 
-The prep is built with the worker's own tool, model, and effort, so whenever the prep ran the worker's first iteration can always fork it. The prep runs when at least one reviewer also shares the worker's triple, so its loaded context is reused by the worker and by every matching reviewer (per `prep-optimization.md`). When no reviewer matches the worker, the prep is not launched at all, and inlining the linked content into the worker prompt is the cheapest way to give the worker access to it without paying for an in-context load that no caller would reuse.
+The prep is built with the worker's own tool, model, and effort, so whenever the prep ran the worker's first iteration can always fork it. The prep runs when at least one reviewer also shares the worker's triple, so its loaded context is reused by the worker and by every matching reviewer (per [src/commands/.docs/rules/ai/task-context/prep-optimization.md](/src/commands/.docs/rules/ai/task-context/prep-optimization.md)). When no reviewer matches the worker, the prep is not launched at all, and inlining the linked content into the worker prompt is the cheapest way to give the worker access to it without paying for an in-context load that no caller would reuse.
 
 ## Failure signals
 

@@ -7,7 +7,7 @@ Define how the implement command interacts with git: the requirement that the pr
 The implement command requires the project to be a git repository: `git` must be available on the host (executable on `PATH`) and the command's working directory must be inside a git working tree. Git is not optional and is not toggled by any flag. When the project is not a git repository — `git` is unavailable, or the working directory is not inside a git working tree — the command exits non-zero at startup, before setting up any workspace, with a diagnostic that tells the user the project must be a git repository. There is no mode in which the command runs without git.
 
 ## Preflight check
-Before setting up the workspace (see `.docs/contracts/cli-commands/implement/workspace.md`), the command runs a preflight check:
+Before setting up the workspace (see [.docs/contracts/cli-commands/implement/workspace.md](/.docs/contracts/cli-commands/implement/workspace.md)), the command runs a preflight check:
 
 - The project must be a git repository, per the Requirement above.
 - The working tree must be clean except for the plan file selected for this run.
@@ -17,7 +17,7 @@ Before setting up the workspace (see `.docs/contracts/cli-commands/implement/wor
 On preflight failure the command exits non-zero with a diagnostic, before setting up any workspace. When the failure is an unclean working tree, the diagnostic asks the user to commit or stash the pending changes before re-running; it does NOT list the offending files — the list may be long and is left to the user to inspect via `git status`.
 
 ## Commit per task
-The commit/check stage of the inner loop (see `.docs/contracts/cli-commands/implement/iteration-loop.md`) commits the work for the accepted task. The sequence for that stage is:
+The commit/check stage of the inner loop (see [.docs/contracts/cli-commands/implement/iteration-loop.md](/.docs/contracts/cli-commands/implement/iteration-loop.md)) commits the work for the accepted task. The sequence for that stage is:
 
 1. The plan file is updated in place: the task's checkbox is flipped from `[ ]` to `[x]` and its metrics object is finalized for that task.
 2. The orchestrator stages every change in the working tree with `git add -A`.
@@ -37,4 +37,4 @@ If `git commit` exits non-zero (for example because a pre-commit hook rejects th
 - The inner loop restarts at stage 1 of the next iteration, which increments `iteration` and counts toward `MAX_ITER`. The next iteration's worker prompt receives the previous-iteration briefing as usual, so the worker is informed that the previous attempt failed.
 
 ## Output
-All `git` invocations emitted by the implement command — preflight checks, staging, and commits — stream their stdout and stderr into the output region defined in `.docs/contracts/cli-commands/implement/ui.md`, like any other subprocess the command spawns.
+All `git` invocations emitted by the implement command — preflight checks, staging, and commits — stream their stdout and stderr into the output region defined in [.docs/contracts/cli-commands/implement/ui.md](/.docs/contracts/cli-commands/implement/ui.md), like any other subprocess the command spawns.

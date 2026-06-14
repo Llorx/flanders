@@ -76,7 +76,7 @@ When `--skills-tool=both` is selected (or the interactive answer is `both`), the
 The textual obligations a user sees when invoking a skill are pinned by the contract files in `.docs/contracts/ai-skills/`. The internal form of each skill artifact (frontmatter fields, body shape) is an implementation detail; what is pinned is that after a successful `install` run the user is able to invoke `/flanders-spec`, `/flanders-plan`, and `/flanders-work` from inside an AI-tool session of each selected tool whose skills root is the chosen scope.
 
 ## Configuration written
-The command writes the persistent Flanders configuration at the chosen scope, as defined in `.docs/contracts/shared/flanders-config.md`. Only the answers downstream Flanders commands consume are persisted (worker tool, model, and effort; and, for each reviewer in the configured order, its tool, model, and effort). The skills-tool answer is consumed by `install` itself to decide which skill folders to write into and is not persisted to `.flanders/`.
+The command writes the persistent Flanders configuration at the chosen scope, as defined in [.docs/contracts/shared/flanders-config.md](/.docs/contracts/shared/flanders-config.md). Only the answers downstream Flanders commands consume are persisted (worker tool, model, and effort; and, for each reviewer in the configured order, its tool, model, and effort). The skills-tool answer is consumed by `install` itself to decide which skill folders to write into and is not persisted to `.flanders/`.
 
 ## Overwrite behavior
 Existing files at the destination paths — both skill artifacts and `.flanders/` configuration files — are overwritten silently. The command does not back up, version, or prompt about pre-existing files. Preserving prior versions is the user's responsibility, typically through version control.
@@ -94,5 +94,5 @@ On success, the command prints to standard output the list of files it wrote, on
 
 ## Out of scope
 - The exact internal contents of each skill artifact (frontmatter fields, body shape) are implementation choices and are not pinned by this contract. What is pinned is that after a successful `install` run, the user is able to invoke `/flanders-spec`, `/flanders-plan`, and `/flanders-work` from inside an AI-tool session of each selected tool whose skills root is the chosen scope.
-- The exact file names, directory layout, and serialization format inside `.flanders/` are implementation choices. The location per scope, the set of fields persisted, and the read-time precedence are pinned in `.docs/contracts/shared/flanders-config.md`.
+- The exact file names, directory layout, and serialization format inside `.flanders/` are implementation choices. The location per scope, the set of fields persisted, and the read-time precedence are pinned in [.docs/contracts/shared/flanders-config.md](/.docs/contracts/shared/flanders-config.md).
 - Uninstallation: this contract does not define a `flanders uninstall` subcommand. The user removes installed skills and the `.flanders/` folder manually if needed.

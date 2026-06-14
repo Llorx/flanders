@@ -1,6 +1,6 @@
 # The prep agent runs when at least one reviewer shares the worker's tool, model and effort
 
-The "prep" agent — a read-only AI call that loads the task's contracts and rules into a session whose `session_id` is then reused by the worker (iter 1) and by every reviewer whose configuration matches the worker's — is an optimization, not a mandatory stage. The contract `.docs/contracts/cli-commands/implement/iteration-loop.md` does not require it; this rule pins exactly when the optimization runs, who forks the prep session, and when it is skipped.
+The "prep" agent — a read-only AI call that loads the task's contracts and rules into a session whose `session_id` is then reused by the worker (iter 1) and by every reviewer whose configuration matches the worker's — is an optimization, not a mandatory stage. The contract [.docs/contracts/cli-commands/implement/iteration-loop.md](/.docs/contracts/cli-commands/implement/iteration-loop.md) does not require it; this rule pins exactly when the optimization runs, who forks the prep session, and when it is skipped.
 
 ## Who this applies to
 
@@ -9,7 +9,7 @@ The "prep" agent — a read-only AI call that loads the task's contracts and rul
 
 ## The condition
 
-The prep agent is always built with the worker's tool, model, and effort. The orchestrator launches a prep agent for a task if and only if **at least one** reviewer in the `reviewers` array matches the worker on **all three** of the following, by exact string equality on the values read from `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`. A reviewer `r` matches the worker when:
+The prep agent is always built with the worker's tool, model, and effort. The orchestrator launches a prep agent for a task if and only if **at least one** reviewer in the `reviewers` array matches the worker on **all three** of the following, by exact string equality on the values read from `.flanders/config.json` per [src/workspace/.docs/rules/flanders-config/file-format.md](/src/workspace/.docs/rules/flanders-config/file-format.md). A reviewer `r` matches the worker when:
 
 1. `worker.tool == r.tool`
 2. `worker.model == r.model` (including both being the empty string `""`)
@@ -27,11 +27,11 @@ When at least one reviewer matches the worker:
 2. The prep prompt instructs the agent to read the full content of the task line, every contract and rule referenced by the task, and any additional file from the global lists the prep judges relevant, then to end with a short acknowledgement (for example `READY`) and no pending tool calls.
 3. The orchestrator captures the prep's `session_id` from the runner's stream.
 4. That `session_id` becomes the **fork parent** for:
-   - The worker's first iteration on the task (per `src/commands/.docs/rules/ai/task-context/worker-iter1-context.md`). The worker always forks the prep when the prep ran, because the prep carries the worker's own triple.
-   - Every reviewer invocation, across every iteration of the task, whose tool, model, and effort match the worker's triple (per `src/commands/.docs/rules/ai/task-context/reviewer-context.md`). A reviewer whose triple differs from the worker's never forks the prep.
+   - The worker's first iteration on the task (per [src/commands/.docs/rules/ai/task-context/worker-iter1-context.md](/src/commands/.docs/rules/ai/task-context/worker-iter1-context.md)). The worker always forks the prep when the prep ran, because the prep carries the worker's own triple.
+   - Every reviewer invocation, across every iteration of the task, whose tool, model, and effort match the worker's triple (per [src/commands/.docs/rules/ai/task-context/reviewer-context.md](/src/commands/.docs/rules/ai/task-context/reviewer-context.md)). A reviewer whose triple differs from the worker's never forks the prep.
 5. The prep's `session_id` is discarded when the task closes (success, hard stop, or task change).
 
-The prep is read-only on the project: it does not edit, write, rename, or delete any file, and it does not write to git (subject to `src/commands/.docs/rules/ai/agents/no-git-writes.md`).
+The prep is read-only on the project: it does not edit, write, rename, or delete any file, and it does not write to git (subject to [src/commands/.docs/rules/ai/agents/no-git-writes.md](/src/commands/.docs/rules/ai/agents/no-git-writes.md)).
 
 If the prep fails to produce a usable forkable `session_id` — the runner surfaces a non-retryable error, or the prep does not end in a state suitable for forking — the orchestrator hard-stops the run. The failure mode mirrors `MAX_ITER`: the run prints an error naming the task, preserves the temporary folder on disk (suppressing automatic cleanup), and exits non-zero. The orchestrator must not silently fall back to "skip prep, run without it" — the condition for running the prep is fixed, and a prep failure while the condition holds is a hard error.
 
@@ -40,7 +40,7 @@ If the prep fails to produce a usable forkable `session_id` — the runner surfa
 When no reviewer matches the worker on all three checks:
 
 1. The orchestrator does not spawn a prep agent.
-2. The worker and every reviewer invocation on the task receive the contracts/rules content reconstituted in their own prompts (per `src/commands/.docs/rules/ai/task-context/worker-iter1-context.md` and `src/commands/.docs/rules/ai/task-context/reviewer-context.md`), not via session fork.
+2. The worker and every reviewer invocation on the task receive the contracts/rules content reconstituted in their own prompts (per [src/commands/.docs/rules/ai/task-context/worker-iter1-context.md](/src/commands/.docs/rules/ai/task-context/worker-iter1-context.md) and [src/commands/.docs/rules/ai/task-context/reviewer-context.md](/src/commands/.docs/rules/ai/task-context/reviewer-context.md)), not via session fork.
 3. No fork-parent `session_id` is captured for the task.
 
 Skipping the prep is a routine, silent path; it does not produce a diagnostic and does not affect the run's success.

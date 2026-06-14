@@ -5,7 +5,7 @@ When the footer is in its waiting state (as defined by the UI contract), the lab
 ## Who this applies to
 
 - **Subject:** the bottom-fixed UI block, specifically the footer line while it is in the waiting state.
-- **Scope:** the visible content of the label during that state. Which retries trigger the state lives in `waiting-footer-applies-to-long-waits-only.md`.
+- **Scope:** the visible content of the label during that state. Which retries trigger the state lives in [src/ui/.docs/rules/waiting-footer-applies-to-long-waits-only.md](/src/ui/.docs/rules/waiting-footer-applies-to-long-waits-only.md).
 
 ## What the label shows
 
@@ -16,7 +16,7 @@ When the footer is in its waiting state (as defined by the UI contract), the lab
   - `<hours> hours <minutes> minutes` when the remaining wait is at least one hour but shorter than one day.
   - `<days> days, <hours> hours, <minutes> minutes` when the remaining wait is at least one day.
 
-The countdown is part of the redraw and recomputes from the current clock and the target end time. It is never stored as a precomputed string between redraws (see `state-driven-redraw.md`).
+The countdown is part of the redraw and recomputes from the current clock and the target end time. It is never stored as a precomputed string between redraws (see [src/ui/.docs/rules/state-driven-redraw.md](/src/ui/.docs/rules/state-driven-redraw.md)).
 
 ## Failure signals
 

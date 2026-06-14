@@ -4,20 +4,20 @@ When a `/flanders-work` review round ends with the reviewer reporting no violati
 
 ## Who this applies to
 
-- **Subject:** the source content that produces the `/flanders-work` skill artifact body, and the `/flanders-work` skill at runtime, at the moment a review round ends with an empty verdict file per `src/prompts/.docs/rules/ai/skills/work/review-loop-driven-by-error-log-presence.md`.
-- **Not subject:** the `implement` command, which finalizes an accepted task by flipping its plan-file checkbox and creating a per-task commit (see `.docs/contracts/cli-commands/implement/iteration-loop.md` and `.docs/contracts/cli-commands/implement/git-integration.md`).
+- **Subject:** the source content that produces the `/flanders-work` skill artifact body, and the `/flanders-work` skill at runtime, at the moment a review round ends with an empty verdict file per [src/prompts/.docs/rules/ai/skills/work/review-loop-driven-by-error-log-presence.md](/src/prompts/.docs/rules/ai/skills/work/review-loop-driven-by-error-log-presence.md).
+- **Not subject:** the `implement` command, which finalizes an accepted task by flipping its plan-file checkbox and creating a per-task commit (see [.docs/contracts/cli-commands/implement/iteration-loop.md](/.docs/contracts/cli-commands/implement/iteration-loop.md) and [.docs/contracts/cli-commands/implement/git-integration.md](/.docs/contracts/cli-commands/implement/git-integration.md)).
 
 ## Behavior
 
 On a clean review, the skill:
 
-1. **Does not commit.** It runs no `git add`, `git commit`, or any other git command that mutates repository state. The changes remain as an uncommitted working tree for the user to review, amend, commit, or discard. (The reviewer subagent is separately forbidden from writing to git by `src/commands/.docs/rules/ai/agents/no-git-writes.md`; this rule pins that the skill's own finalization also performs no commit.)
+1. **Does not commit.** It runs no `git add`, `git commit`, or any other git command that mutates repository state. The changes remain as an uncommitted working tree for the user to review, amend, commit, or discard. (The reviewer subagent is separately forbidden from writing to git by [src/commands/.docs/rules/ai/agents/no-git-writes.md](/src/commands/.docs/rules/ai/agents/no-git-writes.md); this rule pins that the skill's own finalization also performs no commit.)
 
 2. **Does not touch `plans/`.** It creates, modifies, deletes, and renames nothing in the `plans/` folder. `/flanders-work` has no plan file: its spec is the user's request, not a plan task, so there is no checkbox to flip and no metrics to record.
 
 3. **Does not write Flanders configuration.** It writes nothing to `.flanders/`. The skill consumes no configuration and produces none.
 
-The skill then reports completion to the user in chat, in the interaction language of `.docs/contracts/ai-skills/interaction-language.md`.
+The skill then reports completion to the user in chat, in the interaction language of [.docs/contracts/ai-skills/interaction-language.md](/.docs/contracts/ai-skills/interaction-language.md).
 
 ## Why
 

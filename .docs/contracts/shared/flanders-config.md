@@ -1,7 +1,7 @@
 # Flanders Configuration Folder Contract
 
 ## Purpose
-Define the persistent Flanders configuration surface — the `.flanders/` folder — that the `install` command writes (see `.docs/contracts/cli-commands/install.md`) and that other Flanders commands (currently `implement`) read.
+Define the persistent Flanders configuration surface — the `.flanders/` folder — that the `install` command writes (see [.docs/contracts/cli-commands/install.md](/.docs/contracts/cli-commands/install.md)) and that other Flanders commands (currently `implement`) read.
 
 ## Location per scope
 Flanders persists its configuration at a fixed location per scope:

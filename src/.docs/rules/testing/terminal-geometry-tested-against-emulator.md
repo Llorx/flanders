@@ -14,9 +14,9 @@ The project's headless terminal emulator is **`@xterm/headless`**, declared unde
 
 ## Relationship to other testing rules
 
-- `arrange-act-assert` remains the only test runner (`library-and-aaa-structure.md`); the emulator is a helper used inside the `ARRANGE`/`ASSERT` sections of an `arrange-act-assert` test, never a second runner.
-- The emulator is a development-only dependency, so it does not add a production dependency (`no-production-dependencies.md`).
-- Asserting on the emulator's rendered grid is asserting through the behavioral surface, consistent with `assert-via-public-surface.md`: the grid is computed from the bytes the code emits, not from its private state or its source text. Asserting the exact emitted control sequences against a captured-output fake remains permitted and complementary; this rule binds only the rendered-geometry claim, which must additionally be confirmed against the emulator grid.
+- `arrange-act-assert` remains the only test runner ([src/.docs/rules/testing/library-and-aaa-structure.md](/src/.docs/rules/testing/library-and-aaa-structure.md)); the emulator is a helper used inside the `ARRANGE`/`ASSERT` sections of an `arrange-act-assert` test, never a second runner.
+- The emulator is a development-only dependency, so it does not add a production dependency ([.docs/rules/dependencies/no-production-dependencies.md](/.docs/rules/dependencies/no-production-dependencies.md)).
+- Asserting on the emulator's rendered grid is asserting through the behavioral surface, consistent with [src/.docs/rules/testing/assert-via-public-surface.md](/src/.docs/rules/testing/assert-via-public-surface.md): the grid is computed from the bytes the code emits, not from its private state or its source text. Asserting the exact emitted control sequences against a captured-output fake remains permitted and complementary; this rule binds only the rendered-geometry claim, which must additionally be confirmed against the emulator grid.
 
 ## Failure signals
 

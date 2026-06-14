@@ -4,7 +4,7 @@ The adversarial review stage produces a single verdict from the per-reviewer err
 
 ## Who this applies to
 
-- **Subject:** the orchestrator of the `implement` inner loop, at the adversarial review stage, once every configured reviewer has run to a verdict (every per-reviewer error file is present per `src/commands/.docs/rules/ai/agents/reviewer-verdict-via-error-log.md`).
+- **Subject:** the orchestrator of the `implement` inner loop, at the adversarial review stage, once every configured reviewer has run to a verdict (every per-reviewer error file is present per [src/commands/.docs/rules/ai/agents/reviewer-verdict-via-error-log.md](/src/commands/.docs/rules/ai/agents/reviewer-verdict-via-error-log.md)).
 - **Not subject:** the reviewers themselves and the AI runner. The reviewers each write their own per-reviewer error file; this rule governs only how the orchestrator combines those files into the stage verdict.
 
 ## Behavior

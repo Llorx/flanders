@@ -1,6 +1,6 @@
 # The Codex adapter spawns `codex exec --json` and maps its events to the tool interface
 
-The Codex adapter is the per-tool implementation of the generic tool-adapter interface defined in `src/ai/.docs/rules/runner/tool-interface.md`. It is the bridge between the OpenAI Codex CLI's native event stream and the runner's abstract `ToolEvent` stream. This rule pins both how the binary is invoked and how each native event is mapped to a `ToolEvent`.
+The Codex adapter is the per-tool implementation of the generic tool-adapter interface defined in [src/ai/.docs/rules/runner/tool-interface.md](/src/ai/.docs/rules/runner/tool-interface.md). It is the bridge between the OpenAI Codex CLI's native event stream and the runner's abstract `ToolEvent` stream. This rule pins both how the binary is invoked and how each native event is mapped to a `ToolEvent`.
 
 ## Who this applies to
 
@@ -13,7 +13,7 @@ The adapter spawns `codex` with at least the following arguments:
 
 - `exec` — the non-interactive subcommand.
 - `--json` — newline-delimited JSON events on stdout (one per state change).
-- `-c approval_policy=never` — disable approval prompts, realizing the non-interactive invocation required by `src/ai/.docs/rules/runner/non-interactive-invocation.md`.
+- `-c approval_policy=never` — disable approval prompts, realizing the non-interactive invocation required by [src/ai/.docs/rules/runner/non-interactive-invocation.md](/src/ai/.docs/rules/runner/non-interactive-invocation.md).
 - `-c sandbox_mode=danger-full-access` — Flanders runs the worker in the project's own working tree because that is the artefact `implement` is producing; the sandbox is the working tree itself, not a surrounding host.
 - A trailing `-` argument indicating the prompt is to be read from stdin.
 
@@ -72,11 +72,11 @@ The `turn.completed` event carries a `usage` object with the integer fields `inp
 
 Codex's failure surface in the `exec --json` stream is two events that each carry a human-readable message and no other structured field: the top-level `{ type: "error", message: string }` and the `{ type: "turn.failed", error: { message: string } }` that follows it. When a turn fails, Codex emits both, in that order, carrying the same text. Unlike Claude, Codex exposes in this stream neither an HTTP status, nor a retry-after, nor a reset timestamp, nor a discrete error code — the structured `rate_limits` snapshot and the `codex_error_info` code that Codex records in its on-disk session rollout do not appear in the `exec --json` stdout stream. The adapter therefore classifies the failure from the message text alone, plus the surrounding process state.
 
-The adapter acts on whichever of the two failure events arrives first, emits exactly one terminal `ToolEvent` for it, and absorbs the duplicate that follows — preserving the single-terminal-event invariant of `src/ai/.docs/rules/runner/tool-interface.md`. The message it classifies is the `message` field for a `type: "error"` event and the nested `error.message` field for a `type: "turn.failed"` event.
+The adapter acts on whichever of the two failure events arrives first, emits exactly one terminal `ToolEvent` for it, and absorbs the duplicate that follows — preserving the single-terminal-event invariant of [src/ai/.docs/rules/runner/tool-interface.md](/src/ai/.docs/rules/runner/tool-interface.md). The message it classifies is the `message` field for a `type: "error"` event and the nested `error.message` field for a `type: "turn.failed"` event.
 
 **Classification of a failure message** — the adapter inspects the trimmed message (case-insensitive, literal substring search):
 
-- Message contains any of: `out of credits`, `refill`, `usage limit`, `rate limit`, `rate-limit`, `rate_limit`, `quota`, `too many requests`, or the standalone token `429` — this is a rate-limit or a quota/credit exhaustion. The `exec --json` stream carries no reset time for it, so the adapter synthesizes one: it emits `{ type: "rate_limit", waitUntilMs: <now> + R }`, where `R` is a duration drawn uniformly at random from the closed interval of 8 minutes to 12 minutes. Both the current time and the random draw are obtained through the injected contexts per `src/.docs/rules/external-access-through-contexts.md`; the adapter never calls `Date.now()` or `Math.random()` directly.
+- Message contains any of: `out of credits`, `refill`, `usage limit`, `rate limit`, `rate-limit`, `rate_limit`, `quota`, `too many requests`, or the standalone token `429` — this is a rate-limit or a quota/credit exhaustion. The `exec --json` stream carries no reset time for it, so the adapter synthesizes one: it emits `{ type: "rate_limit", waitUntilMs: <now> + R }`, where `R` is a duration drawn uniformly at random from the closed interval of 8 minutes to 12 minutes. Both the current time and the random draw are obtained through the injected contexts per [src/.docs/rules/external-access-through-contexts.md](/src/.docs/rules/external-access-through-contexts.md); the adapter never calls `Date.now()` or `Math.random()` directly.
 - Message contains any three-digit `5xx` token (`500`..`599`) — emit `{ type: "error", retryable: true, message }`.
 - Message contains the three-digit tokens `408` or `425` — emit `{ type: "error", retryable: true, message }`.
 - Message contains any of: `timeout`, `timed out`, `connection reset`, `connection refused`, `socket hang up`, `temporarily unavailable`, `service unavailable`, `gateway`, `network`, `ECONNRESET`, `ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`, `EAI_AGAIN` — emit `{ type: "error", retryable: true, message }`.

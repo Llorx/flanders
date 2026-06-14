@@ -2,7 +2,7 @@
 
 A command that owns a region pinned to the terminal during its run has exactly one output object responsible for that region, which is also the sole channel through which every stdout/stderr write the command produces flows. The command's own status messages, the streaming stdout and stderr of every subprocess it spawns, every error message, and the printed text of every interactive prompt all go through this single object.
 
-This rule is complementary to `external-access-through-contexts.md`. That rule forbids reaching for ambient globals (`console.*`, `process.stdout.write`, `process.stderr.write`, raw `fs` writes used as output, etc.) from a class with no output context. This rule goes further: even with a properly injected output context, a command that owns a live region must consolidate all its output through one owner — not several context-injected output paths feeding the same stream.
+This rule is complementary to [src/.docs/rules/external-access-through-contexts.md](/src/.docs/rules/external-access-through-contexts.md). That rule forbids reaching for ambient globals (`console.*`, `process.stdout.write`, `process.stderr.write`, raw `fs` writes used as output, etc.) from a class with no output context. This rule goes further: even with a properly injected output context, a command that owns a live region must consolidate all its output through one owner — not several context-injected output paths feeding the same stream.
 
 Commands that produce only sequential, non-pinned output are not subject to this rule.
 

@@ -20,7 +20,7 @@ The helper lives in one file and is imported by every prompting command. A secon
 
 ## Dependency policy
 
-The helper is implemented on top of Node.js's standard library — `node:readline`, `node:tty`, `node:process` — and any internal Flanders utility code. It does not introduce a production dependency, per `.docs/rules/dependencies/no-production-dependencies.md`. If the helper grows beyond what stdlib can reasonably support, the right move is to drop the affected ergonomic feature, not to add a runtime dependency.
+The helper is implemented on top of Node.js's standard library — `node:readline`, `node:tty`, `node:process` — and any internal Flanders utility code. It does not introduce a production dependency, per [.docs/rules/dependencies/no-production-dependencies.md](/.docs/rules/dependencies/no-production-dependencies.md). If the helper grows beyond what stdlib can reasonably support, the right move is to drop the affected ergonomic feature, not to add a runtime dependency.
 
 ## Non-TTY behavior
 

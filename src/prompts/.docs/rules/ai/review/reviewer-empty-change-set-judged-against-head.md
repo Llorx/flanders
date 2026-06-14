@@ -6,7 +6,7 @@ This is the case of an idempotent re-application: work that a prior step already
 
 ## Who this applies to
 
-- **Subject:** every Flanders adversarial reviewer — the `implement` command's reviewer(s) (see `.docs/contracts/cli-commands/implement/iteration-loop.md`) and the `/flanders-work` skill's reviewer subagent (see `.docs/contracts/ai-skills/work-skill.md`) — at the moment it decides its verdict, but only when the change set enumerated per `src/prompts/.docs/rules/ai/review/reviewer-derives-change-set-from-git.md` is empty. The spec under review is the plan task and its acceptance criteria for `implement`, and the user's request for `/flanders-work`.
+- **Subject:** every Flanders adversarial reviewer — the `implement` command's reviewer(s) (see [.docs/contracts/cli-commands/implement/iteration-loop.md](/.docs/contracts/cli-commands/implement/iteration-loop.md)) and the `/flanders-work` skill's reviewer subagent (see [.docs/contracts/ai-skills/work-skill.md](/.docs/contracts/ai-skills/work-skill.md)) — at the moment it decides its verdict, but only when the change set enumerated per [src/prompts/.docs/rules/ai/review/reviewer-derives-change-set-from-git.md](/src/prompts/.docs/rules/ai/review/reviewer-derives-change-set-from-git.md) is empty. The spec under review is the plan task and its acceptance criteria for `implement`, and the user's request for `/flanders-work`.
 - **Not subject:** the reviewer when the change set is non-empty — the standard review of the changes is unchanged and is governed by the reviewer's other obligations.
 
 ## Behavior
@@ -15,9 +15,9 @@ When the enumerated change set is empty:
 
 1. **The empty change set is not a failure on its own.** The reviewer does not record a violation for the sole reason that there is no diff this cycle. The absence of a diff is the expected shape of an idempotent re-application of already-committed work.
 
-2. **The spec is judged against `HEAD`.** The reviewer verifies each element of the spec against the committed working tree, drawing the evidence each element's classification requires per `src/commands/.docs/rules/ai/agents/evidence/claim-evidence-classification.md`: for a toolchain-guarded element, the automated signal the project already runs; for a test-guarded element, an existing passing test whose assertion a regression would trip; for a review-adjudicated element, the reviewer's inspection of the full working tree at `HEAD`. The reviewer does not require the evidence to originate from an uncommitted diff.
+2. **The spec is judged against `HEAD`.** The reviewer verifies each element of the spec against the committed working tree, drawing the evidence each element's classification requires per [src/commands/.docs/rules/ai/agents/evidence/claim-evidence-classification.md](/src/commands/.docs/rules/ai/agents/evidence/claim-evidence-classification.md): for a toolchain-guarded element, the automated signal the project already runs; for a test-guarded element, an existing passing test whose assertion a regression would trip; for a review-adjudicated element, the reviewer's inspection of the full working tree at `HEAD`. The reviewer does not require the evidence to originate from an uncommitted diff.
 
-3. **The verdict follows from the spec, not from the diff's size.** The reviewer passes — recording its verdict by leaving its error-log file empty per `src/prompts/.docs/rules/ai/review/reviewer-records-verdict-via-error-log.md` — when the spec under review is satisfied at `HEAD`. It records a violation only for a spec element, contract, or rule that is genuinely unsatisfied at `HEAD`.
+3. **The verdict follows from the spec, not from the diff's size.** The reviewer passes — recording its verdict by leaving its error-log file empty per [src/prompts/.docs/rules/ai/review/reviewer-records-verdict-via-error-log.md](/src/prompts/.docs/rules/ai/review/reviewer-records-verdict-via-error-log.md) — when the spec under review is satisfied at `HEAD`. It records a violation only for a spec element, contract, or rule that is genuinely unsatisfied at `HEAD`.
 
 ## Why
 

@@ -18,7 +18,7 @@ This invokes the project's `test` script (which builds the debug output and then
 
 ## When 100% is genuinely unreachable
 
-Some lines cannot be covered by an in-process test even in principle — typically because exercising them would require reaching past the project's context interfaces (see `external-access-through-contexts.md`) into real I/O, real time, or real platform behavior. In those narrow cases, the uncovered region is marked with the runner's coverage-ignore comments **and** carries an inline reason:
+Some lines cannot be covered by an in-process test even in principle — typically because exercising them would require reaching past the project's context interfaces (see [src/.docs/rules/external-access-through-contexts.md](/src/.docs/rules/external-access-through-contexts.md)) into real I/O, real time, or real platform behavior. In those narrow cases, the uncovered region is marked with the runner's coverage-ignore comments **and** carries an inline reason:
 
 ```ts
 /* coverage ignore next 2 */ // Unreachable: TypeScript narrows the switch above, this guards the impossible default.
@@ -43,7 +43,7 @@ An ignore is acceptable for:
 
 An ignore is **not** acceptable for:
 
-- Code that is hard to test because the class reaches for a global, a Node built-in, or a concrete dependency directly. The fix is to introduce or extend a context interface (see `external-access-through-contexts.md`) and test the class against a stub — not to ignore the lines.
+- Code that is hard to test because the class reaches for a global, a Node built-in, or a concrete dependency directly. The fix is to introduce or extend a context interface (see [src/.docs/rules/external-access-through-contexts.md](/src/.docs/rules/external-access-through-contexts.md)) and test the class against a stub — not to ignore the lines.
 - Error branches in business logic ("this should never happen") that the test suite simply did not bother to exercise. If the branch exists, it has to be tested.
 - Whole functions, classes, or files marked with `/* coverage disable */` to make a coverage report green.
 

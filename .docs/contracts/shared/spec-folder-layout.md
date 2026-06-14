@@ -1,10 +1,10 @@
 # Spec Folder Layout — `.docs` Hierarchy and Scope
 
 ## Purpose
-Pin how a Flanders-managed project organizes its spec files, what makes a spec a contract or a rule, and where each spec belongs. This layout is the structure every Flanders skill and command reads the project's specs from and writes them to. Who is authorized to write each spec folder is pinned in `.docs/contracts/shared/spec-folder-write-authority.md`.
+Pin how a Flanders-managed project organizes its spec files, what makes a spec a contract or a rule, and where each spec belongs. This layout is the structure every Flanders skill and command reads the project's specs from and writes them to. Who is authorized to write each spec folder is pinned in [.docs/contracts/shared/spec-folder-write-authority.md](/.docs/contracts/shared/spec-folder-write-authority.md).
 
 ## `.docs` folders
-A project's specs live in `.docs` folders. A `.docs` folder is a directory named exactly `.docs`, and one may appear at any level of the project tree — at the project root and inside any other directory. Each `.docs` folder holds three subfolders: a `.docs/contracts/` subfolder for that scope's contracts, a `.docs/rules/` subfolder for that scope's rules, and a `.docs/flanders/` subfolder for the rules that govern Flanders' own command behavior within that scope (see `.docs/contracts/shared/flanders-behavior-rules.md`). A `.docs` folder scopes the directory that contains it: the specs inside it govern that directory and everything beneath it.
+A project's specs live in `.docs` folders. A `.docs` folder is a directory named exactly `.docs`, and one may appear at any level of the project tree — at the project root and inside any other directory. Each `.docs` folder holds three subfolders: a `.docs/contracts/` subfolder for that scope's contracts, a `.docs/rules/` subfolder for that scope's rules, and a `.docs/flanders/` subfolder for the rules that govern Flanders' own command behavior within that scope (see [.docs/contracts/shared/flanders-behavior-rules.md](/.docs/contracts/shared/flanders-behavior-rules.md)). A `.docs` folder scopes the directory that contains it: the specs inside it govern that directory and everything beneath it.
 
 ## Contract versus rule — scope-relative
 Within any `.docs` folder, the split between a contract and a rule is relative to the boundary of the directory that `.docs` scopes:

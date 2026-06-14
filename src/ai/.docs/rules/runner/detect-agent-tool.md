@@ -1,6 +1,6 @@
 # The detect agent inherits tool, model and effort from the worker
 
-The build/test detection agent spawned by `implement` at workspace setup time (see `.docs/contracts/cli-commands/implement/workspace.md`) is not separately configured in `.flanders/config.json`. It runs through the AI runner with the same `tool`, `model`, and `effort` the runner uses for the worker.
+The build/test detection agent spawned by `implement` at workspace setup time (see [.docs/contracts/cli-commands/implement/workspace.md](/.docs/contracts/cli-commands/implement/workspace.md)) is not separately configured in `.flanders/config.json`. It runs through the AI runner with the same `tool`, `model`, and `effort` the runner uses for the worker.
 
 ## Who this applies to
 
@@ -11,9 +11,9 @@ The build/test detection agent spawned by `implement` at workspace setup time (s
 
 When the workspace setup spawns the detect agent:
 
-1. The orchestrator reads `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`.
+1. The orchestrator reads `.flanders/config.json` per [src/workspace/.docs/rules/flanders-config/file-format.md](/src/workspace/.docs/rules/flanders-config/file-format.md).
 2. It takes the `worker.tool`, `worker.model`, and `worker.effort` values verbatim and passes them to the AI runner along with the detect prompt and the two target script paths (`build.bat`/`test.bat` on Windows, `build.sh`/`test.sh` elsewhere).
-3. The runner invokes the resulting tool with that model and effort, per `src/ai/.docs/rules/runner/claude-invocation.md` or `src/ai/.docs/rules/runner/codex-invocation.md`.
+3. The runner invokes the resulting tool with that model and effort, per [src/ai/.docs/rules/runner/claude-invocation.md](/src/ai/.docs/rules/runner/claude-invocation.md) or [src/ai/.docs/rules/runner/codex-invocation.md](/src/ai/.docs/rules/runner/codex-invocation.md).
 
 The orchestrator does not consult `reviewer.*` for the detect agent, and does not invent a third "detect" set of fields.
 

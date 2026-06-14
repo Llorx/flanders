@@ -1,12 +1,12 @@
 # All AI tools implement the same generic tool-adapter interface
 
-The AI runner (see `src/ai/.docs/contracts/ai-runner.md`) does not contain Claude- or Codex-specific code. It consumes one abstract interface that every per-tool adapter implements. Each adapter is the bridge between a single AI tool's native CLI surface and the runner's event-driven world: it spawns the binary, parses the binary's output, and emits a stream of events whose shape is fixed by this rule. The runner reacts only to those events, never to the underlying tool's native event format.
+The AI runner (see [src/ai/.docs/contracts/ai-runner.md](/src/ai/.docs/contracts/ai-runner.md)) does not contain Claude- or Codex-specific code. It consumes one abstract interface that every per-tool adapter implements. Each adapter is the bridge between a single AI tool's native CLI surface and the runner's event-driven world: it spawns the binary, parses the binary's output, and emits a stream of events whose shape is fixed by this rule. The runner reacts only to those events, never to the underlying tool's native event format.
 
 Adding a new AI tool to Flanders is a matter of writing a new adapter that implements this interface; it must not require changes inside the runner, inside the retry rules, inside the UI rules, or inside the implement orchestration.
 
 ## Who this applies to
 
-- **Subject:** every per-tool adapter. Today: the Claude adapter (see `src/ai/.docs/rules/runner/claude-invocation.md`) and the Codex adapter (see `src/ai/.docs/rules/runner/codex-invocation.md`). Any future adapter falls under this rule the moment it is added.
+- **Subject:** every per-tool adapter. Today: the Claude adapter (see [src/ai/.docs/rules/runner/claude-invocation.md](/src/ai/.docs/rules/runner/claude-invocation.md)) and the Codex adapter (see [src/ai/.docs/rules/runner/codex-invocation.md](/src/ai/.docs/rules/runner/codex-invocation.md)). Any future adapter falls under this rule the moment it is added.
 - **Subject:** the AI runner, which consumes the interface and is forbidden from branching on the underlying tool.
 - **Not subject:** the call sites of the runner (worker stage, reviewer stage, detect agent, prep). They see only the runner's high-level result (success or non-retryable error), not the events.
 
@@ -19,10 +19,10 @@ Every adapter exposes one invocation function. Its signature, abstractly:
 Arguments:
 
 - `prompt` — the prompt text to send. The adapter is responsible for delivering it to the binary in whatever way that binary requires (stdin, argv, file); the runner does not care.
-- `model` — the model identifier persisted in `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`. An empty string means "default configured model" and the adapter must not pass an explicit model flag to its binary.
+- `model` — the model identifier persisted in `.flanders/config.json` per [src/workspace/.docs/rules/flanders-config/file-format.md](/src/workspace/.docs/rules/flanders-config/file-format.md). An empty string means "default configured model" and the adapter must not pass an explicit model flag to its binary.
 - `effort` — the effort identifier persisted in `.flanders/config.json`. An empty string means "default configured effort" and the adapter must not pass an explicit effort flag.
-- `resumeSessionId` — when set, the adapter resumes the previous session with that id (used by `src/commands/.docs/rules/ai/task-context/worker-continuity.md`). When unset, the adapter starts a fresh invocation.
-- `forkParentSessionId` — when set, the adapter forks from that parent session (used by the branch-A case in `src/commands/.docs/rules/ai/task-context/prep-optimization.md`). When unset, no fork happens.
+- `resumeSessionId` — when set, the adapter resumes the previous session with that id (used by [src/commands/.docs/rules/ai/task-context/worker-continuity.md](/src/commands/.docs/rules/ai/task-context/worker-continuity.md)). When unset, the adapter starts a fresh invocation.
+- `forkParentSessionId` — when set, the adapter forks from that parent session (used by the branch-A case in [src/commands/.docs/rules/ai/task-context/prep-optimization.md](/src/commands/.docs/rules/ai/task-context/prep-optimization.md)). When unset, no fork happens.
 - `abortSignal` — when the signal triggers, the adapter sends the appropriate termination signal to its spawned process, drains any remaining buffered output, and ends the iterable promptly. The runner waits for the iterable to close; the adapter does not return until the child process has exited.
 
 `resumeSessionId` and `forkParentSessionId` are mutually exclusive: at most one is set per invocation.
@@ -35,7 +35,7 @@ There are exactly five `ToolEvent` variants. Adapters must not invent additional
 
 ### `{ type: "output", title, subtitle, details }`
 
-A surface-able piece of tool activity that the runner forwards to the UI region defined in `.docs/contracts/cli-commands/implement/ui.md`. Field shape:
+A surface-able piece of tool activity that the runner forwards to the UI region defined in [.docs/contracts/cli-commands/implement/ui.md](/.docs/contracts/cli-commands/implement/ui.md). Field shape:
 
 - `title` — short label (1–2 words). For example: `"Read"`, `"Edit"`, `"Bash"`, `"Assistant"`, `"Result"`, `"Thinking"`. The adapter chooses titles that read naturally for that tool.
 - `subtitle` — one-line qualifier. For example: the file path of a `Read`, the command of a `Bash`, an empty string when no qualifier applies. May be empty.
@@ -47,7 +47,7 @@ The runner renders the three fields into the output region without applying its 
 
 ### `{ type: "session", id }`
 
-The adapter has observed the tool's `session_id` for this invocation and surfaces it to the runner. The runner captures it for later reuse per `src/ai/.docs/rules/retry/retry-reuses-session.md` (within-call retry continuity) and per `src/commands/.docs/rules/ai/task-context/worker-continuity.md` (cross-iteration worker continuity). Field shape:
+The adapter has observed the tool's `session_id` for this invocation and surfaces it to the runner. The runner captures it for later reuse per [src/ai/.docs/rules/retry/retry-reuses-session.md](/src/ai/.docs/rules/retry/retry-reuses-session.md) (within-call retry continuity) and per [src/commands/.docs/rules/ai/task-context/worker-continuity.md](/src/commands/.docs/rules/ai/task-context/worker-continuity.md) (cross-iteration worker continuity). Field shape:
 
 - `id` — the opaque session identifier string the tool exposed. Never empty.
 
@@ -57,22 +57,22 @@ The adapter has observed the tool's `session_id` for this invocation and surface
 
 The invocation failed. Field shape:
 
-- `retryable` — boolean. `true` means the runner must retry per `src/ai/.docs/rules/retry/retry-on-errors-and-rate-limits.md` and `src/ai/.docs/rules/retry/transient-error-backoff.md`. `false` means the failure propagates to the caller as a non-retryable error.
+- `retryable` — boolean. `true` means the runner must retry per [src/ai/.docs/rules/retry/retry-on-errors-and-rate-limits.md](/src/ai/.docs/rules/retry/retry-on-errors-and-rate-limits.md) and [src/ai/.docs/rules/retry/transient-error-backoff.md](/src/ai/.docs/rules/retry/transient-error-backoff.md). `false` means the failure propagates to the caller as a non-retryable error.
 - `message` — short, human-readable reason. Used for surfacing to the user (UI region) and for logging to `error.log`. The runner never inspects `message` to decide retryability — the `retryable` boolean is authoritative.
 
 `error` is a terminal event: when an adapter emits an `error`, the invocation has ended and no further events follow. The iterable closes after the `error` event has been yielded.
 
-The decision of whether a given failure is retryable lives entirely in the adapter. The runner does not second-guess it. Adapters classify their tool's native error surface into retryable / non-retryable according to the rule that pins each tool's adapter (see `src/ai/.docs/rules/runner/claude-invocation.md`, `src/ai/.docs/rules/runner/codex-invocation.md`).
+The decision of whether a given failure is retryable lives entirely in the adapter. The runner does not second-guess it. Adapters classify their tool's native error surface into retryable / non-retryable according to the rule that pins each tool's adapter (see [src/ai/.docs/rules/runner/claude-invocation.md](/src/ai/.docs/rules/runner/claude-invocation.md), [src/ai/.docs/rules/runner/codex-invocation.md](/src/ai/.docs/rules/runner/codex-invocation.md)).
 
 ### `{ type: "rate_limit", waitUntilMs }`
 
 The invocation hit a rate-limit signalled by the tool. Field shape:
 
-- `waitUntilMs` — Unix timestamp in milliseconds: the wall-clock instant the runner waits until before re-invoking. It is the tool's authoritative reset instant when the tool's signal carries one; when the tool signals a rate-limit or quota/credit exhaustion without an end time, it is an estimate the adapter synthesizes for that signal. Either way the runner waits until this point per `src/ai/.docs/rules/retry/long-wait-chunked-timer.md` (chunking the wait when it exceeds an hour) and then re-invokes the same adapter with the same arguments.
+- `waitUntilMs` — Unix timestamp in milliseconds: the wall-clock instant the runner waits until before re-invoking. It is the tool's authoritative reset instant when the tool's signal carries one; when the tool signals a rate-limit or quota/credit exhaustion without an end time, it is an estimate the adapter synthesizes for that signal. Either way the runner waits until this point per [src/ai/.docs/rules/retry/long-wait-chunked-timer.md](/src/ai/.docs/rules/retry/long-wait-chunked-timer.md) (chunking the wait when it exceeds an hour) and then re-invokes the same adapter with the same arguments.
 
 `rate_limit` is a terminal event: when an adapter emits it, the invocation has ended.
 
-`waitUntilMs` is always in the future relative to the moment the event is emitted. How an adapter derives it — reading the tool's reset field, or synthesizing an estimate when the tool reports a rate-limit without an end time — is pinned by that adapter's own rule (see `src/ai/.docs/rules/runner/claude-invocation.md`, `src/ai/.docs/rules/runner/codex-invocation.md`).
+`waitUntilMs` is always in the future relative to the moment the event is emitted. How an adapter derives it — reading the tool's reset field, or synthesizing an estimate when the tool reports a rate-limit without an end time — is pinned by that adapter's own rule (see [src/ai/.docs/rules/runner/claude-invocation.md](/src/ai/.docs/rules/runner/claude-invocation.md), [src/ai/.docs/rules/runner/codex-invocation.md](/src/ai/.docs/rules/runner/codex-invocation.md)).
 
 ### `{ type: "done" }`
 

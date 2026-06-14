@@ -4,8 +4,8 @@ The outcome a Flanders adversarial reviewer signals is carried exclusively by it
 
 ## Who this applies to
 
-- **Subject:** the construction of every Flanders adversarial reviewer prompt — the `implement` command's reviewer(s) (see `.docs/contracts/cli-commands/implement/iteration-loop.md`) and the `/flanders-work` skill's reviewer subagent (see `.docs/contracts/ai-skills/work-skill.md`).
-- **Not subject:** the lifecycle of the verdict file — its provisioning before the reviewer runs, its inspection afterward, and any re-launch on absence. That lifecycle is the orchestrating surface's, pinned for `implement` by `src/commands/.docs/rules/ai/agents/reviewer-verdict-via-error-log.md` and for `/flanders-work` by `src/prompts/.docs/rules/ai/skills/work/review-loop-driven-by-error-log-presence.md`.
+- **Subject:** the construction of every Flanders adversarial reviewer prompt — the `implement` command's reviewer(s) (see [.docs/contracts/cli-commands/implement/iteration-loop.md](/.docs/contracts/cli-commands/implement/iteration-loop.md)) and the `/flanders-work` skill's reviewer subagent (see [.docs/contracts/ai-skills/work-skill.md](/.docs/contracts/ai-skills/work-skill.md)).
+- **Not subject:** the lifecycle of the verdict file — its provisioning before the reviewer runs, its inspection afterward, and any re-launch on absence. That lifecycle is the orchestrating surface's, pinned for `implement` by [src/commands/.docs/rules/ai/agents/reviewer-verdict-via-error-log.md](/src/commands/.docs/rules/ai/agents/reviewer-verdict-via-error-log.md) and for `/flanders-work` by [src/prompts/.docs/rules/ai/skills/work/review-loop-driven-by-error-log-presence.md](/src/prompts/.docs/rules/ai/skills/work/review-loop-driven-by-error-log-presence.md).
 
 ## Behavior
 

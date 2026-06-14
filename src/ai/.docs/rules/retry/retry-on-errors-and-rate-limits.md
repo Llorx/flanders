@@ -1,6 +1,6 @@
 # The runner retries retryable errors and rate-limits via the tool-interface events
 
-The AI runner (see `src/ai/.docs/contracts/ai-runner.md`) decides whether to retry a failed invocation by reading the terminal event the per-tool adapter emits on the generic tool-adapter interface (`src/ai/.docs/rules/runner/tool-interface.md`). The detection logic does not live in the runner — the adapter has already classified the failure by the time it emits an `error` or a `rate_limit` event. The runner only needs to read the event type.
+The AI runner (see [src/ai/.docs/contracts/ai-runner.md](/src/ai/.docs/contracts/ai-runner.md)) decides whether to retry a failed invocation by reading the terminal event the per-tool adapter emits on the generic tool-adapter interface ([src/ai/.docs/rules/runner/tool-interface.md](/src/ai/.docs/rules/runner/tool-interface.md)). The detection logic does not live in the runner — the adapter has already classified the failure by the time it emits an `error` or a `rate_limit` event. The runner only needs to read the event type.
 
 ## Who this applies to
 
@@ -12,8 +12,8 @@ The AI runner (see `src/ai/.docs/contracts/ai-runner.md`) decides whether to ret
 When the adapter emits its terminal event, the runner reacts as follows:
 
 - `{ type: "done" }` — the runner returns success to the caller.
-- `{ type: "rate_limit", waitUntilMs }` — the runner waits until `waitUntilMs` per `src/ai/.docs/rules/retry/long-wait-chunked-timer.md` (chunked when the wait exceeds an hour), then re-invokes the same adapter with the same arguments, reusing the captured `session_id` per `src/ai/.docs/rules/retry/retry-reuses-session.md`.
-- `{ type: "error", retryable: true, message }` — the runner waits per `src/ai/.docs/rules/retry/transient-error-backoff.md` (exponential backoff capped at one minute), then re-invokes the same adapter with the same arguments, reusing the captured `session_id`.
+- `{ type: "rate_limit", waitUntilMs }` — the runner waits until `waitUntilMs` per [src/ai/.docs/rules/retry/long-wait-chunked-timer.md](/src/ai/.docs/rules/retry/long-wait-chunked-timer.md) (chunked when the wait exceeds an hour), then re-invokes the same adapter with the same arguments, reusing the captured `session_id` per [src/ai/.docs/rules/retry/retry-reuses-session.md](/src/ai/.docs/rules/retry/retry-reuses-session.md).
+- `{ type: "error", retryable: true, message }` — the runner waits per [src/ai/.docs/rules/retry/transient-error-backoff.md](/src/ai/.docs/rules/retry/transient-error-backoff.md) (exponential backoff capped at one minute), then re-invokes the same adapter with the same arguments, reusing the captured `session_id`.
 - `{ type: "error", retryable: false, message }` — the runner stops, surfaces the error to the caller as a non-retryable failure, and does not re-invoke. The `message` is what the caller sees and what is logged to `error.log`.
 
 The cycle continues indefinitely on retryable failures: there is no maximum retry count. Only `done` or a non-retryable `error` ends the runner's loop for a given call.
@@ -26,8 +26,8 @@ The runner does NOT inspect the `message` field of an `error` event to second-gu
 
 The mapping from a tool's native error surface to the abstract events lives in each per-tool adapter rule:
 
-- For Claude: `src/ai/.docs/rules/runner/claude-invocation.md` (sections on event mapping and on error/rate-limit emission).
-- For Codex: `src/ai/.docs/rules/runner/codex-invocation.md` (same sections).
+- For Claude: [src/ai/.docs/rules/runner/claude-invocation.md](/src/ai/.docs/rules/runner/claude-invocation.md) (sections on event mapping and on error/rate-limit emission).
+- For Codex: [src/ai/.docs/rules/runner/codex-invocation.md](/src/ai/.docs/rules/runner/codex-invocation.md) (same sections).
 
 Adding a new AI tool means writing a new adapter rule that includes its own mapping — this rule does not change.
 

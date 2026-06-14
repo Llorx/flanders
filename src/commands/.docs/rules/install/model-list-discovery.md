@@ -1,6 +1,6 @@
 # The model list is sourced per tool: codex by probe, claude from a hand-maintained catalog
 
-When `install` asks the user for a model identifier for the worker or the reviewer, the suggested models are sourced from the selected tool. For `codex`, `install` queries the tool's CLI for the models available to the user's account. For `claude`, whose CLI exposes no models-listing command, `install` presents a hand-maintained catalog of the models Claude Code is known to accept. The contract `.docs/contracts/cli-commands/install.md` pins the user-visible shape of each rendering; this rule pins, per tool, where the suggestions come from and how each path persists its value.
+When `install` asks the user for a model identifier for the worker or the reviewer, the suggested models are sourced from the selected tool. For `codex`, `install` queries the tool's CLI for the models available to the user's account. For `claude`, whose CLI exposes no models-listing command, `install` presents a hand-maintained catalog of the models Claude Code is known to accept. The contract [.docs/contracts/cli-commands/install.md](/.docs/contracts/cli-commands/install.md) pins the user-visible shape of each rendering; this rule pins, per tool, where the suggestions come from and how each path persists its value.
 
 ## Who this applies to
 
@@ -58,18 +58,18 @@ When `install` asks the user for a model identifier for the worker or the review
   |---|---|
   | `Best (auto-pick)` | `best` |
 
-  The catalog is a set of suggestions, not a closed set; the user reaches any model Claude Code accepts but the catalog omits through the custom entry pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`. When Claude Code documents new `--model` aliases or model versions, or retires a listed one, this rule is updated to track that change.
+  The catalog is a set of suggestions, not a closed set; the user reaches any model Claude Code accepts but the catalog omits through the custom entry pinned in [src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md](/src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md). When Claude Code documents new `--model` aliases or model versions, or retires a listed one, this rule is updated to track that change.
 
 ## Rendering the question
 
 - For **`codex`**, when the probe yields a non-empty list, the question is rendered as a selectable list whose entries are the model identifiers the probe returned, plus one synthetic entry at the end labelled `default configured model`. When the probe yields an empty list, is skipped, or fails, the question is rendered as a free-text input with the placeholder `leave empty for the default configured model`.
-- For **`claude`**, the question is rendered as the family-grouped two-tier menu pinned in `src/commands/.docs/rules/install/claude-model-menu-family-submenus.md`: each model family is a top-level entry that opens a submenu of that family's catalog entries (its "Latest" alias(es) and its pinned versions), the cross-family alias is a top-level direct selection, plus the synthetic `default configured model` entry, plus the custom entry pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`.
+- For **`claude`**, the question is rendered as the family-grouped two-tier menu pinned in [src/commands/.docs/rules/install/claude-model-menu-family-submenus.md](/src/commands/.docs/rules/install/claude-model-menu-family-submenus.md): each model family is a top-level entry that opens a submenu of that family's catalog entries (its "Latest" alias(es) and its pinned versions), the cross-family alias is a top-level direct selection, plus the synthetic `default configured model` entry, plus the custom entry pinned in [src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md](/src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md).
 
-Picking the synthetic `default configured model` entry resolves to the empty string `""` when persisted in `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`. Leaving the `codex` free-text input empty resolves to the same `""`.
+Picking the synthetic `default configured model` entry resolves to the empty string `""` when persisted in `.flanders/config.json` per [src/workspace/.docs/rules/flanders-config/file-format.md](/src/workspace/.docs/rules/flanders-config/file-format.md). Leaving the `codex` free-text input empty resolves to the same `""`.
 
 ## Equivalence between selecting and typing
 
-The available paths never produce different persisted values for the same user intent: picking `default configured model` and leaving the `codex` free-text input empty both resolve to `""`. Picking a specific model identifier — by selecting a top-level entry, by selecting a `claude` family-submenu entry, or by typing it into the `codex` free-text fallback — persists the exact identifier string the entry maps to or the user typed, with no trimming, no case folding, no further validation. The `claude` custom entry is a further path whose persistence is pinned in `src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md`.
+The available paths never produce different persisted values for the same user intent: picking `default configured model` and leaving the `codex` free-text input empty both resolve to `""`. Picking a specific model identifier — by selecting a top-level entry, by selecting a `claude` family-submenu entry, or by typing it into the `codex` free-text fallback — persists the exact identifier string the entry maps to or the user typed, with no trimming, no case folding, no further validation. The `claude` custom entry is a further path whose persistence is pinned in [src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md](/src/commands/.docs/rules/install/claude-lists-include-custom-value-entry.md).
 
 ## Failure signals
 

@@ -6,14 +6,14 @@ This closes a gap a per-line format check cannot: a line the host intended as a 
 
 ## Who this applies to
 
-- **Subject:** the `/flanders-plan` skill, as the host that packages the validator's prompt — it MUST pass the number of leaf task lines it generated as an explicit input to the validator, alongside the inputs enumerated in `src/prompts/.docs/rules/ai/skills/plan/final-validator.md`.
+- **Subject:** the `/flanders-plan` skill, as the host that packages the validator's prompt — it MUST pass the number of leaf task lines it generated as an explicit input to the validator, alongside the inputs enumerated in [src/prompts/.docs/rules/ai/skills/plan/final-validator.md](/src/prompts/.docs/rules/ai/skills/plan/final-validator.md).
 - **Subject (when running as a subagent):** the validator instance, in counting recognized task lines and comparing that count to the host-supplied count.
 - **Not subject:** the `/flanders-spec` validator, which audits a different artifact and has no task concept.
 
 ## The count check
 
 - The host supplies a single non-negative integer: the number of leaf task lines it wrote into the plan.
-- The validator counts every line in the plan that matches the canonical task-line recognizer regex pinned in `src/prompts/.docs/rules/ai/skills/plan/validator-matches-task-line-regex.md`.
+- The validator counts every line in the plan that matches the canonical task-line recognizer regex pinned in [src/prompts/.docs/rules/ai/skills/plan/validator-matches-task-line-regex.md](/src/prompts/.docs/rules/ai/skills/plan/validator-matches-task-line-regex.md).
 - This check is PASS only when the counted number equals the host-supplied number exactly. A counted number lower than supplied (a generated task was not recognized — most often because it is malformed) and a counted number higher than supplied (a non-task line was recognized as a task) are both FAIL.
 
 ## How to apply this rule

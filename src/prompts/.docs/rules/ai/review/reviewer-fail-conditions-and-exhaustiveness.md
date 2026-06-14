@@ -4,8 +4,8 @@ Every Flanders adversarial reviewer prompt instructs the reviewer to look advers
 
 ## Who this applies to
 
-- **Subject:** the construction of every Flanders adversarial reviewer prompt — the `implement` command's reviewer(s) (see `.docs/contracts/cli-commands/implement/iteration-loop.md`) and the `/flanders-work` skill's reviewer subagent (see `.docs/contracts/ai-skills/work-skill.md`). The spec under review is the plan task and its acceptance criteria for `implement`, and the user's request for `/flanders-work`.
-- **Not subject:** the worker, the prep agent, the build/test detection agent, and the content-skill final validators (`/flanders-spec`, `/flanders-plan`), whose gate is governed by `src/prompts/.docs/rules/ai/skills/final-validator-host.md`.
+- **Subject:** the construction of every Flanders adversarial reviewer prompt — the `implement` command's reviewer(s) (see [.docs/contracts/cli-commands/implement/iteration-loop.md](/.docs/contracts/cli-commands/implement/iteration-loop.md)) and the `/flanders-work` skill's reviewer subagent (see [.docs/contracts/ai-skills/work-skill.md](/.docs/contracts/ai-skills/work-skill.md)). The spec under review is the plan task and its acceptance criteria for `implement`, and the user's request for `/flanders-work`.
+- **Not subject:** the worker, the prep agent, the build/test detection agent, and the content-skill final validators (`/flanders-spec`, `/flanders-plan`), whose gate is governed by [src/prompts/.docs/rules/ai/skills/final-validator-host.md](/src/prompts/.docs/rules/ai/skills/final-validator-host.md).
 
 ## Behavior
 
@@ -21,9 +21,9 @@ The prompt also imposes:
 
 - **Exhaustiveness.** The reviewer runs every verification it is required to run and every additional check its judgment deems applicable, and does not stop when the first violation is discovered. The five conditions above and the spec-verification protocol below are executed in full on every invocation; encountering a violation in one does not exempt the reviewer from completing the rest. The goal is that a single review produces the complete list of fixes the next round of work needs.
 - **Pattern occurrence enumeration.** When a violation is an instance of a pattern, the reviewer enumerates every occurrence of that pattern across the file and every other file in the same module or suite where it could recur, each as its own independently-actionable entry with its `file:line`. A FAIL that cites only a subset of a pattern's occurrences is itself a failure of this rule.
-- **Spec-verification protocol.** Before deciding the work satisfies the spec under review, the reviewer enumerates every element of that spec as a separate item and classifies each by the regression-signal question of `src/commands/.docs/rules/ai/agents/evidence/claim-evidence-classification.md`, confirming the changes carry evidence of the type that classification requires. A spec element lacking that evidence is a violation. A spec element that enumerates N independent facts expands into N items per `src/commands/.docs/rules/ai/agents/evidence/enumerated-claim-coverage.md`.
+- **Spec-verification protocol.** Before deciding the work satisfies the spec under review, the reviewer enumerates every element of that spec as a separate item and classifies each by the regression-signal question of [src/commands/.docs/rules/ai/agents/evidence/claim-evidence-classification.md](/src/commands/.docs/rules/ai/agents/evidence/claim-evidence-classification.md), confirming the changes carry evidence of the type that classification requires. A spec element lacking that evidence is a violation. A spec element that enumerates N independent facts expands into N items per [src/commands/.docs/rules/ai/agents/evidence/enumerated-claim-coverage.md](/src/commands/.docs/rules/ai/agents/evidence/enumerated-claim-coverage.md).
 
-How the reviewer records the violations it finds is pinned by `src/prompts/.docs/rules/ai/review/reviewer-records-verdict-via-error-log.md`.
+How the reviewer records the violations it finds is pinned by [src/prompts/.docs/rules/ai/review/reviewer-records-verdict-via-error-log.md](/src/prompts/.docs/rules/ai/review/reviewer-records-verdict-via-error-log.md).
 
 ## Why
 

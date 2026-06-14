@@ -9,7 +9,7 @@ When the user supplies a flag whose value answers one of the install questions, 
 
 ## Mapping flag → question
 
-The mapping between flags pinned by `.docs/contracts/cli-commands/install.md` and the interactive questions they answer is:
+The mapping between flags pinned by [.docs/contracts/cli-commands/install.md](/.docs/contracts/cli-commands/install.md) and the interactive questions they answer is:
 
 | Flag | Question it answers |
 |------|---------------------|
@@ -29,16 +29,16 @@ Any question whose flag is not present in the command line is asked interactivel
 
 ## Reviewer flags fix the reviewer-list length and skip the "configure another reviewer?" prompt
 
-The reviewers are an ordered list addressed by 1-based index per `.docs/contracts/cli-commands/install.md`. When at least one reviewer flag (`--reviewer-tool/-model/-effort` or any `--reviewer-N-*`) is present, the presence of those flags answers the `Configure another reviewer?` question: the reviewer-list length is fixed by the contiguous reviewer indices the flags supply, and the `Configure another reviewer?` prompt is therefore not shown. Within that fixed list, each individual reviewer field still follows the same per-field skip as every other question — a field whose flag is present is recorded from the flag, a field whose flag is absent is asked interactively. When no reviewer flag is present at all, the `Configure another reviewer?` prompt is shown and drives the list length interactively.
+The reviewers are an ordered list addressed by 1-based index per [.docs/contracts/cli-commands/install.md](/.docs/contracts/cli-commands/install.md). When at least one reviewer flag (`--reviewer-tool/-model/-effort` or any `--reviewer-N-*`) is present, the presence of those flags answers the `Configure another reviewer?` question: the reviewer-list length is fixed by the contiguous reviewer indices the flags supply, and the `Configure another reviewer?` prompt is therefore not shown. Within that fixed list, each individual reviewer field still follows the same per-field skip as every other question — a field whose flag is present is recorded from the flag, a field whose flag is absent is asked interactively. When no reviewer flag is present at all, the `Configure another reviewer?` prompt is shown and drives the list length interactively.
 
 ## Empty values are valid answers
 
-For `--worker-model`, `--worker-effort`, `--reviewer-model`, `--reviewer-effort`, and their indexed forms `--reviewer-N-model`, `--reviewer-N-effort`, an empty value is a valid answer that resolves to `""` in `.flanders/config.json` per `src/workspace/.docs/rules/flanders-config/file-format.md`. An empty value is therefore distinct from "flag not supplied":
+For `--worker-model`, `--worker-effort`, `--reviewer-model`, `--reviewer-effort`, and their indexed forms `--reviewer-N-model`, `--reviewer-N-effort`, an empty value is a valid answer that resolves to `""` in `.flanders/config.json` per [src/workspace/.docs/rules/flanders-config/file-format.md](/src/workspace/.docs/rules/flanders-config/file-format.md). An empty value is therefore distinct from "flag not supplied":
 
 - Flag not supplied → the question is asked interactively.
 - Flag supplied with an empty value (for example `--worker-model=`) → the question is not asked; the persisted value is `""` ("default configured model"/"default configured effort").
 
-The set of valid values is closed for the tool flags — `--worker-tool`, `--reviewer-tool`, `--reviewer-N-tool`, and `--skills-tool` — and for the effort flags when the tool they apply to is `codex`: `--worker-effort` / `--reviewer-effort` / `--reviewer-N-effort` then validate against Codex's documented effort set. A supplied value outside a closed set is a usage error pinned by the install contract, and this rule does not relax that. By contrast, the model flags (`--worker-model`, `--reviewer-model`, `--reviewer-N-model`) for every tool, and the effort flags when the tool they apply to is `claude`, are open: they accept any value verbatim and are never rejected on value-set grounds (see `.docs/contracts/cli-commands/install.md`).
+The set of valid values is closed for the tool flags — `--worker-tool`, `--reviewer-tool`, `--reviewer-N-tool`, and `--skills-tool` — and for the effort flags when the tool they apply to is `codex`: `--worker-effort` / `--reviewer-effort` / `--reviewer-N-effort` then validate against Codex's documented effort set. A supplied value outside a closed set is a usage error pinned by the install contract, and this rule does not relax that. By contrast, the model flags (`--worker-model`, `--reviewer-model`, `--reviewer-N-model`) for every tool, and the effort flags when the tool they apply to is `claude`, are open: they accept any value verbatim and are never rejected on value-set grounds (see [.docs/contracts/cli-commands/install.md](/.docs/contracts/cli-commands/install.md)).
 
 ## Order of validation
 

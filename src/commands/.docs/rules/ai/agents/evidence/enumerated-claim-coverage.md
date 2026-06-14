@@ -1,10 +1,10 @@
 # A claim that enumerates N facts needs N independent guards
 
-When a single claim (as defined in `src/commands/.docs/rules/ai/agents/evidence-report.md`) enumerates N independent facts that the artifact must satisfy — "the body contains items A, B, C, D, E, and F", "the result has fields X AND Y AND Z", "the output covers cases (a), (b), (c), (d)", "no occurrence of X, Y, or Z" — each of the N facts needs its own independent guard. A claim guarded by evidence covering only K of its N facts (K < N) is FAIL on the (N − K) facts that lack a guard, even when the uncovered facts happen to hold in the current artifact.
+When a single claim (as defined in [src/commands/.docs/rules/ai/agents/evidence-report.md](/src/commands/.docs/rules/ai/agents/evidence-report.md)) enumerates N independent facts that the artifact must satisfy — "the body contains items A, B, C, D, E, and F", "the result has fields X AND Y AND Z", "the output covers cases (a), (b), (c), (d)", "no occurrence of X, Y, or Z" — each of the N facts needs its own independent guard. A claim guarded by evidence covering only K of its N facts (K < N) is FAIL on the (N − K) facts that lack a guard, even when the uncovered facts happen to hold in the current artifact.
 
 ## Who this applies to
 
-- **Subject:** every Flanders-launched subagent that produces or grades evidence for a claim — the `worker` self-auditing per `src/commands/.docs/rules/ai/agents/evidence-report.md`, the adversarial `reviewer` deciding PASS or FAIL, and any future role of the same shape.
+- **Subject:** every Flanders-launched subagent that produces or grades evidence for a claim — the `worker` self-auditing per [src/commands/.docs/rules/ai/agents/evidence-report.md](/src/commands/.docs/rules/ai/agents/evidence-report.md), the adversarial `reviewer` deciding PASS or FAIL, and any future role of the same shape.
 - **Not subject:** the `/flanders-spec` and `/flanders-plan` post-write validators, which grade markdown spec and plan files rather than code under test.
 
 ## The enumerated-minimum is a floor, never a ceiling
@@ -13,7 +13,7 @@ A task may list, as one claim, a minimum set of guards the artifact must carry (
 
 ## Why each fact needs its own guard
 
-A guard that covers a subset of an enumerated claim lets a regression of any uncovered fact pass silently — exactly the outcome the regression-signal classification in `src/commands/.docs/rules/ai/agents/evidence/claim-evidence-classification.md` exists to prevent, applied fact by fact. A single guard standing in for several conjoined facts also fails the moment the artifact changes: if the guard checks fact A and facts B and C are deleted, the claim is reported satisfied while two of its three obligations are gone. One guard per enumerated fact is what makes each fact independently regression-detectable.
+A guard that covers a subset of an enumerated claim lets a regression of any uncovered fact pass silently — exactly the outcome the regression-signal classification in [src/commands/.docs/rules/ai/agents/evidence/claim-evidence-classification.md](/src/commands/.docs/rules/ai/agents/evidence/claim-evidence-classification.md) exists to prevent, applied fact by fact. A single guard standing in for several conjoined facts also fails the moment the artifact changes: if the guard checks fact A and facts B and C are deleted, the claim is reported satisfied while two of its three obligations are gone. One guard per enumerated fact is what makes each fact independently regression-detectable.
 
 ## Failure signals
 
