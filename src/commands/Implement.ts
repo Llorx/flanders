@@ -316,6 +316,17 @@ export class Implement {
     private _prepActive():boolean {
         return this._config!.reviewers.some(r => this._reviewerMatchesWorker(r));
     }
+    private _gitOutputContext():OutputContext {
+        return {
+            write: text => this._buffered.write(text),
+            writeError: text => this._buffered.writeError(text),
+            /* coverage ignore next 2 */ // — Pass-through required by OutputContext; Git never calls columns or rows.
+            columns: () => this._contexts.output.columns(),
+            rows: () => this._contexts.output.rows(),
+            /* coverage ignore next */ // — Pass-through required by OutputContext; Git never calls onResize.
+            onResize: listener => this._contexts.output.onResize(listener)
+        };
+    }
     private async _runTask(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, indexLabel:string, taskIndex:number):Promise<boolean> {
         this._currentTask = task;
         this._currentIndexLabel = indexLabel;
@@ -363,6 +374,11 @@ export class Implement {
             if (!workerOk) {
                 continue;
             }
+            const workerAddResult = await addAll(this._contexts.script, this._contexts.time, this._gitOutputContext(), this._options.projectRoot);
+            if (workerAddResult.code !== 0) {
+                await this._writeErrorLog(ws, `git add -A failed (exit ${workerAddResult.code})\n--- stdout ---\n${workerAddResult.stdout}\n--- stderr ---\n${workerAddResult.stderr}`);
+                continue;
+            }
             this._setActivity("building");
             const buildOk = await this._buildStage(plan, task.line, ws, iteration);
             /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
@@ -393,22 +409,13 @@ export class Implement {
             }
             await plan.markDone(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});
             const commitMessage = task.taskNumber ? `${task.taskNumber} ${task.title}` : task.title;
-            const gitOutput:OutputContext = {
-                write: text => this._buffered.write(text),
-                writeError: text => this._buffered.writeError(text),
-                /* coverage ignore next 2 */ // — Pass-through required by OutputContext; Git never calls columns or rows.
-                columns: () => this._contexts.output.columns(),
-                rows: () => this._contexts.output.rows(),
-                /* coverage ignore next */ // — Pass-through required by OutputContext; Git never calls onResize.
-                onResize: listener => this._contexts.output.onResize(listener)
-            };
-            const addResult = await addAll(this._contexts.script, this._contexts.time, gitOutput, this._options.projectRoot);
+            const addResult = await addAll(this._contexts.script, this._contexts.time, this._gitOutputContext(), this._options.projectRoot);
             if (addResult.code !== 0) {
                 await this._writeErrorLog(ws, `git add -A failed (exit ${addResult.code})\n--- stdout ---\n${addResult.stdout}\n--- stderr ---\n${addResult.stderr}`);
                 await plan.markOpen(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});
                 continue;
             }
-            const commitResult = await commit(this._contexts.script, this._contexts.time, gitOutput, this._options.projectRoot, commitMessage);
+            const commitResult = await commit(this._contexts.script, this._contexts.time, this._gitOutputContext(), this._options.projectRoot, commitMessage);
             if (commitResult.code !== 0) {
                 await this._writeErrorLog(ws, `git commit failed (exit ${commitResult.code})\n--- stdout ---\n${commitResult.stdout}\n--- stderr ---\n${commitResult.stderr}`);
                 await plan.markOpen(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});

@@ -307,6 +307,7 @@ test.describe("Implement per-iteration logs", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (build fails) still runs a post-worker add
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             // detect build/test
             s.claudeQueue.push({ text: "ok" });
@@ -349,6 +350,7 @@ test.describe("Implement per-iteration logs", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
+            extraWorkerAdds(s.gitQueue, 2); // iters 1 and 2 (build fails) each run a post-worker add
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             s.files.set(WS_ROOT + "/build.sh", "make");
@@ -381,6 +383,7 @@ test.describe("Implement per-iteration logs", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // iter 1: worker ok, build/test skipped, reviewer fails
@@ -413,6 +416,7 @@ test.describe("Implement per-iteration logs", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
+            extraWorkerAdds(s.gitQueue, 2); // 5 worker-success iterations need 5 post-worker adds; gitRunQueue's 3 {code:0} replies cover the rest
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep runs once per task, before the iteration loop
@@ -1312,6 +1316,7 @@ test.describe("Implement header line", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -1989,6 +1994,7 @@ test.describe("Implement cleanup on exit", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
+            extraWorkerAdds(s.gitQueue, 2); // 5 worker-success iterations each run a post-worker add; gitRunQueue's 3 {code:0} replies cover the rest
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep runs once per task, before the iteration loop
@@ -2101,6 +2107,7 @@ test.describe("Implement per-task token and time metrics", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep
@@ -2198,13 +2205,12 @@ test.describe("Implement per-task token and time metrics", test => {
         ASSERT(code, { s }) {
             Assert.strictEqual(code, 0);
             const plan = s.files.get(PLAN_PATH)!;
-            // detect at time=0, advances to 5000
-            // task starts at time=5000 (_taskStartedAt=5000)
-            // worker spawn advances to 8000
-            // build spawn advances to 12000
-            // reviewer spawn advances to 14000
-            // active = (14000 - 5000) / 1000 = 9
-            Assert.ok(plan.includes('"t":9}'), `plan should reflect elapsed time including scripts, got: ${plan}`);
+            // _taskStartedAt is captured at the start of _runTask (after the detect spawn), so only
+            // spawns within the task count. Each script spawn advances 4000; the post-worker git add -A
+            // is now one such spawn. Within the task: prep (+3000), worker (+2000),
+            // post-worker git add -A (+4000), build (+4000); the reviewer spawn does not advance.
+            // active = (3000 + 2000 + 4000 + 4000) / 1000 = 13.
+            Assert.ok(plan.includes('"t":13}'), `plan should reflect elapsed time including scripts, got: ${plan}`);
         }
     });
 
@@ -3330,9 +3336,10 @@ test.describe("Implement git preflight", test => {
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            // git add + commit after task accepted
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            // post-worker git add -A, then commit-stage git add + commit after task accepted
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
             return s;
         },
         async ACT({ contexts }) {
@@ -3360,9 +3367,10 @@ test.describe("Implement git preflight", test => {
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            // git add + commit after task accepted
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            // post-worker git add -A, then commit-stage git add + commit after task accepted
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
             return s;
         },
         async ACT({ contexts }) {
@@ -3445,9 +3453,10 @@ test.describe("Implement commit per task", test => {
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            // git add -A + git commit
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            // post-worker git add -A, then commit-stage git add -A + git commit
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
             return s;
         },
         async ACT({ contexts }) {
@@ -3462,14 +3471,16 @@ test.describe("Implement commit per task", test => {
             Assert.ok(plan.includes("[x]"), "plan should be marked done");
             const plain = stripAnsi(written.join(""));
             Assert.ok(plain.includes("done"), "snapshot should be emitted");
-            // After preflight (3 git calls) + ls-files discovery (1 call), expect exactly add + commit
+            // After preflight (3 git calls) + ls-files discovery (1 call), expect the
+            // post-worker add, the commit-stage add, then commit — in that order.
             const postPreflight = gitSpawns.slice(4);
-            Assert.strictEqual(postPreflight.length, 2, "should have exactly 2 git calls after preflight+discovery");
+            Assert.strictEqual(postPreflight.length, 3, "should have exactly 3 git calls after preflight+discovery (post-worker add, commit-stage add, commit)");
             Assert.deepStrictEqual(postPreflight[0]!.args, ["add", "-A"]);
-            Assert.strictEqual(postPreflight[1]!.args[0], "commit");
-            Assert.strictEqual(postPreflight[1]!.args[1], "--allow-empty");
-            Assert.strictEqual(postPreflight[1]!.args[2], "-m");
-            Assert.strictEqual(postPreflight[1]!.args[3], "3 3.1 Validate input");
+            Assert.deepStrictEqual(postPreflight[1]!.args, ["add", "-A"]);
+            Assert.strictEqual(postPreflight[2]!.args[0], "commit");
+            Assert.strictEqual(postPreflight[2]!.args[1], "--allow-empty");
+            Assert.strictEqual(postPreflight[2]!.args[2], "-m");
+            Assert.strictEqual(postPreflight[2]!.args[3], "3 3.1 Validate input");
         }
     });
 
@@ -3483,17 +3494,19 @@ test.describe("Implement commit per task", test => {
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // ls-files discovery (empty → empty lists)
             s.claudeQueue.push({ text: "ok" });
-            // iter 1: worker + reviewer pass, add fails
+            // iter 1: worker + reviewer pass, post-worker add ok, commit-stage add fails
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            s.gitQueue.push({ code: 128, stdout: "", stderr: "add error output\n" });
-            // iter 2: worker + reviewer pass, add + commit succeed
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });                     // git add -A (post-worker staging, iter1)
+            s.gitQueue.push({ code: 128, stdout: "", stderr: "add error output\n" }); // git add -A (commit stage, iter1) — fails
+            // iter 2: worker + reviewer pass, post-worker add + commit-stage add + commit succeed
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging, iter2)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage, iter2)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit (iter2)
             return s;
         },
         async ACT({ contexts }) {
@@ -3521,18 +3534,20 @@ test.describe("Implement commit per task", test => {
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // ls-files discovery (empty → empty lists)
             s.claudeQueue.push({ text: "ok" });
-            // iter 1: worker + reviewer pass, add succeeds, commit fails
+            // iter 1: worker + reviewer pass, post-worker add + commit-stage add succeed, commit fails
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // add ok
-            s.gitQueue.push({ code: 1, stdout: "hook output\n", stderr: "pre-commit hook failed\n" }); // commit fails
-            // iter 2: worker + reviewer pass, add + commit succeed
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging, iter1)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage, iter1)
+            s.gitQueue.push({ code: 1, stdout: "hook output\n", stderr: "pre-commit hook failed\n" }); // git commit (iter1) — fails
+            // iter 2: worker + reviewer pass, post-worker add + commit-stage add + commit succeed
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging, iter2)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage, iter2)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit (iter2)
             return s;
         },
         async ACT({ contexts }) {
@@ -3562,12 +3577,13 @@ test.describe("Implement commit per task", test => {
             s.claudeQueue.push({ text: "ok" });
             // prep runs once per task, before the iteration loop
             s.claudeQueue.push(PREP_RESPONSE);
-            // 5 iterations: worker + reviewer pass, add succeeds, commit fails each time
+            // 5 iterations: worker + reviewer pass, post-worker add + commit-stage add succeed, commit fails each time
             for (let i = 0; i < 5; i++) {
                 s.claudeQueue.push({ text: `w${i + 1}` });
                 s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-                s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // add ok
-                s.gitQueue.push({ code: 1, stdout: "", stderr: "hook failed\n" }); // commit fails
+                s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging)
+                s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage)
+                s.gitQueue.push({ code: 1, stdout: "", stderr: "hook failed\n" }); // git commit — fails
             }
             return s;
         },
@@ -3602,8 +3618,9 @@ test.describe("Implement commit per task", test => {
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
             return s;
         },
         async ACT({ contexts }) {
@@ -3617,6 +3634,112 @@ test.describe("Implement commit per task", test => {
             const commitSpawn = gitSpawns.find(s => s.args[0] === "commit");
             Assert.ok(commitSpawn, "should have a commit spawn");
             Assert.strictEqual(commitSpawn!.args[3], "Simple task title", "commit message should be just the title without leading space");
+        }
+    });
+});
+
+test.describe("Implement post-worker staging", test => {
+    test("post-worker git add -A fails every iteration — error.log holds the combined output, no commit, task stays open, hard stop", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            // git activation: --version, rev-parse, status, ls-files discovery
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // ls-files discovery (empty → empty lists)
+            s.claudeQueue.push({ text: "ok" });
+            // prep runs once per task, before the iteration loop
+            s.claudeQueue.push(PREP_RESPONSE);
+            // MAX_ITER iterations: each worker succeeds, then the post-worker git add -A fails, so the
+            // loop restarts before the build gate and never reaches the reviewer/commit. iteration 6
+            // exceeds MAX_ITER and hard-stops.
+            for (let i = 0; i < 5; i++) {
+                s.claudeQueue.push({ text: `w${i + 1}` });
+                s.gitQueue.push({ code: 137, stdout: "post-worker stdout marker\n", stderr: "post-worker stderr marker\n" }); // git add -A (post-worker staging) — fails
+            }
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1 after exhausting iterations"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "error.log holds the failed post-worker add's combined stdout/stderr"(_code, { files }) {
+                Assert.strictEqual(
+                    files.get(WS_ROOT + "/error.log"),
+                    "git add -A failed (exit 137)\n--- stdout ---\npost-worker stdout marker\n\n--- stderr ---\npost-worker stderr marker\n"
+                );
+            },
+            "the task is never marked done"(_code, { files }) {
+                Assert.ok(files.get(PLAN_PATH)!.includes("[ ]"), "task should stay open when post-worker staging never succeeds");
+            },
+            "no commit is ever created"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.filter(g => g.args[0] === "commit").length, 0);
+            },
+            "the run hard-stops"(_code, { written }) {
+                Assert.ok(written.join("").includes("Hard stop"), "should hard-stop after MAX_ITER post-worker staging failures");
+            }
+        }
+    });
+
+    test("post-worker git add -A fails once, then the retry succeeds and the task is accepted", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            // git activation: --version, rev-parse, status, ls-files discovery
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // ls-files discovery (empty → empty lists)
+            s.claudeQueue.push({ text: "ok" });
+            // prep
+            s.claudeQueue.push(PREP_RESPONSE);
+            // iter 1: worker succeeds, post-worker git add -A fails → error.log + restart (no reviewer, no commit)
+            s.claudeQueue.push({ text: "w1" });
+            s.gitQueue.push({ code: 137, stdout: "", stderr: "post-worker add boom\n" }); // git add -A (post-worker staging, iter1) — fails
+            // iter 2: worker succeeds, post-worker add ok, reviewer passes, commit-stage add + commit ok
+            s.claudeQueue.push({ text: "w2" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging, iter2)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage, iter2)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit (iter2)
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0 (the task is accepted on the retry)"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the task is marked done after the retry"(_code, { files }) {
+                const plan = files.get(PLAN_PATH)!;
+                Assert.ok(plan.includes("[x]") && !plan.includes("[ ]"), "task should be marked done after the retry");
+            },
+            "the failing post-worker add streams its output to the output region"(_code, { written }) {
+                Assert.ok(stripAnsi(written.join("")).includes("post-worker add boom"), "the failing post-worker add's stderr is streamed to the output");
+            },
+            "iteration 2's worker prompt carries the previous-iteration briefing (the loop restarted)"(_code, { promptQueue }) {
+                // promptQueue: [0]=detect, [1]=prep, [2]=worker iter1, [3]=worker iter2, [4]=reviewer iter2
+                Assert.ok(promptQueue[3]!.includes(WS_ROOT + "/error.log"), "iter2 worker prompt should reference the briefing error.log");
+            },
+            "exactly one commit happens despite the two iterations (no commit on the failed iteration)"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.filter(g => g.args[0] === "commit").length, 1);
+            },
+            "a post-worker git add -A runs on every iteration before the build gate"(_code, { gitSpawns }) {
+                // After preflight+discovery (4 git calls): iter1 post-worker add (failed), then iter2's
+                // post-worker add, commit-stage add, and commit — three "add" then one "commit".
+                Assert.deepStrictEqual(gitSpawns.slice(4).map(g => g.args[0]), ["add", "add", "add", "commit"]);
+            }
         }
     });
 });
@@ -3647,13 +3770,29 @@ function gitActivationQueue(gitQueue:ScriptResponse[], lsFilesStdout = ""):void 
     gitQueue.push({ code: 0, stdout: lsFilesStdout, stderr: "" });          // ls-files discovery
 }
 
-// Arranges a full git run: the version/rev-parse/status preflight triple plus one
-// {code:0} (add, commit) pair for each task the scenario accepts unconditionally.
+// Arranges a full git run: the version/rev-parse/status preflight triple plus, for each
+// task the scenario accepts unconditionally in a single worker-success iteration, the
+// three {code:0} git calls that iteration makes — the post-worker `git add -A`, the
+// commit-stage `git add -A`, and the `git commit`.
 function gitRunQueue(gitQueue:ScriptResponse[], taskCount = 1):void {
     gitActivationQueue(gitQueue);
     for (let i = 0; i < taskCount; i++) {
-        gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
+        gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging)
+        gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage)
         gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
+    }
+}
+
+// Every worker-success iteration runs the post-worker `git add -A` before the build/test/review
+// gates, even iterations that later fail a gate (build, test, or review) or that ultimately hit
+// the hard stop. gitRunQueue only provisions the single accepted iteration's three git calls, so a
+// scenario with `n` additional worker-success iterations (pre-acceptance gate failures, or the
+// extra iterations of a hard-stop run) needs `n` extra {code:0} post-worker `git add -A` replies.
+// They are fungible with gitRunQueue's other {code:0} replies, so appending them after gitRunQueue
+// keeps the queue long enough without disturbing the relative order of any non-zero reply.
+function extraWorkerAdds(gitQueue:ScriptResponse[], n:number):void {
+    for (let i = 0; i < n; i++) {
+        gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging, pre-acceptance iteration)
     }
 }
 
@@ -3670,19 +3809,21 @@ test.describe("Implement end-to-end git flow", test => {
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "parser implemented" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging, task 1)
             s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
             s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "[main abc1234] 1 Build the parser\n", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage, task 1)
+            s.gitQueue.push({ code: 0, stdout: "[main abc1234] 1 Build the parser\n", stderr: "" }); // git commit (task 1)
             // Task 2: prep → worker → build → test → reviewer
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "validation added" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging, task 2)
             s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
             s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "[main def5678] 2 Add validation\n", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage, task 2)
+            s.gitQueue.push({ code: 0, stdout: "[main def5678] 2 Add validation\n", stderr: "" }); // git commit (task 2)
             return s;
         },
         async ACT({ contexts }) {
@@ -3696,13 +3837,15 @@ test.describe("Implement end-to-end git flow", test => {
             const plan = files.get(PLAN_PATH)!;
             Assert.ok(plan.includes("[x]") && !plan.includes("[ ]"), "both tasks should be marked done");
             const postPreflight = gitSpawns.slice(4);
-            Assert.strictEqual(postPreflight.length, 4, "should have exactly 4 git calls after preflight+discovery (add+commit per task)");
+            Assert.strictEqual(postPreflight.length, 6, "should have exactly 6 git calls after preflight+discovery (post-worker add + commit-stage add + commit per task)");
             Assert.deepStrictEqual(postPreflight[0]!.args, ["add", "-A"]);
-            Assert.strictEqual(postPreflight[1]!.args[0], "commit");
-            Assert.strictEqual(postPreflight[1]!.args[3], "1 Build the parser");
-            Assert.deepStrictEqual(postPreflight[2]!.args, ["add", "-A"]);
-            Assert.strictEqual(postPreflight[3]!.args[0], "commit");
-            Assert.strictEqual(postPreflight[3]!.args[3], "2 Add validation");
+            Assert.deepStrictEqual(postPreflight[1]!.args, ["add", "-A"]);
+            Assert.strictEqual(postPreflight[2]!.args[0], "commit");
+            Assert.strictEqual(postPreflight[2]!.args[3], "1 Build the parser");
+            Assert.deepStrictEqual(postPreflight[3]!.args, ["add", "-A"]);
+            Assert.deepStrictEqual(postPreflight[4]!.args, ["add", "-A"]);
+            Assert.strictEqual(postPreflight[5]!.args[0], "commit");
+            Assert.strictEqual(postPreflight[5]!.args[3], "2 Add validation");
             const plain = stripAnsi(written.join(""));
             Assert.ok(plain.includes("all tasks completed"), "should print all tasks completed");
         }
@@ -3816,22 +3959,24 @@ test.describe("Implement end-to-end git flow", test => {
             s.claudeQueue.push({ text: "ok" });
             s.files.set(WS_ROOT + "/build.sh", "npm run build");
             s.files.set(WS_ROOT + "/test.sh", "npm test");
-            // Iteration 1: worker → build → test → reviewer → add (ok) → commit (fail)
+            // Iteration 1: worker → post-worker add → build → test → reviewer → commit-stage add (ok) → commit (fail)
             // prep
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "iter 1 worker" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging, iter1)
             s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
             s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 1, stdout: "hook output\n", stderr: "pre-commit hook rejected\n" });
-            // Iteration 2: worker → build → test → reviewer → add → commit (ok)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage, iter1)
+            s.gitQueue.push({ code: 1, stdout: "hook output\n", stderr: "pre-commit hook rejected\n" }); // git commit (iter1) — fails
+            // Iteration 2: worker → post-worker add → build → test → reviewer → commit-stage add → commit (ok)
             s.claudeQueue.push({ text: "iter 2 worker" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging, iter2)
             s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });
             s.scriptQueue.push({ code: 0, stdout: "tests pass\n", stderr: "" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: "[main abc1234] committed\n", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage, iter2)
+            s.gitQueue.push({ code: 0, stdout: "[main abc1234] committed\n", stderr: "" }); // git commit (iter2)
             return s;
         },
         async ACT({ contexts }) {
@@ -3875,7 +4020,8 @@ test.describe("Implement detect prompt rule list", test => {
             // discovery yields one nested .docs/rules namespace; nothing ignored.
             gitActivationQueue(s.gitQueue, ".docs/rules/testing/runner-flag.md\0");
             s.gitQueue.push({ code: 1, stdout: "", stderr: "" }); // check-ignore: none ignored
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage)
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -3944,7 +4090,8 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             // candidate git check-ignore reports as ignored — the ignored one must not reach the prompt.
             gitActivationQueue(s.gitQueue, ".docs/contracts/c1.md\0src/x/.docs/rules/r1.md\0.docs/flanders/naming.md\0node-ish/.docs/rules/ignored.md\0");
             s.gitQueue.push({ code: 0, stdout: "node-ish/.docs/rules/ignored.md\0", stderr: "" }); // check-ignore: this candidate is ignored
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage)
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -4039,7 +4186,8 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             const s = stubContexts();
             gitActivationQueue(s.gitQueue, ".docs/rules/testing/coverage.md\0");
             s.gitQueue.push({ code: 1, stdout: "", stderr: "" }); // check-ignore: none ignored
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage)
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -4070,9 +4218,11 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             // spawn ls-files twice (caught below) or exhaust the queue.
             gitActivationQueue(s.gitQueue, ".docs/contracts/initial.md\0");
             s.gitQueue.push({ code: 1, stdout: "", stderr: "" }); // check-ignore: none ignored
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A post-worker add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A commit-stage add
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A commit
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task B add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task B post-worker add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task B commit-stage add
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task B commit
             const twoTaskPlan = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Task A\n- [ ]{"it":0,"ot":0,"t":0} Task B\n';
             s.files.set(PLAN_PATH, twoTaskPlan);
@@ -4115,9 +4265,12 @@ test.describe("Implement worker prompt contract and rule lists", test => {
             // discovery yields one contract and one rule; nothing ignored.
             gitActivationQueue(s.gitQueue, ".docs/contracts/spec.md\0.docs/rules/style.md\0");
             s.gitQueue.push({ code: 1, stdout: "", stderr: "" }); // check-ignore: none ignored
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A add
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A commit
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task B add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A post-worker add (iter1 — review fails, no commit)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A post-worker add (iter2)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A commit-stage add (iter2)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task A commit (iter2)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task B post-worker add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task B commit-stage add
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // task B commit
             const twoTaskPlan = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Task A\n- [ ]{"it":0,"ot":0,"t":0} Task B\n';
             s.files.set(PLAN_PATH, twoTaskPlan);
@@ -4167,7 +4320,8 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
             // discovery yields one contract, one nested rule, and one .docs/flanders behavior rule; nothing ignored.
             gitActivationQueue(s.gitQueue, ".docs/contracts/overview.md\0src/x/.docs/rules/r1.md\0.docs/flanders/naming.md\0");
             s.gitQueue.push({ code: 1, stdout: "", stderr: "" }); // check-ignore: none ignored
-            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging)
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage)
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -4242,6 +4396,7 @@ test.describe("Implement reviewer prompt contract and rule lists", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // iter 1: worker ok, reviewer fails
@@ -4288,6 +4443,7 @@ test.describe("Implement worker session_id persistence", test => {
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1", sessionId: "WS" });
             s.scriptQueue.push({ code: 1, stdout: "compile error\n", stderr: "" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (build fails) still runs a post-worker add
             // iter 2: worker again, build ok, reviewer ok
             s.claudeQueue.push({ text: "w2" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
@@ -4332,6 +4488,7 @@ test.describe("Implement worker session_id persistence", test => {
             // iter 1: worker returns sessionId, reviewer FAIL
             s.claudeQueue.push({ text: "w1", sessionId: "WS" });
             s.claudeQueue.push({ text: "found issues", errorLog: "not ready" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: worker + reviewer PASS
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -4418,6 +4575,7 @@ test.describe("Implement worker session_id persistence", test => {
             // iter 2: worker returns no sessionId (result.sessionId === null), build fails
             s.claudeQueue.push({ text: "w2" });
             s.scriptQueue.push({ code: 1, stdout: "compile error\n", stderr: "" });
+            extraWorkerAdds(s.gitQueue, 2); // iters 1 and 2 (build fails) each run a post-worker add
             // iter 3: worker, build ok, reviewer PASS
             s.claudeQueue.push({ text: "w3" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
@@ -4464,6 +4622,7 @@ test.describe("Implement worker session_id persistence", test => {
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "w1", sessionId: "WS" });
             s.claudeQueue.push({ text: "found issues", errorLog: "not ready" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) runs a post-worker add; the iter 2 worker rejection does not reach staging
             // iter 2: worker errors (rejection)
             s.claudeQueue.push({ text: "", error: true });
             // iter 3: worker, reviewer PASS
@@ -4503,6 +4662,7 @@ test.describe("Implement worker session_id persistence", test => {
             // iter 1: worker returns sessionId, build fails
             s.claudeQueue.push({ text: "w1", sessionId: "WORKER-S" });
             s.scriptQueue.push({ code: 1, stdout: "compile error\n", stderr: "" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (build fails) still runs a post-worker add
             // iter 2: worker, build ok, reviewer PASS
             s.claudeQueue.push({ text: "w2" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
@@ -4596,6 +4756,7 @@ test.describe("Implement reviewer forks from prep", test => {
             // iter 1: worker, reviewer FAIL
             s.claudeQueue.push({ text: "w1", sessionId: "WORKER-R2" });
             s.claudeQueue.push({ text: "found issues", sessionId: "REVIEWER-ITER1", errorLog: "not ready" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: worker, reviewer PASS
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", sessionId: "REVIEWER-ITER2", errorLog: "" });
@@ -4644,6 +4805,7 @@ test.describe("Implement reviewer forks from prep", test => {
             // iter 1: worker emits its own session id; reviewer emits a DIFFERENT id AND FAILs (forces iter 2)
             s.claudeQueue.push({ text: "w1", sessionId: "WORKER-NOSAVE" });
             s.claudeQueue.push({ text: "found issues", sessionId: "REVIEWER-SESS-1", errorLog: "not ready" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: worker resumes; reviewer emits yet another id and PASSes
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", sessionId: "REVIEWER-SESS-2", errorLog: "" });
@@ -4873,6 +5035,7 @@ test.describe("Implement terminal label on exit", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
+            extraWorkerAdds(s.gitQueue, 2); // 5 worker-success iterations each run a post-worker add; gitRunQueue's 3 {code:0} replies cover the rest
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
             // prep runs once per task, before the iteration loop
@@ -5397,6 +5560,7 @@ test.describe("Implement test-stage failure", test => {
             // iter 1: worker ok, build skipped, test fails
             s.claudeQueue.push({ text: "worker iter 1" });
             s.scriptQueue.push({ code: 1, stdout: "FAIL\n", stderr: "err\n" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (test fails) still runs a post-worker add
             // iter 2: worker ok, test passes, reviewer passes
             s.claudeQueue.push({ text: "worker iter 2" });
             s.scriptQueue.push({ code: 0, stdout: "OK\n", stderr: "" });
@@ -5432,6 +5596,7 @@ test.describe("Implement reviewer-stage error", test => {
             // iter 1: worker ok, reviewer throws
             s.claudeQueue.push({ text: "w1" });
             s.claudeQueue.push({ text: "w1-review", error: true });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 worker succeeded (post-worker add ran) before the reviewer stage errored
             // iter 2: worker ok, reviewer passes
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -5494,6 +5659,7 @@ test.describe("Implement error.log verdict protocol", test => {
             // iter 1: reviewer writes violations
             s.claudeQueue.push({ text: "w1" });
             s.claudeQueue.push({ text: "found issues", errorLog: "missing test for edge case" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: reviewer passes
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -5530,6 +5696,7 @@ test.describe("Implement error.log verdict protocol", test => {
             // iter 1: reviewer writes violations
             s.claudeQueue.push({ text: "w1" });
             s.claudeQueue.push({ text: "found issues", errorLog: "violation X" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: reviewer passes
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -5877,6 +6044,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
             s.claudeQueue.push(PREP_RESPONSE);
             s.claudeQueue.push({ text: "worker" });
             s.claudeQueue.push({ text: "reviewer output", errorLog: "missing edge case\nincorrect return type" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: worker ok, reviewer pass
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -5912,6 +6080,7 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
             s.claudeQueue.push({ text: "worker" });
             // reviewer throws
             s.claudeQueue.push({ text: "", error: true });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 worker succeeded (post-worker add ran) before the reviewer stage errored
             // iter 2: worker ok, reviewer pass
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -5987,6 +6156,7 @@ test.describe("Implement _stringifyError non-Error", test => {
                 }
                 return origSpawn(command, args, options);
             };
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (build throws → fails) still runs a post-worker add
             // iter 2: build ok, reviewer passes
             s.claudeQueue.push({ text: "w2" });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
@@ -6209,6 +6379,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
             s.claudeQueue.push({ text: "READY", sessionId: "prep-session" });
             s.claudeQueue.push({ text: "worker iter 1", sessionId: "worker-sess-1" });
             s.claudeQueue.push({ text: "violations", errorLog: "found a problem" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             s.claudeQueue.push({ text: "worker iter 2", sessionId: "worker-sess-2" });
             s.claudeQueue.push({ text: "review ok", errorLog: "" });
             return s;
@@ -6877,6 +7048,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
             s.claudeQueue.push({ text: "worker", sessionId: "worker-cap-B" });
             // reviewer FAIL, then retry
             s.codexQueue.push({ text: "found issues", errorLog: "fix it" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: worker resumes with captured session
             s.claudeQueue.push({ text: "worker2" });
             // reviewer PASS
@@ -6983,6 +7155,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             // iter 1: worker returns sessionId "w-abc", reviewer FAIL
             s.claudeQueue.push({ text: "w1", sessionId: "w-abc" });
             s.claudeQueue.push({ text: "found issues", errorLog: "fix it" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: worker, reviewer PASS
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -7028,6 +7201,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             // iter 1: worker (branch B, no prep) — inlines content, reviewer FAIL
             s.claudeQueue.push({ text: "w1", sessionId: "w-branchB" });
             s.codexQueue.push({ text: "found issues", errorLog: "fix it" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: worker resumes, reviewer PASS
             s.claudeQueue.push({ text: "w2" });
             s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -7071,6 +7245,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             // iter 1: worker returns NO sessionId, reviewer FAIL
             s.claudeQueue.push({ text: "w1" });
             s.claudeQueue.push({ text: "found issues", errorLog: "fix it" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: worker (no session to resume), reviewer PASS
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -7110,6 +7285,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             // iter 2: worker emits NEW sessionId "w-new", reviewer FAIL
             s.claudeQueue.push({ text: "w2", sessionId: "w-new" });
             s.claudeQueue.push({ text: "found issues", errorLog: "fix 2" });
+            extraWorkerAdds(s.gitQueue, 2); // iters 1 and 2 (review fails) each run a post-worker add
             // iter 3: worker, reviewer PASS
             s.claudeQueue.push({ text: "w3" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -7154,6 +7330,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             // iter 2: worker, reviewer FAIL
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "found issues", errorLog: "fix again" });
+            extraWorkerAdds(s.gitQueue, 2); // iters 1 and 2 (review fails) each run a post-worker add
             // iter 3: worker, reviewer PASS
             s.claudeQueue.push({ text: "w3" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -7199,6 +7376,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             s.claudeQueue.push({ text: "READY", sessionId: "prep-beta" });
             s.claudeQueue.push({ text: "w-beta-1" });
             s.claudeQueue.push({ text: "found issues", errorLog: "fix it" });
+            extraWorkerAdds(s.gitQueue, 1); // Task Beta iter 1 (review fails) still runs a post-worker add
             // Task Beta iter 2: worker (no session to resume since iter 1 had null), reviewer PASS
             s.claudeQueue.push({ text: "w-beta-2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -7348,6 +7526,7 @@ test.describe("Implement reviewer branch A vs branch B", test => {
             s.claudeQueue.push({ text: "READY", sessionId: "prep-rev-2iter" });
             s.claudeQueue.push({ text: "w1", sessionId: "worker-rev-2iter" });
             s.claudeQueue.push({ text: "found issues", errorLog: "fix it" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
@@ -7534,6 +7713,7 @@ test.describe("Implement multiple parallel reviewers", test => {
             s.claudeQueue.push({ text: "worker done" });
             s.claudeQueue.push({ text: "reviewer 1 fail", errorLog: "violation from reviewer 1" });
             s.codexQueue.push({ text: "reviewer 2 ok", errorLog: "" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: worker + reviewer 1 (PASS) + reviewer 2 (PASS)
             s.claudeQueue.push({ text: "worker iter2" });
             s.claudeQueue.push({ text: "reviewer 1 ok", errorLog: "" });
@@ -7590,6 +7770,7 @@ test.describe("Implement multiple parallel reviewers", test => {
             s.claudeQueue.push({ text: "worker done" });
             s.claudeQueue.push({ text: "rev1 fail", errorLog: "A1" });
             s.codexQueue.push({ text: "rev2 fail", errorLog: "B2" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: both reviewers PASS
             s.claudeQueue.push({ text: "worker iter2" });
             s.claudeQueue.push({ text: "rev1 ok", errorLog: "" });
@@ -7913,6 +8094,7 @@ test.describe("Implement multiple parallel reviewers", test => {
             // iter 1: reviewer FAIL
             s.claudeQueue.push({ text: "w1" });
             s.claudeQueue.push({ text: "reviewer fail", errorLog: "violation" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             // iter 2: reviewer PASS
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });

@@ -226,14 +226,17 @@ function stubContexts(config:FlandersConfig) {
 }
 
 // Arranges a full git run for an e2e scenario: the version/rev-parse/clean-status preflight
-// triple plus one {code:0} (add, commit) pair per task the scenario accepts.
+// triple plus, per task the scenario accepts in a single worker-success iteration, the three
+// {code:0} git calls that iteration makes — the post-worker `git add -A`, the commit-stage
+// `git add -A`, and the `git commit`.
 function gitRunQueue(gitQueue:ScriptResponse[], taskCount = 1):void {
     gitQueue.push({ code: 0, stdout: "git version 2.40.0\n", stderr: "" }); // git --version
     gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });                // rev-parse --is-inside-work-tree
     gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // status (clean)
     gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // ls-files discovery (empty → empty global lists, no check-ignore)
     for (let i = 0; i < taskCount; i++) {
-        gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A
+        gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging)
+        gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage)
         gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
     }
 }
