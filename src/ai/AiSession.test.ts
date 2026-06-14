@@ -102,14 +102,14 @@ test.describe("AiSession", test => {
             return await session.run();
         },
         ASSERTS: {
-            "tool-use bullet for Read"(_result, { $writes }) {
-                Assert.strictEqual($writes[0], "● Read(src/foo.ts)\n");
+            "tool-use bullet for Read with cyan name and yellow target"(_result, { $writes }) {
+                Assert.strictEqual($writes[0], "● \x1b[36mRead\x1b[0m(\x1b[33msrc/foo.ts\x1b[0m)\n");
             },
-            "result lines for Result"(_result, { $writes }) {
-                Assert.strictEqual($writes[1], "  ⎿ line one\n    line two\n");
+            "result lines for Result with magenta marker"(_result, { $writes }) {
+                Assert.strictEqual($writes[1], "\x1b[35m  ⎿ \x1b[0mline one\n    line two\n");
             },
-            "tool-use bullet for Edit"(_result, { $writes }) {
-                Assert.strictEqual($writes[2], "● Edit(src/bar.ts)\n");
+            "tool-use bullet for Edit with cyan name and yellow target"(_result, { $writes }) {
+                Assert.strictEqual($writes[2], "● \x1b[36mEdit\x1b[0m(\x1b[33msrc/bar.ts\x1b[0m)\n");
             },
             "exactly three writes"(_result, { $writes }) {
                 Assert.strictEqual($writes.length, 3);
@@ -131,16 +131,22 @@ test.describe("AiSession", test => {
             return await session.run();
         },
         ASSERTS: {
+            "green Assistant label precedes the block"(_result, { $writes }) {
+                Assert.strictEqual($writes[0], "\x1b[32mAssistant\x1b[0m\n");
+            },
             "first chunk verbatim"(_result, { $writes }) {
-                Assert.strictEqual($writes[0], "hello ");
+                Assert.strictEqual($writes[1], "hello ");
             },
             "ANSI escape chunk verbatim"(_result, { $writes }) {
-                Assert.strictEqual($writes[1], "\x1b[31mred\x1b[0m");
+                Assert.strictEqual($writes[2], "\x1b[31mred\x1b[0m");
             },
             "third chunk verbatim"(_result, { $writes }) {
-                Assert.strictEqual($writes[2], " world\n");
+                Assert.strictEqual($writes[3], " world\n");
             },
-            "captured text includes ANSI escapes"(result) {
+            "consecutive Assistant events are not relabeled"(_result, { $writes }) {
+                Assert.strictEqual($writes.length, 4);
+            },
+            "captured text includes ANSI escapes but not the label"(result) {
                 Assert.strictEqual(result.text, "hello \x1b[31mred\x1b[0m world\n");
             }
         }
@@ -161,9 +167,10 @@ test.describe("AiSession", test => {
         ASSERTS: {
             "newline inserted between text and bullet"(_result, { $writes }) {
                 Assert.deepStrictEqual($writes, [
+                    "\x1b[32mAssistant\x1b[0m\n",
                     "partial text",
                     "\n",
-                    "● Bash(ls)\n"
+                    "● \x1b[36mBash\x1b[0m(\x1b[33mls\x1b[0m)\n"
                 ]);
             }
         }
@@ -184,9 +191,10 @@ test.describe("AiSession", test => {
         ASSERTS: {
             "newline inserted between text and result"(_result, { $writes }) {
                 Assert.deepStrictEqual($writes, [
+                    "\x1b[32mAssistant\x1b[0m\n",
                     "partial",
                     "\n",
-                    "  ⎿ result text\n"
+                    "\x1b[35m  ⎿ \x1b[0mresult text\n"
                 ]);
             }
         }
@@ -206,6 +214,7 @@ test.describe("AiSession", test => {
         ASSERTS: {
             "trailing newline appended"(_result, { $writes }) {
                 Assert.deepStrictEqual($writes, [
+                    "\x1b[32mAssistant\x1b[0m\n",
                     "no trailing newline",
                     "\n"
                 ]);
@@ -228,8 +237,9 @@ test.describe("AiSession", test => {
         ASSERTS: {
             "no extra newline between closed text and bullet"(_result, { $writes }) {
                 Assert.deepStrictEqual($writes, [
+                    "\x1b[32mAssistant\x1b[0m\n",
                     "complete line\n",
-                    "● Read(x.ts)\n"
+                    "● \x1b[36mRead\x1b[0m(\x1b[33mx.ts\x1b[0m)\n"
                 ]);
             }
         }
@@ -360,7 +370,7 @@ test.describe("AiSession", test => {
             return await session.run();
         },
         ASSERT(_result, { $writes }) {
-            Assert.strictEqual($writes[0], "  ⎿ (empty)\n");
+            Assert.strictEqual($writes[0], "\x1b[35m  ⎿ \x1b[0m(empty)\n");
         }
     });
 
@@ -378,7 +388,7 @@ test.describe("AiSession", test => {
         },
         ASSERT(_result, { $writes }) {
             Assert.strictEqual($writes[0],
-                "  ⎿ line 1\n" +
+                "\x1b[35m  ⎿ \x1b[0mline 1\n" +
                 "    line 2\n" +
                 "    line 3\n" +
                 "    line 4\n" +
@@ -528,7 +538,7 @@ test.describe("AiSession", test => {
         }
     });
 
-    test("captured text is the concatenation of all Assistant details", {
+    test("a non-Assistant event between assistant runs starts a new labeled block", {
         ARRANGE() {
             const events:ToolEvent[] = [
                 { type: "output", title: "Assistant", subtitle: "", details: "A" },
@@ -541,15 +551,28 @@ test.describe("AiSession", test => {
         async ACT({ session }) {
             return await session.run();
         },
-        ASSERT(result) {
-            Assert.strictEqual(result.text, "AB");
+        ASSERTS: {
+            "captured text is the concatenation of Assistant bodies, excluding labels"(result) {
+                Assert.strictEqual(result.text, "AB");
+            },
+            "each assistant block separated by a tool event gets its own green label"(_result, { $writes }) {
+                Assert.deepStrictEqual($writes, [
+                    "\x1b[32mAssistant\x1b[0m\n",
+                    "A",
+                    "\n",
+                    "● \x1b[36mRead\x1b[0m(\x1b[33mf\x1b[0m)\n",
+                    "\x1b[32mAssistant\x1b[0m\n",
+                    "B",
+                    "\n"
+                ]);
+            }
         }
     });
 
-    test("Thinking output rendered as tool-use bullet", {
+    test("Thinking output rendered as a dim reasoning marker", {
         ARRANGE() {
             const events:ToolEvent[] = [
-                { type: "output", title: "Thinking", subtitle: "", details: "reasoning..." },
+                { type: "output", title: "Thinking", subtitle: "step two", details: "reasoning..." },
                 { type: "done" }
             ];
             return buildSession(events);
@@ -558,7 +581,7 @@ test.describe("AiSession", test => {
             return await session.run();
         },
         ASSERT(_result, { $writes }) {
-            Assert.strictEqual($writes[0], "● Thinking()\n");
+            Assert.strictEqual($writes[0], "\x1b[2m● Thinking(step two)\x1b[0m\n");
         }
     });
 
@@ -600,12 +623,13 @@ test.describe("AiSession", test => {
         },
         ASSERT(_result, { $writes }) {
             Assert.deepStrictEqual($writes, [
-                "● Read(src/a.ts)\n",
-                "  ⎿ ok\n",
+                "● \x1b[36mRead\x1b[0m(\x1b[33msrc/a.ts\x1b[0m)\n",
+                "\x1b[35m  ⎿ \x1b[0mok\n",
+                "\x1b[32mAssistant\x1b[0m\n",
                 "I will edit",
                 "\n",
-                "● Edit(src/b.ts)\n",
-                "  ⎿ applied\n"
+                "● \x1b[36mEdit\x1b[0m(\x1b[33msrc/b.ts\x1b[0m)\n",
+                "\x1b[35m  ⎿ \x1b[0mapplied\n"
             ]);
         }
     });

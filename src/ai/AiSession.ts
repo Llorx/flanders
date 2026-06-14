@@ -1,6 +1,7 @@
 import type { OutputContext, TimeContext } from "../contexts";
 import type { ToolAdapter, ToolAdapterUsageCallback, ToolEventOutput } from "./ToolAdapter";
 import { run } from "./AiRunner";
+import { colorize, CYAN, DIM, GREEN, MAGENTA, YELLOW } from "../ui/formatters";
 
 const TOOL_RESULT_MAX_LINES = 5;
 
@@ -49,6 +50,7 @@ export class AiSession {
         let outputTokens = 0;
         let capturedText = "";
         let textOpen = false;
+        let inAssistantBlock = false;
 
         const onUsage:ToolAdapterUsageCallback = (usage) => {
             inputTokens += usage.inputTokens;
@@ -69,11 +71,16 @@ export class AiSession {
 
         const onOutput = (event:ToolEventOutput) => {
             if (event.title === "Assistant") {
+                if (!inAssistantBlock) {
+                    this._contexts.output.write(colorize("Assistant", GREEN) + "\n");
+                    inAssistantBlock = true;
+                }
                 emitText(event.details);
                 capturedText += event.details;
                 return;
             }
 
+            inAssistantBlock = false;
             closeOpenTextLine();
 
             if (event.title === "Result") {
@@ -87,7 +94,12 @@ export class AiSession {
                 return;
             }
 
-            this._contexts.output.write(`● ${event.title}(${event.subtitle})\n`);
+            if (event.title === "Thinking") {
+                this._contexts.output.write(colorize("● Thinking(" + event.subtitle + ")", DIM) + "\n");
+                return;
+            }
+
+            this._contexts.output.write("● " + colorize(event.title, CYAN) + "(" + colorize(event.subtitle, YELLOW) + ")\n");
         };
 
         const promise = (async () => {
@@ -152,7 +164,7 @@ export class AiSession {
 }
 
 function formatToolResultLines(text:string):string {
-    const prefix = "  ⎿ ";
+    const prefix = colorize("  ⎿ ", MAGENTA);
     const trimmed = text.replace(/\s+$/, "");
     const lines = trimmed.split("\n");
     if (lines.length === 0 || (lines.length === 1 && lines[0] === "")) {
