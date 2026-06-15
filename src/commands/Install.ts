@@ -404,11 +404,11 @@ export class Install {
             return await this._resolveClaudeModel(roleLabel, headerLabel, contexts);
         }
         if (!this._modelProbeCache.has(tool)) {
-            const models = await probeModelList(contexts.script);
+            const result = await probeModelList(contexts.script);
             if (this._disposed) {
                 return null;
             }
-            this._modelProbeCache.set(tool, models);
+            this._modelProbeCache.set(tool, result.kind === "list" ? result.models : null);
         }
         const probeResult = this._modelProbeCache.get(tool)!;
         if (probeResult && probeResult.length > 0) {
