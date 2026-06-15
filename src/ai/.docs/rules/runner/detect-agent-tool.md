@@ -19,7 +19,6 @@ The orchestrator does not consult `reviewer.*` for the detect agent, and does no
 
 ## Why inherit from worker
 
-- Install only verified availability for the tools persisted in `.flanders/config.json`. Borrowing the worker's tool guarantees the binary is on `PATH` and runnable; introducing a third tool here would re-introduce the availability question Flanders solved at install time.
 - The detect agent writes scripts in the project's working tree — same shape of write as the worker. Inheriting the worker's `tool`/`model`/`effort` keeps the detect quality coherent with the implementation quality.
 - Adding a separate set of fields just for detect would expand `.flanders/config.json` to satisfy a role that runs once per `implement` run and never gets adversarially reviewed.
 

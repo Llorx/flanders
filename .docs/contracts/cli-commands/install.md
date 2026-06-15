@@ -51,7 +51,7 @@ When at least one reviewer flag is present (see `Tool, model, and effort flags`)
 
 ### Model selection
 For each tool selected as the worker or as any reviewer, the model question is rendered as a selectable list, sourced according to the tool:
-- For `codex`, the list is the set of models the tool reports as available for the user's account, plus one entry, `default configured model`, that resolves to "do not pass an explicit model and let the tool use its default". When the tool reports no such set, the question falls back to a free-text input with the placeholder `leave empty for the default configured model`, whose empty answer resolves to the same "default configured model" semantics.
+- For `codex`, the list is the set of models the tool reports as available for the user's account, plus one entry, `default configured model`, that resolves to "do not pass an explicit model and let the tool use its default". When the tool reports no such set — or when `codex` cannot be contacted at all — the question falls back to a free-text input with the placeholder `leave empty for the default configured model`, whose empty answer resolves to the same "default configured model" semantics; when `codex` could not be contacted, `install` first reports why it could not be started.
 - For `claude`, the model question is a hierarchical selection rather than a single flat list. The top level offers one entry per model family, a cross-family entry that auto-picks the most capable available model, the `default configured model` entry, and a final custom entry that opens a free-text input accepting any model identifier the user types. Selecting a family opens a submenu of that family's models: its latest auto-updating alias, that alias's 1M-context variant where the family offers one, and each concrete pinned version of the family — each also with its 1M-context variant where the model offers one. The offered models are a set of suggestions, not a closed set: through the custom entry the user reaches any model Claude Code accepts but the suggestions omit.
 
 A model identifier is always an open value: whatever the user selects — from the top-level list or from a drill-down submenu — types into the `codex` free-text fallback, or types into the `claude` custom entry is persisted verbatim. The `--worker-model`, `--reviewer-model`, and `--reviewer-N-model` flag equivalents follow the same rule: any value is accepted verbatim, and an empty value or an omitted flag answered as empty resolves to "default configured model".
@@ -62,9 +62,6 @@ For each tool selected as the worker or as any reviewer, the effort question is 
 - For `claude`, the list is a curated set of the reasoning-effort levels Claude Code is known to accept, plus `default configured effort`, plus a final custom entry that opens a free-text input accepting any effort identifier the user types. The curated set is a set of suggestions, not a closed set: through the custom entry the user reaches any effort level the curated set omits, so any effort value is valid for `claude`.
 
 The `--worker-effort`, `--reviewer-effort`, and `--reviewer-N-effort` flag equivalents follow the same rule per tool: for `claude` any value is accepted verbatim; for `codex` only a documented level or an empty value is accepted, and a value outside that closed set is a usage error. An empty value or an omitted flag answered as empty resolves to "default configured effort".
-
-## Tool availability check
-Before writing any file, the command verifies that each AI tool selected by the user's answers (for skills, worker, or any reviewer) has its CLI available on `PATH`. If any selected tool's CLI is missing, the command exits non-zero with a diagnostic that names every missing tool. Nothing is written to disk in that case — no skill files, no `.flanders/` configuration.
 
 ## Skills produced
 For each AI tool the user picked for skills, the command writes one skill artifact per Flanders skill (`/flanders-spec`, `/flanders-plan`, `/flanders-work`) into that tool's skill folder for the selected scope:
@@ -88,7 +85,6 @@ On success, the command prints to standard output the list of files it wrote, on
 - `--global` and `--project` supplied together: exits non-zero with a diagnostic naming the conflict.
 - A flag for a closed-set question — any tool flag, or the `codex` effort flag — is supplied with a value outside that closed set: exits non-zero with a diagnostic that names the offending flag and value. Model flags and the `claude` effort flag are open and never trigger this error.
 - Reviewer index flags do not form a contiguous run starting at reviewer 1 (for example a `--reviewer-2-*` flag is supplied without any reviewer-1 flag): exits non-zero with a diagnostic that names the gap.
-- A selected AI tool's CLI is not available on `PATH`: exits non-zero with a diagnostic that names every missing tool. No file is written.
 - Destination folder cannot be created or written to (permissions, read-only filesystem, etc.): exits non-zero with a diagnostic that names the offending path.
 - Unable to produce a skill artifact (e.g., the source content for a skill is missing): exits non-zero with a diagnostic that names the affected skill.
 

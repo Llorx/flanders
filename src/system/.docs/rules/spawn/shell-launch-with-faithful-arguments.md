@@ -7,7 +7,7 @@ Because a shell re-parses the command line it is given, the implementation escap
 ## Who this applies to
 
 - **Subject:** the single production implementation of the `spawn` method on the spawn context interface (`ScriptContext.spawn`) — the one place that wraps Node's `child_process.spawn`. This rule pins how that implementation launches the command and how it delivers the arguments.
-- **Not subject:** every call site that spawns through the context (the AI tool adapters, the `install` availability and model-list probes, the git helper, and the generic script runner). Those pass a command, an argument array, and options to the context and are unchanged by this rule — they neither opt into nor out of the shell, and they never escape arguments themselves.
+- **Not subject:** every call site that spawns through the context (the AI tool adapters, the `install` model-list probe, the git helper, and the generic script runner). Those pass a command, an argument array, and options to the context and are unchanged by this rule — they neither opt into nor out of the shell, and they never escape arguments themselves.
 - **Not subject:** test doubles of the spawn context. A stub substituted in a test records or simulates the call; it does not launch a real process and is not bound by the shell or escaping obligations.
 
 ## Behavior

@@ -4,7 +4,7 @@ When the user supplies a flag whose value answers one of the install questions, 
 
 ## Who this applies to
 
-- **Subject:** the `install` command, while it collects answers and before it runs the tool-availability check.
+- **Subject:** the `install` command, while it collects answers and before it writes any file.
 - **Not subject:** subagents or any other command. No other command in Flanders today has flag-driven answers; if a future command grows them, the same mechanic applies but is pinned by that command's own rule, not by this one.
 
 ## Mapping flag → question
