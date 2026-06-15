@@ -6,7 +6,6 @@ import type { AskChoiceArgs, AskTextArgs } from "../ui/PromptHelper";
 import { joinPath } from "../system/fsUtils";
 import { planSkillBody, specSkillBody, workSkillBody } from "../prompts/skills";
 import type { PlatformContext } from "../workspace/Workspace";
-import { verifyToolAvailability } from "./InstallAvailabilityCheck";
 import { probeModelList } from "./InstallModelProbe";
 
 export type InstallContexts = Readonly<{
@@ -655,32 +654,6 @@ export class Install {
                     }
                     idx++;
                 }
-            }
-            const selectedTools = new Set<"claude"|"codex">();
-            if (skillsTool === "both") {
-                selectedTools.add("claude");
-                selectedTools.add("codex");
-            } else {
-                selectedTools.add(skillsTool);
-            }
-            selectedTools.add(workerTool);
-            for (const r of reviewers) {
-                selectedTools.add(r.tool);
-            }
-            /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
-            if (this._disposed) {
-                return 1;
-            }
-            const report = await verifyToolAvailability(selectedTools, contexts.script);
-            if (this._disposed) {
-                return 1;
-            }
-            const missing = report.filter(e => !e.available);
-            if (missing.length > 0) {
-                for (const entry of missing) {
-                    contexts.output.writeError(`${entry.reason}\n`);
-                }
-                return 1;
             }
             const scopeRoot = mode === "global"
                 ? contexts.platform.homedir()
