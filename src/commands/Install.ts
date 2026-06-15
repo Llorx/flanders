@@ -7,6 +7,7 @@ import { joinPath } from "../system/fsUtils";
 import { planSkillBody, specSkillBody, workSkillBody } from "../prompts/skills";
 import type { PlatformContext } from "../workspace/Workspace";
 import { probeModelList } from "./InstallModelProbe";
+import type { ModelProbeResult } from "./InstallModelProbe";
 
 export type InstallContexts = Readonly<{
     fs:FsContext;
@@ -281,7 +282,7 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
 
 export class Install {
     private _disposed = false;
-    private _modelProbeCache = new Map<"codex", readonly string[]|null>();
+    private _modelProbeCache = new Map<"codex", ModelProbeResult>();
     private _runPromise:Promise<number>;
     constructor(
         rawArgs:readonly string[],
@@ -407,11 +408,16 @@ export class Install {
             if (this._disposed) {
                 return null;
             }
-            this._modelProbeCache.set(tool, result.kind === "list" ? result.models : null);
+            this._modelProbeCache.set(tool, result);
+            // Surface why `codex` could not be contacted, but only on the probe execution itself:
+            // the cached result drives the second `codex` question without re-emitting the reason.
+            if (result.kind === "not-started") {
+                contexts.output.writeError(`Could not start codex to list models: ${result.reason}\n`);
+            }
         }
         const probeResult = this._modelProbeCache.get(tool)!;
-        if (probeResult && probeResult.length > 0) {
-            const options:ChoiceOption[] = probeResult.map(m => ({ label: m }));
+        if (probeResult.kind === "list") {
+            const options:ChoiceOption[] = probeResult.models.map(m => ({ label: m }));
             options.push({ label: "default configured model" });
             const option = await promptChoice(contexts.ask, {
                 header: headerLabel,

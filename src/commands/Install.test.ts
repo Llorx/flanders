@@ -1429,6 +1429,7 @@ type DataListener = (chunk:Buffer|string) => void;
 
 function makeModelScript(opts:{
     probeStdout?:string;
+    probeStderr?:string;
     probeExitCode?:number;
     probeCallCounter?:{ count:number };
 }):ScriptContext {
@@ -1437,14 +1438,19 @@ function makeModelScript(opts:{
             if (args[0] === "debug" && args[1] === "models") {
                 if (opts.probeCallCounter) opts.probeCallCounter.count++;
                 let exitListener:ExitListener|null = null;
-                let dataListener:DataListener|null = null;
+                let stdoutListener:DataListener|null = null;
+                let stderrListener:DataListener|null = null;
                 return {
                     on(event:"exit"|"error", listener:never) {
                         if (event === "exit") {
                             exitListener = listener;
                             Promise.resolve().then(() => {
-                                if (opts.probeStdout && dataListener) {
-                                    dataListener(opts.probeStdout);
+                                if (opts.probeStdout && stdoutListener) {
+                                    stdoutListener(opts.probeStdout);
+                                }
+                            }).then(() => {
+                                if (opts.probeStderr && stderrListener) {
+                                    stderrListener(opts.probeStderr);
                                 }
                             }).then(() => {
                                 exitListener?.(opts.probeExitCode ?? 0, null);
@@ -1452,8 +1458,8 @@ function makeModelScript(opts:{
                         }
                     },
                     kill() {},
-                    stdout: { on(_e:"data", l:DataListener) { dataListener = l; } },
-                    stderr: { on() {} }
+                    stdout: { on(_e:"data", l:DataListener) { stdoutListener = l; } },
+                    stderr: { on(_e:"data", l:DataListener) { stderrListener = l; } }
                 };
             }
             let exitListener:ExitListener|null = null;
@@ -2052,6 +2058,105 @@ test.describe("Install model question", test => {
             },
             "no Worker model header in askChoices"(_code, { askedHeaders }) {
                 Assert.ok(!askedHeaders.includes("Worker model"));
+            }
+        }
+    });
+
+    test("codex that cannot be started surfaces the captured reason then falls back to free-text", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStderr: "codex executable is missing from PATH",
+                probeExitCode: 127
+            });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the captured probe reason is written through writeError"(_code, { errors }) {
+                Assert.ok(errors.join("").includes("codex executable is missing from PATH"));
+            },
+            "the diagnostic is not the bare exit code"(_code, { errors }) {
+                Assert.strictEqual(errors.join("").includes("127"), false);
+            },
+            "falls back to the free-text worker model input"(_code, { askedTextPrompts }) {
+                Assert.strictEqual(askedTextPrompts[0], "Which model should the worker use? (leave empty for the default configured model): ");
+            },
+            "no Worker model header in askChoices"(_code, { askedHeaders }) {
+                Assert.ok(!askedHeaders.includes("Worker model"));
+            }
+        }
+    });
+
+    test("codex that started but exposed no list falls back to free-text silently (no diagnostic)", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: '{"models":[]}',
+                probeExitCode: 0
+            });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "falls back to the free-text worker model input"(_code, { askedTextPrompts }) {
+                Assert.strictEqual(askedTextPrompts[0], "Which model should the worker use? (leave empty for the default configured model): ");
+            },
+            "no diagnostic is written"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "");
+            }
+        }
+    });
+
+    test("codex not-started reason is surfaced exactly once when both worker and reviewer are codex", {
+        ARRANGE() {
+            const s = stubContexts();
+            const counter = { count: 0 };
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStderr: "codex executable is missing from PATH",
+                probeExitCode: 127,
+                probeCallCounter: counter
+            });
+            return { ...s, counter };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "probe invoked exactly once"(_code, { counter }) {
+                Assert.strictEqual(counter.count, 1);
+            },
+            "the captured reason is surfaced exactly once across both codex model questions"(_code, { errors }) {
+                const occurrences = errors.join("").split("codex executable is missing from PATH").length - 1;
+                Assert.strictEqual(occurrences, 1);
+            },
+            "both the worker and reviewer model questions fall back to free-text"(_code, { askedTextPrompts }) {
+                const modelPrompts = askedTextPrompts.filter(p =>
+                    p === "Which model should the worker use? (leave empty for the default configured model): "
+                    || p === "Which model should reviewer use? (leave empty for the default configured model): ");
+                Assert.strictEqual(modelPrompts.length, 2);
             }
         }
     });
