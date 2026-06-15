@@ -1168,6 +1168,37 @@ test.describe("skills – specSkillBody", test => {
         }
     });
 
+    test("carries the active load-bearing-prohibition instruction in drafting guidance", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "states each obligation as the behavior the code performs"(body) {
+                const draftingStart = body.indexOf("Drafting phase");
+                const finalValidationStart = body.indexOf("Final validation");
+                Assert.ok(draftingStart !== -1, "must have Drafting phase section");
+                Assert.ok(finalValidationStart !== -1, "must have Final validation section");
+                const draftingSection = body.slice(draftingStart, finalValidationStart);
+                Assert.ok(draftingSection.includes("State each obligation as the behavior the code performs"), "the drafting guidance must instruct stating each obligation as the behavior the code performs");
+            },
+            "satisfies a removal request by describing the resulting positive behavior"(body) {
+                const draftingSection = body.slice(body.indexOf("Drafting phase"), body.indexOf("Final validation"));
+                Assert.ok(draftingSection.includes("satisfy a request to remove or stop a behavior by describing the resulting positive behavior, letting the removed behavior vanish by omission"), "the drafting guidance must satisfy a removal request by describing the resulting positive behavior");
+            },
+            "writes an explicit prohibition only when load-bearing"(body) {
+                const draftingSection = body.slice(body.indexOf("Drafting phase"), body.indexOf("Final validation"));
+                Assert.ok(draftingSection.includes("only when it is load-bearing"), "the drafting guidance must admit an explicit prohibition only when load-bearing");
+            },
+            "names the not-already-entailed load-bearing condition"(body) {
+                const draftingSection = body.slice(body.indexOf("Drafting phase"), body.indexOf("Final validation"));
+                Assert.ok(draftingSection.includes("its absence is not already entailed by a positive obligation"), "the drafting guidance must name the not-already-entailed load-bearing condition");
+            },
+            "names the guards-a-plausible-mistake load-bearing condition"(body) {
+                const draftingSection = body.slice(body.indexOf("Drafting phase"), body.indexOf("Final validation"));
+                Assert.ok(draftingSection.includes("it guards a behavior a competent implementer reading only the positive spec would plausibly introduce"), "the drafting guidance must name the guards-a-plausible-mistake load-bearing condition");
+            }
+        }
+    });
+
     test("restricts writes to .docs/contracts and .docs/rules folders only", {
         ARRANGE() {},
         ACT() { return specSkillBody; },
