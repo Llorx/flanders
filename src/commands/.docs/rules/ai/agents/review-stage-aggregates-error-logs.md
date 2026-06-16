@@ -1,19 +1,19 @@
 # The review-stage verdict is the trimmed concatenation of every per-reviewer error file, on one linear path
 
-The adversarial review stage produces a single verdict from the per-reviewer error files by following one linear path with no per-file presence branching: read every per-reviewer error file, concatenate their contents in reviewer order with one newline between files, trim the concatenation, and treat a non-empty result as the failure. Each step has one responsibility — read all, concatenate, trim, test for emptiness — and the test is performed once on the combined string, never as a per-file "does this one have content?" branch.
+The adversarial review stage produces a single verdict from the per-reviewer error files by following one linear path with no per-file presence branching: read the per-reviewer error file of every reviewer that ran to a verdict, concatenate their contents in reviewer order with one newline between files, trim the concatenation, and treat a non-empty result as the failure. Each step has one responsibility — read all, concatenate, trim, test for emptiness — and the test is performed once on the combined string, never as a per-file "does this one have content?" branch. A reviewer cancelled at round completion (see [src/commands/.docs/rules/ai/agents/review-round-completion-condition.md](/src/commands/.docs/rules/ai/agents/review-round-completion-condition.md)) produced no per-reviewer error file and takes no part in the concatenation.
 
 ## Who this applies to
 
-- **Subject:** the orchestrator of the `implement` inner loop, at the adversarial review stage, once every configured reviewer has run to a verdict (every per-reviewer error file is present per [src/commands/.docs/rules/ai/agents/reviewer-verdict-via-error-log.md](/src/commands/.docs/rules/ai/agents/reviewer-verdict-via-error-log.md)).
+- **Subject:** the orchestrator of the `implement` inner loop, at the adversarial review stage, once the review round has completed (see [src/commands/.docs/rules/ai/agents/review-round-completion-condition.md](/src/commands/.docs/rules/ai/agents/review-round-completion-condition.md)) and the orchestrator has cancelled any reviewers still in a usage-limit wait, so that every reviewer that ran to a verdict has its per-reviewer error file present (per [src/commands/.docs/rules/ai/agents/reviewer-verdict-via-error-log.md](/src/commands/.docs/rules/ai/agents/reviewer-verdict-via-error-log.md)).
 - **Not subject:** the reviewers themselves and the AI runner. The reviewers each write their own per-reviewer error file; this rule governs only how the orchestrator combines those files into the stage verdict.
 
 ## Behavior
 
-After every reviewer has run to a verdict, the orchestrator forms the stage verdict in this fixed order:
+After the round has completed and any waiting reviewers have been cancelled, the orchestrator forms the stage verdict in this fixed order:
 
-1. **Read all.** Read the contents of every per-reviewer verdict file — the `error.log` inside each reviewer's own temporary folder, taken in reviewer order (reviewer 1 first) through the last configured reviewer. A reviewer that found no violation left its file empty; that empty content is read like any other, with no special-casing.
+1. **Read all.** Read the contents of the verdict file of every reviewer that ran to a verdict — the `error.log` inside that reviewer's own temporary folder, taken in reviewer order (the first such reviewer first) through the last. A reviewer that found no violation left its file empty; that empty content is read like any other, with no special-casing. A reviewer cancelled at round completion produced no verdict file and is not among the files read.
 
-2. **Concatenate.** Join the contents in reviewer order (reviewer 1 first) with exactly one newline (`\n`) between consecutive files. The join does not inspect whether a given file is empty before adding it — every file is concatenated unconditionally.
+2. **Concatenate.** Join the contents in reviewer order with exactly one newline (`\n`) between consecutive files. The join does not inspect whether a given file is empty before adding it — every such verdict file is concatenated unconditionally.
 
 3. **Trim.** Trim surrounding whitespace, including blank lines and newlines, from the concatenated string.
 
@@ -30,7 +30,8 @@ Branching per file — "if this reviewer's file has content, mark a failure; oth
 ## Failure signals
 
 - The orchestrator decides the stage verdict by checking each per-reviewer error file individually ("any file non-empty ⇒ fail") instead of concatenating first and testing the combined string once.
-- The orchestrator skips a per-reviewer error file from the concatenation because it looks empty, instead of concatenating every file unconditionally.
+- The orchestrator skips a reviewer's per-reviewer error file from the concatenation because it looks empty, instead of concatenating every produced verdict file unconditionally.
+- The orchestrator includes a reviewer cancelled at round completion in the concatenation, or treats its absent verdict file as a violation.
 - The concatenation omits the single-newline separator between files, so adjacent reviewers' violations run together on one line.
 - The orchestrator tests the concatenation for emptiness without trimming first, so a stray newline from an otherwise-clean round is misread as a failure.
 - A failed review does not write the aggregated violations into the `error.log` briefing file, leaving the next worker iteration without the combined reviewer findings.

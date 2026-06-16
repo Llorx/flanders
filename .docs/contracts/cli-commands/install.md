@@ -23,7 +23,13 @@ The adversarial reviewers form an ordered list of one or more reviewers, address
 - `--reviewer-model=<value>` / `--reviewer-N-model=<value>` — model identifier that reviewer's tool invokes. An empty value means "use the tool's default configured model".
 - `--reviewer-effort=<value>` / `--reviewer-N-effort=<value>` — reasoning-effort identifier that reviewer's tool invokes. An empty value means "use the tool's default configured effort".
 
-`N` is an integer of `2` or greater. The reviewer indices supplied via flags must form a contiguous run starting at reviewer 1 (1, then 2, then 3, …); a gap in the indices (for example supplying `--reviewer-2-tool` without `--reviewer-tool`) is a usage error. When at least one reviewer flag is present, the flag-supplied reviewers are the complete reviewer list and the interactive "configure another reviewer?" prompt is not shown.
+`N` is an integer of `2` or greater. The reviewer indices supplied via the tool, model, and effort flags must form a contiguous run starting at reviewer 1 (1, then 2, then 3, …); a gap in the indices (for example supplying `--reviewer-2-tool` without `--reviewer-tool`) is a usage error. For the purpose of fixing the reviewer-list length and skipping the interactive "configure another reviewer?" prompt, a reviewer flag means a `--reviewer[-N]-tool`, `--reviewer[-N]-model`, or `--reviewer[-N]-effort` flag; when at least one of these is present, the flag-supplied reviewers are the complete reviewer list and the "configure another reviewer?" prompt is not shown.
+
+The reviewers also carry a weighted-review configuration, addressed by the same 1-based index, that is only meaningful for a list of two or more reviewers:
+- `--reviewer-optional` / `--reviewer-N-optional` — marks reviewer 1 / reviewer N as an optional reviewer. These are presence flags: supplying one marks that reviewer optional, and a reviewer with no such flag is required. They annotate reviewers within the list established by the tool, model, and effort flags above; they do not themselves establish or extend the list. A `--reviewer-N-optional` whose index exceeds the established reviewer-list length is a usage error.
+- `--reviewer-minimum=<value>` — the minimum number of reviewers that must run to a verdict in each review round (see [.docs/contracts/cli-commands/implement/iteration-loop.md](/.docs/contracts/cli-commands/implement/iteration-loop.md)). The value must be an integer between `1` and the number of configured reviewers, inclusive.
+
+Supplying any weighted-review flag (`--reviewer-minimum` or any `--reviewer[-N]-optional`) with a single-reviewer configuration is a usage error.
 
 Any tool, model, or effort question whose answer was not supplied via flags is prompted interactively (see `Interactive prompts`). Any question whose answer was supplied via a flag is not prompted again. The questions whose values form a closed set — every tool question and the `codex` effort question — reject a flag value outside that set as a usage error. The questions whose values are open — every model question and the `claude` effort question — accept any flag value verbatim and are never rejected on value-set grounds.
 
@@ -35,7 +41,7 @@ When run interactively, the command asks the following questions, in order, skip
 3. Worker tool — `claude` or `codex`.
 4. Worker model — see `Model selection`.
 5. Worker effort — see `Effort selection`.
-6. Reviewer configuration — see `Reviewer configuration`. This collects an ordered list of one or more reviewers.
+6. Reviewer configuration — see `Reviewer configuration`. This collects an ordered list of one or more reviewers, and, when two or more reviewers are configured, the weighted-review configuration (see `Weighted-review configuration`).
 
 ### Reviewer configuration
 The command configures the adversarial reviewers as an ordered list, asked after the worker questions:
@@ -48,6 +54,14 @@ The command configures the adversarial reviewers as an ordered list, asked after
 The loop always configures at least reviewer 1; the `Configure another reviewer?` question is what extends the list to two or more reviewers. The reviewers are persisted in the order they were configured.
 
 When at least one reviewer flag is present (see `Tool, model, and effort flags`), the reviewer list's length is fixed by the contiguous reviewer indices those flags supply, so the `Configure another reviewer?` question is not shown. Within that fixed list, each reviewer field still follows the same flag-versus-prompt behavior as the worker fields: a field whose flag is present is taken from the flag, and a field whose flag is absent is prompted interactively. The `Configure another reviewer?` question is shown only when no reviewer flag is present at all.
+
+#### Weighted-review configuration
+Once the reviewer list is established, and only when it holds two or more reviewers, the command collects the weighted-review configuration directly — there is no gate question that asks whether to configure it. It collects, in this order:
+
+1. The minimum number of reviewers that must run to a verdict in each review round, as a single-select of the integers `1` through the reviewer-list length, with the list length as the highlighted default.
+2. For each reviewer, in configured order, whether that reviewer is optional, as a yes/no question with `no` (required) as the default.
+
+The defaults reproduce a run where no reviewer is ever cancelled: the minimum equal to the number of reviewers and every reviewer required. The minimum and the per-reviewer optional flags follow the same flag-versus-prompt behavior as every other answer, pinned in [src/commands/.docs/rules/install/weighted-reviews-configuration.md](/src/commands/.docs/rules/install/weighted-reviews-configuration.md). When the reviewer list holds a single reviewer, this section is not shown: that reviewer is required and the minimum is `1`.
 
 ### Model selection
 For each tool selected as the worker or as any reviewer, the model question is rendered as a selectable list, sourced according to the tool:
@@ -73,7 +87,7 @@ When `--skills-tool=both` is selected (or the interactive answer is `both`), the
 The textual obligations a user sees when invoking a skill are pinned by the contract files in `.docs/contracts/ai-skills/`. The internal form of each skill artifact (frontmatter fields, body shape) is an implementation detail; what is pinned is that after a successful `install` run the user is able to invoke `/flanders-spec`, `/flanders-plan`, and `/flanders-work` from inside an AI-tool session of each selected tool whose skills root is the chosen scope.
 
 ## Configuration written
-The command writes the persistent Flanders configuration at the chosen scope, as defined in [.docs/contracts/shared/flanders-config.md](/.docs/contracts/shared/flanders-config.md). Only the answers downstream Flanders commands consume are persisted (worker tool, model, and effort; and, for each reviewer in the configured order, its tool, model, and effort). The skills-tool answer is consumed by `install` itself to decide which skill folders to write into and is not persisted to `.flanders/`.
+The command writes the persistent Flanders configuration at the chosen scope, as defined in [.docs/contracts/shared/flanders-config.md](/.docs/contracts/shared/flanders-config.md). Only the answers downstream Flanders commands consume are persisted (worker tool, model, and effort; for each reviewer in the configured order, its tool, model, effort, and whether it is optional; and the minimum number of reviewers that must run to a verdict in each review round). The skills-tool answer is consumed by `install` itself to decide which skill folders to write into and is not persisted to `.flanders/`.
 
 ## Overwrite behavior
 Existing files at the destination paths — both skill artifacts and `.flanders/` configuration files — are overwritten silently. The command does not back up, version, or prompt about pre-existing files. Preserving prior versions is the user's responsibility, typically through version control.
@@ -84,7 +98,10 @@ On success, the command prints to standard output the list of files it wrote, on
 ## Errors
 - `--global` and `--project` supplied together: exits non-zero with a diagnostic naming the conflict.
 - A flag for a closed-set question — any tool flag, or the `codex` effort flag — is supplied with a value outside that closed set: exits non-zero with a diagnostic that names the offending flag and value. Model flags and the `claude` effort flag are open and never trigger this error.
-- Reviewer index flags do not form a contiguous run starting at reviewer 1 (for example a `--reviewer-2-*` flag is supplied without any reviewer-1 flag): exits non-zero with a diagnostic that names the gap.
+- Reviewer index flags do not form a contiguous run starting at reviewer 1 (for example a `--reviewer-2-tool`/`-model`/`-effort` flag is supplied without any reviewer-1 flag): exits non-zero with a diagnostic that names the gap.
+- A weighted-review flag (`--reviewer-minimum` or any `--reviewer[-N]-optional`) is supplied with a single-reviewer configuration: exits non-zero with a diagnostic that names the offending flag.
+- `--reviewer-minimum` is supplied with a value that is not an integer between `1` and the number of configured reviewers, inclusive: exits non-zero with a diagnostic that names the flag and the offending value.
+- A `--reviewer-N-optional` flag references an index beyond the configured reviewer list: exits non-zero with a diagnostic that names the offending index.
 - Destination folder cannot be created or written to (permissions, read-only filesystem, etc.): exits non-zero with a diagnostic that names the offending path.
 - Unable to produce a skill artifact (e.g., the source content for a skill is missing): exits non-zero with a diagnostic that names the affected skill.
 

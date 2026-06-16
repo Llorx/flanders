@@ -15,7 +15,7 @@ The adversarial review stage launches every configured reviewer concurrently rat
 
 3. **Each writes only its own per-reviewer error file.** Because each reviewer writes exclusively to its own per-reviewer error file (per [src/commands/.docs/rules/ai/agents/reviewer-verdict-via-error-log.md](/src/commands/.docs/rules/ai/agents/reviewer-verdict-via-error-log.md)) and performs no project writes, concurrent execution produces no write contention between reviewers.
 
-4. **The stage waits for the last reviewer.** The stage's reviewer work completes only once every reviewer has run to a verdict (including any per-reviewer re-launches for an absent file). The orchestrator forms the stage verdict (per [src/commands/.docs/rules/ai/agents/review-stage-aggregates-error-logs.md](/src/commands/.docs/rules/ai/agents/review-stage-aggregates-error-logs.md)) only after the last reviewer has finished.
+4. **The stage completes when the round-completion condition is met.** The stage's reviewer work does not necessarily wait for every reviewer to finish: it completes once no reviewer is running, every required reviewer has a verdict, and at least the configured minimum number of reviewers have a verdict (see [src/commands/.docs/rules/ai/agents/review-round-completion-condition.md](/src/commands/.docs/rules/ai/agents/review-round-completion-condition.md)). At that instant the orchestrator cancels every reviewer still in a usage-limit wait and forms the stage verdict (per [src/commands/.docs/rules/ai/agents/review-stage-aggregates-error-logs.md](/src/commands/.docs/rules/ai/agents/review-stage-aggregates-error-logs.md)) from the reviewers that ran to a verdict, including any per-reviewer re-launches for an absent file.
 
 ## Why concurrent
 
@@ -25,5 +25,6 @@ Reviewers are read-only and independent, so serializing them would make the stag
 
 - The orchestrator runs the reviewers in a sequential loop, awaiting each before starting the next.
 - One reviewer's rate-limit wait or retry stalls the other reviewers instead of each handling its own independently.
-- The orchestrator forms the stage verdict before every reviewer has finished, ignoring reviewers still running.
+- The orchestrator forms the stage verdict while a reviewer is still running, instead of waiting until the round-completion condition is met.
+- A reviewer cancelled at round completion is awaited as though it must still finish, stalling the stage.
 - A reviewer is made to share another reviewer's runner invocation or error file, coupling their execution or their output.

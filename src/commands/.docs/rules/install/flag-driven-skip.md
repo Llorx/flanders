@@ -24,12 +24,21 @@ The mapping between flags pinned by [.docs/contracts/cli-commands/install.md](/.
 | `--reviewer-N-tool=<value>` | Reviewer N tool (N ≥ 2) |
 | `--reviewer-N-model=<value>` | Reviewer N model (N ≥ 2) |
 | `--reviewer-N-effort=<value>` | Reviewer N effort (N ≥ 2) |
+| `--reviewer-optional` / `--reviewer-N-optional` | Whether reviewer 1 / reviewer N is optional |
+| `--reviewer-minimum=<value>` | Minimum reviewers that must run to a verdict |
 
 Any question whose flag is not present in the command line is asked interactively in the order pinned by the contract. Any question whose flag is present is recorded with the flag's value and not asked.
 
 ## Reviewer flags fix the reviewer-list length and skip the "configure another reviewer?" prompt
 
-The reviewers are an ordered list addressed by 1-based index per [.docs/contracts/cli-commands/install.md](/.docs/contracts/cli-commands/install.md). When at least one reviewer flag (`--reviewer-tool/-model/-effort` or any `--reviewer-N-*`) is present, the presence of those flags answers the `Configure another reviewer?` question: the reviewer-list length is fixed by the contiguous reviewer indices the flags supply, and the `Configure another reviewer?` prompt is therefore not shown. Within that fixed list, each individual reviewer field still follows the same per-field skip as every other question — a field whose flag is present is recorded from the flag, a field whose flag is absent is asked interactively. When no reviewer flag is present at all, the `Configure another reviewer?` prompt is shown and drives the list length interactively.
+The reviewers are an ordered list addressed by 1-based index per [.docs/contracts/cli-commands/install.md](/.docs/contracts/cli-commands/install.md). When at least one reviewer flag (`--reviewer-tool/-model/-effort` or any `--reviewer-N-tool/-model/-effort`) is present, the presence of those flags answers the `Configure another reviewer?` question: the reviewer-list length is fixed by the contiguous reviewer indices the flags supply, and the `Configure another reviewer?` prompt is therefore not shown. Within that fixed list, each individual reviewer field still follows the same per-field skip as every other question — a field whose flag is present is recorded from the flag, a field whose flag is absent is asked interactively. When no reviewer flag is present at all, the `Configure another reviewer?` prompt is shown and drives the list length interactively. The weighted-review flags (`--reviewer[-N]-optional`, `--reviewer-minimum`) do not participate in this list-length determination; they annotate the established list.
+
+## Weighted-review flags
+
+The weighted-review configuration — the per-reviewer `optional` flag and `--reviewer-minimum` — is only meaningful for a list of two or more reviewers (see [src/commands/.docs/rules/install/weighted-reviews-configuration.md](/src/commands/.docs/rules/install/weighted-reviews-configuration.md)). Supplying any weighted-review flag with a single-reviewer configuration is a usage error pinned by the install contract.
+
+- **`--reviewer-minimum`** follows the same per-field skip as every other question: present → recorded (validated to an integer in `[1, T]`, where `T` is the reviewer-list length); absent → the minimum question is asked interactively for a two-or-more-reviewer list.
+- **`--reviewer[-N]-optional`** are presence flags, so they are skipped as a group rather than per field: when at least one is present, optionality is taken entirely from the flags — every reviewer named by a flag is optional and every other reviewer is required — and the per-reviewer optional questions are not asked; when none is present, the per-reviewer optional questions are asked interactively for a two-or-more-reviewer list. A `--reviewer-N-optional` whose index exceeds the reviewer-list length is a usage error.
 
 ## Empty values are valid answers
 

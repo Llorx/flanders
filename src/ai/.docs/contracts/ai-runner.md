@@ -15,7 +15,9 @@ When the invocation reports a retryable error, the runner absorbs it: it waits a
 ## Cancellation
 While the runner is waiting between retries, the surrounding command may be interrupted by the user. In that case the wait must abort promptly so the program can shut down without forcing the user to wait out the full sleep.
 
+Cancellation is per-invocation: a caller may cancel an individual in-flight invocation on its own — for example, `implement` cancelling an optional reviewer that is still in a usage-limit wait once its review round can complete without it (see [src/commands/.docs/rules/ai/agents/review-round-completion-condition.md](/src/commands/.docs/rules/ai/agents/review-round-completion-condition.md)). A cancelled invocation aborts its wait promptly and ends without producing a result — neither a successful result nor a non-retryable error — and the runner performs no further retry for it.
+
 ## Contract for callers
 - Call sites inside `implement` must not implement their own retry detection or retry logic. The runner is the single source of truth for that behavior.
-- Call sites receive either a successful result or a non-retryable error. They do not need to inspect the error to decide whether to retry.
+- Call sites receive either a successful result or a non-retryable error — or, when a call site cancels an in-flight invocation itself (per `Cancellation` above), no result at all. They do not need to inspect the error to decide whether to retry.
 - Call sites do not branch on which AI tool was passed when handling the result. Any tool-specific behavior is encapsulated inside the runner.
