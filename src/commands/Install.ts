@@ -84,6 +84,8 @@ export type ResolvedAnswers = Readonly<{
     workerModel?:string;
     workerEffort?:string;
     reviewers?:readonly ReviewerFlagAnswers[];
+    optionalReviewerIndices?:readonly number[];
+    reviewerMinimum?:number;
 }>;
 
 function extractFlagValue(rawArgs:readonly string[], flag:string):string|undefined {
@@ -169,6 +171,8 @@ const CLAUDE_BACK_LABEL = "← back";
 
 const REVIEWER_INDEXED_RE = /^--reviewer-(\d+)-(tool|model|effort)=/;
 
+const REVIEWER_OPTIONAL_INDEXED_RE = /^--reviewer-(\d+)-optional$/;
+
 export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; answers:ResolvedAnswers}>|Readonly<{ok:false; diagnostic:string}> {
     const hasGlobal = rawArgs.includes("--global");
     const hasProject = rawArgs.includes("--project");
@@ -182,6 +186,8 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
         workerModel?:string;
         workerEffort?:string;
         reviewers?:readonly ReviewerFlagAnswers[];
+        optionalReviewerIndices?:readonly number[];
+        reviewerMinimum?:number;
     } = {};
     if (hasProject) answers.scope = "project";
     if (hasGlobal) answers.scope = "global";
@@ -276,6 +282,68 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
             list.push(reviewerIndices.get(i)!);
         }
         answers.reviewers = list;
+    }
+    // Weighted-review flags. `--reviewer[-N]-optional` are presence flags that mark a 1-based reviewer
+    // index optional; `--reviewer-minimum` carries the minimum-reviews count. They annotate the list the
+    // tool/model/effort flags establish and never extend it (`rules/install/flag-driven-skip.md`). Only
+    // value-format validation happens unconditionally here; the single-reviewer and `[1, T]` range checks
+    // are contextual on the reviewer-list length T and run below only when the tool/model/effort flags
+    // fixed T at parse time, otherwise they are deferred (`rules/install/weighted-reviews-configuration.md`).
+    const optionalIndices = new Set<number>();
+    const optionalFlags:string[] = [];
+    for (const arg of rawArgs) {
+        if (arg === "--reviewer-optional") {
+            optionalIndices.add(1);
+            optionalFlags.push(arg);
+            continue;
+        }
+        const match = arg.match(REVIEWER_OPTIONAL_INDEXED_RE);
+        if (match === null) {
+            continue;
+        }
+        const idx = Number(match[1]);
+        if (idx < 1) {
+            return { ok: false, diagnostic: `Invalid reviewer flag: "${arg}". --reviewer-N-optional requires N >= 1.\n` };
+        }
+        optionalIndices.add(idx);
+        optionalFlags.push(arg);
+    }
+    if (optionalIndices.size > 0) {
+        answers.optionalReviewerIndices = [...optionalIndices].sort((a, b) => a - b);
+    }
+    const minimumRaw = extractFlagValue(rawArgs, "--reviewer-minimum");
+    if (minimumRaw !== undefined) {
+        if (!/^\d+$/.test(minimumRaw)) {
+            return { ok: false, diagnostic: `Invalid value for --reviewer-minimum: "${minimumRaw}". Expected a non-negative integer.\n` };
+        }
+        answers.reviewerMinimum = Number(minimumRaw);
+    }
+    // Contextual checks against the reviewer-list length T, performed only when at least one
+    // `--reviewer[-N]-tool/-model/-effort` flag fixed T (answers.reviewers is then set to the full list).
+    // When no such flag is present T is unknown here, so the values are returned unvalidated against T and
+    // these checks are deferred to the interactive assembly (task 2.2).
+    if (answers.reviewers !== undefined) {
+        const reviewerCount = answers.reviewers.length;
+        if (reviewerCount === 1) {
+            if (answers.reviewerMinimum !== undefined) {
+                return { ok: false, diagnostic: `Invalid flag for a single-reviewer configuration: --reviewer-minimum. Weighted-review flags require two or more reviewers.\n` };
+            }
+            const firstOptional = optionalFlags[0];
+            if (firstOptional !== undefined) {
+                return { ok: false, diagnostic: `Invalid flag for a single-reviewer configuration: ${firstOptional}. Weighted-review flags require two or more reviewers.\n` };
+            }
+        } else {
+            if (answers.reviewerMinimum !== undefined && (answers.reviewerMinimum < 1 || answers.reviewerMinimum > reviewerCount)) {
+                return { ok: false, diagnostic: `Invalid value for --reviewer-minimum: "${answers.reviewerMinimum}". Must be an integer between 1 and ${reviewerCount}.\n` };
+            }
+            if (answers.optionalReviewerIndices !== undefined) {
+                for (const idx of answers.optionalReviewerIndices) {
+                    if (idx > reviewerCount) {
+                        return { ok: false, diagnostic: `Invalid reviewer flag: --reviewer-${idx}-optional references reviewer ${idx}, beyond the configured reviewer list of ${reviewerCount}.\n` };
+                    }
+                }
+            }
+        }
     }
     return { ok: true, answers };
 }

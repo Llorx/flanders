@@ -799,6 +799,225 @@ test.describe("parseInstallFlags", test => {
     });
 });
 
+test.describe("parseInstallFlags weighted-review flags", test => {
+    test("--reviewer-optional and --reviewer-2-optional record indices 1 and 2 (deferred without tool/model/effort flags)", {
+        ARRANGE() {
+            return { args: ["--reviewer-optional", "--reviewer-2-optional"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { optionalReviewerIndices: [1, 2] }
+            });
+        }
+    });
+
+    test("optional indices are deduplicated and sorted ascending regardless of argv order", {
+        ARRANGE() {
+            return { args: ["--reviewer-2-optional", "--reviewer-optional", "--reviewer-2-optional"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { optionalReviewerIndices: [1, 2] }
+            });
+        }
+    });
+
+    test("--reviewer-minimum=2 records the integer 2 (deferred without tool/model/effort flags)", {
+        ARRANGE() {
+            return { args: ["--reviewer-minimum=2"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { reviewerMinimum: 2 }
+            });
+        }
+    });
+
+    test("--reviewer-5-optional with no tool/model/effort flags is returned without a range error (deferred)", {
+        ARRANGE() {
+            return { args: ["--reviewer-5-optional"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { optionalReviewerIndices: [5] }
+            });
+        }
+    });
+
+    test("--reviewer-minimum=abc is rejected naming the flag and value", {
+        ARRANGE() {
+            return { args: ["--reviewer-minimum=abc"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid value for --reviewer-minimum: \"abc\". Expected a non-negative integer.\n"
+            });
+        }
+    });
+
+    test("--reviewer-minimum=-1 (negative) is rejected naming the flag and value", {
+        ARRANGE() {
+            return { args: ["--reviewer-minimum=-1"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid value for --reviewer-minimum: \"-1\". Expected a non-negative integer.\n"
+            });
+        }
+    });
+
+    test("--reviewer-0-optional (N < 1) is rejected naming the flag", {
+        ARRANGE() {
+            return { args: ["--reviewer-0-optional"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid reviewer flag: \"--reviewer-0-optional\". --reviewer-N-optional requires N >= 1.\n"
+            });
+        }
+    });
+
+    test("flag-fixed two-reviewer list: --reviewer-minimum=3 is rejected as out of range", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=codex", "--reviewer-minimum=3"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid value for --reviewer-minimum: \"3\". Must be an integer between 1 and 2.\n"
+            });
+        }
+    });
+
+    test("flag-fixed two-reviewer list: --reviewer-minimum=0 is rejected as out of range", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=codex", "--reviewer-minimum=0"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid value for --reviewer-minimum: \"0\". Must be an integer between 1 and 2.\n"
+            });
+        }
+    });
+
+    test("flag-fixed two-reviewer list: --reviewer-3-optional is rejected as an index beyond the list", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=codex", "--reviewer-3-optional"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid reviewer flag: --reviewer-3-optional references reviewer 3, beyond the configured reviewer list of 2.\n"
+            });
+        }
+    });
+
+    test("flag-fixed single-reviewer list: --reviewer-minimum=1 is a single-reviewer usage error", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-minimum=1"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid flag for a single-reviewer configuration: --reviewer-minimum. Weighted-review flags require two or more reviewers.\n"
+            });
+        }
+    });
+
+    test("flag-fixed single-reviewer list: --reviewer-optional is a single-reviewer usage error", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-optional"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid flag for a single-reviewer configuration: --reviewer-optional. Weighted-review flags require two or more reviewers.\n"
+            });
+        }
+    });
+
+    test("flag-fixed two-reviewer list: in-range minimum and an in-range optional index are accepted", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=codex", "--reviewer-minimum=2", "--reviewer-2-optional"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: {
+                    reviewers: [{ tool: "claude" }, { tool: "codex" }],
+                    optionalReviewerIndices: [2],
+                    reviewerMinimum: 2
+                }
+            });
+        }
+    });
+
+    test("flag-fixed two-reviewer list: an in-range minimum without any optional flag is accepted", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=codex", "--reviewer-minimum=2"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: {
+                    reviewers: [{ tool: "claude" }, { tool: "codex" }],
+                    reviewerMinimum: 2
+                }
+            });
+        }
+    });
+});
+
 test.describe("Install flag validation integration", test => {
     test("--worker-tool=foo exits non-zero with diagnostic, no prompt called", {
         ARRANGE() {
