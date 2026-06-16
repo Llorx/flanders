@@ -9,7 +9,7 @@ This governs every reference that a file produced by `/flanders-spec` or `/fland
 - A reference one contract or rule file makes to another contract or rule file (`/flanders-spec` output).
 - A reference a plan task makes to a contract or rule file (`/flanders-plan` output).
 
-A reference names a specific spec file by its namespace — its path relative to the project root, as pinned in [.docs/contracts/shared/spec-folder-layout.md](/.docs/contracts/shared/spec-folder-layout.md). A structural mention of a spec folder by its conventional shape — a `.docs/contracts` folder, a `.docs/rules` folder, the `plans/` folder — that names no specific file is not a cross-file reference and is not governed here.
+A reference names a specific spec file by its namespace — its path relative to the project root, as pinned in [.docs/contracts/shared/spec-folder-layout.md](/.docs/contracts/shared/spec-folder-layout.md). A structural mention of a spec folder by its conventional shape — a `.spec/contracts` folder, a `.spec/rules` folder, the `plans/` folder — that names no specific file is not a cross-file reference and is not governed here.
 
 ## The link form
 Every such reference is a real markdown link, `[text](target)`:

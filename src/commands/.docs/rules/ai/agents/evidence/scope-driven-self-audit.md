@@ -18,12 +18,12 @@ The scope-derivation is namespace-first, the same heuristic the planner uses in 
 
 The list below illustrates the pattern and is not exhaustive:
 
-- A diff that **modifies or adds tests** earns in-scope claims for every applicable file under `src/.docs/rules/testing/`.
-- A diff that **creates or modifies anything with timers, listeners, controllers, child processes, or other async lifecycle** earns in-scope claims for every applicable file under `src/.docs/rules/disposables/`.
-- A diff that **changes terminal UI or live-region output** earns in-scope claims for every applicable file under `src/ui/.docs/rules/`.
-- A diff that **adds or modifies retry, backoff, or rate-limit handling around AI or external calls** earns in-scope claims for every applicable file under `src/ai/.docs/rules/retry/`.
-- A diff that **changes how the AI runner invokes a CLI tool** earns in-scope claims for every applicable file under `src/ai/.docs/rules/runner/`.
-- A diff that **adds or modifies a subagent's prompt construction** earns in-scope claims for every applicable file under `src/commands/.docs/rules/ai/agents/`.
+- A diff that **modifies or adds tests** earns in-scope claims for every applicable file under `src/.spec/rules/testing/`.
+- A diff that **creates or modifies anything with timers, listeners, controllers, child processes, or other async lifecycle** earns in-scope claims for every applicable file under `src/.spec/rules/disposables/`.
+- A diff that **changes terminal UI or live-region output** earns in-scope claims for every applicable file under `src/ui/.spec/rules/`.
+- A diff that **adds or modifies retry, backoff, or rate-limit handling around AI or external calls** earns in-scope claims for every applicable file under `src/ai/.spec/rules/retry/`.
+- A diff that **changes how the AI runner invokes a CLI tool** earns in-scope claims for every applicable file under `src/ai/.spec/rules/runner/`.
+- A diff that **adds or modifies a subagent's prompt construction** earns in-scope claims for every applicable file under `src/commands/.spec/rules/ai/agents/`.
 - A diff that **touches any contract obligation** earns in-scope claims for every contract file whose obligation is affected, regardless of whether the task linked it.
 
 When the diff spans multiple kinds of work — for example, "added a new test that exercises a controller with a timer" — the in-scope set is the union across all kinds.
@@ -34,7 +34,7 @@ The deliverable subagent has direct knowledge of its diff: it can enumerate, fil
 
 ## Failure signals
 
-- The deliverable subagent's Evidence Report enumerates only the rule and contract claims the task linked, ignoring rules and contracts the diff actually triggers (for example, a diff that adds tests but omits every applicable `src/.docs/rules/testing/*` claim because the task linked only some of them).
+- The deliverable subagent's Evidence Report enumerates only the rule and contract claims the task linked, ignoring rules and contracts the diff actually triggers (for example, a diff that adds tests but omits every applicable `src/.spec/rules/testing/*` claim because the task linked only some of them).
 - The deliverable subagent skips a namespace on the grounds that the request or task did not mention it by keyword, even though the diff triggers obligations in that namespace.
 - The deliverable subagent's Evidence Report contains rule or contract claims for files the diff does not touch and the task does not link, padding the audit beyond its scope.
 - The deliverable subagent narrows the scope so aggressively that an obligation linked by the task is omitted from the Evidence Report because the diff does not touch it — the diff-driven scope is additive on top of the link list, never a replacement.

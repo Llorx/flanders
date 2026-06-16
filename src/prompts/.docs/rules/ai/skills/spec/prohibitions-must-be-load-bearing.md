@@ -4,7 +4,7 @@ A contract or rule authored by `/flanders-spec` states each obligation as the be
 
 ## Who this applies to
 
-- **Subject:** every contract file under a `.docs/contracts` folder and every rule file under a `.docs/rules` folder that `/flanders-spec` writes or updates — including flanders' own spec, which `/flanders-spec` authors because the project self-hosts its spec.
+- **Subject:** every contract file under a `.spec/contracts` folder and every rule file under a `.spec/rules` folder that `/flanders-spec` writes or updates — including flanders' own spec, which `/flanders-spec` authors because the project self-hosts its spec.
 - **Subject:** the source content that produces the `/flanders-spec` skill artifact body — the prompt text the `install` command ships — which must carry this as an active drafting instruction, per "How to apply".
 - **Not subject:** a prohibition that is load-bearing per the test below. Such a prohibition is a legitimate obligation, not a violation — for example [src/commands/.docs/rules/ai/agents/no-git-writes.md](/src/commands/.docs/rules/ai/agents/no-git-writes.md) and [src/prompts/.docs/rules/ai/review/reviewer-does-not-run-build-or-test.md](/src/prompts/.docs/rules/ai/review/reviewer-does-not-run-build-or-test.md), which each forbid a behavior an implementer would otherwise plausibly perform.
 - **Not subject:** plan files under `plans/` (`/flanders-plan` output), which sequence work rather than pin obligations.

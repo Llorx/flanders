@@ -15,7 +15,7 @@ The reviewer prompt instructs the reviewer to FAIL on ANY of the following five 
 2. A contract referenced by the work is not honored.
 3. A rule referenced by the work is not actively applied — acknowledging a rule is not enough; the changes must demonstrate compliance.
 4. A contract or rule from the project's spec corpus that the reviewer determines should have applied to the changes but was not honored, even if the spec under review did not reference it.
-5. A behavior rule whose `.docs/flanders` scope encloses the files the changes touch is not honored, even if the spec under review did not reference it.
+5. A behavior rule whose `.spec/flanders` scope encloses the files the changes touch is not honored, even if the spec under review did not reference it.
 
 The prompt also imposes:
 

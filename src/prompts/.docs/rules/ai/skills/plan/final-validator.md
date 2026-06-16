@@ -14,8 +14,8 @@ The host follows [src/prompts/.docs/rules/ai/skills/final-validator-host.md](/sr
 
 The canonical listings the host passes are:
 
-1. The contracts listing captured at the start of the run (every contract's namespace — its project-root-relative path — across every `.docs/contracts` folder in the tree).
-2. The rules listing captured at the start of the run (every rule's namespace across every `.docs/rules` folder in the tree).
+1. The contracts listing captured at the start of the run (every contract's namespace — its project-root-relative path — across every `.spec/contracts` folder in the tree).
+2. The rules listing captured at the start of the run (every rule's namespace across every `.spec/rules` folder in the tree).
 
 Additionally, under the per-skill-inputs provision of [src/prompts/.docs/rules/ai/skills/final-validator-host.md](/src/prompts/.docs/rules/ai/skills/final-validator-host.md), the validator reads the on-disk source files the plan's tasks build on — not only the plan text and the specs — so it can audit each code-touching task against its baseline: the current source, plus the changes earlier tasks in the plan prescribe (per category 4 below). This is what lets categories 4 and 5 catch a task that misdescribes the code it builds on. Reading source is read-only and does not relax the validator's read-only discipline.
 
@@ -44,7 +44,7 @@ Tasks appear top-to-bottom in implementation order. The audit is semantic, not n
 
 ### 3. Spec-folder write boundary
 
-No task — leaf or parent — describes work that creates, modifies, deletes, or renames any file inside any `.docs/contracts` folder, any `.docs/rules` folder, or the `plans/` folder. There is no exception for flipping checkboxes or rewriting metrics: those mutations are performed programmatically by the `implement` command and are never described by a task.
+No task — leaf or parent — describes work that creates, modifies, deletes, or renames any file inside any `.spec/contracts` folder, any `.spec/rules` folder, or the `plans/` folder. There is no exception for flipping checkboxes or rewriting metrics: those mutations are performed programmatically by the `implement` command and are never described by a task.
 
 ### 4. Plan content rules (verbatim from [.docs/contracts/ai-skills/plan-skill.md](/.docs/contracts/ai-skills/plan-skill.md))
 
@@ -71,7 +71,7 @@ Additionally, for every contract or rule in the canonical listings the validator
 
 ## Failure signals
 
-- The validator reports PASS on a plan whose tasks describe writing to any `.docs/contracts` folder, any `.docs/rules` folder, or the `plans/` folder (including checkbox flips or metrics rewrites).
+- The validator reports PASS on a plan whose tasks describe writing to any `.spec/contracts` folder, any `.spec/rules` folder, or the `plans/` folder (including checkbox flips or metrics rewrites).
 - The validator reports PASS on a plan in which a task depends on work performed by a later task, on the grounds that the numbering looks correct.
 - The validator reports PASS on a plan that contains hedge phrasing or unresolved implementation choices, on the grounds that "the worker will figure it out".
 - The validator reports PASS on a plan with a leaf task missing its acceptance criteria, its contract link, or its rule link.

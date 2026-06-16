@@ -6,10 +6,10 @@ Flanders is a Node.js library that helps users create contracts, derive work pla
 ## Surfaces
 Flanders ships two user-facing surfaces:
 
-- A **CLI**, invoked via `npx flanders <command> [arguments...]`. Each command owns its own contract under `.docs/contracts/cli-commands/`:
+- A **CLI**, invoked via `npx flanders <command> [arguments...]`. Each command owns its own contract under `.spec/contracts/cli-commands/`:
   - `install` — see [.docs/contracts/cli-commands/install.md](/.docs/contracts/cli-commands/install.md).
   - `implement [plan]` — see [.docs/contracts/cli-commands/implement/overview.md](/.docs/contracts/cli-commands/implement/overview.md).
-- Three **AI-tool skills**, invoked from inside an AI-coding-tool session. Each skill owns its own contract under `.docs/contracts/ai-skills/`:
+- Three **AI-tool skills**, invoked from inside an AI-coding-tool session. Each skill owns its own contract under `.spec/contracts/ai-skills/`:
   - `/flanders-spec` — authors contracts and rules; see [.docs/contracts/ai-skills/spec-skill.md](/.docs/contracts/ai-skills/spec-skill.md).
   - `/flanders-plan` — see [.docs/contracts/ai-skills/plan-skill.md](/.docs/contracts/ai-skills/plan-skill.md).
   - `/flanders-work` — implements a request directly and gates it through adversarial review, in one invocation; see [.docs/contracts/ai-skills/work-skill.md](/.docs/contracts/ai-skills/work-skill.md).

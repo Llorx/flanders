@@ -11,7 +11,7 @@ Before drafting any deliverable, `/flanders-spec` and `/flanders-plan` read ever
 
 ## Canonical reference set per skill
 
-The reference set is the existing spec content the new deliverable must be consistent with — every contract under a `.docs/contracts` folder and every rule under a `.docs/rules` folder, discovered across the whole project tree per [src/workspace/.docs/rules/spec-discovery/docs-folders-enumerated-recursively.md](/src/workspace/.docs/rules/spec-discovery/docs-folders-enumerated-recursively.md):
+The reference set is the existing spec content the new deliverable must be consistent with — every contract under a `.spec/contracts` folder and every rule under a `.spec/rules` folder, discovered across the whole project tree per [src/workspace/.docs/rules/spec-discovery/docs-folders-enumerated-recursively.md](/src/workspace/.docs/rules/spec-discovery/docs-folders-enumerated-recursively.md):
 
 - `/flanders-spec` — the project's contracts and rules.
 - `/flanders-plan` — the project's contracts and rules.
