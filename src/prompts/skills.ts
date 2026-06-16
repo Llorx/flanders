@@ -232,9 +232,9 @@ Contracts are the public surface of the scope they belong to. Once written, they
 
 ## What a rule is
 
-A rule is a markdown document that captures a single, atomic piece of implementation guidance internal to the directory its \`.spec\` folder scopes — a constraint, convention, or pattern that the directory's code must follow. Each rule file describes exactly one rule.
+A rule is a markdown document that captures a single, atomic piece of implementation guidance internal to the directory its \`.spec\` folder scopes — a constraint, convention, or pattern that the directory's code must follow. The rule is the atomic unit, not the file: each rule is a single atomic obligation, and a rule file holds one rule on its own, or several related rules as discrete atomic sections.
 
-Bundles of related rules (for example, the multiple obligations that make up SOLID, or the dispose pattern) are modeled as a subfolder under the scope's \`.spec/rules\` folder containing one file per atomic rule inside, never as a single multi-rule file.
+Bundles of related rules (for example, the multiple obligations that make up SOLID, or the dispose pattern) are modeled either as a subfolder under the scope's \`.spec/rules\` folder containing one file per atomic rule, or as a single file that groups those related rules as discrete atomic sections. The atomic unit is the rule, not the file; both shapes keep every rule atomic.
 
 The namespace of a rule is its path relative to the project root. The namespace is what downstream tooling uses to organize, filter, and reference rules.
 
@@ -263,8 +263,8 @@ For every obligation in the request, the skill decides whether it is a contract 
 6. After approval, run a self-review pass before finalizing each file: re-read the draft and check for placeholders left behind, contradictions with the canonical reference set, ambiguous wording, and scope that drifted beyond what the user requested. Fix any issue in place; if a fix would change the meaning of content the user approved in the layout summary, surface the issue to the user and ask before applying it.
 7. Organize the resulting files in whichever shape best fits the content:
    - Within a \`.spec/contracts\` folder: a single descriptive file when the scope is small; multiple files when the scope has clearly separable concerns (for example, a logic file and a UI file); subfolders grouping related files when the scope has multiple sections (for example, one folder per major feature).
-   - Within a \`.spec/rules\` folder: one file per atomic rule. Subfolders group thematically related rules (for example, a testing/ subfolder for testing rules, a dependencies/ subfolder for dependency-management rules, a solid/ subfolder with one file per SOLID principle). A bundle of related rules MUST be modeled as a subfolder of single-rule files, never as one multi-rule file.
-8. Filenames must be descriptive of their content — the user must be able to tell what each contract file covers, and which single rule each rule file pins, from the name alone.
+   - Within a \`.spec/rules\` folder: the rule is the atomic unit, not the file. A standalone file holds one isolated rule; a single file groups a cluster of related rules as discrete atomic sections; and a subfolder holds a file per rule (or per sub-cluster) when the scope spans several distinct clusters (for example, a testing/ subfolder for testing rules, a dependencies/ subfolder for dependency-management rules, a solid/ subfolder for the SOLID principles). A subfolder of single-rule files and a single file grouping related rules as sections are both valid; each rule stays atomic in either shape.
+8. Filenames must be descriptive of their content — the user must be able to tell what each contract file covers, and which rule or cluster of related rules each rule file pins, from the name alone.
 9. Before declaring complete, run the final validator over the persisted file(s). The validator is the gate — only declare complete when it returns PASS. The procedure is in the Final validation section below.
 10. After declaring the spec complete, recommend the next step and, at the user's choice, launch it, per the Recommending and launching the next step section below.
 
@@ -310,7 +310,7 @@ A2. Content rules. Verify the artifact satisfies EACH of the following independe
 
 **B. Rule artifacts (each file written or updated under a \`.spec/rules\` folder)**
 
-B1. Format and shape. Every rule file written or updated lives inside a \`.spec/rules\` folder, is non-empty, is markdown, captures exactly one atomic rule (a file that pins two or more independent obligations is FAIL — those obligations belong in separate files inside the same subfolder), has a filename descriptive of the single rule it captures, and bundles of related rules are modeled as subfolders containing single-rule files.
+B1. Format and shape. Every rule file written or updated lives inside a \`.spec/rules\` folder, is non-empty, is markdown, and captures one or more atomic rules — one rule on its own, or several related rules as discrete atomic sections, where each rule pins exactly one obligation; a file is FAIL only when it fuses unrelated obligations into one non-atomic rule, or presents a section as a rule that is not itself atomic. Its filename is descriptive of the rule or cluster of related rules it pins, and bundles of related rules are modeled either as a subfolder containing one file per atomic rule or as a single file grouping those related rules as discrete atomic sections — both shapes are valid.
 
 B2. Content rules. Verify the artifact satisfies EACH of the following independently:
 - Free of placeholders. No \`<TBD>\` or analogous task markers, no template-style blanks, no parenthetical "(to be decided)" deferrals.

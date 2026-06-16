@@ -1069,6 +1069,60 @@ test.describe("skills – specSkillBody", test => {
         }
     });
 
+    test("states the dual-shape rule-separation policy at the five prompt locations", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            // Location 1 — "What a rule is" section
+            "What a rule is makes the rule, not the file, the atomic unit and allows one or several rules per file"(body) {
+                Assert.ok(body.includes("The rule is the atomic unit, not the file: each rule is a single atomic obligation, and a rule file holds one rule on its own, or several related rules as discrete atomic sections."), "the What a rule is section must make the rule the atomic unit and allow one rule on its own or several related rules as discrete atomic sections");
+            },
+            "the superseded one-rule-per-file sentence is gone"(body) {
+                Assert.ok(!body.includes("Each rule file describes exactly one rule."), "the superseded \"Each rule file describes exactly one rule.\" sentence must be gone");
+            },
+            // Location 2 — "Bundles of related rules" paragraph
+            "Bundles paragraph allows either a subfolder or a single grouping file, both keeping every rule atomic"(body) {
+                Assert.ok(body.includes("are modeled either as a subfolder under the scope's \`.spec/rules\` folder containing one file per atomic rule, or as a single file that groups those related rules as discrete atomic sections. The atomic unit is the rule, not the file; both shapes keep every rule atomic."), "the Bundles paragraph must allow either a subfolder of single-rule files or a single grouping file, both keeping every rule atomic");
+            },
+            "the superseded never-multi-rule-file phrase is gone"(body) {
+                Assert.ok(!body.includes("never as a single multi-rule file"), "the superseded \"never as a single multi-rule file\" phrase must be gone");
+            },
+            // Location 3 — Procedure .spec/rules organization bullet
+            "procedure organization bullet enumerates the standalone, single-grouping, and subfolder shapes"(body) {
+                Assert.ok(body.includes("the rule is the atomic unit, not the file. A standalone file holds one isolated rule; a single file groups a cluster of related rules as discrete atomic sections; and a subfolder holds a file per rule (or per sub-cluster) when the scope spans several distinct clusters"), "the procedure .spec/rules organization bullet must enumerate the standalone-file, single-grouping-file, and subfolder shapes");
+            },
+            "procedure organization bullet states both shapes are valid and each rule stays atomic"(body) {
+                Assert.ok(body.includes("A subfolder of single-rule files and a single file grouping related rules as sections are both valid; each rule stays atomic in either shape."), "the procedure organization bullet must state both the subfolder-of-single-files shape and the single-file-grouping shape are valid and each rule stays atomic");
+            },
+            "the superseded MUST-be-a-subfolder phrase is gone"(body) {
+                Assert.ok(!body.includes("MUST be modeled as a subfolder of single-rule files, never as one multi-rule file"), "the superseded \"MUST be modeled as a subfolder of single-rule files, never as one multi-rule file\" phrase must be gone");
+            },
+            // Location 4 — descriptive-filename bullet
+            "descriptive-filename bullet refers to a rule or cluster of related rules"(body) {
+                Assert.ok(body.includes("which rule or cluster of related rules each rule file pins"), "the descriptive-filename bullet must refer to which rule or cluster of related rules each rule file pins");
+            },
+            "the superseded single-rule filename phrase is gone"(body) {
+                Assert.ok(!body.includes("which single rule each rule file pins"), "the superseded \"which single rule each rule file pins\" phrase must be gone");
+            },
+            // Location 5 — Validator B1. Format and shape
+            "B1 accepts one or more atomic rules per file, each pinning exactly one obligation"(body) {
+                Assert.ok(body.includes("captures one or more atomic rules — one rule on its own, or several related rules as discrete atomic sections, where each rule pins exactly one obligation"), "B1 must accept one or more atomic rules per file, each pinning exactly one obligation");
+            },
+            "B1 FAILs only on a fused non-atomic rule or a non-atomic section"(body) {
+                Assert.ok(body.includes("a file is FAIL only when it fuses unrelated obligations into one non-atomic rule, or presents a section as a rule that is not itself atomic"), "B1 must FAIL only when a file fuses unrelated obligations into one non-atomic rule or presents a non-atomic section as a rule");
+            },
+            "B1 filename sub-point matches the descriptive-filename bullet"(body) {
+                Assert.ok(body.includes("Its filename is descriptive of the rule or cluster of related rules it pins"), "B1's filename sub-point must refer to the rule or cluster of related rules the file pins, matching the descriptive-filename bullet");
+            },
+            "B1 models bundles as either a subfolder of one-file-per-rule or a single grouping file, both valid"(body) {
+                Assert.ok(body.includes("bundles of related rules are modeled either as a subfolder containing one file per atomic rule or as a single file grouping those related rules as discrete atomic sections — both shapes are valid"), "B1 must model bundles as either a subfolder of one-file-per-rule or a single grouping file, both valid");
+            },
+            "the superseded B1 exactly-one-atomic-rule phrase is gone"(body) {
+                Assert.ok(!body.includes("captures exactly one atomic rule (a file that pins two or more independent obligations is FAIL"), "the superseded B1 \"captures exactly one atomic rule (a file that pins two or more independent obligations is FAIL\" phrase must be gone");
+            }
+        }
+    });
+
     test("states the scope-relative classification and the lowest-enclosing-directory placement rule", {
         ARRANGE() {},
         ACT() { return specSkillBody; },
