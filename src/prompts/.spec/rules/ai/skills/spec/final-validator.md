@@ -57,9 +57,9 @@ Every rule file written or updated in this run:
 
 - Lives inside a `.spec/rules` folder and is non-empty.
 - Is markdown.
-- **Captures exactly one atomic rule.** A file that pins two or more independent obligations is FAIL. Those obligations belong in separate files inside the same subfolder.
-- Has a filename descriptive of the single rule the file captures — a reader can tell which rule the file pins from its name alone.
-- Bundles of related rules are modeled as subfolders containing single-rule files, never as one multi-rule file. A `testing/` subfolder with one file per testing obligation is correct; a single `testing.md` listing multiple obligations is FAIL.
+- **Captures one or more atomic rules.** A rule file holds one rule on its own, or several related rules as discrete atomic sections. Each rule — whether it stands alone or sits as a section among related rules — pins exactly one obligation. A file is FAIL when it fuses unrelated obligations into one undifferentiated rule, or when a section it presents as a rule is not itself atomic.
+- Has a filename descriptive of the rule or cluster of related rules the file captures — a reader can tell which rule or cluster the file pins from its name alone.
+- Bundles of related rules are modeled either as a subfolder containing one file per atomic rule, or as a single file grouping those rules as discrete atomic sections; both shapes are valid. A `testing/` subfolder with one file per testing obligation is correct, and a single `testing.md` grouping those testing obligations as discrete atomic sections is equally correct; only a file that fuses unrelated obligations into one non-atomic rule is FAIL.
 
 #### B2. Content rules
 
@@ -84,7 +84,7 @@ Out of scope of the validator: verifying that paths referenced by a contract or 
 
 - The validator reports PASS on a contract that contains implementation detail (specific class or library names, paths under `src/`, references to internal types, file paths, or runners the user does not interact with).
 - The validator reports PASS on a contract or rule with hedge phrasing that leaves an obligation undefined.
-- The validator reports PASS on a rule file that captures two or more independent obligations.
+- The validator reports PASS on a rule file that fuses unrelated obligations into one non-atomic rule, or that presents a section as a rule where that section is not itself atomic.
 - The validator reports PASS on a rule whose scope is undefined or stated as "everywhere" without enumeration of the actual surface.
 - The validator reports PASS on a run that duplicated an existing obligation across files instead of updating the existing file in place.
 - The validator reports PASS on a file that contradicts another contract or rule in the canonical corpus.
