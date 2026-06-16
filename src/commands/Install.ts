@@ -1,5 +1,5 @@
 import type { AskContext, ChoiceOption, FsContext, OutputContext, ScriptContext } from "../contexts";
-import type { FlandersConfig, FlandersRole } from "../workspace/FlandersConfig";
+import type { FlandersConfig, FlandersRole, FlandersReviewer } from "../workspace/FlandersConfig";
 import { write as writeConfig } from "../workspace/FlandersConfig";
 import { askChoice, askText } from "../ui/PromptHelper";
 import type { AskChoiceArgs, AskTextArgs } from "../ui/PromptHelper";
@@ -173,6 +173,37 @@ const REVIEWER_INDEXED_RE = /^--reviewer-(\d+)-(tool|model|effort)=/;
 
 const REVIEWER_OPTIONAL_INDEXED_RE = /^--reviewer-(\d+)-optional$/;
 
+// Validate the weighted-review flags against the now-known reviewer-list length. Shared by the
+// parse-time contextual check (when a `--reviewer[-N]-tool/-model/-effort` flag fixed the length)
+// and by the interactive assembly in `_run` (when the length is only known after the
+// `Configure another reviewer?` loop). Returns the diagnostic to reject with, or null when the
+// flags are consistent with the reviewer count. Pinned by
+// `src/commands/.docs/rules/install/weighted-reviews-configuration.md`.
+function validateWeightedFlagsForReviewerCount(reviewerMinimum:number|undefined, optionalReviewerIndices:readonly number[]|undefined, reviewerCount:number):string|null {
+    if (reviewerCount === 1) {
+        if (reviewerMinimum !== undefined) {
+            return "Invalid flag for a single-reviewer configuration: --reviewer-minimum. Weighted-review flags require two or more reviewers.\n";
+        }
+        if (optionalReviewerIndices !== undefined) {
+            const idx = optionalReviewerIndices[0]!;
+            const flag = idx === 1 ? "--reviewer-optional" : `--reviewer-${idx}-optional`;
+            return `Invalid flag for a single-reviewer configuration: ${flag}. Weighted-review flags require two or more reviewers.\n`;
+        }
+        return null;
+    }
+    if (reviewerMinimum !== undefined && (reviewerMinimum < 1 || reviewerMinimum > reviewerCount)) {
+        return `Invalid value for --reviewer-minimum: "${reviewerMinimum}". Must be an integer between 1 and ${reviewerCount}.\n`;
+    }
+    if (optionalReviewerIndices !== undefined) {
+        for (const idx of optionalReviewerIndices) {
+            if (idx > reviewerCount) {
+                return `Invalid reviewer flag: --reviewer-${idx}-optional references reviewer ${idx}, beyond the configured reviewer list of ${reviewerCount}.\n`;
+            }
+        }
+    }
+    return null;
+}
+
 export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; answers:ResolvedAnswers}>|Readonly<{ok:false; diagnostic:string}> {
     const hasGlobal = rawArgs.includes("--global");
     const hasProject = rawArgs.includes("--project");
@@ -290,11 +321,9 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
     // are contextual on the reviewer-list length T and run below only when the tool/model/effort flags
     // fixed T at parse time, otherwise they are deferred (`rules/install/weighted-reviews-configuration.md`).
     const optionalIndices = new Set<number>();
-    const optionalFlags:string[] = [];
     for (const arg of rawArgs) {
         if (arg === "--reviewer-optional") {
             optionalIndices.add(1);
-            optionalFlags.push(arg);
             continue;
         }
         const match = arg.match(REVIEWER_OPTIONAL_INDEXED_RE);
@@ -306,7 +335,6 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
             return { ok: false, diagnostic: `Invalid reviewer flag: "${arg}". --reviewer-N-optional requires N >= 1.\n` };
         }
         optionalIndices.add(idx);
-        optionalFlags.push(arg);
     }
     if (optionalIndices.size > 0) {
         answers.optionalReviewerIndices = [...optionalIndices].sort((a, b) => a - b);
@@ -323,26 +351,9 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
     // When no such flag is present T is unknown here, so the values are returned unvalidated against T and
     // these checks are deferred to the interactive assembly (task 2.2).
     if (answers.reviewers !== undefined) {
-        const reviewerCount = answers.reviewers.length;
-        if (reviewerCount === 1) {
-            if (answers.reviewerMinimum !== undefined) {
-                return { ok: false, diagnostic: `Invalid flag for a single-reviewer configuration: --reviewer-minimum. Weighted-review flags require two or more reviewers.\n` };
-            }
-            const firstOptional = optionalFlags[0];
-            if (firstOptional !== undefined) {
-                return { ok: false, diagnostic: `Invalid flag for a single-reviewer configuration: ${firstOptional}. Weighted-review flags require two or more reviewers.\n` };
-            }
-        } else {
-            if (answers.reviewerMinimum !== undefined && (answers.reviewerMinimum < 1 || answers.reviewerMinimum > reviewerCount)) {
-                return { ok: false, diagnostic: `Invalid value for --reviewer-minimum: "${answers.reviewerMinimum}". Must be an integer between 1 and ${reviewerCount}.\n` };
-            }
-            if (answers.optionalReviewerIndices !== undefined) {
-                for (const idx of answers.optionalReviewerIndices) {
-                    if (idx > reviewerCount) {
-                        return { ok: false, diagnostic: `Invalid reviewer flag: --reviewer-${idx}-optional references reviewer ${idx}, beyond the configured reviewer list of ${reviewerCount}.\n` };
-                    }
-                }
-            }
+        const diagnostic = validateWeightedFlagsForReviewerCount(answers.reviewerMinimum, answers.optionalReviewerIndices, answers.reviewers.length);
+        if (diagnostic !== null) {
+            return { ok: false, diagnostic };
         }
     }
     return { ok: true, answers };
@@ -729,6 +740,77 @@ export class Install {
                     idx++;
                 }
             }
+            // Weighted-review configuration. When the reviewer list was built interactively, the
+            // T-dependent flag validation parseInstallFlags deferred runs now — before any
+            // weighted-review prompt and before any file is written.
+            if (suppliedReviewers === undefined) {
+                const diagnostic = validateWeightedFlagsForReviewerCount(answers.reviewerMinimum, answers.optionalReviewerIndices, reviewers.length);
+                if (diagnostic !== null) {
+                    contexts.output.writeError(diagnostic);
+                    return 1;
+                }
+            }
+            // A single reviewer has no weighted-review question: it is required and the minimum is 1.
+            // Two or more reviewers are collected directly, with no gate question — the minimum first
+            // (the integers 1..T, the list length T rendered first as the highlighted default), then
+            // each reviewer's optional flag (no/required rendered first as the default). Each value is
+            // taken from its flag when present, otherwise asked through the shared prompt helper.
+            let minimumReviews:number;
+            const reviewerConfigs:FlandersReviewer[] = [];
+            if (reviewers.length === 1) {
+                minimumReviews = 1;
+                reviewerConfigs.push({ ...reviewers[0]!, optional: false });
+            } else {
+                if (answers.reviewerMinimum !== undefined) {
+                    minimumReviews = answers.reviewerMinimum;
+                } else {
+                    /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
+                    if (this._disposed) {
+                        return 1;
+                    }
+                    const minimumOption = await promptChoice(contexts.ask, {
+                        header: "Minimum reviews",
+                        question: "How many reviewers must run to a verdict in each review round?",
+                        options: Array.from({ length: reviewers.length }, (_unused, i) => ({ label: String(reviewers.length - i) }))
+                    });
+                    if (!minimumOption) {
+                        return 1;
+                    }
+                    if (this._disposed) {
+                        return 1;
+                    }
+                    minimumReviews = Number(minimumOption.label);
+                }
+                if (answers.optionalReviewerIndices !== undefined) {
+                    const optionalSet = new Set(answers.optionalReviewerIndices);
+                    for (let i = 0; i < reviewers.length; i++) {
+                        reviewerConfigs.push({ ...reviewers[i]!, optional: optionalSet.has(i + 1) });
+                    }
+                } else {
+                    for (let i = 0; i < reviewers.length; i++) {
+                        /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
+                        if (this._disposed) {
+                            return 1;
+                        }
+                        const ordinal = i === 0 ? "" : ` ${i + 1}`;
+                        const optionalOption = await promptChoice(contexts.ask, {
+                            header: `Reviewer${ordinal} optional`,
+                            question: "Is this reviewer optional?",
+                            options: [
+                                { label: "no", description: "Required — always runs to a verdict" },
+                                { label: "yes", description: "Optional — may be cancelled once the round can complete without it" }
+                            ]
+                        });
+                        if (!optionalOption) {
+                            return 1;
+                        }
+                        if (this._disposed) {
+                            return 1;
+                        }
+                        reviewerConfigs.push({ ...reviewers[i]!, optional: optionalOption.label === "yes" });
+                    }
+                }
+            }
             const scopeRoot = mode === "global"
                 ? contexts.platform.homedir()
                 : options.projectRoot;
@@ -793,8 +875,8 @@ export class Install {
             }
             const config:FlandersConfig = {
                 worker: { tool: workerTool, model: workerModel, effort: workerEffort },
-                reviewers: reviewers.map(reviewer => ({ ...reviewer, optional: false })),
-                minimumReviews: reviewers.length
+                reviewers: reviewerConfigs,
+                minimumReviews
             };
             const configWrittenPath = await writeConfig(contexts.fs, {
                 scope: mode,

@@ -4293,7 +4293,13 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
 
     test("two reviewer flags via --reviewer-N-* produce both entries in order", {
         ARRANGE() {
-            return stubContexts();
+            const s = stubContexts();
+            // The flag-fixed two-reviewer list supplies no weighted-review flags, so the minimum and
+            // the per-reviewer optional questions are asked interactively after the list is fixed.
+            s.askResponses.push([{ picked: [{ label: "2" }] }]); // minimum reviews (default T = 2, rendered first)
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional?
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional?
+            return s;
         },
         async ACT({ contexts }) {
             const cmd = new Install([
@@ -4341,6 +4347,9 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
             const s = stubContexts();
             s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer 2 model -> Opus family submenu
             s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // reviewer 2 submenu -> Latest Opus
+            s.askResponses.push([{ picked: [{ label: "2" }] }]); // minimum reviews
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional?
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional?
             return s;
         },
         async ACT({ contexts }) {
@@ -4396,6 +4405,9 @@ test.describe("Install interactive Configure another reviewer? loop", test => {
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 2 model
             s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 2 effort
             s.askResponses.push([{ picked: [{ label: "no" }] }]); // Configure another?
+            s.askResponses.push([{ picked: [{ label: "2" }] }]); // minimum reviews
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional?
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional?
             return s;
         },
         async ACT({ contexts }) {
@@ -4482,6 +4494,382 @@ test.describe("Install interactive Configure another reviewer? loop", test => {
         },
         async ACT({ contexts, getResolvePrompt }) {
             const cmd = new Install([], { projectRoot: "/proj" }, contexts);
+            while (!getResolvePrompt()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolvePrompt()!([{ picked: [{ label: "no" }] }]);
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 1);
+        }
+    });
+});
+
+test.describe("Install weighted-review collection (2.2)", test => {
+    function interactiveTwoReviewerBase() {
+        // Worker and scope answered by flags; the reviewer list and the weighted-review section are
+        // driven interactively. Returns the stub with the reviewer-list answers already queued.
+        const s = stubContexts();
+        s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
+        s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 1 model
+        s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 1 effort
+        s.askResponses.push([{ picked: [{ label: "yes" }] }]); // Configure another?
+        s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 2 tool
+        s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 2 model
+        s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 2 effort
+        s.askResponses.push([{ picked: [{ label: "no" }] }]); // Configure another? -> two reviewers
+        return s;
+    }
+    const baseFlags = ["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort="];
+
+    test("two-reviewer interactive run persists the chosen minimum and per-reviewer optional flags", {
+        ARRANGE() {
+            const s = interactiveTwoReviewerBase();
+            s.askResponses.push([{ picked: [{ label: "1" }] }]); // minimum reviews -> 1 (not the default)
+            s.askResponses.push([{ picked: [{ label: "yes" }] }]); // reviewer 1 optional? -> optional
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional? -> required
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(baseFlags, { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "minimumReviews is the chosen value 1"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.minimumReviews, 1);
+            },
+            "reviewer 1 is optional (answered yes)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.optional, true);
+            },
+            "reviewer 2 is required (answered no)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[1]!.optional, false);
+            },
+            "the minimum and per-reviewer optional questions are asked in order"(_result, { askedHeaders }) {
+                Assert.deepStrictEqual(
+                    askedHeaders.filter(h => h === "Minimum reviews" || h === "Reviewer optional" || h === "Reviewer 2 optional"),
+                    ["Minimum reviews", "Reviewer optional", "Reviewer 2 optional"]
+                );
+            }
+        }
+    });
+
+    test("two-reviewer interactive run accepting defaults persists minimum = reviewer count and all required", {
+        ARRANGE() {
+            const s = interactiveTwoReviewerBase();
+            let minimumOptions:readonly { label:string }[] = [];
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
+                if (questions[0]!.header === "Minimum reviews") {
+                    minimumOptions = questions[0]!.options;
+                }
+                return origAsk.call(s.contexts.ask, questions, output);
+            };
+            s.askResponses.push([{ picked: [{ label: "2" }] }]); // minimum reviews -> accept default (T = 2, rendered first)
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional? -> default required
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional? -> default required
+            return { ...s, getMinimumOptions: () => minimumOptions };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(baseFlags, { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the minimum options are the integers 1..T with T rendered first as the highlighted default"(_result, { getMinimumOptions }) {
+                Assert.deepStrictEqual(getMinimumOptions().map(o => o.label), ["2", "1"]);
+            },
+            "minimumReviews equals the reviewer count"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.minimumReviews, 2);
+            },
+            "every reviewer is required"({ config }) {
+                Assert.ok(config);
+                Assert.deepStrictEqual(config.reviewers.map(r => r.optional), [false, false]);
+            },
+            "the section is presented directly with no gate question, minimum before the per-reviewer optionals"(_result, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, [
+                    "Reviewer tool", "Reviewer model", "Reviewer effort", "Configure another reviewer?",
+                    "Reviewer 2 tool", "Reviewer 2 model", "Reviewer 2 effort", "Configure another reviewer?",
+                    "Minimum reviews", "Reviewer optional", "Reviewer 2 optional"
+                ]);
+            }
+        }
+    });
+
+    test("flag-driven --reviewer-minimum and --reviewer-2-optional skip the weighted prompts and persist the flag values", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project",
+                "--skills-tool=claude",
+                "--worker-tool=claude",
+                "--worker-model=",
+                "--worker-effort=",
+                "--reviewer-tool=claude",
+                "--reviewer-model=",
+                "--reviewer-effort=",
+                "--reviewer-2-tool=claude",
+                "--reviewer-2-model=",
+                "--reviewer-2-effort=",
+                "--reviewer-minimum=2",
+                "--reviewer-2-optional"
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "no interactive prompt is shown"(_result, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, []);
+            },
+            "minimumReviews is the flag value 2"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.minimumReviews, 2);
+            },
+            "reviewer 1 is required (no optional flag)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.optional, false);
+            },
+            "reviewer 2 is optional (--reviewer-2-optional)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[1]!.optional, true);
+            }
+        }
+    });
+
+    test("single-reviewer interactive run shows no weighted-review prompt and persists minimum 1, reviewer required", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 1 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 1 effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // Configure another? -> single reviewer
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(baseFlags, { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "minimumReviews is 1"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.minimumReviews, 1);
+            },
+            "the single reviewer is required"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.optional, false);
+            },
+            "no minimum-reviews prompt is shown"(_result, { askedHeaders }) {
+                Assert.strictEqual(askedHeaders.includes("Minimum reviews"), false);
+            },
+            "no per-reviewer optional prompt is shown"(_result, { askedHeaders }) {
+                Assert.strictEqual(askedHeaders.includes("Reviewer optional"), false);
+            }
+        }
+    });
+
+    test("interactive single-reviewer list with a deferred --reviewer-2-optional flag is a usage error", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 1 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 1 effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // Configure another? -> single reviewer
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([...baseFlags, "--reviewer-2-optional"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic is the single-reviewer usage error naming the offending flag"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag for a single-reviewer configuration: --reviewer-2-optional. Weighted-review flags require two or more reviewers.\n");
+            },
+            "no config is written"(_code, { files }) {
+                Assert.strictEqual(files.has("/proj/.flanders/config.json"), false);
+            }
+        }
+    });
+
+    test("interactive two-reviewer list with a deferred out-of-range --reviewer-minimum is a usage error", {
+        ARRANGE() {
+            return interactiveTwoReviewerBase();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([...baseFlags, "--reviewer-minimum=3"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic names the flag, the offending value, and the range"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid value for --reviewer-minimum: \"3\". Must be an integer between 1 and 2.\n");
+            },
+            "no config is written"(_code, { files }) {
+                Assert.strictEqual(files.has("/proj/.flanders/config.json"), false);
+            }
+        }
+    });
+
+    test("interactive two-reviewer list with a deferred over-index --reviewer-3-optional is a usage error", {
+        ARRANGE() {
+            return interactiveTwoReviewerBase();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([...baseFlags, "--reviewer-3-optional"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic names the offending index"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid reviewer flag: --reviewer-3-optional references reviewer 3, beyond the configured reviewer list of 2.\n");
+            },
+            "no config is written"(_code, { files }) {
+                Assert.strictEqual(files.has("/proj/.flanders/config.json"), false);
+            }
+        }
+    });
+
+    test("Ctrl+C during the minimum-reviews prompt exits non-zero with no config", {
+        ARRANGE() {
+            const s = interactiveTwoReviewerBase();
+            s.askResponses.push([{ picked: [] }]); // minimum reviews -> Ctrl+C
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(baseFlags, { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no config is written"(_code, { files }) {
+                Assert.strictEqual(files.has("/proj/.flanders/config.json"), false);
+            }
+        }
+    });
+
+    test("Ctrl+C during a per-reviewer optional prompt exits non-zero with no config", {
+        ARRANGE() {
+            const s = interactiveTwoReviewerBase();
+            s.askResponses.push([{ picked: [{ label: "2" }] }]); // minimum reviews
+            s.askResponses.push([{ picked: [] }]); // reviewer 1 optional? -> Ctrl+C
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(baseFlags, { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no config is written"(_code, { files }) {
+                Assert.strictEqual(files.has("/proj/.flanders/config.json"), false);
+            }
+        }
+    });
+
+    test("disposed during the minimum-reviews prompt returns 1", {
+        ARRANGE() {
+            const s = interactiveTwoReviewerBase();
+            let resolveMinimum:((v:readonly AskAnswer[]) => void) | null = null;
+            let callIndex = 0;
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
+                callIndex++;
+                if (callIndex === 9) { // the minimum-reviews prompt, after the 8 reviewer-list prompts
+                    return new Promise<readonly AskAnswer[]>(resolve => {
+                        resolveMinimum = resolve;
+                    });
+                }
+                return origAsk.call(s.contexts.ask, questions, output);
+            };
+            return { ...s, getResolvePrompt: () => resolveMinimum };
+        },
+        async ACT({ contexts, getResolvePrompt }) {
+            const cmd = new Install(baseFlags, { projectRoot: "/proj" }, contexts);
+            while (!getResolvePrompt()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolvePrompt()!([{ picked: [{ label: "2" }] }]);
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 1);
+        }
+    });
+
+    test("disposed during a per-reviewer optional prompt returns 1", {
+        ARRANGE() {
+            const s = interactiveTwoReviewerBase();
+            s.askResponses.push([{ picked: [{ label: "2" }] }]); // minimum reviews
+            let resolveOptional:((v:readonly AskAnswer[]) => void) | null = null;
+            let callIndex = 0;
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
+                callIndex++;
+                if (callIndex === 10) { // the first per-reviewer optional prompt, after minimum at call 9
+                    return new Promise<readonly AskAnswer[]>(resolve => {
+                        resolveOptional = resolve;
+                    });
+                }
+                return origAsk.call(s.contexts.ask, questions, output);
+            };
+            return { ...s, getResolvePrompt: () => resolveOptional };
+        },
+        async ACT({ contexts, getResolvePrompt }) {
+            const cmd = new Install(baseFlags, { projectRoot: "/proj" }, contexts);
             while (!getResolvePrompt()) {
                 await new Promise(r => setTimeout(r, 1));
             }
