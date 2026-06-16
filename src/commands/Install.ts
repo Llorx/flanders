@@ -813,12 +813,22 @@ export class Install {
                             if (this._disposed) {
                                 return 1;
                             }
+                            // Identify the reviewer by its 1-based position together with its tool,
+                            // model, and effort, so the user knows which reviewer the question concerns.
+                            // An empty model or effort resolves to the tool's default, shown as
+                            // "default configured model"/"default configured effort". The option
+                            // descriptions explain that the only effect of optionality is that the round
+                            // abandons the reviewer while it is in a rate-limit wait once it can otherwise
+                            // complete; in every other respect an optional reviewer reviews like a required one.
+                            const reviewer = reviewers[i]!;
+                            const modelLabel = reviewer.model === "" ? "default configured model" : reviewer.model;
+                            const effortLabel = reviewer.effort === "" ? "default configured effort" : reviewer.effort;
                             const optionalOption = await promptChoice(contexts.ask, {
                                 header: `Reviewer ${i + 1} optional`,
-                                question: "Is this reviewer optional?",
+                                question: `Is reviewer ${i + 1} (${reviewer.tool} · ${modelLabel} · ${effortLabel}) optional?`,
                                 options: [
-                                    { label: "no", description: "Required — always runs to a verdict" },
-                                    { label: "yes", description: "Optional — may be cancelled once the round can complete without it" }
+                                    { label: "no", description: "Required — always waits out its rate-limit waits; the round never completes without its verdict" },
+                                    { label: "yes", description: "Optional — reviews exactly like a required reviewer; the only difference is the round abandons it while it is in a rate-limit wait, once every required reviewer is in and the minimum is met" }
                                 ]
                             });
                             if (!optionalOption) {
@@ -827,7 +837,7 @@ export class Install {
                             if (this._disposed) {
                                 return 1;
                             }
-                            reviewerConfigs.push({ ...reviewers[i]!, optional: optionalOption.label === "yes" });
+                            reviewerConfigs.push({ ...reviewer, optional: optionalOption.label === "yes" });
                         }
                     }
                 } else {

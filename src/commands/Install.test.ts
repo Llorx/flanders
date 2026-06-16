@@ -16,6 +16,8 @@ function stubContexts() {
     const dirs = new Set<string>();
     const askResponses:AskAnswer[][] = [];
     const askedHeaders:string[] = [];
+    const askedQuestions:string[] = [];
+    const askedOptions:{ label:string; description?:string }[][] = [];
     const askedTextPrompts:string[] = [];
     const askTextResponses:string[] = [];
     const contexts:InstallContexts = {
@@ -34,6 +36,8 @@ function stubContexts() {
             askChoices(questions) {
                 for (const q of questions) {
                     askedHeaders.push(q.header);
+                    askedQuestions.push(q.question);
+                    askedOptions.push(q.options.map(o => ({ label: o.label, description: o.description })));
                 }
                 const response = askResponses.shift();
                 return Promise.resolve(response ?? []);
@@ -70,7 +74,7 @@ function stubContexts() {
             }
         }
     };
-    return { contexts, written, errors, files, dirs, askResponses, askedHeaders, askedTextPrompts, askTextResponses };
+    return { contexts, written, errors, files, dirs, askResponses, askedHeaders, askedQuestions, askedOptions, askedTextPrompts, askTextResponses };
 }
 
 test.describe("Install --project", test => {
@@ -4574,9 +4578,76 @@ test.describe("Install weighted-review collection (2.2)", test => {
                     ["Reviewer 1 optional", "Reviewer 2 optional"]
                 );
             },
+            "each optional question identifies the reviewer by position, tool, model, and effort (default wording when empty)"(_result, { askedQuestions }) {
+                Assert.deepStrictEqual(
+                    askedQuestions.filter(q => q.startsWith("Is reviewer ")),
+                    [
+                        "Is reviewer 1 (claude · default configured model · default configured effort) optional?",
+                        "Is reviewer 2 (claude · default configured model · default configured effort) optional?"
+                    ]
+                );
+            },
+            "each optional question explains optionality as the rate-limit-wait abandonment and nothing more"(_result, { askedQuestions, askedOptions }) {
+                const optionalOptionSets = askedOptions.filter((_o, i) => askedQuestions[i]!.startsWith("Is reviewer "));
+                Assert.strictEqual(optionalOptionSets.length, 2);
+                for (const options of optionalOptionSets) {
+                    const required = options.find(o => o.label === "no")!;
+                    const optional = options.find(o => o.label === "yes")!;
+                    Assert.ok(required.description!.includes("rate-limit"));
+                    Assert.ok(optional.description!.includes("rate-limit"));
+                    Assert.ok(optional.description!.includes("like a required reviewer"));
+                }
+            },
             "the minimum is asked as a free-text entry, not a single-select"(_result, { askedHeaders, askedTextPrompts }) {
                 Assert.strictEqual(askedHeaders.includes("Minimum reviews"), false);
                 Assert.ok(askedTextPrompts.some(p => p.includes("Minimum reviewers that must run to a verdict")));
+            }
+        }
+    });
+
+    test("flag-fixed reviewers with concrete models and efforts: each optional question names the reviewer by position, tool, verbatim model, and verbatim effort", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askTextResponses.push("1"); // minimum reviews -> 1 (below T = 2, so the optional questions are asked)
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional? -> required
+            s.askResponses.push([{ picked: [{ label: "yes" }] }]); // reviewer 2 optional? -> optional
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project",
+                "--skills-tool=claude",
+                "--worker-tool=claude",
+                "--worker-model=",
+                "--worker-effort=",
+                "--reviewer-tool=claude",
+                "--reviewer-model=claude-opus-4-8",
+                "--reviewer-effort=high",
+                "--reviewer-2-tool=codex",
+                "--reviewer-2-model=gpt-5-codex",
+                "--reviewer-2-effort=medium"
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "each optional question names the reviewer by position, tool, verbatim model, and verbatim effort"(_result, { askedQuestions }) {
+                Assert.deepStrictEqual(
+                    askedQuestions.filter(q => q.startsWith("Is reviewer ")),
+                    [
+                        "Is reviewer 1 (claude · claude-opus-4-8 · high) optional?",
+                        "Is reviewer 2 (codex · gpt-5-codex · medium) optional?"
+                    ]
+                );
+            },
+            "the answered optional flags persist in order"({ config }) {
+                Assert.ok(config);
+                Assert.deepStrictEqual(config.reviewers.map(r => r.optional), [false, true]);
             }
         }
     });
