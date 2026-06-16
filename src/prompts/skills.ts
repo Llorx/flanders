@@ -266,6 +266,7 @@ For every obligation in the request, the skill decides whether it is a contract 
    - Within a \`.spec/rules\` folder: one file per atomic rule. Subfolders group thematically related rules (for example, a testing/ subfolder for testing rules, a dependencies/ subfolder for dependency-management rules, a solid/ subfolder with one file per SOLID principle). A bundle of related rules MUST be modeled as a subfolder of single-rule files, never as one multi-rule file.
 8. Filenames must be descriptive of their content — the user must be able to tell what each contract file covers, and which single rule each rule file pins, from the name alone.
 9. Before declaring complete, run the final validator over the persisted file(s). The validator is the gate — only declare complete when it returns PASS. The procedure is in the Final validation section below.
+10. After declaring the spec complete, recommend the next step and, at the user's choice, launch it, per the Recommending and launching the next step section below.
 
 ## Final validation
 
@@ -349,6 +350,14 @@ When the validator returns FAIL, enter the triage-then-fix loop:
 When the loop ends with a PASS at any iteration, declare complete.
 
 When the loop ends with FAIL after five passes, do not declare complete: surface the last FAIL report and the file path(s) to the user in chat, then stop.
+
+## Recommending and launching the next step
+
+Once you have declared the spec complete — the spec files persisted and the final validator returned PASS — offer to continue into the next step in the same session. Make this offer only on successful completion: when the bounded triage-then-fix loop exhausts without a PASS, surface the last FAIL report and stop, and make no such offer.
+
+Ask the user which skill to launch next: /flanders-plan, /flanders-work, or neither. Recommend one of them based on the implementation effort the spec you just wrote implies — recommend /flanders-work when the spec describes a single, small, self-contained change, and recommend /flanders-plan when the spec describes larger work that spans multiple obligations or scopes or needs an ordered, multi-step implementation. The user accepts the recommendation, chooses the other skill, or declines.
+
+When the user chooses /flanders-plan or /flanders-work, launch it by invoking it in the same session with no <data> argument, so the launched skill takes its input from the conversation — the original request together with the spec you just wrote. The run then proceeds under that skill; launching it leaves your own deliverable and write boundary unchanged, so you write only this run's spec files and never code or a plan file. When the user declines, end the run.
 
 ## Output language
 

@@ -49,6 +49,13 @@ The skill's sole deliverable is one or more markdown files inside the project's 
 7. Filenames must be descriptive of their content — the user must be able to tell what each contract file covers, and which single rule each rule file pins, from the name alone.
 8. **Post-write validation.** Before declaring complete, the skill runs the post-write validation gate per [.spec/contracts/ai-skills/post-write-validation.md](/.spec/contracts/ai-skills/post-write-validation.md). If the gate fails, the skill follows the triage-then-fix loop defined there — re-entering this contract's clarification phase for any issue that closes a previously-unresolved ambiguity in this contract's clarification scope, and fixing the rest in place — and surfaces the final failure to the user if the bounded loop exhausts.
 
+## Recommending and launching the next step
+Once the skill has completed its deliverable — the spec files persisted and the post-write validation gate passed — it offers to continue into the next step in the same session. The offer is made only on successful completion: when the post-write validation loop exhausts without the skill declaring complete, the skill surfaces the failure and makes no such offer.
+
+The skill asks the user which skill to launch next: `/flanders-plan`, `/flanders-work`, or neither. It recommends one of them based on the implementation effort the spec just written implies — it recommends `/flanders-work` when the spec describes a single, small, self-contained change, and `/flanders-plan` when the spec describes larger work that spans multiple obligations or scopes or requires an ordered, multi-step implementation. The user accepts the recommendation, chooses the other skill, or declines.
+
+When the user chooses `/flanders-plan` (see [.spec/contracts/ai-skills/plan-skill.md](/.spec/contracts/ai-skills/plan-skill.md)) or `/flanders-work` (see [.spec/contracts/ai-skills/work-skill.md](/.spec/contracts/ai-skills/work-skill.md)), the skill launches it by invoking it in the same session with no `<data>` argument, so the launched skill takes its input from the conversation — the original request together with the spec just written. The run then proceeds under the chosen skill's own contract; the launch leaves `/flanders-spec`'s own deliverable and write boundary unchanged, so the skill itself writes only this run's spec files and never code or a plan file. When the user declines, the skill ends.
+
 ## Output language
 The natural language a spec file is written in is resolved in priority order:
 1. The language the request explicitly asks the skill to write in, when the request states one.

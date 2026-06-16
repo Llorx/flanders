@@ -1501,6 +1501,50 @@ Every message you address to the user during the run — your clarifying questio
             }
         }
     });
+
+    test("recommends and launches the next step once the spec is complete", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "has the Recommending and launching the next step section"(body) {
+                Assert.ok(body.includes("## Recommending and launching the next step"), "must have the Recommending and launching the next step section");
+            },
+            "offers the next step only after declaring the spec complete"(body) {
+                Assert.ok(body.includes("Once you have declared the spec complete"), "must offer the next step only after declaring the spec complete");
+            },
+            "makes no offer when the validation loop exhausts without a PASS"(body) {
+                Assert.ok(body.includes("surface the last FAIL report and stop, and make no such offer"), "must make no offer when the validation loop exhausts without a PASS");
+            },
+            "asks which skill to launch: plan, work, or neither"(body) {
+                Assert.ok(body.includes("which skill to launch next: /flanders-plan, /flanders-work, or neither"), "must ask which skill to launch next, offering plan, work, or neither");
+            },
+            "recommends work for a single small self-contained change"(body) {
+                Assert.ok(body.includes("recommend /flanders-work when the spec describes a single, small, self-contained change"), "must recommend /flanders-work for a single, small, self-contained change");
+            },
+            "recommends plan for larger multi-step or multi-scope work"(body) {
+                Assert.ok(body.includes("recommend /flanders-plan when the spec describes larger work that spans multiple obligations or scopes or needs an ordered, multi-step implementation"), "must recommend /flanders-plan for larger multi-step or multi-scope work");
+            },
+            "lets the user accept the recommendation, choose the other, or decline"(body) {
+                Assert.ok(body.includes("The user accepts the recommendation, chooses the other skill, or declines"), "must let the user accept the recommendation, choose the other skill, or decline");
+            },
+            "launches the chosen skill in the same session with no <data> argument"(body) {
+                Assert.ok(body.includes("launch it by invoking it in the same session with no <data> argument"), "must launch the chosen skill in the same session with no <data> argument");
+            },
+            "the launched skill takes its input from the conversation"(body) {
+                Assert.ok(body.includes("so the launched skill takes its input from the conversation — the original request together with the spec you just wrote"), "the launched skill must take its input from the conversation");
+            },
+            "launching leaves the spec skill's own deliverable and write boundary unchanged"(body) {
+                Assert.ok(body.includes("leaves your own deliverable and write boundary unchanged, so you write only this run's spec files and never code or a plan file"), "launching must leave the spec skill's own deliverable and write boundary unchanged");
+            },
+            "ends the run when the user declines"(body) {
+                Assert.ok(body.includes("When the user declines, end the run."), "must end the run when the user declines");
+            },
+            "the section appears after Final validation and before Output language"(body) {
+                Assert.ok(body.indexOf("## Recommending and launching the next step") > body.indexOf("## Final validation"), "the section must appear after the Final validation section");
+                Assert.ok(body.indexOf("## Recommending and launching the next step") < body.indexOf("## Output language"), "the section must appear before the Output language section");
+            }
+        }
+    });
 });
 
 test.describe("skills – workSkillBody", test => {
