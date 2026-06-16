@@ -725,7 +725,8 @@ export class Install {
             }
             const config:FlandersConfig = {
                 worker: { tool: workerTool, model: workerModel, effort: workerEffort },
-                reviewers
+                reviewers: reviewers.map(reviewer => ({ ...reviewer, optional: false })),
+                minimumReviews: reviewers.length
             };
             const configWrittenPath = await writeConfig(contexts.fs, {
                 scope: mode,

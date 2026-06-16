@@ -26,12 +26,14 @@ function stubFs() {
 
 const VALID_CONFIG:FlandersConfig = {
     worker: { tool: "claude", model: "claude-opus-4-6", effort: "high" },
-    reviewers: [{ tool: "codex", model: "gpt-5-codex", effort: "" }]
+    reviewers: [{ tool: "codex", model: "gpt-5-codex", effort: "", optional: false }],
+    minimumReviews: 1
 };
 
 const SECOND_CONFIG:FlandersConfig = {
     worker: { tool: "codex", model: "", effort: "" },
-    reviewers: [{ tool: "claude", model: "", effort: "" }]
+    reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+    minimumReviews: 1
 };
 
 test.describe("read", test => {
@@ -40,11 +42,13 @@ test.describe("read", test => {
             const s = stubFs();
             const projectConfig:FlandersConfig = {
                 worker: { tool: "claude", model: "project-sentinel", effort: "" },
-                reviewers: [{ tool: "claude", model: "", effort: "" }]
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
             };
             const globalConfig:FlandersConfig = {
                 worker: { tool: "codex", model: "global-sentinel", effort: "" },
-                reviewers: [{ tool: "codex", model: "", effort: "" }]
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
             };
             s.files.set("/project/.flanders/config.json", JSON.stringify(projectConfig, null, 2));
             s.files.set("/home/.flanders/config.json", JSON.stringify(globalConfig, null, 2));
@@ -63,7 +67,8 @@ test.describe("read", test => {
             const s = stubFs();
             const globalConfig:FlandersConfig = {
                 worker: { tool: "codex", model: "global-only", effort: "" },
-                reviewers: [{ tool: "codex", model: "", effort: "" }]
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
             };
             s.files.set("/home/.flanders/config.json", JSON.stringify(globalConfig, null, 2));
             return s;
@@ -219,9 +224,10 @@ test.describe("read", test => {
             s.files.set("/project/.flanders/config.json", JSON.stringify({
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
-                    { tool: "claude", model: "", effort: "" },
+                    { tool: "claude", model: "", effort: "", optional: false },
                     { model: "", effort: "" }
-                ]
+                ],
+                minimumReviews: 2
             }));
             return s;
         },
@@ -456,7 +462,8 @@ test.describe("read", test => {
             const s = stubFs();
             const cfg:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
-                reviewers: [{ tool: "codex", model: "", effort: "" }]
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
             };
             s.files.set("/project/.flanders/config.json", JSON.stringify(cfg));
             return s;
@@ -574,10 +581,11 @@ test.describe("read", test => {
             const cfg:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
-                    { tool: "claude", model: "opus", effort: "high" },
-                    { tool: "codex", model: "gpt-5", effort: "medium" },
-                    { tool: "claude", model: "", effort: "" }
-                ]
+                    { tool: "claude", model: "opus", effort: "high", optional: false },
+                    { tool: "codex", model: "gpt-5", effort: "medium", optional: true },
+                    { tool: "claude", model: "", effort: "", optional: false }
+                ],
+                minimumReviews: 2
             };
             s.files.set("/project/.flanders/config.json", JSON.stringify(cfg));
             return s;
@@ -590,14 +598,154 @@ test.describe("read", test => {
                 Assert.strictEqual(result!.reviewers.length, 3);
             },
             "reviewers[0] equals first entry"(result) {
-                Assert.deepStrictEqual(result!.reviewers[0], { tool: "claude", model: "opus", effort: "high" });
+                Assert.deepStrictEqual(result!.reviewers[0], { tool: "claude", model: "opus", effort: "high", optional: false });
             },
             "reviewers[1] equals second entry"(result) {
-                Assert.deepStrictEqual(result!.reviewers[1], { tool: "codex", model: "gpt-5", effort: "medium" });
+                Assert.deepStrictEqual(result!.reviewers[1], { tool: "codex", model: "gpt-5", effort: "medium", optional: true });
             },
             "reviewers[2] equals third entry"(result) {
-                Assert.deepStrictEqual(result!.reviewers[2], { tool: "claude", model: "", effort: "" });
+                Assert.deepStrictEqual(result!.reviewers[2], { tool: "claude", model: "", effort: "", optional: false });
             }
+        }
+    });
+
+    test("throws when reviewers[0].optional is missing", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "" }],
+                minimumReviews: 1
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            try {
+                await read(fs, { projectRoot: "/project", homeDir: "/home" });
+                return null;
+            } catch (e) {
+                return e as Error;
+            }
+        },
+        ASSERT(error) {
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewers[0].optional"`);
+        }
+    });
+
+    test("throws when reviewers[0].optional is not a boolean", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: "yes" }],
+                minimumReviews: 1
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            try {
+                await read(fs, { projectRoot: "/project", homeDir: "/home" });
+                return null;
+            } catch (e) {
+                return e as Error;
+            }
+        },
+        ASSERT(error) {
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: missing or invalid field "reviewers[0].optional"`);
+        }
+    });
+
+    test("throws when minimumReviews is missing", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }]
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            try {
+                await read(fs, { projectRoot: "/project", homeDir: "/home" });
+                return null;
+            } catch (e) {
+                return e as Error;
+            }
+        },
+        ASSERT(error) {
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: field "minimumReviews" must be an integer in [1, 1]`);
+        }
+    });
+
+    test("throws when minimumReviews is not an integer", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1.5
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            try {
+                await read(fs, { projectRoot: "/project", homeDir: "/home" });
+                return null;
+            } catch (e) {
+                return e as Error;
+            }
+        },
+        ASSERT(error) {
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: field "minimumReviews" must be an integer in [1, 1]`);
+        }
+    });
+
+    test("throws when minimumReviews is below 1", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 0
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            try {
+                await read(fs, { projectRoot: "/project", homeDir: "/home" });
+                return null;
+            } catch (e) {
+                return e as Error;
+            }
+        },
+        ASSERT(error) {
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: field "minimumReviews" must be an integer in [1, 1]`);
+        }
+    });
+
+    test("throws when minimumReviews exceeds the reviewer count", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "codex", model: "", effort: "", optional: true }
+                ],
+                minimumReviews: 3
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            try {
+                await read(fs, { projectRoot: "/project", homeDir: "/home" });
+                return null;
+            } catch (e) {
+                return e as Error;
+            }
+        },
+        ASSERT(error) {
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: field "minimumReviews" must be an integer in [1, 2]`);
         }
     });
 });
@@ -617,7 +765,7 @@ test.describe("write", test => {
         }
     });
 
-    test("top-level keys are exactly worker and reviewers", {
+    test("top-level keys are exactly worker, reviewers, and minimumReviews", {
         ARRANGE() {
             return stubFs();
         },
@@ -627,7 +775,7 @@ test.describe("write", test => {
         },
         ASSERT(_fs, { files }) {
             const content = files.get("/project/.flanders/config.json")!;
-            Assert.deepStrictEqual(Object.keys(JSON.parse(content)).sort(), ["reviewers", "worker"]);
+            Assert.deepStrictEqual(Object.keys(JSON.parse(content)).sort(), ["minimumReviews", "reviewers", "worker"]);
         }
     });
 
@@ -752,15 +900,45 @@ test.describe("read + write round-trip", test => {
             const cfg:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
-                    { tool: "claude", model: "opus", effort: "high" },
-                    { tool: "codex", model: "gpt-5", effort: "medium" }
-                ]
+                    { tool: "claude", model: "opus", effort: "high", optional: false },
+                    { tool: "codex", model: "gpt-5", effort: "medium", optional: true }
+                ],
+                minimumReviews: 1
             };
             await write(fs, { scope: "project", projectRoot: "/project", homeDir: "/home", config: cfg });
             return { result: await read(fs, { projectRoot: "/project", homeDir: "/home" }), expected: cfg };
         },
         ASSERT({ result, expected }) {
             Assert.deepStrictEqual(result, expected);
+        }
+    });
+
+    test("write then read carries each reviewer's optional flag and minimumReviews", {
+        ARRANGE() {
+            const cfg:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "opus", effort: "high", optional: false },
+                    { tool: "codex", model: "gpt-5", effort: "medium", optional: true }
+                ],
+                minimumReviews: 2
+            };
+            return { ...stubFs(), cfg };
+        },
+        async ACT({ fs, cfg }) {
+            await write(fs, { scope: "project", projectRoot: "/project", homeDir: "/home", config: cfg });
+            return await read(fs, { projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERTS: {
+            "reviewers[0].optional round-trips as false"(result) {
+                Assert.strictEqual(result!.reviewers[0]!.optional, false);
+            },
+            "reviewers[1].optional round-trips as true"(result) {
+                Assert.strictEqual(result!.reviewers[1]!.optional, true);
+            },
+            "minimumReviews round-trips intact"(result) {
+                Assert.strictEqual(result!.minimumReviews, 2);
+            }
         }
     });
 });

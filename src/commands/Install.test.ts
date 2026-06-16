@@ -3771,7 +3771,8 @@ test.describe("Install config persistence (3.7)", test => {
             "read-back equals expected FlandersConfig literal"({ config }) {
                 const expected:FlandersConfig = {
                     worker: { tool: "claude", model: "opus", effort: "high" },
-                    reviewers: [{ tool: "codex", model: "gpt-5", effort: "medium" }]
+                    reviewers: [{ tool: "codex", model: "gpt-5", effort: "medium", optional: false }],
+                    minimumReviews: 1
                 };
                 Assert.deepStrictEqual(config, expected);
             }
@@ -3838,13 +3839,14 @@ test.describe("Install config persistence (3.7)", test => {
             "final content matches new answers"({ config }) {
                 Assert.deepStrictEqual(config, {
                     worker: { tool: "codex", model: "  New-Model-X  ", effort: "high" },
-                    reviewers: [{ tool: "claude", model: "  New-Rev-X  ", effort: "low" }]
+                    reviewers: [{ tool: "claude", model: "  New-Rev-X  ", effort: "low", optional: false }],
+                    minimumReviews: 1
                 });
             }
         }
     });
 
-    test("persisted JSON contains only worker and reviewers keys", {
+    test("persisted JSON contains only worker, reviewers, and minimumReviews keys", {
         ARRANGE() {
             return stubContexts();
         },
@@ -3859,7 +3861,7 @@ test.describe("Install config persistence (3.7)", test => {
         },
         ASSERT(_, { files }) {
             const content = files.get("/proj/.flanders/config.json")!;
-            Assert.deepStrictEqual(Object.keys(JSON.parse(content)).sort(), ["reviewers", "worker"]);
+            Assert.deepStrictEqual(Object.keys(JSON.parse(content)).sort(), ["minimumReviews", "reviewers", "worker"]);
         }
     });
 
@@ -4100,6 +4102,14 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
                 Assert.strictEqual(cfg.reviewers.length, 2);
                 Assert.strictEqual(cfg.reviewers[0].tool, "claude");
                 Assert.strictEqual(cfg.reviewers[1].tool, "codex");
+            },
+            "every reviewer defaults to optional false"(_code, { files }) {
+                const cfg = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.deepStrictEqual(cfg.reviewers.map((r:{ optional:boolean }) => r.optional), [false, false]);
+            },
+            "minimumReviews defaults to the reviewer count"(_code, { files }) {
+                const cfg = JSON.parse(files.get("/proj/.flanders/config.json")!);
+                Assert.strictEqual(cfg.minimumReviews, 2);
             },
             "Configure another reviewer? is NOT prompted when any reviewer flag is present"(_code, { askedHeaders }) {
                 Assert.ok(!askedHeaders.includes("Configure another reviewer?"));

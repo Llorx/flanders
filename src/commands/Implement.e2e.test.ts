@@ -267,7 +267,7 @@ type E2eResult = {
 test.describe("Implement e2e: both tools and both prep-optimization branches", test => {
     test("shape 1: claude/claude (branch A) — prep active, worker and reviewer fork from prep", {
         ARRANGE() {
-            const config:FlandersConfig = { worker: { tool: "claude", model: "m1", effort: "high" }, reviewers: [{ tool: "claude", model: "m1", effort: "high" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "m1", effort: "high" }, reviewers: [{ tool: "claude", model: "m1", effort: "high", optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
             gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, LINKED_PLAN);
@@ -328,7 +328,7 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
 
     test("shape 2: codex/codex (branch A) — prep active, all spawns use codex binary", {
         ARRANGE() {
-            const config:FlandersConfig = { worker: { tool: "codex", model: "m2", effort: "low" }, reviewers: [{ tool: "codex", model: "m2", effort: "low" }] };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "m2", effort: "low" }, reviewers: [{ tool: "codex", model: "m2", effort: "low", optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
             gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, LINKED_PLAN);
@@ -387,7 +387,7 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
 
     test("shape 3: claude/codex (branch B) — prep skipped, prompts inline linked content", {
         ARRANGE() {
-            const config:FlandersConfig = { worker: { tool: "claude", model: "m3", effort: "mid" }, reviewers: [{ tool: "codex", model: "m3", effort: "mid" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "m3", effort: "mid" }, reviewers: [{ tool: "codex", model: "m3", effort: "mid", optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
             gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, LINKED_PLAN);
@@ -444,7 +444,7 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
 
     test("shape 4: claude/claude different effort (branch B) — prep skipped, prompts inline linked content", {
         ARRANGE() {
-            const config:FlandersConfig = { worker: { tool: "claude", model: "m4", effort: "high" }, reviewers: [{ tool: "claude", model: "m4", effort: "low" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "m4", effort: "high" }, reviewers: [{ tool: "claude", model: "m4", effort: "low", optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
             gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, LINKED_PLAN);

@@ -3,9 +3,12 @@ import { joinPath } from "../system/fsUtils";
 
 export type FlandersRole = Readonly<{ tool:"claude"|"codex"; model:string; effort:string }>;
 
+export type FlandersReviewer = FlandersRole & Readonly<{ optional:boolean }>;
+
 export type FlandersConfig = Readonly<{
     worker:FlandersRole;
-    reviewers:readonly FlandersRole[];
+    reviewers:readonly FlandersReviewer[];
+    minimumReviews:number;
 }>;
 
 type ReadArgs = Readonly<{
@@ -52,7 +55,15 @@ function validate(raw:unknown, filePath:string):FlandersConfig {
         if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
             throw new Error(`Malformed config at ${filePath}: missing or invalid field "reviewers[${i}]"`);
         }
-        validateRole(entry as Record<string, unknown>, `reviewers[${i}]`, filePath);
+        const reviewer = entry as Record<string, unknown>;
+        validateRole(reviewer, `reviewers[${i}]`, filePath);
+        if (!("optional" in reviewer) || typeof reviewer["optional"] !== "boolean") {
+            throw new Error(`Malformed config at ${filePath}: missing or invalid field "reviewers[${i}].optional"`);
+        }
+    }
+    const minimumReviews = obj["minimumReviews"];
+    if (typeof minimumReviews !== "number" || !Number.isInteger(minimumReviews) || minimumReviews < 1 || minimumReviews > reviewers.length) {
+        throw new Error(`Malformed config at ${filePath}: field "minimumReviews" must be an integer in [1, ${reviewers.length}]`);
     }
     return raw as FlandersConfig;
 }

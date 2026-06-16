@@ -235,7 +235,7 @@ function targetErrorLogFromPrompt(capturedPrompt:string):string {
     return m ? `${m[1]}/error.log` : `${WS_ROOT}/error.log`;
 }
 const PREP_RESPONSE:ClaudeResponse = { text: "READY", sessionId: "prep-session" };
-const DEFAULT_CONFIG:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
+const DEFAULT_CONFIG:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "", optional: false }], minimumReviews: 1 };
 const CONFIG_PATH = "/project/.flanders/config.json";
 
 test.describe("Implement per-iteration logs", test => {
@@ -881,7 +881,7 @@ test.describe("Implement config loading", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const projectConfig:FlandersConfig = { worker: { tool: "codex", model: "test-model", effort: "high" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "low" }] };
+            const projectConfig:FlandersConfig = { worker: { tool: "codex", model: "test-model", effort: "high" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "low", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(projectConfig));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -910,8 +910,8 @@ test.describe("Implement config loading", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const projectConfig:FlandersConfig = { worker: { tool: "claude", model: "project-sentinel", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
-            const globalConfig:FlandersConfig = { worker: { tool: "codex", model: "global-sentinel", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
+            const projectConfig:FlandersConfig = { worker: { tool: "claude", model: "project-sentinel", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "", optional: false }], minimumReviews: 1 };
+            const globalConfig:FlandersConfig = { worker: { tool: "codex", model: "global-sentinel", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(projectConfig));
             s.files.set("/home/test/.flanders/config.json", JSON.stringify(globalConfig));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -1821,7 +1821,7 @@ test.describe("Implement preparing stage header and footer", test => {
             // Reviewer tool (codex) differs from the worker (claude) → no reviewer matches → prep skipped.
             // The worker (claude spawn 2; spawn 1 is detect, no prep) is held so the live state is observed mid-call.
             const gated = gatedClaudeStub(PLAN_ONE_TASK);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "", optional: false }], minimumReviews: 1 };
             gated.s.files.set(CONFIG_PATH, JSON.stringify(config));
             gated.hold(2);
             gated.s.claudeQueue.push({ text: "ok" });        // detect (spawn 1)
@@ -6239,7 +6239,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "codex", model: "codex-model", effort: "high" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "low" }] };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "codex-model", effort: "high" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "low", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -6275,7 +6275,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "codex", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -6307,7 +6307,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewers: [{ tool: "claude", model: "r-model", effort: "low" }] };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewers: [{ tool: "claude", model: "r-model", effort: "low", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -6342,7 +6342,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewers: [{ tool: "codex", model: "w-model", effort: "medium" }] };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "w-model", effort: "medium" }, reviewers: [{ tool: "codex", model: "w-model", effort: "medium", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -6407,7 +6407,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "w-model", effort: "" }, reviewers: [{ tool: "claude", model: "r-model", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "w-model", effort: "" }, reviewers: [{ tool: "claude", model: "r-model", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect" });
@@ -6448,7 +6448,7 @@ test.describe("Implement adapter routing via getAdapter", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect" });
@@ -6478,7 +6478,7 @@ test.describe("Implement detect agent inherits worker triple", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "codex", model: "gpt-5-codex", effort: "high" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "low" }] };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "gpt-5-codex", effort: "high" }, reviewers: [{ tool: "claude", model: "rev-model", effort: "low", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -6514,7 +6514,7 @@ test.describe("Implement detect agent inherits worker triple", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect" });
@@ -6546,7 +6546,7 @@ test.describe("Implement detect agent inherits worker triple", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "codex", model: "worker-model-abc", effort: "high" }, reviewers: [{ tool: "claude", model: "reviewer-sentinel-model", effort: "reviewer-sentinel-effort" }] };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "worker-model-abc", effort: "high" }, reviewers: [{ tool: "claude", model: "reviewer-sentinel-model", effort: "reviewer-sentinel-effort", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -6579,7 +6579,8 @@ test.describe("Implement detect agent inherits worker triple", test => {
             gitRunQueue(s.gitQueue);
             const config = JSON.stringify({
                 worker: { tool: "codex", model: "worker-model", effort: "high" },
-                reviewers: [{ tool: "claude", model: "reviewer-model", effort: "low" }],
+                reviewers: [{ tool: "claude", model: "reviewer-model", effort: "low", optional: false }],
+                minimumReviews: 1,
                 detect: { tool: "claude", model: "detect-model", effort: "detect-effort" }
             });
             s.files.set(CONFIG_PATH, config);
@@ -6646,7 +6647,7 @@ test.describe("Implement prep-optimization condition", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -6675,7 +6676,7 @@ test.describe("Implement prep-optimization condition", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -6711,7 +6712,7 @@ test.describe("Implement prep-optimization condition", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "codex", model: "m", effort: "medium" }, reviewers: [{ tool: "codex", model: "m", effort: "high" }] };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "m", effort: "medium" }, reviewers: [{ tool: "codex", model: "m", effort: "high", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.codexQueue.push({ text: "detect" });
@@ -6739,7 +6740,7 @@ test.describe("Implement prep-optimization condition", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -6799,7 +6800,7 @@ test.describe("Implement prep-optimization condition", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "codex", model: "b", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "codex", model: "b", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -6833,7 +6834,7 @@ test.describe("Implement prep-optimization condition", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "claude", model: "b", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "claude", model: "b", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -6942,7 +6943,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
                 "`contracts/linked-c.md`.",
@@ -7036,7 +7037,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "codex", model: "b", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "codex", model: "b", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles("`contracts/c.md`.", "`rules/r.md`.");
             s.files.set(PLAN_PATH, plan);
@@ -7082,7 +7083,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
                 "`contracts/exists.md` `contracts/missing.md`.",
@@ -7122,7 +7123,7 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "claude", model: "b", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "claude", model: "b", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "ok" });
@@ -7186,7 +7187,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
                 "`contracts/linked-c.md`.",
@@ -7462,7 +7463,7 @@ test.describe("Implement reviewer branch A vs branch B", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "" }] };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
                 "`contracts/linked-c.md`.",
@@ -7574,9 +7575,10 @@ test.describe("Implement multiple parallel reviewers", test => {
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
-                    { tool: "claude", model: "", effort: "" }, // matches worker → branch A (fork prep)
-                    { tool: "codex", model: "", effort: "" }   // differs from worker → branch B (fresh + inline)
-                ]
+                    { tool: "claude", model: "", effort: "", optional: false }, // matches worker → branch A (fork prep)
+                    { tool: "codex", model: "", effort: "", optional: false }   // differs from worker → branch B (fresh + inline)
+                ],
+                minimumReviews: 2
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
@@ -7652,9 +7654,10 @@ test.describe("Implement multiple parallel reviewers", test => {
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
-                    { tool: "claude", model: "", effort: "" },
-                    { tool: "codex", model: "", effort: "" }
-                ]
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "codex", model: "", effort: "", optional: false }
+                ],
+                minimumReviews: 2
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -7694,9 +7697,10 @@ test.describe("Implement multiple parallel reviewers", test => {
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
-                    { tool: "claude", model: "", effort: "" },
-                    { tool: "codex", model: "", effort: "" }
-                ]
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "codex", model: "", effort: "", optional: false }
+                ],
+                minimumReviews: 2
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -7752,9 +7756,10 @@ test.describe("Implement multiple parallel reviewers", test => {
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
-                    { tool: "claude", model: "", effort: "" },
-                    { tool: "codex", model: "", effort: "" }
-                ]
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "codex", model: "", effort: "", optional: false }
+                ],
+                minimumReviews: 2
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -7803,9 +7808,10 @@ test.describe("Implement multiple parallel reviewers", test => {
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
-                    { tool: "claude", model: "", effort: "" },
-                    { tool: "codex", model: "", effort: "" }
-                ]
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "codex", model: "", effort: "", optional: false }
+                ],
+                minimumReviews: 2
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -7846,9 +7852,10 @@ test.describe("Implement multiple parallel reviewers", test => {
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
-                    { tool: "claude", model: "", effort: "" },
-                    { tool: "claude", model: "", effort: "" }
-                ]
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "claude", model: "", effort: "", optional: false }
+                ],
+                minimumReviews: 2
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -7886,9 +7893,10 @@ test.describe("Implement multiple parallel reviewers", test => {
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
-                    { tool: "claude", model: "", effort: "" },
-                    { tool: "claude", model: "", effort: "" }
-                ]
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "claude", model: "", effort: "", optional: false }
+                ],
+                minimumReviews: 2
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -7944,8 +7952,9 @@ test.describe("Implement multiple parallel reviewers", test => {
                 // Reviewer differs from worker → branch B (no prep). Distinct model/effort lets the test
                 // verify the reviewing footer renders the configured per-reviewer fields verbatim.
                 reviewers: [
-                    { tool: "claude", model: "claude-opus-4-1", effort: "high" }
-                ]
+                    { tool: "claude", model: "claude-opus-4-1", effort: "high", optional: false }
+                ],
+                minimumReviews: 1
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -8074,7 +8083,8 @@ test.describe("Implement multiple parallel reviewers", test => {
             gitRunQueue(s.gitQueue);
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
-                reviewers: [{ tool: "claude", model: "", effort: "" }]
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -8134,7 +8144,8 @@ test.describe("Implement multiple parallel reviewers", test => {
             (s.contexts as any).time = time.ctx;
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
-                reviewers: [{ tool: "claude", model: "", effort: "" }]
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -8230,9 +8241,10 @@ test.describe("Implement multiple parallel reviewers", test => {
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "", effort: "" },
                 reviewers: [
-                    { tool: "claude", model: "", effort: "" },
-                    { tool: "claude", model: "", effort: "" }
-                ]
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "claude", model: "", effort: "", optional: false }
+                ],
+                minimumReviews: 2
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
