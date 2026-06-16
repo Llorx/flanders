@@ -6,9 +6,9 @@ export type ModelProbeResult =
     | Readonly<{ kind:"not-started"; reason:string }>;
 
 // Markers a host shell emits when it cannot resolve the launched command. The spawn context launches
-// every command through a platform shell (`src/system/.docs/rules/spawn/shell-launch-with-faithful-arguments.md`),
+// every command through a platform shell (`src/system/.spec/rules/spawn/shell-launch-with-faithful-arguments.md`),
 // so an absent `codex` surfaces as the shell's own not-found diagnostic (or exit status 127 on POSIX)
-// rather than a spawn-primitive error. Pinned by `src/commands/.docs/rules/install/model-list-discovery.md`.
+// rather than a spawn-primitive error. Pinned by `src/commands/.spec/rules/install/model-list-discovery.md`.
 const COMMAND_NOT_FOUND_MARKERS:readonly string[] = ["not found", "not recognized", "no such file"];
 
 function errorMessage(e:unknown):string {
