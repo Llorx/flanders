@@ -8344,3 +8344,297 @@ test.describe("Implement multiple parallel reviewers", test => {
         }
     });
 });
+
+type ReviewerAction = { rateLimit:number } | { verdict:string };
+
+// A controllable-time harness for the weighted-review round-completion tests. The worker tool is
+// claude with a distinct model, so it never matches the reviewers (model "") — prep is therefore
+// inactive and every spawn is a claude spawn handled here: detect and worker draw from claudeQueue,
+// while each reviewer is identified by which per-reviewer error-log path its prompt references and
+// driven by its own ordered action list. `{ rateLimit }` makes the invocation emit a usage-limit
+// (rate_limit) event so the reviewer enters the `waiting` status; `{ verdict }` writes that reviewer's
+// per-reviewer error.log and completes. A reviewer's actions are consumed in order across the runner's
+// own rate-limit retries (a rate-limited invocation re-invokes after its wait clears).
+function weightedReviewStub(reviewerActions:ReviewerAction[][]) {
+    const s = stubContexts();
+    gitRunQueue(s.gitQueue);
+    const time = controllableTime();
+    (s.contexts as { time:TimeContext }).time = time.ctx;
+    s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+    const invocation:number[] = reviewerActions.map(() => 0);
+    (s.contexts.claude as { spawn:typeof s.contexts.claude.spawn }).spawn = (_command:string, args:readonly string[]) => {
+        s.claudeSpawnedArgs.push([...args]);
+        const proc = fakeProcess();
+        const origStdin = proc.stdin!;
+        let capturedPrompt = "";
+        (proc as { stdin:{ write:(c:string) => void; end:() => void } }).stdin = {
+            write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; s.promptQueue.push(p.message.content); } } catch {} },
+            end() { origStdin.end(); }
+        };
+        setImmediate(() => {
+            let reviewerIdx = -1;
+            for (let i = 0; i < reviewerActions.length; i++) {
+                if (capturedPrompt.includes(reviewerErrorLogPath(i + 1))) { reviewerIdx = i; break; }
+            }
+            if (reviewerIdx === -1) {
+                const response = s.claudeQueue.shift()!;
+                proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
+                proc.$emit("exit", 0);
+                return;
+            }
+            const inv = invocation[reviewerIdx]!;
+            invocation[reviewerIdx] = inv + 1;
+            const action = reviewerActions[reviewerIdx]![inv]!;
+            if ("rateLimit" in action) {
+                proc.$emitStdout(rateLimitEvent(time.ctx.now(), action.rateLimit) + "\n");
+                proc.$emit("exit", 0);
+            } else {
+                s.files.set(reviewerErrorLogPath(reviewerIdx + 1), action.verdict);
+                proc.$emitStdout(claudeResultEvents("reviewer verdict"));
+                proc.$emit("exit", 0);
+            }
+        });
+        return proc;
+    };
+    return { s, time };
+}
+
+test.describe("Implement weighted-review round completion", test => {
+    test("optional reviewer in a usage-limit wait is cancelled and excluded once the required reviewer's verdict meets the minimum", {
+        ARRANGE() {
+            // R0 required → PASS. R1 optional → enters a usage-limit wait and never clears on its own.
+            const { s } = weightedReviewStub([
+                [{ verdict: "" }],
+                [{ rateLimit: 3600 }]
+            ]);
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "w", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "claude", model: "", effort: "", optional: true }
+                ],
+                minimumReviews: 1
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker" });
+            return { s };
+        },
+        async ACT({ s }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, files: s.files };
+        },
+        ASSERTS: {
+            "exits 0 (round completes without the cancelled optional reviewer)"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the cancelled optional reviewer produced no per-reviewer verdict file"({ files }) {
+                Assert.strictEqual(files.has(reviewerErrorLogPath(2)), false);
+            },
+            "the cancelled optional reviewer wrote no per-reviewer output log (never ran to a verdict)"({ files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/reviewer.1.2.log"), false);
+            },
+            "the required reviewer ran to a PASS verdict"({ files }) {
+                Assert.ok(files.get(WS_ROOT + "/reviewer.1.1.log")!.includes("Verdict: PASS"));
+            },
+            "the aggregate briefing error.log is absent (the round passed)"({ files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/error.log"), false);
+            }
+        }
+    });
+
+    test("optional reviewer is NOT cancelled while a required reviewer is still waiting, and contributes its verdict when its own wait clears first", {
+        ARRANGE() {
+            // Both enter a usage-limit wait. R1 (optional) clears first (10s) and runs to a verdict
+            // while R0 (required) is still counting down its longer wait (100s); R0 then clears too.
+            const { s, time } = weightedReviewStub([
+                [{ rateLimit: 100 }, { verdict: "" }],
+                [{ rateLimit: 10 }, { verdict: "" }]
+            ]);
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "w", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "claude", model: "", effort: "", optional: true }
+                ],
+                minimumReviews: 1
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker" });
+            return { s, time };
+        },
+        async ACT({ s, time }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+            await flush();
+            time.advance(10000); // R1 (optional) wait clears first; R0 (required) still waiting
+            await flush();
+            time.advance(90000); // R0 (required) wait clears
+            await flush();
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, files: s.files };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the optional reviewer was not cancelled — it ran to a PASS verdict"({ files }) {
+                Assert.ok(files.get(WS_ROOT + "/reviewer.1.2.log")!.includes("Verdict: PASS"));
+            },
+            "the required reviewer ran to a PASS verdict"({ files }) {
+                Assert.ok(files.get(WS_ROOT + "/reviewer.1.1.log")!.includes("Verdict: PASS"));
+            },
+            "the optional reviewer's per-reviewer verdict file is present (it contributed)"({ files }) {
+                Assert.strictEqual(files.has(reviewerErrorLogPath(2)), true);
+            }
+        }
+    });
+
+    test("a required reviewer in a usage-limit wait is never cancelled — the round waits it out", {
+        ARRANGE() {
+            // R0 optional → fast PASS. R1 required → enters a usage-limit wait, then clears and PASSes.
+            const { s, time } = weightedReviewStub([
+                [{ verdict: "" }],
+                [{ rateLimit: 50 }, { verdict: "" }]
+            ]);
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "w", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", optional: true },
+                    { tool: "claude", model: "", effort: "", optional: false }
+                ],
+                minimumReviews: 1
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker" });
+            return { s, time };
+        },
+        async ACT({ s, time }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+            await flush();
+            time.advance(50000); // required reviewer's wait clears; the round must have waited for it
+            await flush();
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, files: s.files };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the required reviewer was waited out — it ran to a PASS verdict"({ files }) {
+                Assert.ok(files.get(WS_ROOT + "/reviewer.1.2.log")!.includes("Verdict: PASS"));
+            },
+            "the required reviewer's per-reviewer verdict file is present (never cancelled)"({ files }) {
+                Assert.strictEqual(files.has(reviewerErrorLogPath(2)), true);
+            }
+        }
+    });
+
+    test("the minimum gates completion — with all reviewers optional the round waits until minimumReviews verdicts exist before cancelling the rest", {
+        ARRANGE() {
+            // All three optional, minimumReviews 2. R0 PASSes immediately (1 verdict — below the
+            // minimum, so no cancellation yet). R1 enters a wait, then clears and PASSes (2nd verdict
+            // → minimum met). R2 stays in its wait the whole time and is cancelled once the minimum is met.
+            const { s, time } = weightedReviewStub([
+                [{ verdict: "" }],
+                [{ rateLimit: 50 }, { verdict: "" }],
+                [{ rateLimit: 3600 }]
+            ]);
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "w", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", optional: true },
+                    { tool: "claude", model: "", effort: "", optional: true },
+                    { tool: "claude", model: "", effort: "", optional: true }
+                ],
+                minimumReviews: 2
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker" });
+            return { s, time };
+        },
+        async ACT({ s, time }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+            await flush();
+            time.advance(50000); // R1's wait clears → 2nd verdict → minimum met → R2 cancelled
+            await flush();
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, files: s.files };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the reviewer whose wait cleared before the minimum was met ran to a PASS verdict (not cancelled early)"({ files }) {
+                Assert.ok(files.get(WS_ROOT + "/reviewer.1.2.log")!.includes("Verdict: PASS"));
+            },
+            "the immediately-passing reviewer ran to a PASS verdict"({ files }) {
+                Assert.ok(files.get(WS_ROOT + "/reviewer.1.1.log")!.includes("Verdict: PASS"));
+            },
+            "the reviewer still waiting once the minimum was met was cancelled — no verdict file"({ files }) {
+                Assert.strictEqual(files.has(reviewerErrorLogPath(3)), false);
+            },
+            "the cancelled reviewer wrote no per-reviewer output log"({ files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/reviewer.1.3.log"), false);
+            }
+        }
+    });
+
+    test("a reviewer that errors (not a cancellation) still fails the stage and writes the briefing, even when the reviewer is optional", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "w", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "claude", model: "", effort: "", optional: true }
+                ],
+                minimumReviews: 1
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            const errorLogWrites:string[] = [];
+            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
+            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
+                if (p === WS_ROOT + "/error.log") errorLogWrites.push(c);
+                return origWriteFile(p, c);
+            };
+            // iter 1: worker, R0 (required) PASS, R1 (optional) errors with a non-retryable spawn error.
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "w1" });
+            s.claudeQueue.push({ text: "rev0 ok", errorLog: "" });
+            s.claudeQueue.push({ text: "rev1 err", error: true });
+            // iter 2: worker, both reviewers PASS.
+            s.claudeQueue.push({ text: "w2" });
+            s.claudeQueue.push({ text: "rev0 ok", errorLog: "" });
+            s.claudeQueue.push({ text: "rev1 ok", errorLog: "" });
+            return { ...s, errorLogWrites };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0 after the iter-2 retry"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the optional reviewer's error failed the stage and wrote the reviewer-stage briefing"(_code, { errorLogWrites }) {
+                Assert.ok(errorLogWrites.some(w => w.startsWith("reviewer stage failed: ")), `expected a reviewer-stage failure briefing; got writes: ${JSON.stringify(errorLogWrites)}`);
+            },
+            "the iteration was rerun (iter-2 review ran), proving the error was not silently dropped as a cancellation"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/reviewer.2.1.log"), true);
+            }
+        }
+    });
+});

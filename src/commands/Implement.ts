@@ -70,6 +70,11 @@ export type ImplementOptions = Readonly<{
 type RunningSession = { session:AiSession };
 type RunningScript = { script:ScriptRunner };
 
+// The orchestrator's per-reviewer logical status for the round-completion decision. It is distinct
+// from the UI reviewer state (`running`/`waiting`/`ok`/`fail`): a `done` reviewer renders as `ok` or
+// `fail`, and a reviewer in a short transient-error backoff stays `running`, never `waiting`.
+type ReviewerLogicalStatus = "running" | "waiting" | "done";
+
 type RunAiCallbacks = {
     onLongWaitStart:(kind:"rate-limit", endTimeMs:number) => void;
     onLongWaitEnd:() => void;
@@ -92,6 +97,9 @@ export class Implement {
     private _activeScript:RunningScript|null = null;
     private _activeReviewerSessions:Set<AiSession> = new Set();
     private _reviewerStates:ReviewerEntry[]|null = null;
+    private _reviewerLogicalStatuses:ReviewerLogicalStatus[] = [];
+    private _reviewerAbortControllers:Map<number, AbortController> = new Map();
+    private _cancelledReviewers:Set<number> = new Set();
     private _currentIndexLabel = "";
     private _currentIteration = 0;
     private _currentTask:PlanTask|null = null;
@@ -579,20 +587,61 @@ export class Implement {
         if (!this._block || this._block.isFinalized() || !this._reviewerStates) return;
         this._block.setFooter({ kind: "reviewing", reviewers: this._reviewerStates.slice() });
     }
+    private _setReviewerLogicalStatus(idx:number, status:ReviewerLogicalStatus):void {
+        this._reviewerLogicalStatuses[idx] = status;
+        // The round-completion condition can only be newly satisfied when a reviewer enters a
+        // usage-limit wait (`waiting`) or finishes with a verdict (`done`); a transition back to
+        // `running` never completes a round, so it does not re-evaluate.
+        if (status !== "running") {
+            this._evaluateReviewRoundCompletion();
+        }
+    }
+    private _evaluateReviewRoundCompletion():void {
+        const statuses = this._reviewerLogicalStatuses;
+        const reviewers = this._config!.reviewers;
+        // (1) No reviewer is still running (each is either in a usage-limit wait or has a verdict).
+        if (statuses.some(s => s === "running")) {
+            return;
+        }
+        // (2) Every required (non-optional) reviewer has produced a verdict.
+        for (let i = 0; i < reviewers.length; i++) {
+            if (!reviewers[i]!.optional && statuses[i] !== "done") {
+                return;
+            }
+        }
+        // (3) At least `minimumReviews` reviewers have produced a verdict.
+        const doneCount = statuses.filter(s => s === "done").length;
+        if (doneCount < this._config!.minimumReviews) {
+            return;
+        }
+        // All three hold: cancel every reviewer still in a usage-limit wait. Because (2) requires
+        // every required reviewer to already have a verdict, any still-waiting reviewer is optional.
+        for (let i = 0; i < statuses.length; i++) {
+            if (statuses[i] === "waiting") {
+                this._cancelledReviewers.add(i);
+                this._reviewerAbortControllers.get(i)!.abort();
+            }
+        }
+    }
     private async _reviewerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, prepActive:boolean):Promise<boolean> {
         const reviewers = this._config!.reviewers;
         this._reviewerStates = reviewers.map<ReviewerEntry>(r => ({ tool: r.tool, model: r.model, effort: r.effort, state: "running" }));
+        this._reviewerLogicalStatuses = reviewers.map<ReviewerLogicalStatus>(() => "running");
+        this._cancelledReviewers = new Set();
         this._renderReviewingFooter();
         for (let i = 0; i < reviewers.length; i++) {
             await this._workspace!.clearReviewerErrorLog(i + 1);
         }
         await this._workspace!.clearErrorLog();
         let failureCaught:unknown = null;
-        const launches = reviewers.map((reviewer, idx) => this._runOneReviewerToVerdict(plan, task, ws, iteration, prepActive, reviewer, idx).catch(e => {
-            if (failureCaught === null) {
-                failureCaught = e;
-            }
-        }));
+        const outcomes:Array<"verdict"|"cancelled"> = reviewers.map(() => "cancelled");
+        const launches = reviewers.map((reviewer, idx) => this._runOneReviewerToVerdict(plan, task, ws, iteration, prepActive, reviewer, idx)
+            .then(outcome => { outcomes[idx] = outcome; })
+            .catch(e => {
+                if (failureCaught === null) {
+                    failureCaught = e;
+                }
+            }));
         await Promise.all(launches);
         /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
         if (this._disposed) {
@@ -604,9 +653,13 @@ export class Implement {
             await this._writeErrorLog(ws, `reviewer stage failed: ${this._stringifyError(failureCaught)}`);
             return false;
         }
+        // Aggregate only the reviewers that ran to a verdict; a reviewer cancelled at round
+        // completion produced no per-reviewer error file and takes no part in the concatenation.
         const perFile:string[] = [];
         for (let i = 0; i < reviewers.length; i++) {
-            perFile.push(await this._workspace!.readReviewerErrorLog(i + 1));
+            if (outcomes[i] === "verdict") {
+                perFile.push(await this._workspace!.readReviewerErrorLog(i + 1));
+            }
         }
         const aggregate = perFile.join("\n").replace(/^\s+|\s+$/g, "");
         if (aggregate.length === 0) {
@@ -615,7 +668,7 @@ export class Implement {
         await this._workspace!.writeErrorLog(aggregate);
         return false;
     }
-    private async _runOneReviewerToVerdict(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, prepActive:boolean, reviewer:FlandersRole, idx:number):Promise<void> {
+    private async _runOneReviewerToVerdict(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, prepActive:boolean, reviewer:FlandersRole, idx:number):Promise<"verdict"|"cancelled"> {
         const reviewerNum = idx + 1;
         const matchesWorker = this._reviewerMatchesWorker(reviewer);
         const useBranchA = prepActive && matchesWorker;
@@ -630,53 +683,91 @@ export class Implement {
         if (!useBranchA) {
             prompt = await this._appendLinkedContent(plan, task, prompt);
         }
-        const aggregateOutput:string[] = [];
-        for (;;) {
-            /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
-            if (this._disposed) {
-                return;
-            }
-            this._setReviewerState(idx, "running");
-            const callbacks:RunAiCallbacks = {
-                onLongWaitStart: () => {
-                    /* coverage ignore next */ // — Defensive: disposed guard during long-wait callback.
-                    if (this._disposed) return;
-                    this._setReviewerState(idx, "waiting");
-                },
-                onLongWaitEnd: () => {
-                    /* coverage ignore next */ // — Defensive: disposed guard during long-wait callback.
-                    if (this._disposed) return;
-                    this._setReviewerState(idx, "running");
-                },
-                register: (session) => {
-                    this._activeReviewerSessions.add(session);
-                },
-                unregister: (session) => {
-                    this._activeReviewerSessions.delete(session);
+        // Per-reviewer cancellation handle owned by the orchestrator: aborting it disposes whichever
+        // invocation is in flight (wired below), which aborts a usage-limit wait per the
+        // AiSession/AiRunner cancellation behavior. Set before the reviewer is awaited; removed in
+        // the finally so cancelled, settled, and thrown paths all clean up.
+        const controller = new AbortController();
+        this._reviewerAbortControllers.set(idx, controller);
+        try {
+            const aggregateOutput:string[] = [];
+            for (;;) {
+                /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
+                if (this._disposed) {
+                    return "cancelled";
                 }
-            };
-            const { result, capturedOutput } = useBranchA
-                ? await this._runAiWith(reviewer.tool, reviewer.model, reviewer.effort, prompt, null, this._currentPrepSessionId, callbacks)
-                : await this._runAiWith(reviewer.tool, reviewer.model, reviewer.effort, prompt, null, null, callbacks);
-            this._taskTokens.it += result.inputTokens;
-            this._taskTokens.ot += result.outputTokens;
-            await this._persistMetrics(plan, task.line);
-            this._updateMetrics(plan);
-            aggregateOutput.push(capturedOutput);
-            if (!await this._workspace!.reviewerErrorLogExists(reviewerNum)) {
-                await this._writeLog(ws.reviewerOutputLog(iteration, reviewerNum), aggregateOutput.join("\n---\n"));
-                continue;
+                this._setReviewerState(idx, "running");
+                this._setReviewerLogicalStatus(idx, "running");
+                let currentSession:AiSession|null = null;
+                const onAbort = () => {
+                    /* coverage ignore next */ // — Defensive: the listener is removed in unregister, so a session is always registered when abort fires.
+                    if (!currentSession) return;
+                    void currentSession.dispose();
+                };
+                const callbacks:RunAiCallbacks = {
+                    onLongWaitStart: () => {
+                        /* coverage ignore next */ // — Defensive: disposed guard during long-wait callback.
+                        if (this._disposed) return;
+                        this._setReviewerState(idx, "waiting");
+                        this._setReviewerLogicalStatus(idx, "waiting");
+                    },
+                    onLongWaitEnd: () => {
+                        /* coverage ignore next */ // — Defensive: disposed guard during long-wait callback.
+                        if (this._disposed) return;
+                        this._setReviewerState(idx, "running");
+                        this._setReviewerLogicalStatus(idx, "running");
+                    },
+                    register: (session) => {
+                        currentSession = session;
+                        this._activeReviewerSessions.add(session);
+                        controller.signal.addEventListener("abort", onAbort);
+                    },
+                    unregister: (session) => {
+                        this._activeReviewerSessions.delete(session);
+                        controller.signal.removeEventListener("abort", onAbort);
+                        currentSession = null;
+                    }
+                };
+                let runResult;
+                try {
+                    runResult = useBranchA
+                        ? await this._runAiWith(reviewer.tool, reviewer.model, reviewer.effort, prompt, null, this._currentPrepSessionId, callbacks)
+                        : await this._runAiWith(reviewer.tool, reviewer.model, reviewer.effort, prompt, null, null, callbacks);
+                } catch (e) {
+                    // A reviewer the round-completion logic intentionally cancelled is marked here:
+                    // its in-flight session was disposed, surfacing as the runner's AbortError. The
+                    // mark distinguishes that deliberate cancellation from a genuine reviewer error,
+                    // which is never marked and propagates to the stage's failure path so the worker
+                    // is briefed — regardless of whether the reviewer is optional.
+                    if (this._cancelledReviewers.has(idx)) {
+                        return "cancelled";
+                    }
+                    throw e;
+                }
+                const { result, capturedOutput } = runResult;
+                this._taskTokens.it += result.inputTokens;
+                this._taskTokens.ot += result.outputTokens;
+                await this._persistMetrics(plan, task.line);
+                this._updateMetrics(plan);
+                aggregateOutput.push(capturedOutput);
+                if (!await this._workspace!.reviewerErrorLogExists(reviewerNum)) {
+                    await this._writeLog(ws.reviewerOutputLog(iteration, reviewerNum), aggregateOutput.join("\n---\n"));
+                    continue;
+                }
+                const trimmed = (await this._workspace!.readReviewerErrorLog(reviewerNum)).trim();
+                // Flip per-reviewer footer state to ok/fail the instant this reviewer's own verdict
+                // file is present — before writing the per-reviewer log — so the UI advances per
+                // reviewer rather than waiting for the slowest reviewer in the round.
+                this._setReviewerState(idx, trimmed.length === 0 ? "ok" : "fail");
+                this._setReviewerLogicalStatus(idx, "done");
+                const verdictLine = trimmed.length === 0
+                    ? "Verdict: PASS"
+                    : `Verdict: FAIL ${trimmed}`;
+                await this._writeLog(ws.reviewerOutputLog(iteration, reviewerNum), `${aggregateOutput.join("\n---\n")}\n\n${verdictLine}`);
+                return "verdict";
             }
-            const trimmed = (await this._workspace!.readReviewerErrorLog(reviewerNum)).trim();
-            // Flip per-reviewer footer state to ok/fail the instant this reviewer's own verdict
-            // file is present — before writing the per-reviewer log — so the UI advances per
-            // reviewer rather than waiting for the slowest reviewer in the round.
-            this._setReviewerState(idx, trimmed.length === 0 ? "ok" : "fail");
-            const verdictLine = trimmed.length === 0
-                ? "Verdict: PASS"
-                : `Verdict: FAIL ${trimmed}`;
-            await this._writeLog(ws.reviewerOutputLog(iteration, reviewerNum), `${aggregateOutput.join("\n---\n")}\n\n${verdictLine}`);
-            return;
+        } finally {
+            this._reviewerAbortControllers.delete(idx);
         }
     }
     private _formatPathList(items:readonly string[]):string {
@@ -838,6 +929,13 @@ export class Implement {
             return;
         }
         this._disposed = true;
+        // Abort every per-reviewer cancellation handle before teardown: each abort disposes the
+        // reviewer's in-flight session (wired in _runOneReviewerToVerdict), so no reviewer outlives
+        // the dispose. These are not round-completion cancellations, so they are not marked.
+        for (const controller of this._reviewerAbortControllers.values()) {
+            controller.abort();
+        }
+        this._reviewerAbortControllers.clear();
         const activeSession = this._activeSession?.session;
         /* coverage ignore next */ // — Defensive: _activeScript is always null when dispose runs after result(); non-null path requires mid-execution dispose.
         const activeScript = this._activeScript?.script;
