@@ -178,7 +178,7 @@ const REVIEWER_OPTIONAL_INDEXED_RE = /^--reviewer-(\d+)-optional$/;
 // and by the interactive assembly in `_run` (when the length is only known after the
 // `Configure another reviewer?` loop). Returns the diagnostic to reject with, or null when the
 // flags are consistent with the reviewer count. Pinned by
-// `src/commands/.docs/rules/install/weighted-reviews-configuration.md`.
+// `src/commands/.spec/rules/install/weighted-reviews-configuration.md`.
 function validateWeightedFlagsForReviewerCount(reviewerMinimum:number|undefined, optionalReviewerIndices:readonly number[]|undefined, reviewerCount:number):string|null {
     if (reviewerCount === 1) {
         if (reviewerMinimum !== undefined) {
@@ -200,6 +200,9 @@ function validateWeightedFlagsForReviewerCount(reviewerMinimum:number|undefined,
                 return `Invalid reviewer flag: --reviewer-${idx}-optional references reviewer ${idx}, beyond the configured reviewer list of ${reviewerCount}.\n`;
             }
         }
+    }
+    if (reviewerMinimum === reviewerCount && optionalReviewerIndices !== undefined) {
+        return `Invalid flag combination: --reviewer-minimum equal to the reviewer count (${reviewerCount}) leaves no reviewer that can be optional, so it cannot be combined with --reviewer[-N]-optional.\n`;
     }
     return null;
 }
@@ -752,15 +755,19 @@ export class Install {
             }
             // A single reviewer has no weighted-review question: it is required and the minimum is 1.
             // Two or more reviewers are collected directly, with no gate question — the minimum first
-            // (the integers 1..T, the list length T rendered first as the highlighted default), then
-            // each reviewer's optional flag (no/required rendered first as the default). Each value is
-            // taken from its flag when present, otherwise asked through the shared prompt helper.
+            // (a free-text numeric entry defaulting to the reviewer count T on an empty entry; an entry
+            // outside [1, T] is re-prompted), then, only when the chosen minimum is below T, each
+            // reviewer's optional flag (no/required as the default). A minimum equal to T forces every
+            // reviewer to run to a verdict, so no optional question is asked and every reviewer is
+            // required. Each value is taken from its flag when present, otherwise asked through the
+            // shared prompt helper.
             let minimumReviews:number;
             const reviewerConfigs:FlandersReviewer[] = [];
             if (reviewers.length === 1) {
                 minimumReviews = 1;
                 reviewerConfigs.push({ ...reviewers[0]!, optional: false });
             } else {
+                const reviewerCount = reviewers.length;
                 if (answers.reviewerMinimum !== undefined) {
                     minimumReviews = answers.reviewerMinimum;
                 } else {
@@ -768,46 +775,66 @@ export class Install {
                     if (this._disposed) {
                         return 1;
                     }
-                    const minimumOption = await promptChoice(contexts.ask, {
-                        header: "Minimum reviews",
-                        question: "How many reviewers must run to a verdict in each review round?",
-                        options: Array.from({ length: reviewers.length }, (_unused, i) => ({ label: String(reviewers.length - i) }))
-                    });
-                    if (!minimumOption) {
-                        return 1;
+                    let chosen:number|null = null;
+                    while (chosen === null) {
+                        const entry = await promptText(contexts.ask, {
+                            question: "Minimum reviewers that must run to a verdict in each review round",
+                            placeholder: `1-${reviewerCount}, empty for ${reviewerCount}`
+                        });
+                        if (entry === null) {
+                            return 1;
+                        }
+                        if (this._disposed) {
+                            return 1;
+                        }
+                        const trimmed = entry.trim();
+                        if (trimmed === "") {
+                            chosen = reviewerCount;
+                        } else {
+                            const parsed = Number(trimmed);
+                            if (/^\d+$/.test(trimmed) && parsed >= 1 && parsed <= reviewerCount) {
+                                chosen = parsed;
+                            } else {
+                                contexts.output.write(`Enter an integer between 1 and ${reviewerCount}, or leave empty for ${reviewerCount}.\n`);
+                            }
+                        }
                     }
-                    if (this._disposed) {
-                        return 1;
-                    }
-                    minimumReviews = Number(minimumOption.label);
+                    minimumReviews = chosen;
                 }
-                if (answers.optionalReviewerIndices !== undefined) {
-                    const optionalSet = new Set(answers.optionalReviewerIndices);
-                    for (let i = 0; i < reviewers.length; i++) {
-                        reviewerConfigs.push({ ...reviewers[i]!, optional: optionalSet.has(i + 1) });
+                if (minimumReviews < reviewerCount) {
+                    if (answers.optionalReviewerIndices !== undefined) {
+                        const optionalSet = new Set(answers.optionalReviewerIndices);
+                        for (let i = 0; i < reviewerCount; i++) {
+                            reviewerConfigs.push({ ...reviewers[i]!, optional: optionalSet.has(i + 1) });
+                        }
+                    } else {
+                        for (let i = 0; i < reviewerCount; i++) {
+                            /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
+                            if (this._disposed) {
+                                return 1;
+                            }
+                            const optionalOption = await promptChoice(contexts.ask, {
+                                header: `Reviewer ${i + 1} optional`,
+                                question: "Is this reviewer optional?",
+                                options: [
+                                    { label: "no", description: "Required — always runs to a verdict" },
+                                    { label: "yes", description: "Optional — may be cancelled once the round can complete without it" }
+                                ]
+                            });
+                            if (!optionalOption) {
+                                return 1;
+                            }
+                            if (this._disposed) {
+                                return 1;
+                            }
+                            reviewerConfigs.push({ ...reviewers[i]!, optional: optionalOption.label === "yes" });
+                        }
                     }
                 } else {
-                    for (let i = 0; i < reviewers.length; i++) {
-                        /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
-                        if (this._disposed) {
-                            return 1;
-                        }
-                        const ordinal = i === 0 ? "" : ` ${i + 1}`;
-                        const optionalOption = await promptChoice(contexts.ask, {
-                            header: `Reviewer${ordinal} optional`,
-                            question: "Is this reviewer optional?",
-                            options: [
-                                { label: "no", description: "Required — always runs to a verdict" },
-                                { label: "yes", description: "Optional — may be cancelled once the round can complete without it" }
-                            ]
-                        });
-                        if (!optionalOption) {
-                            return 1;
-                        }
-                        if (this._disposed) {
-                            return 1;
-                        }
-                        reviewerConfigs.push({ ...reviewers[i]!, optional: optionalOption.label === "yes" });
+                    // minimumReviews === reviewerCount: every reviewer must run to a verdict, so none can
+                    // be optional — no optional question is asked and every reviewer is required.
+                    for (let i = 0; i < reviewerCount; i++) {
+                        reviewerConfigs.push({ ...reviewers[i]!, optional: false });
                     }
                 }
             }

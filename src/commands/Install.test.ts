@@ -980,9 +980,9 @@ test.describe("parseInstallFlags weighted-review flags", test => {
         }
     });
 
-    test("flag-fixed two-reviewer list: in-range minimum and an in-range optional index are accepted", {
+    test("flag-fixed two-reviewer list: a below-count minimum and an in-range optional index are accepted", {
         ARRANGE() {
-            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=codex", "--reviewer-minimum=2", "--reviewer-2-optional"] };
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=codex", "--reviewer-minimum=1", "--reviewer-2-optional"] };
         },
         ACT({ args }) {
             return parseInstallFlags(args);
@@ -993,8 +993,23 @@ test.describe("parseInstallFlags weighted-review flags", test => {
                 answers: {
                     reviewers: [{ tool: "claude" }, { tool: "codex" }],
                     optionalReviewerIndices: [2],
-                    reviewerMinimum: 2
+                    reviewerMinimum: 1
                 }
+            });
+        }
+    });
+
+    test("flag-fixed two-reviewer list: --reviewer-minimum equal to the count combined with --reviewer-2-optional is a usage error", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=codex", "--reviewer-minimum=2", "--reviewer-2-optional"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid flag combination: --reviewer-minimum equal to the reviewer count (2) leaves no reviewer that can be optional, so it cannot be combined with --reviewer[-N]-optional.\n"
             });
         }
     });
@@ -4294,11 +4309,9 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
     test("two reviewer flags via --reviewer-N-* produce both entries in order", {
         ARRANGE() {
             const s = stubContexts();
-            // The flag-fixed two-reviewer list supplies no weighted-review flags, so the minimum and
-            // the per-reviewer optional questions are asked interactively after the list is fixed.
-            s.askResponses.push([{ picked: [{ label: "2" }] }]); // minimum reviews (default T = 2, rendered first)
-            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional?
-            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional?
+            // The flag-fixed two-reviewer list supplies no weighted-review flags. The minimum is asked as
+            // a free-text entry; accepting the empty default fixes it to T = 2, and because the minimum
+            // equals the reviewer count no per-reviewer optional question is asked.
             return s;
         },
         async ACT({ contexts }) {
@@ -4347,9 +4360,8 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
             const s = stubContexts();
             s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer 2 model -> Opus family submenu
             s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // reviewer 2 submenu -> Latest Opus
-            s.askResponses.push([{ picked: [{ label: "2" }] }]); // minimum reviews
-            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional?
-            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional?
+            // The minimum is asked as a free-text entry; the empty default fixes it to T = 2, so no
+            // per-reviewer optional question is asked.
             return s;
         },
         async ACT({ contexts }) {
@@ -4405,9 +4417,8 @@ test.describe("Install interactive Configure another reviewer? loop", test => {
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 2 model
             s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 2 effort
             s.askResponses.push([{ picked: [{ label: "no" }] }]); // Configure another?
-            s.askResponses.push([{ picked: [{ label: "2" }] }]); // minimum reviews
-            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional?
-            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional?
+            // The minimum is asked as a free-text entry; the empty default fixes it to T = 2, so no
+            // per-reviewer optional question is asked.
             return s;
         },
         async ACT({ contexts }) {
@@ -4526,10 +4537,10 @@ test.describe("Install weighted-review collection (2.2)", test => {
     }
     const baseFlags = ["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort="];
 
-    test("two-reviewer interactive run persists the chosen minimum and per-reviewer optional flags", {
+    test("two-reviewer interactive run with a below-count minimum persists it and the per-reviewer optional flags", {
         ARRANGE() {
             const s = interactiveTwoReviewerBase();
-            s.askResponses.push([{ picked: [{ label: "1" }] }]); // minimum reviews -> 1 (not the default)
+            s.askTextResponses.push("1"); // minimum reviews -> 1 (below T, so the optional questions are asked)
             s.askResponses.push([{ picked: [{ label: "yes" }] }]); // reviewer 1 optional? -> optional
             s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional? -> required
             return s;
@@ -4557,30 +4568,23 @@ test.describe("Install weighted-review collection (2.2)", test => {
                 Assert.ok(config);
                 Assert.strictEqual(config.reviewers[1]!.optional, false);
             },
-            "the minimum and per-reviewer optional questions are asked in order"(_result, { askedHeaders }) {
+            "the per-reviewer optional questions are labelled by 1-based index in order"(_result, { askedHeaders }) {
                 Assert.deepStrictEqual(
-                    askedHeaders.filter(h => h === "Minimum reviews" || h === "Reviewer optional" || h === "Reviewer 2 optional"),
-                    ["Minimum reviews", "Reviewer optional", "Reviewer 2 optional"]
+                    askedHeaders.filter(h => h === "Reviewer 1 optional" || h === "Reviewer 2 optional"),
+                    ["Reviewer 1 optional", "Reviewer 2 optional"]
                 );
+            },
+            "the minimum is asked as a free-text entry, not a single-select"(_result, { askedHeaders, askedTextPrompts }) {
+                Assert.strictEqual(askedHeaders.includes("Minimum reviews"), false);
+                Assert.ok(askedTextPrompts.some(p => p.includes("Minimum reviewers that must run to a verdict")));
             }
         }
     });
 
-    test("two-reviewer interactive run accepting defaults persists minimum = reviewer count and all required", {
+    test("two-reviewer interactive run accepting the default minimum persists minimum = reviewer count and asks no optional question", {
         ARRANGE() {
-            const s = interactiveTwoReviewerBase();
-            let minimumOptions:readonly { label:string }[] = [];
-            const origAsk = s.contexts.ask.askChoices;
-            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
-                if (questions[0]!.header === "Minimum reviews") {
-                    minimumOptions = questions[0]!.options;
-                }
-                return origAsk.call(s.contexts.ask, questions, output);
-            };
-            s.askResponses.push([{ picked: [{ label: "2" }] }]); // minimum reviews -> accept default (T = 2, rendered first)
-            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional? -> default required
-            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional? -> default required
-            return { ...s, getMinimumOptions: () => minimumOptions };
+            // No askText response queued: the empty entry accepts the default minimum (T = 2).
+            return interactiveTwoReviewerBase();
         },
         async ACT({ contexts }) {
             const cmd = new Install(baseFlags, { projectRoot: "/proj" }, contexts);
@@ -4593,8 +4597,8 @@ test.describe("Install weighted-review collection (2.2)", test => {
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "the minimum options are the integers 1..T with T rendered first as the highlighted default"(_result, { getMinimumOptions }) {
-                Assert.deepStrictEqual(getMinimumOptions().map(o => o.label), ["2", "1"]);
+            "the minimum free-text prompt shows the 1..T range and the T default"(_result, { askedTextPrompts }) {
+                Assert.ok(askedTextPrompts.some(p => p.includes("1-2, empty for 2")));
             },
             "minimumReviews equals the reviewer count"({ config }) {
                 Assert.ok(config);
@@ -4604,17 +4608,16 @@ test.describe("Install weighted-review collection (2.2)", test => {
                 Assert.ok(config);
                 Assert.deepStrictEqual(config.reviewers.map(r => r.optional), [false, false]);
             },
-            "the section is presented directly with no gate question, minimum before the per-reviewer optionals"(_result, { askedHeaders }) {
+            "the section is presented directly with no gate question and no optional prompt when the minimum equals T"(_result, { askedHeaders }) {
                 Assert.deepStrictEqual(askedHeaders, [
                     "Reviewer tool", "Reviewer model", "Reviewer effort", "Configure another reviewer?",
-                    "Reviewer 2 tool", "Reviewer 2 model", "Reviewer 2 effort", "Configure another reviewer?",
-                    "Minimum reviews", "Reviewer optional", "Reviewer 2 optional"
+                    "Reviewer 2 tool", "Reviewer 2 model", "Reviewer 2 effort", "Configure another reviewer?"
                 ]);
             }
         }
     });
 
-    test("flag-driven --reviewer-minimum and --reviewer-2-optional skip the weighted prompts and persist the flag values", {
+    test("flag-driven --reviewer-minimum (below the count) and --reviewer-2-optional skip the weighted prompts and persist the flag values", {
         ARRANGE() {
             return stubContexts();
         },
@@ -4631,7 +4634,7 @@ test.describe("Install weighted-review collection (2.2)", test => {
                 "--reviewer-2-tool=claude",
                 "--reviewer-2-model=",
                 "--reviewer-2-effort=",
-                "--reviewer-minimum=2",
+                "--reviewer-minimum=1",
                 "--reviewer-2-optional"
             ], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
@@ -4643,12 +4646,13 @@ test.describe("Install weighted-review collection (2.2)", test => {
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "no interactive prompt is shown"(_result, { askedHeaders }) {
+            "no interactive prompt is shown"(_result, { askedHeaders, askedTextPrompts }) {
                 Assert.deepStrictEqual(askedHeaders, []);
+                Assert.deepStrictEqual(askedTextPrompts, []);
             },
-            "minimumReviews is the flag value 2"({ config }) {
+            "minimumReviews is the flag value 1"({ config }) {
                 Assert.ok(config);
-                Assert.strictEqual(config.minimumReviews, 2);
+                Assert.strictEqual(config.minimumReviews, 1);
             },
             "reviewer 1 is required (no optional flag)"({ config }) {
                 Assert.ok(config);
@@ -4657,6 +4661,63 @@ test.describe("Install weighted-review collection (2.2)", test => {
             "reviewer 2 is optional (--reviewer-2-optional)"({ config }) {
                 Assert.ok(config);
                 Assert.strictEqual(config.reviewers[1]!.optional, true);
+            }
+        }
+    });
+
+    test("interactive two-reviewer list with a deferred --reviewer-minimum equal to the count and a --reviewer-2-optional is a usage error", {
+        ARRANGE() {
+            return interactiveTwoReviewerBase();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([...baseFlags, "--reviewer-minimum=2", "--reviewer-2-optional"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic names the contradictory combination"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag combination: --reviewer-minimum equal to the reviewer count (2) leaves no reviewer that can be optional, so it cannot be combined with --reviewer[-N]-optional.\n");
+            },
+            "no config is written"(_code, { files }) {
+                Assert.strictEqual(files.has("/proj/.flanders/config.json"), false);
+            }
+        }
+    });
+
+    test("an invalid minimum entry is re-prompted until a valid integer is given", {
+        ARRANGE() {
+            const s = interactiveTwoReviewerBase();
+            s.askTextResponses.push("abc"); // not an integer -> re-prompt
+            s.askTextResponses.push("5");   // above T = 2 -> re-prompt
+            s.askTextResponses.push("1");   // valid -> minimum = 1 (below T, so the optional questions are asked)
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional?
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional?
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(baseFlags, { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "minimumReviews is the first valid entry 1"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.minimumReviews, 1);
+            },
+            "the minimum prompt is shown three times (two invalid, then valid)"(_result, { askedTextPrompts }) {
+                Assert.strictEqual(askedTextPrompts.filter(p => p.includes("Minimum reviewers that must run to a verdict")).length, 3);
+            },
+            "a range notice is written for each invalid entry"(_result, { written }) {
+                Assert.strictEqual(written.filter(w => w === "Enter an integer between 1 and 2, or leave empty for 2.\n").length, 2);
             }
         }
     });
@@ -4689,11 +4750,12 @@ test.describe("Install weighted-review collection (2.2)", test => {
                 Assert.ok(config);
                 Assert.strictEqual(config.reviewers[0]!.optional, false);
             },
-            "no minimum-reviews prompt is shown"(_result, { askedHeaders }) {
+            "no minimum-reviews prompt is shown"(_result, { askedHeaders, askedTextPrompts }) {
                 Assert.strictEqual(askedHeaders.includes("Minimum reviews"), false);
+                Assert.ok(!askedTextPrompts.some(p => p.includes("Minimum reviewers that must run to a verdict")));
             },
             "no per-reviewer optional prompt is shown"(_result, { askedHeaders }) {
-                Assert.strictEqual(askedHeaders.includes("Reviewer optional"), false);
+                Assert.strictEqual(askedHeaders.includes("Reviewer 1 optional"), false);
             }
         }
     });
@@ -4775,7 +4837,8 @@ test.describe("Install weighted-review collection (2.2)", test => {
     test("Ctrl+C during the minimum-reviews prompt exits non-zero with no config", {
         ARRANGE() {
             const s = interactiveTwoReviewerBase();
-            s.askResponses.push([{ picked: [] }]); // minimum reviews -> Ctrl+C
+            // The minimum is a free-text prompt; Ctrl+C surfaces as a rejected askText.
+            (s.contexts.ask as { askText:typeof s.contexts.ask.askText }).askText = () => Promise.reject(new Error("readline closed"));
             return s;
         },
         async ACT({ contexts }) {
@@ -4797,7 +4860,7 @@ test.describe("Install weighted-review collection (2.2)", test => {
     test("Ctrl+C during a per-reviewer optional prompt exits non-zero with no config", {
         ARRANGE() {
             const s = interactiveTwoReviewerBase();
-            s.askResponses.push([{ picked: [{ label: "2" }] }]); // minimum reviews
+            s.askTextResponses.push("1"); // minimum reviews -> 1 (below T, so the optional questions are asked)
             s.askResponses.push([{ picked: [] }]); // reviewer 1 optional? -> Ctrl+C
             return s;
         },
@@ -4820,17 +4883,12 @@ test.describe("Install weighted-review collection (2.2)", test => {
     test("disposed during the minimum-reviews prompt returns 1", {
         ARRANGE() {
             const s = interactiveTwoReviewerBase();
-            let resolveMinimum:((v:readonly AskAnswer[]) => void) | null = null;
-            let callIndex = 0;
-            const origAsk = s.contexts.ask.askChoices;
-            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
-                callIndex++;
-                if (callIndex === 9) { // the minimum-reviews prompt, after the 8 reviewer-list prompts
-                    return new Promise<readonly AskAnswer[]>(resolve => {
-                        resolveMinimum = resolve;
-                    });
-                }
-                return origAsk.call(s.contexts.ask, questions, output);
+            // The minimum is a free-text prompt; hang on the askText call so dispose lands mid-prompt.
+            let resolveMinimum:((v:string) => void) | null = null;
+            (s.contexts.ask as { askText:typeof s.contexts.ask.askText }).askText = () => {
+                return new Promise<string>(resolve => {
+                    resolveMinimum = resolve;
+                });
             };
             return { ...s, getResolvePrompt: () => resolveMinimum };
         },
@@ -4840,7 +4898,7 @@ test.describe("Install weighted-review collection (2.2)", test => {
                 await new Promise(r => setTimeout(r, 1));
             }
             const disposePromise = cmd.dispose();
-            getResolvePrompt()!([{ picked: [{ label: "2" }] }]);
+            getResolvePrompt()!("2");
             await disposePromise;
             const code = await cmd.result();
             return code;
@@ -4853,13 +4911,13 @@ test.describe("Install weighted-review collection (2.2)", test => {
     test("disposed during a per-reviewer optional prompt returns 1", {
         ARRANGE() {
             const s = interactiveTwoReviewerBase();
-            s.askResponses.push([{ picked: [{ label: "2" }] }]); // minimum reviews
+            s.askTextResponses.push("1"); // minimum reviews -> 1 (below T, so the optional questions are asked)
             let resolveOptional:((v:readonly AskAnswer[]) => void) | null = null;
             let callIndex = 0;
             const origAsk = s.contexts.ask.askChoices;
             (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
                 callIndex++;
-                if (callIndex === 10) { // the first per-reviewer optional prompt, after minimum at call 9
+                if (callIndex === 9) { // the first per-reviewer optional prompt, after the 8 reviewer-list prompts
                     return new Promise<readonly AskAnswer[]>(resolve => {
                         resolveOptional = resolve;
                     });
