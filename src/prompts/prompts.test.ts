@@ -114,7 +114,7 @@ test.describe("prompts – prep", test => {
                 Assert.ok(section.includes("<BEHAVIOR_RULE_LIST>"));
             },
             "section instructs honoring every in-scope behavior rule"(section) {
-                Assert.ok(section.includes("every behavior rule whose `.docs/flanders` scope encloses the files this task's work touches must be honored"));
+                Assert.ok(section.includes("every behavior rule whose `.spec/flanders` scope encloses the files this task's work touches must be honored"));
             },
             "section states in-scope behavior rules are mandatory whether or not the task links them"(section) {
                 Assert.ok(section.includes("in-scope behavior rules are mandatory whether or not the task links them"));
@@ -134,11 +134,11 @@ test.describe("prompts – prep", test => {
         ARRANGE() {},
         ACT() { return prompts.prep; },
         ASSERTS: {
-            "names .docs/contracts folders"(template) {
-                Assert.ok(template.includes(".docs/contracts"));
+            "names .spec/contracts folders"(template) {
+                Assert.ok(template.includes(".spec/contracts"));
             },
-            "names .docs/rules folders"(template) {
-                Assert.ok(template.includes(".docs/rules"));
+            "names .spec/rules folders"(template) {
+                Assert.ok(template.includes(".spec/rules"));
             },
             "references plans/"(template) {
                 Assert.ok(template.includes("plans/"));
@@ -205,11 +205,11 @@ test.describe("prompts – detectBuildAndTest", test => {
         ARRANGE() {},
         ACT() { return prompts.detectBuildAndTest; },
         ASSERTS: {
-            "names .docs/contracts folders"(template) {
-                Assert.ok(template.includes(".docs/contracts"));
+            "names .spec/contracts folders"(template) {
+                Assert.ok(template.includes(".spec/contracts"));
             },
-            "names .docs/rules folders"(template) {
-                Assert.ok(template.includes(".docs/rules"));
+            "names .spec/rules folders"(template) {
+                Assert.ok(template.includes(".spec/rules"));
             },
             "references plans/"(template) {
                 Assert.ok(template.includes("plans/"));
@@ -223,12 +223,12 @@ test.describe("prompts – detectBuildAndTest", test => {
         }
     });
 
-    test("scope hint references testing/ and build/ subfolders of a .docs/rules folder", {
+    test("scope hint references testing/ and build/ subfolders of a .spec/rules folder", {
         ARRANGE() {},
         ACT() { return prompts.detectBuildAndTest; },
         ASSERTS: {
             "references the testing/ and build/ subfolder hint"(template) {
-                Assert.ok(template.includes("any rule under a `testing/` or `build/` subfolder of a `.docs/rules` folder"));
+                Assert.ok(template.includes("any rule under a `testing/` or `build/` subfolder of a `.spec/rules` folder"));
             },
             "no longer globs rules/testing/*"(template) {
                 Assert.strictEqual(template.includes("rules/testing/*"), false);
@@ -258,11 +258,11 @@ test.describe("prompts – worker", test => {
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERTS: {
-            "names .docs/contracts folders"(template) {
-                Assert.ok(template.includes(".docs/contracts"));
+            "names .spec/contracts folders"(template) {
+                Assert.ok(template.includes(".spec/contracts"));
             },
-            "names .docs/rules folders"(template) {
-                Assert.ok(template.includes(".docs/rules"));
+            "names .spec/rules folders"(template) {
+                Assert.ok(template.includes(".spec/rules"));
             },
             "references plans/"(template) {
                 Assert.ok(template.includes("plans/"));
@@ -652,7 +652,7 @@ test.describe("prompts – worker – three-section Evidence Report", test => {
             const start = template.indexOf("Spec-folder write boundary:");
             const end = template.indexOf("\n\n", start);
             const specBoundary = template.substring(start, end);
-            Assert.strictEqual(specBoundary, "Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any `.docs/contracts` folder, any `.docs/rules` folder, or the `plans/` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.");
+            Assert.strictEqual(specBoundary, "Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any `.spec/contracts` folder, any `.spec/rules` folder, or the `plans/` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.");
         }
     });
 
@@ -671,7 +671,7 @@ test.describe("prompts – worker – three-section Evidence Report", test => {
                 const blockStart = template.indexOf("The reviewer is instructed to FAIL on ANY of:");
                 const blockEnd = template.indexOf("Condition 4 causes most rejections", blockStart);
                 const block = template.substring(blockStart, blockEnd);
-                Assert.ok(block.includes("A behavior rule from the behavior-rule list below whose `.docs/flanders` scope encloses the files your changes touch is not honored by the changes"));
+                Assert.ok(block.includes("A behavior rule from the behavior-rule list below whose `.spec/flanders` scope encloses the files your changes touch is not honored by the changes"));
             }
         }
     });
@@ -690,7 +690,7 @@ test.describe("prompts – worker – three-section Evidence Report", test => {
                 Assert.ok(section.includes("<BEHAVIOR_RULE_LIST>"));
             },
             "section instructs honoring every in-scope behavior rule"(section) {
-                Assert.ok(section.includes("You must honor every behavior rule whose `.docs/flanders` scope encloses the files your changes touch"));
+                Assert.ok(section.includes("You must honor every behavior rule whose `.spec/flanders` scope encloses the files your changes touch"));
             },
             "section states in-scope behavior rules are mandatory whether or not the task links them"(section) {
                 Assert.ok(section.includes("in-scope behavior rules are mandatory whether or not the task links them"));
@@ -704,11 +704,11 @@ test.describe("prompts – reviewer", test => {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
-            "names .docs/contracts folders"(template) {
-                Assert.ok(template.includes(".docs/contracts"));
+            "names .spec/contracts folders"(template) {
+                Assert.ok(template.includes(".spec/contracts"));
             },
-            "names .docs/rules folders"(template) {
-                Assert.ok(template.includes(".docs/rules"));
+            "names .spec/rules folders"(template) {
+                Assert.ok(template.includes(".spec/rules"));
             },
             "references plans/"(template) {
                 Assert.ok(template.includes("plans/"));
@@ -745,7 +745,7 @@ test.describe("prompts – reviewer", test => {
                 Assert.ok(section.includes("<BEHAVIOR_RULE_LIST>"));
             },
             "section instructs verifying the changes honor every in-scope behavior rule"(section) {
-                Assert.ok(section.includes("You must verify that the working-tree changes honor every behavior rule whose `.docs/flanders` scope encloses the files they touch"));
+                Assert.ok(section.includes("You must verify that the working-tree changes honor every behavior rule whose `.spec/flanders` scope encloses the files they touch"));
             },
             "section states in-scope behavior rules are mandatory whether or not the task links them"(section) {
                 Assert.ok(section.includes("in-scope behavior rules are mandatory whether or not the task links them"));
@@ -1079,7 +1079,7 @@ test.describe("prompts – reviewer – three-section claim checklist", test => 
                 const blockStart = template.indexOf("You MUST check all five conditions below");
                 const blockEnd = template.indexOf("Exhaustiveness:", blockStart);
                 const block = template.substring(blockStart, blockEnd);
-                Assert.ok(block.includes("A behavior rule from the behavior-rule list above whose `.docs/flanders` scope encloses the files the working-tree changes touch is not honored by the changes"));
+                Assert.ok(block.includes("A behavior rule from the behavior-rule list above whose `.spec/flanders` scope encloses the files the working-tree changes touch is not honored by the changes"));
             }
         }
     });
@@ -1102,7 +1102,7 @@ test.describe("prompts – reviewer – three-section claim checklist", test => 
             const start = template.indexOf("Spec-folder write boundary:");
             const end = template.indexOf("\n\n", start);
             const specBoundary = template.substring(start, end === -1 ? undefined : end);
-            Assert.strictEqual(specBoundary, "Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any `.docs/contracts` folder, any `.docs/rules` folder, or the `plans/` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.");
+            Assert.strictEqual(specBoundary, "Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any `.spec/contracts` folder, any `.spec/rules` folder, or the `plans/` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.");
         }
     });
 });

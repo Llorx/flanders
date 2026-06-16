@@ -1166,7 +1166,7 @@ test.describe("listNonIgnoredFiles", test => {
                 spawn() {
                     const proc = fakeProcess();
                     setImmediate(() => {
-                        proc.$emitStdout("a.md\0.docs/contracts/b.md\0.docs/contracts/b.md\0");
+                        proc.$emitStdout("a.md\0.spec/contracts/b.md\0.spec/contracts/b.md\0");
                         proc.$emit("exit", 0);
                     });
                     return proc;
@@ -1178,7 +1178,7 @@ test.describe("listNonIgnoredFiles", test => {
             return await listNonIgnoredFiles(script, time, CWD);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, ["a.md", ".docs/contracts/b.md"]);
+            Assert.deepStrictEqual(result, ["a.md", ".spec/contracts/b.md"]);
         }
     });
 
@@ -1363,11 +1363,11 @@ test.describe("listIgnoredPaths", test => {
             return { script, time: stubTime(), captured: () => captured };
         },
         async ACT({ script, time }) {
-            await listIgnoredPaths(script, time, CWD, ["a.md", ".docs/contracts/b.md"]);
+            await listIgnoredPaths(script, time, CWD, ["a.md", ".spec/contracts/b.md"]);
         },
         ASSERTS: {
             "writes the candidate paths NUL-joined with a trailing NUL"(_result, { captured }) {
-                Assert.deepStrictEqual(captured()!.$stdinWrites(), ["a.md\0.docs/contracts/b.md\0"]);
+                Assert.deepStrictEqual(captured()!.$stdinWrites(), ["a.md\0.spec/contracts/b.md\0"]);
             },
             "ends the stdin stream"(_result, { captured }) {
                 Assert.strictEqual(captured()!.$stdinEnded(), true);
@@ -1381,7 +1381,7 @@ test.describe("listIgnoredPaths", test => {
                 spawn() {
                     const proc = fakeProcess();
                     setImmediate(() => {
-                        proc.$emitStdout("x/.docs/rules/r.md\0");
+                        proc.$emitStdout("x/.spec/rules/r.md\0");
                         proc.$emit("exit", 0);
                     });
                     return proc;
@@ -1390,10 +1390,10 @@ test.describe("listIgnoredPaths", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await listIgnoredPaths(script, time, CWD, ["x/.docs/rules/r.md"]);
+            return await listIgnoredPaths(script, time, CWD, ["x/.spec/rules/r.md"]);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, new Set(["x/.docs/rules/r.md"]));
+            Assert.deepStrictEqual(result, new Set(["x/.spec/rules/r.md"]));
         }
     });
 
@@ -1409,7 +1409,7 @@ test.describe("listIgnoredPaths", test => {
             return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await listIgnoredPaths(script, time, CWD, ["x/.docs/rules/r.md"]);
+            return await listIgnoredPaths(script, time, CWD, ["x/.spec/rules/r.md"]);
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, new Set());
@@ -1433,7 +1433,7 @@ test.describe("listIgnoredPaths", test => {
         async ACT({ script, time }) {
             let caught:Error|null = null;
             try {
-                await listIgnoredPaths(script, time, CWD, ["x/.docs/rules/r.md"]);
+                await listIgnoredPaths(script, time, CWD, ["x/.spec/rules/r.md"]);
             } catch (e) {
                 caught = e as Error;
             }
@@ -1463,7 +1463,7 @@ test.describe("listIgnoredPaths", test => {
         async ACT({ script, time }) {
             let caught:Error|null = null;
             try {
-                await listIgnoredPaths(script, time, CWD, ["x/.docs/rules/r.md"]);
+                await listIgnoredPaths(script, time, CWD, ["x/.spec/rules/r.md"]);
             } catch (e) {
                 caught = e as Error;
             }
@@ -1493,7 +1493,7 @@ test.describe("listIgnoredPaths", test => {
         async ACT({ script, time }) {
             let caught:Error|null = null;
             try {
-                await listIgnoredPaths(script, time, CWD, ["x/.docs/rules/r.md"]);
+                await listIgnoredPaths(script, time, CWD, ["x/.spec/rules/r.md"]);
             } catch (e) {
                 caught = e as Error;
             }
@@ -1523,7 +1523,7 @@ test.describe("listIgnoredPaths", test => {
             return { script, time: stubTime(), captured: () => captured };
         },
         async ACT({ script, time }) {
-            await listIgnoredPaths(script, time, CWD, ["x/.docs/rules/r.md"]);
+            await listIgnoredPaths(script, time, CWD, ["x/.spec/rules/r.md"]);
         },
         ASSERTS: {
             "command is git"(_result, { captured }) {

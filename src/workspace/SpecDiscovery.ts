@@ -10,14 +10,14 @@ export function classifySpecPaths(paths:readonly string[]):{ contracts:string[];
     const flanders:string[] = [];
     for (const filePath of paths) {
         const segments = filePath.split("/");
-        const docsIndex = segments.indexOf(".docs");
-        if (docsIndex === -1) {
+        const specIndex = segments.indexOf(".spec");
+        if (specIndex === -1) {
             continue;
         }
-        if (segments.length <= docsIndex + 2) {
+        if (segments.length <= specIndex + 2) {
             continue;
         }
-        const kind = segments[docsIndex + 1];
+        const kind = segments[specIndex + 1];
         if (kind === "contracts") {
             contracts.push(filePath);
         } else if (kind === "rules") {

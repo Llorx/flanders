@@ -62,24 +62,24 @@ const ROOT = "/project";
 test.describe("classifySpecPaths", test => {
     test("classifies the acceptance-criteria example into contracts and rules", {
         ARRANGE() {
-            return { paths: ["README.md", ".docs/contracts/a.md", ".docs/rules/r.md", "src/x/.docs/contracts/a.md", ".docs/other/n.md", "docs/contracts/no.md"] };
+            return { paths: ["README.md", ".spec/contracts/a.md", ".spec/rules/r.md", "src/x/.spec/contracts/a.md", ".spec/other/n.md", "docs/contracts/no.md"] };
         },
         ACT({ paths }) {
             return classifySpecPaths(paths);
         },
         ASSERTS: {
-            "contracts holds both .docs/contracts files as distinct namespaces"(result) {
-                Assert.deepStrictEqual(result.contracts, [".docs/contracts/a.md", "src/x/.docs/contracts/a.md"]);
+            "contracts holds both .spec/contracts files as distinct namespaces"(result) {
+                Assert.deepStrictEqual(result.contracts, [".spec/contracts/a.md", "src/x/.spec/contracts/a.md"]);
             },
-            "rules holds the single .docs/rules file"(result) {
-                Assert.deepStrictEqual(result.rules, [".docs/rules/r.md"]);
+            "rules holds the single .spec/rules file"(result) {
+                Assert.deepStrictEqual(result.rules, [".spec/rules/r.md"]);
             }
         }
     });
 
-    test("drops .docs children that are not a file under a contracts/ or rules/ subfolder", {
+    test("drops .spec children that are not a file under a contracts/ or rules/ subfolder", {
         ARRANGE() {
-            return { paths: [".docs/notes.md", ".docs/contracts", ".docs/rules", ".docs/other/n.md"] };
+            return { paths: [".spec/notes.md", ".spec/contracts", ".spec/rules", ".spec/other/n.md"] };
         },
         ACT({ paths }) {
             return classifySpecPaths(paths);
@@ -94,50 +94,50 @@ test.describe("classifySpecPaths", test => {
         }
     });
 
-    test("classifies .docs folders at any depth and files in subfolders below contracts/ and rules/", {
+    test("classifies .spec folders at any depth and files in subfolders below contracts/ and rules/", {
         ARRANGE() {
-            return { paths: ["a/b/c/.docs/contracts/d/e.md", "src/ai/.docs/rules/r/x.md"] };
+            return { paths: ["a/b/c/.spec/contracts/d/e.md", "src/ai/.spec/rules/r/x.md"] };
         },
         ACT({ paths }) {
             return classifySpecPaths(paths);
         },
         ASSERTS: {
-            "the deeply nested contract is classified by its first .docs segment"(result) {
-                Assert.deepStrictEqual(result.contracts, ["a/b/c/.docs/contracts/d/e.md"]);
+            "the deeply nested contract is classified by its first .spec segment"(result) {
+                Assert.deepStrictEqual(result.contracts, ["a/b/c/.spec/contracts/d/e.md"]);
             },
             "the nested rule in a subfolder below rules/ is classified"(result) {
-                Assert.deepStrictEqual(result.rules, ["src/ai/.docs/rules/r/x.md"]);
+                Assert.deepStrictEqual(result.rules, ["src/ai/.spec/rules/r/x.md"]);
             }
         }
     });
 
-    test("keeps same-leaf-filename specs in different .docs folders as distinct entries", {
+    test("keeps same-leaf-filename specs in different .spec folders as distinct entries", {
         ARRANGE() {
-            return { paths: [".docs/contracts/a.md", "nested/.docs/contracts/a.md"] };
+            return { paths: [".spec/contracts/a.md", "nested/.spec/contracts/a.md"] };
         },
         ACT({ paths }) {
             return classifySpecPaths(paths);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result.contracts, [".docs/contracts/a.md", "nested/.docs/contracts/a.md"]);
+            Assert.deepStrictEqual(result.contracts, [".spec/contracts/a.md", "nested/.spec/contracts/a.md"]);
         }
     });
 
-    test("classifies .docs/flanders files at any depth into flanders and never into contracts or rules", {
+    test("classifies .spec/flanders files at any depth into flanders and never into contracts or rules", {
         ARRANGE() {
-            return { paths: [".docs/flanders/b.md", ".docs/flanders/naming/x.md", "src/x/.docs/flanders/y.md"] };
+            return { paths: [".spec/flanders/b.md", ".spec/flanders/naming/x.md", "src/x/.spec/flanders/y.md"] };
         },
         ACT({ paths }) {
             return classifySpecPaths(paths);
         },
         ASSERTS: {
-            "flanders holds the top-level, nested-subfolder, and nested-.docs behavior rules by their first .docs segment"(result) {
-                Assert.deepStrictEqual(result.flanders, [".docs/flanders/b.md", ".docs/flanders/naming/x.md", "src/x/.docs/flanders/y.md"]);
+            "flanders holds the top-level, nested-subfolder, and nested-.spec behavior rules by their first .spec segment"(result) {
+                Assert.deepStrictEqual(result.flanders, [".spec/flanders/b.md", ".spec/flanders/naming/x.md", "src/x/.spec/flanders/y.md"]);
             },
-            "no .docs/flanders file leaks into contracts"(result) {
+            "no .spec/flanders file leaks into contracts"(result) {
                 Assert.deepStrictEqual(result.contracts, []);
             },
-            "no .docs/flanders file leaks into rules"(result) {
+            "no .spec/flanders file leaks into rules"(result) {
                 Assert.deepStrictEqual(result.rules, []);
             }
         }
@@ -150,10 +150,10 @@ test.describe("discoverSpecs", test => {
             const { script, spawns } = recordingScript((args, proc) => {
                 setImmediate(() => {
                     if (args[0] === "ls-files") {
-                        proc.$emitStdout(".docs/contracts/c-c.md\0.docs/contracts/c-b.md\0.docs/contracts/c-a.md\0.docs/rules/r-b.md\0.docs/rules/r-a.md\0");
+                        proc.$emitStdout(".spec/contracts/c-c.md\0.spec/contracts/c-b.md\0.spec/contracts/c-a.md\0.spec/rules/r-b.md\0.spec/rules/r-a.md\0");
                         proc.$emit("exit", 0);
                     } else {
-                        proc.$emitStdout(".docs/contracts/c-c.md\0");
+                        proc.$emitStdout(".spec/contracts/c-c.md\0");
                         proc.$emit("exit", 0);
                     }
                 });
@@ -165,10 +165,10 @@ test.describe("discoverSpecs", test => {
         },
         ASSERTS: {
             "contracts drop the ignored candidate and come back sorted ascending"(result) {
-                Assert.deepStrictEqual(result.contracts, [".docs/contracts/c-a.md", ".docs/contracts/c-b.md"]);
+                Assert.deepStrictEqual(result.contracts, [".spec/contracts/c-a.md", ".spec/contracts/c-b.md"]);
             },
             "rules come back sorted ascending"(result) {
-                Assert.deepStrictEqual(result.rules, [".docs/rules/r-a.md", ".docs/rules/r-b.md"]);
+                Assert.deepStrictEqual(result.rules, [".spec/rules/r-a.md", ".spec/rules/r-b.md"]);
             }
         }
     });
@@ -178,7 +178,7 @@ test.describe("discoverSpecs", test => {
             const { script, spawns } = recordingScript((args, proc) => {
                 setImmediate(() => {
                     if (args[0] === "ls-files") {
-                        proc.$emitStdout(".docs/contracts/c1.md\0src/x/.docs/rules/r1.md\0README.md\0");
+                        proc.$emitStdout(".spec/contracts/c1.md\0src/x/.spec/rules/r1.md\0README.md\0");
                         proc.$emit("exit", 0);
                     } else {
                         proc.$emit("exit", 1);
@@ -201,7 +201,7 @@ test.describe("discoverSpecs", test => {
                 Assert.deepStrictEqual({ command: spawns[1]!.command, args: spawns[1]!.args }, { command: "git", args: ["check-ignore", "-z", "--stdin"] });
             },
             "check-ignore receives the classified candidates NUL-joined on stdin"(_result, { spawns }) {
-                Assert.deepStrictEqual(spawns[1]!.proc.$stdinWrites(), [".docs/contracts/c1.md\0src/x/.docs/rules/r1.md\0"]);
+                Assert.deepStrictEqual(spawns[1]!.proc.$stdinWrites(), [".spec/contracts/c1.md\0src/x/.spec/rules/r1.md\0"]);
             },
             "both spawns run in the project root"(_result, { spawns }) {
                 Assert.deepStrictEqual([spawns[0]!.cwd, spawns[1]!.cwd], [ROOT, ROOT]);
@@ -209,15 +209,15 @@ test.describe("discoverSpecs", test => {
         }
     });
 
-    test("folds .docs/flanders candidates into the same check-ignore pass, drops the ignored one, and returns the survivors sorted", {
+    test("folds .spec/flanders candidates into the same check-ignore pass, drops the ignored one, and returns the survivors sorted", {
         ARRANGE() {
             const { script, spawns } = recordingScript((args, proc) => {
                 setImmediate(() => {
                     if (args[0] === "ls-files") {
-                        proc.$emitStdout(".docs/contracts/c-a.md\0.docs/rules/r-a.md\0.docs/flanders/f-b.md\0.docs/flanders/f-a.md\0.docs/flanders/ignored.md\0");
+                        proc.$emitStdout(".spec/contracts/c-a.md\0.spec/rules/r-a.md\0.spec/flanders/f-b.md\0.spec/flanders/f-a.md\0.spec/flanders/ignored.md\0");
                         proc.$emit("exit", 0);
                     } else {
-                        proc.$emitStdout(".docs/flanders/ignored.md\0");
+                        proc.$emitStdout(".spec/flanders/ignored.md\0");
                         proc.$emit("exit", 0);
                     }
                 });
@@ -229,10 +229,10 @@ test.describe("discoverSpecs", test => {
         },
         ASSERTS: {
             "flanders drops the ignored behavior rule and comes back sorted ascending"(result) {
-                Assert.deepStrictEqual(result.flanders, [".docs/flanders/f-a.md", ".docs/flanders/f-b.md"]);
+                Assert.deepStrictEqual(result.flanders, [".spec/flanders/f-a.md", ".spec/flanders/f-b.md"]);
             },
             "the behavior-rule candidates are folded into the same check-ignore stdin after contracts and rules"(_result, { spawns }) {
-                Assert.deepStrictEqual(spawns[1]!.proc.$stdinWrites(), [".docs/contracts/c-a.md\0.docs/rules/r-a.md\0.docs/flanders/f-b.md\0.docs/flanders/f-a.md\0.docs/flanders/ignored.md\0"]);
+                Assert.deepStrictEqual(spawns[1]!.proc.$stdinWrites(), [".spec/contracts/c-a.md\0.spec/rules/r-a.md\0.spec/flanders/f-b.md\0.spec/flanders/f-a.md\0.spec/flanders/ignored.md\0"]);
             },
             "folding the behavior rules triggers no extra git spawn beyond ls-files then check-ignore"(_result, { spawns }) {
                 Assert.deepStrictEqual(spawns.map(s => s.args[0]), ["ls-files", "check-ignore"]);
@@ -240,7 +240,7 @@ test.describe("discoverSpecs", test => {
         }
     });
 
-    test("with no .docs candidates, resolves two empty lists and records only the ls-files spawn", {
+    test("with no .spec candidates, resolves two empty lists and records only the ls-files spawn", {
         ARRANGE() {
             const { script, spawns } = recordingScript((_args, proc) => {
                 setImmediate(() => {

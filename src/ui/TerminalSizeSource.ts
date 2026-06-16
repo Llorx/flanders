@@ -22,8 +22,8 @@ const FALLBACK_ROWS = 24;
 // native notification is never delivered (the case on Windows consoles for a
 // drag-resize). The native notification is kept as an additional, faster path.
 //
-// See src/.docs/rules/terminal/current-terminal-width-reflects-the-real-terminal.md
-// and src/.docs/rules/terminal/resize-refit-not-solely-from-the-runtime-resize-event.md.
+// See src/.spec/rules/terminal/current-terminal-width-reflects-the-real-terminal.md
+// and src/.spec/rules/terminal/resize-refit-not-solely-from-the-runtime-resize-event.md.
 export class TerminalSizeSource {
     #teardowns = new Set<() => void>();
 

@@ -19,18 +19,18 @@ test.describe("skills – planSkillBody", test => {
         }
     });
 
-    test("covers .docs discovery as the canonical contracts reference", {
+    test("covers .spec discovery as the canonical contracts reference", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            "instructs recursive .docs discovery across the project tree"(body) {
-                Assert.ok(body.includes("Discover every directory named \`.docs\` across the whole project tree at every depth"), "step 2 must instruct recursive .docs discovery at every depth");
+            "instructs recursive .spec discovery across the project tree"(body) {
+                Assert.ok(body.includes("Discover every directory named \`.spec\` across the whole project tree at every depth"), "step 2 must instruct recursive .spec discovery at every depth");
             },
             "names the git-ignore exclusion"(body) {
                 Assert.ok(body.includes("excluding every path the project's git ignore rules exclude"), "step 2 must exclude git-ignored paths");
             },
-            ".docs/contracts subfolders form the canonical contracts listing"(body) {
-                Assert.ok(body.includes("the files under each \`.docs/contracts\` subfolder form the canonical contracts listing"), "step 2 must build the contracts listing from .docs/contracts subfolders");
+            ".spec/contracts subfolders form the canonical contracts listing"(body) {
+                Assert.ok(body.includes("the files under each \`.spec/contracts\` subfolder form the canonical contracts listing"), "step 2 must build the contracts listing from .spec/contracts subfolders");
             }
         }
     });
@@ -227,21 +227,21 @@ Every message you address to the user during the run — your clarifying questio
             "has missing contracts or rules section"(body) {
                 Assert.ok(body.includes("Missing contracts or rules"), "must have missing contracts or rules section");
             },
-            "warns when no .docs/contracts folder contains any file"(body) {
-                Assert.ok(body.includes("no \`.docs/contracts\` folder contains any file"), "must warn when no .docs/contracts folder contains any file");
+            "warns when no .spec/contracts folder contains any file"(body) {
+                Assert.ok(body.includes("no \`.spec/contracts\` folder contains any file"), "must warn when no .spec/contracts folder contains any file");
             },
-            "warns when no .docs/rules folder contains any file"(body) {
-                Assert.ok(body.includes("no \`.docs/rules\` folder contains any file"), "must warn when no .docs/rules folder contains any file");
+            "warns when no .spec/rules folder contains any file"(body) {
+                Assert.ok(body.includes("no \`.spec/rules\` folder contains any file"), "must warn when no .spec/rules folder contains any file");
             }
         }
     });
 
-    test("covers .docs discovery as the canonical rules reference", {
+    test("covers .spec discovery as the canonical rules reference", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            ".docs/rules subfolders form the canonical rules listing"(body) {
-                Assert.ok(body.includes("the files under each \`.docs/rules\` subfolder form the canonical rules listing"), "step 2 must build the rules listing from .docs/rules subfolders");
+            ".spec/rules subfolders form the canonical rules listing"(body) {
+                Assert.ok(body.includes("the files under each \`.spec/rules\` subfolder form the canonical rules listing"), "step 2 must build the rules listing from .spec/rules subfolders");
             },
             "identifies each file by its namespace"(body) {
                 Assert.ok(body.includes("each file is identified by its namespace"), "step 2 must identify each file by its namespace");
@@ -250,20 +250,20 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(body.includes("its path relative to the project root"), "step 2 must define the namespace as the project-root-relative path");
             },
             "keeps same-leaf-filename specs distinct by namespace"(body) {
-                Assert.ok(body.includes("files sharing a leaf filename in different \`.docs\` folders stay distinct"), "step 2 must keep same-leaf-filename specs in different .docs folders distinct");
+                Assert.ok(body.includes("files sharing a leaf filename in different \`.spec\` folders stay distinct"), "step 2 must keep same-leaf-filename specs in different .spec folders distinct");
             }
         }
     });
 
-    test("step 2 builds the behavior-rule listing from .docs/flanders subfolders", {
+    test("step 2 builds the behavior-rule listing from .spec/flanders subfolders", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            "the files under each .docs/flanders subfolder form the behavior-rule listing"(body) {
-                Assert.ok(body.includes("the files under each \`.docs/flanders\` subfolder form the behavior-rule listing"), "step 2 must build the behavior-rule listing from .docs/flanders subfolders");
+            "the files under each .spec/flanders subfolder form the behavior-rule listing"(body) {
+                Assert.ok(body.includes("the files under each \`.spec/flanders\` subfolder form the behavior-rule listing"), "step 2 must build the behavior-rule listing from .spec/flanders subfolders");
             },
-            "treats every file inside a .docs/flanders folder at any depth as a behavior rule"(body) {
-                Assert.ok(body.includes("treating every file inside a \`.docs/flanders\` folder at any depth as a behavior rule"), "step 2 must treat every file inside a .docs/flanders folder at any depth as a behavior rule");
+            "treats every file inside a .spec/flanders folder at any depth as a behavior rule"(body) {
+                Assert.ok(body.includes("treating every file inside a \`.spec/flanders\` folder at any depth as a behavior rule"), "step 2 must treat every file inside a .spec/flanders folder at any depth as a behavior rule");
             }
         }
     });
@@ -273,10 +273,10 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return planSkillBody; },
         ASSERTS: {
             "reads every in-scope behavior rule before persisting the plan file"(body) {
-                Assert.ok(body.includes("Before persisting the plan file, read every behavior rule whose \`.docs/flanders\` scope encloses the plan file you are about to write"), "must read every in-scope behavior rule before persisting the plan file");
+                Assert.ok(body.includes("Before persisting the plan file, read every behavior rule whose \`.spec/flanders\` scope encloses the plan file you are about to write"), "must read every in-scope behavior rule before persisting the plan file");
             },
-            "scopes the read to the project-root .docs folder and any other enclosing .docs folder"(body) {
-                Assert.ok(body.includes("the project-root \`.docs\` folder and any other \`.docs\` folder whose scope encloses the \`plans/\` target"), "must scope behavior-rule reading to the project-root .docs folder and any other .docs folder enclosing the plans/ target");
+            "scopes the read to the project-root .spec folder and any other enclosing .spec folder"(body) {
+                Assert.ok(body.includes("the project-root \`.spec\` folder and any other \`.spec\` folder whose scope encloses the \`plans/\` target"), "must scope behavior-rule reading to the project-root .spec folder and any other .spec folder enclosing the plans/ target");
             },
             "behavior rules govern how the skill names and organizes the plan file it authors"(body) {
                 Assert.ok(body.includes("Behavior rules govern how you name and organize the plan file you author"), "behavior rules must govern naming and organization of the authored plan file");
@@ -342,11 +342,11 @@ Every message you address to the user during the run — your clarifying questio
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            "prohibits task content from touching .docs/contracts folders"(body) {
-                Assert.ok(body.includes("inside any \`.docs/contracts\` folder"), "must prohibit tasks from touching .docs/contracts folders");
+            "prohibits task content from touching .spec/contracts folders"(body) {
+                Assert.ok(body.includes("inside any \`.spec/contracts\` folder"), "must prohibit tasks from touching .spec/contracts folders");
             },
-            "prohibits task content from touching .docs/rules folders"(body) {
-                Assert.ok(body.includes("any \`.docs/rules\` folder"), "must prohibit tasks from touching .docs/rules folders");
+            "prohibits task content from touching .spec/rules folders"(body) {
+                Assert.ok(body.includes("any \`.spec/rules\` folder"), "must prohibit tasks from touching .spec/rules folders");
             },
             "prohibits task content from touching the plans/ folder"(body) {
                 Assert.ok(body.includes("or the \`plans/\` folder"), "must prohibit tasks from touching the plans/ folder");
@@ -452,9 +452,9 @@ Every message you address to the user during the run — your clarifying questio
             "lists Spec-folder write boundary check"(body) {
                 Assert.ok(body.includes("3. Spec-folder write boundary"), "must list Spec-folder write boundary check");
             },
-            "category 3 names the .docs spec folders and plans/"(body) {
+            "category 3 names the .spec spec folders and plans/"(body) {
                 const category3 = body.slice(body.indexOf("3. Spec-folder write boundary"), body.indexOf("4. Plan content rules"));
-                Assert.ok(category3.includes("renames any file inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder"), "validator category 3 must name the .docs/contracts, .docs/rules, and plans/ folders");
+                Assert.ok(category3.includes("renames any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder"), "validator category 3 must name the .spec/contracts, .spec/rules, and plans/ folders");
             },
             "lists Plan content rules check"(body) {
                 Assert.ok(body.includes("4. Plan content rules"), "must list Plan content rules check");
@@ -626,7 +626,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(body.includes("does NOT carry its own checkbox"), "must inline the leaf/parent distinction");
             },
             "inlines the spec-folder write boundary for tasks"(body) {
-                Assert.ok(body.includes("No task may describe work that creates, modifies, deletes, or renames files inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder"), "must inline the spec-folder write boundary");
+                Assert.ok(body.includes("No task may describe work that creates, modifies, deletes, or renames files inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder"), "must inline the spec-folder write boundary");
             },
             "On FAIL triage step"(body) {
                 Assert.ok(body.includes("Triage each issue"), "must describe the triage step");
@@ -662,14 +662,14 @@ Every message you address to the user during the run — your clarifying questio
             "describes cross-cutting convention outcome"(body) {
                 Assert.ok(body.includes("Cross-cutting convention"), "must describe cross-cutting convention outcome");
             },
-            "routes a cross-cutting convention to a .docs/rules folder"(body) {
-                Assert.ok(body.includes("belongs in a \`.docs/rules\` folder"), "a cross-cutting convention must belong in a .docs/rules folder");
+            "routes a cross-cutting convention to a .spec/rules folder"(body) {
+                Assert.ok(body.includes("belongs in a \`.spec/rules\` folder"), "a cross-cutting convention must belong in a .spec/rules folder");
             },
             "describes plan-local outcome"(body) {
                 Assert.ok(body.includes("Plan-local implementation choice"), "must describe plan-local outcome");
             },
-            "prohibits writing to .docs/rules or .docs/contracts folders"(body) {
-                Assert.ok(body.includes("never writes to any \`.docs/rules\` or \`.docs/contracts\` folder"), "must prohibit writing to .docs/rules or .docs/contracts folders");
+            "prohibits writing to .spec/rules or .spec/contracts folders"(body) {
+                Assert.ok(body.includes("never writes to any \`.spec/rules\` or \`.spec/contracts\` folder"), "must prohibit writing to .spec/rules or .spec/contracts folders");
             }
         }
     });
@@ -1076,27 +1076,27 @@ test.describe("skills – specSkillBody", test => {
             "classifies boundary behavior as a contract and internal guidance as a rule"(body) {
                 Assert.ok(body.includes("public behavior across a scope's boundary is a contract, internal implementation guidance is a rule"), "must classify scope-boundary behavior as a contract and internal guidance as a rule");
             },
-            "places a spec in the lowest enclosing directory's .docs folder"(body) {
-                Assert.ok(body.includes("the spec lands in the \`.docs\` folder of the lowest directory that encloses all the code its obligation governs"), "must place a spec in the lowest enclosing directory's .docs folder");
+            "places a spec in the lowest enclosing directory's .spec folder"(body) {
+                Assert.ok(body.includes("the spec lands in the \`.spec\` folder of the lowest directory that encloses all the code its obligation governs"), "must place a spec in the lowest enclosing directory's .spec folder");
             },
             "covers the one-directory placement case"(body) {
-                Assert.ok(body.includes("an obligation governing one directory goes in that directory's \`.docs\` folder"), "must cover the one-directory placement case");
+                Assert.ok(body.includes("an obligation governing one directory goes in that directory's \`.spec\` folder"), "must cover the one-directory placement case");
             },
             "covers the nearest-common-ancestor placement case"(body) {
-                Assert.ok(body.includes("an obligation spanning sibling directories goes in their nearest common ancestor's \`.docs\` folder"), "must cover the sibling/nearest-common-ancestor placement case");
+                Assert.ok(body.includes("an obligation spanning sibling directories goes in their nearest common ancestor's \`.spec\` folder"), "must cover the sibling/nearest-common-ancestor placement case");
             },
             "covers the project-boundary placement case"(body) {
-                Assert.ok(body.includes("an obligation about project-boundary behavior goes in the project-root \`.docs\` folder"), "must cover the project-boundary placement case");
+                Assert.ok(body.includes("an obligation about project-boundary behavior goes in the project-root \`.spec\` folder"), "must cover the project-boundary placement case");
             }
         }
     });
 
-    test("step 2 instructs recursive .docs discovery with git-ignore exclusion and root-relative namespaces", {
+    test("step 2 instructs recursive .spec discovery with git-ignore exclusion and root-relative namespaces", {
         ARRANGE() {},
         ACT() { return specSkillBody; },
         ASSERTS: {
-            "instructs recursive .docs discovery at every depth"(body) {
-                Assert.ok(body.includes("Discover every directory named \`.docs\` across the whole project tree at every depth"), "step 2 must instruct recursive .docs discovery at every depth");
+            "instructs recursive .spec discovery at every depth"(body) {
+                Assert.ok(body.includes("Discover every directory named \`.spec\` across the whole project tree at every depth"), "step 2 must instruct recursive .spec discovery at every depth");
             },
             "names the git-ignore exclusion"(body) {
                 Assert.ok(body.includes("excluding every path the project's git ignore rules exclude"), "step 2 must exclude git-ignored paths");
@@ -1110,15 +1110,15 @@ test.describe("skills – specSkillBody", test => {
         }
     });
 
-    test("step 2 builds the behavior-rule listing from .docs/flanders subfolders", {
+    test("step 2 builds the behavior-rule listing from .spec/flanders subfolders", {
         ARRANGE() {},
         ACT() { return specSkillBody; },
         ASSERTS: {
-            "the files under each .docs/flanders subfolder form the behavior-rule listing"(body) {
-                Assert.ok(body.includes("the files under each \`.docs/flanders\` subfolder form the behavior-rule listing"), "step 2 must build the behavior-rule listing from .docs/flanders subfolders");
+            "the files under each .spec/flanders subfolder form the behavior-rule listing"(body) {
+                Assert.ok(body.includes("the files under each \`.spec/flanders\` subfolder form the behavior-rule listing"), "step 2 must build the behavior-rule listing from .spec/flanders subfolders");
             },
-            "treats every file inside a .docs/flanders folder at any depth as a behavior rule"(body) {
-                Assert.ok(body.includes("treating every file inside a \`.docs/flanders\` folder at any depth as a behavior rule"), "step 2 must treat every file inside a .docs/flanders folder at any depth as a behavior rule");
+            "treats every file inside a .spec/flanders folder at any depth as a behavior rule"(body) {
+                Assert.ok(body.includes("treating every file inside a \`.spec/flanders\` folder at any depth as a behavior rule"), "step 2 must treat every file inside a .spec/flanders folder at any depth as a behavior rule");
             }
         }
     });
@@ -1128,10 +1128,10 @@ test.describe("skills – specSkillBody", test => {
         ACT() { return specSkillBody; },
         ASSERTS: {
             "reads every in-scope behavior rule before persisting any file"(body) {
-                Assert.ok(body.includes("Before persisting any file, read every behavior rule whose \`.docs/flanders\` scope encloses each file you are about to write"), "must read every in-scope behavior rule before persisting any file");
+                Assert.ok(body.includes("Before persisting any file, read every behavior rule whose \`.spec/flanders\` scope encloses each file you are about to write"), "must read every in-scope behavior rule before persisting any file");
             },
-            "scopes the read to the target's .docs folder and every parent .docs folder"(body) {
-                Assert.ok(body.includes("the \`.docs\` folder you write the file into and every parent \`.docs\` folder"), "must scope behavior-rule reading to the target's .docs folder and every parent .docs folder");
+            "scopes the read to the target's .spec folder and every parent .spec folder"(body) {
+                Assert.ok(body.includes("the \`.spec\` folder you write the file into and every parent \`.spec\` folder"), "must scope behavior-rule reading to the target's .spec folder and every parent .spec folder");
             },
             "behavior rules govern how the skill names, places, and organizes the files it authors"(body) {
                 Assert.ok(body.includes("Behavior rules govern how you name, place, and organize the files you author"), "behavior rules must govern naming, placement, and organization of the authored files");
@@ -1147,10 +1147,10 @@ test.describe("skills – specSkillBody", test => {
         ACT() { return specSkillBody; },
         ASSERTS: {
             "names no root contracts/ path"(body) {
-                Assert.ok(!body.includes("contracts/"), "every contracts reference must be a .docs/contracts folder, never a root contracts/ path");
+                Assert.ok(!body.includes("contracts/"), "every contracts reference must be a .spec/contracts folder, never a root contracts/ path");
             },
             "names no root rules/ path"(body) {
-                Assert.ok(!body.includes("rules/"), "every rules reference must be a .docs/rules folder, never a root rules/ path");
+                Assert.ok(!body.includes("rules/"), "every rules reference must be a .spec/rules folder, never a root rules/ path");
             }
         }
     });
@@ -1199,11 +1199,11 @@ test.describe("skills – specSkillBody", test => {
         }
     });
 
-    test("restricts writes to .docs/contracts and .docs/rules folders only", {
+    test("restricts writes to .spec/contracts and .spec/rules folders only", {
         ARRANGE() {},
         ACT() { return specSkillBody; },
         ASSERT(body) {
-            Assert.ok(body.includes("must not write, modify, or delete any source code or any file outside the project's \`.docs/contracts\` and \`.docs/rules\` folders"), "must restrict writes to the project's .docs/contracts and .docs/rules folders");
+            Assert.ok(body.includes("must not write, modify, or delete any source code or any file outside the project's \`.spec/contracts\` and \`.spec/rules\` folders"), "must restrict writes to the project's .spec/contracts and .spec/rules folders");
         }
     });
 
@@ -1553,8 +1553,8 @@ test.describe("skills – workSkillBody", test => {
             "honors every contract, rule, and behavior rule whose scope the changes touch"(body) {
                 Assert.ok(body.includes("Honor every contract, rule, and behavior rule in the project's spec corpus whose scope your changes touch"), "must honor every contract, rule, and behavior rule whose scope the changes touch");
             },
-            "discovers the corpus across the project's .docs folders"(body) {
-                Assert.ok(body.includes("discovered across the project's \`.docs\` folders"), "must discover the corpus across the project's .docs folders");
+            "discovers the corpus across the project's .spec folders"(body) {
+                Assert.ok(body.includes("discovered across the project's \`.spec\` folders"), "must discover the corpus across the project's .spec folders");
             },
             "applies whether or not the request names them"(body) {
                 Assert.ok(body.includes("whether or not the request names them"), "must apply whether or not the request names them");
@@ -1822,7 +1822,7 @@ test.describe("skills – workSkillBody", test => {
         ACT() { return workSkillBody; },
         ASSERTS: {
             "binds both the work and the reviewer subagent"(body) {
-                Assert.ok(body.includes("Neither the work you perform nor the reviewer subagent creates, modifies, deletes, or renames any file inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder."), "must forbid the work and the reviewer from writing inside .docs/contracts, .docs/rules, or plans/");
+                Assert.ok(body.includes("Neither the work you perform nor the reviewer subagent creates, modifies, deletes, or renames any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder."), "must forbid the work and the reviewer from writing inside .spec/contracts, .spec/rules, or plans/");
             },
             "allows reading the spec corpus but never writing to it"(body) {
                 Assert.ok(body.includes("consult them freely but never write to them"), "must allow consulting the spec corpus but never writing to it");

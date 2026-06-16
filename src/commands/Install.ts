@@ -116,7 +116,7 @@ type ClaudeModelFamily = Readonly<{ family:string; entries:readonly ClaudeModelE
 // persist the alias string — then its pinned-version identifiers, each pinning a specific release
 // and persisting the full model identifier. A `[1m context]` entry is offered only for a model that
 // supports a 1M-context window. Display labels are distinct from the persisted values. Pinned by
-// `src/commands/.docs/rules/install/model-list-discovery.md`.
+// `src/commands/.spec/rules/install/model-list-discovery.md`.
 const CLAUDE_MODEL_FAMILIES:readonly ClaudeModelFamily[] = [
     {
         family: "Opus",
@@ -160,7 +160,7 @@ const CLAUDE_MODEL_FAMILIES:readonly ClaudeModelFamily[] = [
 
 // Cross-family aliases that do not belong to a single model family; each persists the alias string.
 // Rendered as top-level direct selections after the family entries. Pinned by
-// `src/commands/.docs/rules/install/model-list-discovery.md`.
+// `src/commands/.spec/rules/install/model-list-discovery.md`.
 const CLAUDE_CROSS_FAMILY_ALIASES:readonly ClaudeModelEntry[] = [
     { label: "Best (auto-pick)", value: "best" }
 ];

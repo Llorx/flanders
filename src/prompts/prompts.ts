@@ -106,7 +106,7 @@ ${s.readOnlyParagraph}`;
 2. A contract referenced by ${s.specRef} is not honored.
 3. A rule referenced by ${s.specRef} is not applied in the changes — you have the positive obligation to verify that every referenced rule is actively applied; a referenced rule that is not applied is FAIL.
 4. A contract or rule from the global lists above that you determine should have been applied but was not, even if not referenced by ${s.specRef}, is FAIL.
-5. A behavior rule from the behavior-rule list above whose \`.docs/flanders\` scope encloses the files the working-tree changes touch is not honored by the changes, even if ${s.specRef} did not reference it, is FAIL.
+5. A behavior rule from the behavior-rule list above whose \`.spec/flanders\` scope encloses the files the working-tree changes touch is not honored by the changes, even if ${s.specRef} did not reference it, is FAIL.
 
 Exhaustiveness: do not stop at the first violation. Run every verification you are required to run and every additional check your judgment deems applicable, even after one of them has already produced a FAIL. The five conditions above and the ${s.critProtocolName} are executed in full on every invocation; encountering a violation in one of them does not exempt you from completing the rest. The goal is that a single review produces the complete list of fixes ${s.nextWorker} needs to apply.
 
@@ -235,13 +235,13 @@ If you cannot confidently determine how to build the project, leave the build sc
 
 ## Available rules
 
-Each path below is the rule's namespace. Before deciding the build or test commands, scan this list and open every rule whose scope governs how the project is built or how its tests are run — for example, any rule under a \`testing/\` or \`build/\` subfolder of a \`.docs/rules\` folder, or any rule that prescribes a specific runner, invocation form, required flag, or toolchain convention. Reading is not optional for rules whose scope matches build/test invocation. The commands you write must honor those rules: if a rule pins the test runner to a specific invocation form or required flag, the script you write must use that exact invocation.
+Each path below is the rule's namespace. Before deciding the build or test commands, scan this list and open every rule whose scope governs how the project is built or how its tests are run — for example, any rule under a \`testing/\` or \`build/\` subfolder of a \`.spec/rules\` folder, or any rule that prescribes a specific runner, invocation form, required flag, or toolchain convention. Reading is not optional for rules whose scope matches build/test invocation. The commands you write must honor those rules: if a rule pins the test runner to a specific invocation form or required flag, the script you write must use that exact invocation.
 
 ${Placeholders.RULE_LIST}
 
 Git boundary: you must not execute any git command that modifies repository state. Read-only git commands (\`git status\`, \`git log\`, \`git show\`, \`git diff\`, \`git blame\`, \`git ls-files\`) are allowed if they help you understand the project; commits, staging, branches, tags, stashes, resets, restores, merges, rebases, edits under \`.git/\`, and any remote git operation are forbidden. See rules/ai/agents/no-git-writes.md for the full obligation.
 
-Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
+Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
 
 ${foregroundBoundary}`,
 
@@ -261,7 +261,7 @@ Your output will be inspected by an adversarial reviewer immediately after you f
 2. A contract referenced by the task is not honored.
 3. A rule referenced by the task is not actively applied — acknowledging a rule is not enough; the changes must demonstrate compliance.
 4. A contract or rule from the global lists below that the reviewer determines should have been applied but was not — even if the task did not reference it.
-5. A behavior rule from the behavior-rule list below whose \`.docs/flanders\` scope encloses the files your changes touch is not honored by the changes — in-scope behavior rules are mandatory whether or not the task links them.
+5. A behavior rule from the behavior-rule list below whose \`.spec/flanders\` scope encloses the files your changes touch is not honored by the changes — in-scope behavior rules are mandatory whether or not the task links them.
 
 Condition 4 causes most rejections in practice. Rules whose scope matches your changes (testing rules when you touch tests, disposable rules when you touch async resources, UI rules when you change terminal output, etc.) are mandatory whether the task links them or not. Treat the global contract and rule lists below as part of your specification, not as optional reading. The reviewer will also enumerate every occurrence of a pattern violation, not just the first one, so partial compliance within a file is itself a FAIL.
 
@@ -297,7 +297,7 @@ Do not flip the task's checkbox in the plan file. Flanders flips the checkbox it
 
 Git boundary: you must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, \`git rebase\`, \`git merge\`, \`git cherry-pick\`, no edits under \`.git/\`, and no remote git operations (\`fetch\`, \`pull\`, \`push\`). Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed when you need to inspect the repo. Leave your implementation as a dirty working tree — Flanders performs the commit itself once your changes pass build, test, and review. If your task seems to require a git write, stop and explain it in your final message instead of doing it. The full obligation lives in rules/ai/agents/no-git-writes.md.
 
-Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
+Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
 
 ${foregroundBoundary}
 
@@ -315,7 +315,7 @@ ${Placeholders.RULE_LIST}
 
 ## Available behavior rules
 
-Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes you author are named, placed, and organized within the part of the project tree that the rule's \`.docs/flanders\` folder scopes. You must honor every behavior rule whose \`.docs/flanders\` scope encloses the files your changes touch. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them; the reviewer FAILS for any in-scope behavior rule the changes do not honor.
+Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes you author are named, placed, and organized within the part of the project tree that the rule's \`.spec/flanders\` folder scopes. You must honor every behavior rule whose \`.spec/flanders\` scope encloses the files your changes touch. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them; the reviewer FAILS for any in-scope behavior rule the changes do not honor.
 
 ${Placeholders.BEHAVIOR_RULE_LIST}`,
 
@@ -347,7 +347,7 @@ ${Placeholders.RULE_LIST}
 
 ## Available behavior rules
 
-Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes the worker authored are named, placed, and organized within the part of the project tree that the rule's \`.docs/flanders\` folder scopes. You must verify that the working-tree changes honor every behavior rule whose \`.docs/flanders\` scope encloses the files they touch. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them.
+Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes the worker authored are named, placed, and organized within the part of the project tree that the rule's \`.spec/flanders\` folder scopes. You must verify that the working-tree changes honor every behavior rule whose \`.spec/flanders\` scope encloses the files they touch. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them.
 
 ${Placeholders.BEHAVIOR_RULE_LIST}
 
@@ -355,7 +355,7 @@ ${implementReviewerMethodology.audit}
 
 Git boundary: you are an inspection-only agent. You must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, no edits under \`.git/\`, and no remote git operations. Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed and are how you should inspect the worker's changes. The full obligation lives in rules/ai/agents/no-git-writes.md.
 
-Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
+Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
 
 ${foregroundBoundary}`,
 
@@ -381,7 +381,7 @@ You must not implement, modify, or write anything in the project. Do not use Edi
 
 ## Spec-folder write boundary
 
-You must not write to any \`.docs/contracts\` folder, any \`.docs/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may create, modify, delete, or rename files in them. See shared/spec-folder-write-authority.md for the full obligation.
+You must not write to any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may create, modify, delete, or rename files in them. See shared/spec-folder-write-authority.md for the full obligation.
 
 ## Git boundary
 
@@ -403,7 +403,7 @@ ${Placeholders.RULE_LIST}
 
 ## Available behavior rules
 
-Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes Flanders authors are named, placed, and organized within the part of the project tree that the rule's \`.docs/flanders\` folder scopes; every behavior rule whose \`.docs/flanders\` scope encloses the files this task's work touches must be honored. Read all of those in-scope behavior rules now, so the worker and reviewer forked from this session honor them. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them.
+Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes Flanders authors are named, placed, and organized within the part of the project tree that the rule's \`.spec/flanders\` folder scopes; every behavior rule whose \`.spec/flanders\` scope encloses the files this task's work touches must be honored. Read all of those in-scope behavior rules now, so the worker and reviewer forked from this session honor them. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them.
 
 ${Placeholders.BEHAVIOR_RULE_LIST}
 
