@@ -368,7 +368,22 @@ test.describe("probeModelList", test => {
         }
     });
 
-    test("codex with a non-zero exit that is not a command-not-found signal resolves to no-list", {
+    test("codex with a non-zero exit, no usable catalog, and no command-not-found signal resolves to no-list", {
+        ARRANGE() {
+            return makeProbeStub({
+                stdout: "codex: unexpected internal failure",
+                exitCode: 1
+            });
+        },
+        async ACT({ script }) {
+            return await probeModelList(script);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { kind: "no-list" });
+        }
+    });
+
+    test("codex returning a usable catalog is accepted regardless of a non-zero exit code", {
         ARRANGE() {
             return makeProbeStub({
                 stdout: '{"models":[{"slug":"a","visibility":"list"}]}',
@@ -379,7 +394,22 @@ test.describe("probeModelList", test => {
             return await probeModelList(script);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { kind: "no-list" });
+            Assert.deepStrictEqual(result, { kind: "list", models: ["a"] });
+        }
+    });
+
+    test("codex catalog carrying a command-not-found phrase inside its payload is still parsed into a list", {
+        ARRANGE() {
+            return makeProbeStub({
+                stdout: '{"models":[{"slug":"gpt-x","visibility":"list","base_instructions":"If the rg command is not found, use grep instead."}]}',
+                exitCode: 0
+            });
+        },
+        async ACT({ script }) {
+            return await probeModelList(script);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { kind: "list", models: ["gpt-x"] });
         }
     });
 
