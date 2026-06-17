@@ -1,6 +1,6 @@
 {
   "name": "flanders",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Stubborn and smart plan implementation looper using AI",
   "main": "lib/",
   "types": "lib/types",
