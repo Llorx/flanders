@@ -129,7 +129,7 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
 
     private _receivedAnyEvent = false;
     private _fallbackAttempted = false;
-    private _usedResumeOrFork = false;
+    private _usedResume = false;
 
     constructor(
         private _args:ToolAdapterInvokeArgs,
@@ -140,10 +140,9 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
 
     private _start(useExecFallback:boolean):void {
         const isResume = !useExecFallback && !!this._args.resumeSessionId;
-        const isFork = !useExecFallback && !!this._args.forkParentSessionId;
-        this._usedResumeOrFork = isResume || isFork;
+        this._usedResume = isResume;
 
-        const argv = this._buildArgv(isResume, isFork);
+        const argv = this._buildArgv(isResume);
         const spawnOptions:SpawnOptions = { stdio: "pipe" };
         const proc = this._contexts.script.spawn("codex", argv, spawnOptions);
         this._proc = proc;
@@ -190,18 +189,18 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
                 return;
             }
 
-            if (this._usedResumeOrFork && !this._receivedAnyEvent && !this._fallbackAttempted) {
+            if (this._usedResume && !this._receivedAnyEvent && !this._fallbackAttempted) {
                 this._fallbackAttempted = true;
                 this._queue.push({
                     type: "output",
                     title: "Continuity lost",
                     subtitle: "",
-                    details: "codex resume/fork unavailable in installed CLI"
+                    details: "codex resume unavailable in installed CLI"
                 });
                 this._cleanup();
                 this._sawTurnCompleted = false;
                 this._receivedAnyEvent = false;
-                this._usedResumeOrFork = false;
+                this._usedResume = false;
                 exitResolve?.();
                 this._start(true);
                 this._wake();
@@ -243,13 +242,11 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
         }
     }
 
-    private _buildArgv(isResume:boolean, isFork:boolean):string[] {
+    private _buildArgv(isResume:boolean):string[] {
         const argv:string[] = [];
 
         if (isResume) {
             argv.push("resume", this._args.resumeSessionId!);
-        } else if (isFork) {
-            argv.push("fork", this._args.forkParentSessionId!);
         } else {
             argv.push("exec");
         }

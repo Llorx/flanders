@@ -432,19 +432,6 @@ test.describe("AiSession", test => {
         }
     });
 
-    test("passes forkParentSessionId to adapter", {
-        ARRANGE() {
-            const events:ToolEvent[] = [{ type: "done" }];
-            return buildSession(events, { forkParentSessionId: "fork-1" });
-        },
-        async ACT({ session }) {
-            return await session.run();
-        },
-        ASSERT(_result, { $invokeArgs }) {
-            Assert.strictEqual($invokeArgs[0]!.forkParentSessionId, "fork-1");
-        }
-    });
-
     test("dispose aborts in-progress run", {
         ARRANGE() {
             const { adapter } = stubAdapter([

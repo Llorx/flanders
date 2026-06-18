@@ -234,8 +234,6 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
 
         if (this._args.resumeSessionId) {
             argv.push("--resume", this._args.resumeSessionId);
-        } else if (this._args.forkParentSessionId) {
-            argv.push("--resume", this._args.forkParentSessionId, "--fork-session");
         }
 
         if (this._args.model) {

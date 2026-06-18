@@ -208,26 +208,6 @@ test.describe("CodexAdapter", test => {
             }
         });
 
-        test("forkParentSessionId switches to fork subcommand", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts();
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs({ forkParentSessionId: "parent" });
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, emitTurnCompletedAndExit);
-            },
-            ASSERT(_result, { script }) {
-                Assert.deepStrictEqual(script.$spawned[0]!.args, [
-                    "fork", "parent", "--json",
-                    "-c", "approval_policy=never",
-                    "-c", "sandbox_mode=danger-full-access",
-                    "-"
-                ]);
-            }
-        });
-
         test("prompt is written to stdin and stdin is closed", {
             ARRANGE() {
                 const { contexts, script } = makeContexts();
@@ -1230,7 +1210,7 @@ test.describe("CodexAdapter", test => {
         }
     });
 
-    test("resume/fork fallback emits Continuity lost and retries with exec", {
+    test("resume fallback emits Continuity lost and retries with exec", {
         ARRANGE() {
             const { contexts, script } = makeContexts();
             const adapter = new CodexAdapter(contexts);
@@ -1260,7 +1240,7 @@ test.describe("CodexAdapter", test => {
                     type: "output",
                     title: "Continuity lost",
                     subtitle: "",
-                    details: "codex resume/fork unavailable in installed CLI"
+                    details: "codex resume unavailable in installed CLI"
                 });
             },
             "second spawn uses exec subcommand"(result) {

@@ -29,7 +29,6 @@ export type RunArgs = Readonly<{
     model:string;
     effort:string;
     resumeSessionId?:string;
-    forkParentSessionId?:string;
     abortSignal:AbortSignal;
     callbacks:RunCallbacks;
     time:TimeContext;
@@ -55,9 +54,7 @@ export async function run(args:RunArgs):Promise<RunResult> {
 
         let invokeArgs:ToolAdapterInvokeArgs;
         if (firstInvocation) {
-            if (args.forkParentSessionId) {
-                invokeArgs = { ...base, forkParentSessionId: args.forkParentSessionId };
-            } else if (args.resumeSessionId) {
+            if (args.resumeSessionId) {
                 invokeArgs = { ...base, resumeSessionId: args.resumeSessionId };
             } else {
                 invokeArgs = base;

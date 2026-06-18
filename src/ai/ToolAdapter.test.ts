@@ -27,18 +27,6 @@ test.describe("ToolAdapter types", test => {
         }
     });
 
-    test("ToolAdapterInvokeArgs rejects both resumeSessionId and forkParentSessionId", {
-        ARRANGE() {
-            // @ts-expect-error — supplying both resumeSessionId and forkParentSessionId is forbidden
-            const _bad = { prompt: "p", model: "m", effort: "e", abortSignal: AbortSignal.abort(), resumeSessionId: "r", forkParentSessionId: "f" } satisfies ToolAdapterInvokeArgs;
-            void _bad;
-        },
-        ACT() {},
-        ASSERT() {
-            Assert.ok(true);
-        }
-    });
-
     test("exhaustive switch over ToolEvent.type covers all five variants", {
         ARRANGE() {
             const events:readonly ToolEvent[] = [
@@ -83,19 +71,6 @@ test.describe("ToolAdapter types", test => {
         },
         ASSERT(result) {
             Assert.strictEqual(result.resumeSessionId, "r");
-        }
-    });
-
-    test("ToolAdapterInvokeArgs fork variant accepts forkParentSessionId", {
-        ARRANGE() {
-            const args:ToolAdapterInvokeArgs = { prompt: "p", model: "m", effort: "e", abortSignal: AbortSignal.abort(), forkParentSessionId: "f" };
-            return { args };
-        },
-        ACT({ args }) {
-            return args;
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result.forkParentSessionId, "f");
         }
     });
 

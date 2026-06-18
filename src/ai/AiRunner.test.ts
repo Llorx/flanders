@@ -445,49 +445,6 @@ test.describe("AiRunner", test => {
         }
     });
 
-    test("first invocation with forkParentSessionId passes fork args and retry uses resumeSessionId", {
-        ARRANGE() {
-            const stub = stubAdapter([
-                [
-                    { type: "session" as const, id: "sess-forked" },
-                    { type: "rate_limit" as const, waitUntilMs: 1000 }
-                ],
-                [{ type: "done" as const }]
-            ]);
-            const time = autoTimeContext();
-            const abort = new AbortController();
-            return { stub, time, abort };
-        },
-        async ACT({ stub, time, abort }) {
-            await run({
-                adapter: stub.adapter,
-                prompt: "test",
-                model: "",
-                effort: "",
-                forkParentSessionId: "parent-1",
-                abortSignal: abort.signal,
-                callbacks: { onOutput() {}, onSessionId() {} },
-                time
-            });
-            return {
-                firstForkId: (stub.$invokeArgs[0] as { forkParentSessionId?:string }).forkParentSessionId,
-                secondResumeId: (stub.$invokeArgs[1] as { resumeSessionId?:string }).resumeSessionId,
-                secondForkId: (stub.$invokeArgs[1] as { forkParentSessionId?:string }).forkParentSessionId
-            };
-        },
-        ASSERTS: {
-            "first invocation uses forkParentSessionId"(result) {
-                Assert.strictEqual(result.firstForkId, "parent-1");
-            },
-            "second invocation uses resumeSessionId from captured session"(result) {
-                Assert.strictEqual(result.secondResumeId, "sess-forked");
-            },
-            "second invocation does not have forkParentSessionId"(result) {
-                Assert.strictEqual(result.secondForkId, undefined);
-            }
-        }
-    });
-
     test("first invocation with resumeSessionId passes resume args", {
         ARRANGE() {
             const stub = stubAdapter([[{ type: "done" as const }]]);

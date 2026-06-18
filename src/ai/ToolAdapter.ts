@@ -44,23 +44,15 @@ type ToolAdapterInvokeArgsBase = Readonly<{
 
 export type ToolAdapterInvokeArgsFresh = ToolAdapterInvokeArgsBase & Readonly<{
     resumeSessionId?:undefined;
-    forkParentSessionId?:undefined;
 }>;
 
 export type ToolAdapterInvokeArgsResume = ToolAdapterInvokeArgsBase & Readonly<{
     resumeSessionId:string;
-    forkParentSessionId?:undefined;
-}>;
-
-export type ToolAdapterInvokeArgsFork = ToolAdapterInvokeArgsBase & Readonly<{
-    resumeSessionId?:undefined;
-    forkParentSessionId:string;
 }>;
 
 export type ToolAdapterInvokeArgs =
     | ToolAdapterInvokeArgsFresh
-    | ToolAdapterInvokeArgsResume
-    | ToolAdapterInvokeArgsFork;
+    | ToolAdapterInvokeArgsResume;
 
 export interface ToolAdapter {
     invoke(args:ToolAdapterInvokeArgs):AsyncIterable<ToolEvent>;

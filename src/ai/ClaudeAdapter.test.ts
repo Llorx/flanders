@@ -224,26 +224,6 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
-    test("fork invocation passes --resume <id> --fork-session", {
-        ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args:ToolAdapterInvokeArgs = { prompt: "p", model: "", effort: "", abortSignal: new AbortController().signal, forkParentSessionId: "parent-1" };
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            for await (const _ of iterable) { void _; }
-            return claude.$spawned[0]!.args;
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, ["--resume", "parent-1", "--fork-session", ...BASE_ARGV]);
-        }
-    });
-
     test("stdin is closed immediately after writing the prompt", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();

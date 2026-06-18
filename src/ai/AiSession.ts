@@ -18,7 +18,6 @@ export type AiSessionOptions = Readonly<{
     model:string;
     effort:string;
     resumeSessionId?:string|null;
-    forkParentSessionId?:string|null;
     onLongWaitStart?(kind:"rate-limit", endTimeMs:number):void;
     onLongWaitEnd?():void;
 }>;
@@ -110,7 +109,6 @@ export class AiSession {
                     model: this._options.model,
                     effort: this._options.effort,
                     ...(this._options.resumeSessionId != null ? { resumeSessionId: this._options.resumeSessionId } : null),
-                    ...(this._options.forkParentSessionId != null ? { forkParentSessionId: this._options.forkParentSessionId } : null),
                     abortSignal: controller.signal,
                     callbacks: {
                         onOutput,
