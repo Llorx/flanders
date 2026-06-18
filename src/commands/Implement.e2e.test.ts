@@ -264,8 +264,8 @@ type E2eResult = {
     promptQueue:string[];
 };
 
-test.describe("Implement e2e: both tools and both prep-optimization branches", test => {
-    test("shape 1: claude/claude (branch A) — prep active, worker and reviewer fork from prep", {
+test.describe("Implement e2e: deterministic injection across tools and configs", test => {
+    test("shape 1: claude/claude same triple — no prep, worker and reviewer are fresh and inline linked content", {
         ARRANGE() {
             const config:FlandersConfig = { worker: { tool: "claude", model: "m1", effort: "high" }, reviewers: [{ tool: "claude", model: "m1", effort: "high", optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
@@ -275,11 +275,9 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
             // [0] detect
             s.claudeQueue.push({ text: "no scripts" });
-            // [1] prep
-            s.claudeQueue.push({ text: "READY", sessionId: "prep-s1" });
-            // [2] worker
+            // [1] worker
             s.claudeQueue.push({ text: "worker done", sessionId: "worker-s1" });
-            // [3] reviewer
+            // [2] reviewer
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
@@ -293,40 +291,38 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "spawns 4 claude processes and 0 codex"({ claudeSpawnedArgs, codexSpawnedArgs }) {
-                Assert.strictEqual(claudeSpawnedArgs.length, 4);
+            "spawns 3 claude processes (detect, worker, reviewer) and 0 codex"({ claudeSpawnedArgs, codexSpawnedArgs }) {
+                Assert.strictEqual(claudeSpawnedArgs.length, 3);
                 Assert.strictEqual(codexSpawnedArgs.length, 0);
             },
-            "worker forks from prep session"({ claudeSpawnedArgs }) {
-                const workerArgs = claudeSpawnedArgs[2]!;
-                Assert.strictEqual(workerArgs[0], "--resume");
-                Assert.strictEqual(workerArgs[1], "prep-s1");
-                Assert.ok(workerArgs.includes("--fork-session"));
+            "worker is fresh — no --resume and no --fork-session"({ claudeSpawnedArgs }) {
+                const workerArgs = claudeSpawnedArgs[1]!;
+                Assert.ok(!workerArgs.includes("--resume"));
+                Assert.ok(!workerArgs.includes("--fork-session"));
             },
-            "reviewer forks from prep session"({ claudeSpawnedArgs }) {
-                const reviewerArgs = claudeSpawnedArgs[3]!;
-                Assert.strictEqual(reviewerArgs[0], "--resume");
-                Assert.strictEqual(reviewerArgs[1], "prep-s1");
-                Assert.ok(reviewerArgs.includes("--fork-session"));
+            "reviewer is fresh — no --resume and no --fork-session"({ claudeSpawnedArgs }) {
+                const reviewerArgs = claudeSpawnedArgs[2]!;
+                Assert.ok(!reviewerArgs.includes("--resume"));
+                Assert.ok(!reviewerArgs.includes("--fork-session"));
             },
-            "worker prompt does NOT inline linked content"({ promptQueue }) {
-                const workerPrompt = promptQueue[2]!;
-                Assert.ok(!workerPrompt.includes(CONTRACT_SNIPPET_1), "contract 1 must NOT be inlined in branch A");
-                Assert.ok(!workerPrompt.includes(CONTRACT_SNIPPET_2), "contract 2 must NOT be inlined in branch A");
-                Assert.ok(!workerPrompt.includes(RULE_SNIPPET_1), "rule 1 must NOT be inlined in branch A");
-                Assert.ok(!workerPrompt.includes(RULE_SNIPPET_2), "rule 2 must NOT be inlined in branch A");
+            "worker prompt inlines all linked content"({ promptQueue }) {
+                const workerPrompt = promptQueue[1]!;
+                Assert.ok(workerPrompt.includes(CONTRACT_SNIPPET_1), "contract 1 must be inlined");
+                Assert.ok(workerPrompt.includes(CONTRACT_SNIPPET_2), "contract 2 must be inlined");
+                Assert.ok(workerPrompt.includes(RULE_SNIPPET_1), "rule 1 must be inlined");
+                Assert.ok(workerPrompt.includes(RULE_SNIPPET_2), "rule 2 must be inlined");
             },
-            "reviewer prompt does NOT inline linked content"({ promptQueue }) {
-                const reviewerPrompt = promptQueue[3]!;
-                Assert.ok(!reviewerPrompt.includes(CONTRACT_SNIPPET_1));
-                Assert.ok(!reviewerPrompt.includes(CONTRACT_SNIPPET_2));
-                Assert.ok(!reviewerPrompt.includes(RULE_SNIPPET_1));
-                Assert.ok(!reviewerPrompt.includes(RULE_SNIPPET_2));
+            "reviewer prompt inlines all linked content"({ promptQueue }) {
+                const reviewerPrompt = promptQueue[2]!;
+                Assert.ok(reviewerPrompt.includes(CONTRACT_SNIPPET_1));
+                Assert.ok(reviewerPrompt.includes(CONTRACT_SNIPPET_2));
+                Assert.ok(reviewerPrompt.includes(RULE_SNIPPET_1));
+                Assert.ok(reviewerPrompt.includes(RULE_SNIPPET_2));
             }
         }
     });
 
-    test("shape 2: codex/codex (branch A) — prep active, all spawns use codex binary", {
+    test("shape 2: codex/codex same triple — no prep, all spawns use codex and inline linked content", {
         ARRANGE() {
             const config:FlandersConfig = { worker: { tool: "codex", model: "m2", effort: "low" }, reviewers: [{ tool: "codex", model: "m2", effort: "low", optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
@@ -336,11 +332,9 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
             // [0] detect (inherits worker tool = codex)
             s.codexQueue.push({ text: "no scripts" });
-            // [1] prep
-            s.codexQueue.push({ text: "READY", sessionId: "prep-s2" });
-            // [2] worker
+            // [1] worker
             s.codexQueue.push({ text: "worker done", sessionId: "worker-s2" });
-            // [3] reviewer
+            // [2] reviewer
             s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
@@ -354,38 +348,38 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
             "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "spawns 0 claude processes and 4 codex"({ claudeSpawnedArgs, codexSpawnedArgs }) {
+            "spawns 0 claude processes and 3 codex"({ claudeSpawnedArgs, codexSpawnedArgs }) {
                 Assert.strictEqual(claudeSpawnedArgs.length, 0);
-                Assert.strictEqual(codexSpawnedArgs.length, 4);
+                Assert.strictEqual(codexSpawnedArgs.length, 3);
             },
-            "worker forks from prep session via codex fork subcommand"({ codexSpawnedArgs }) {
-                const workerArgs = codexSpawnedArgs[2]!;
-                Assert.strictEqual(workerArgs[0], "fork");
-                Assert.strictEqual(workerArgs[1], "prep-s2");
+            "worker is fresh — no fork or resume subcommand"({ codexSpawnedArgs }) {
+                const workerArgs = codexSpawnedArgs[1]!;
+                Assert.ok(!workerArgs.includes("fork"));
+                Assert.ok(!workerArgs.includes("resume"));
             },
-            "reviewer forks from prep session via codex fork subcommand"({ codexSpawnedArgs }) {
-                const reviewerArgs = codexSpawnedArgs[3]!;
-                Assert.strictEqual(reviewerArgs[0], "fork");
-                Assert.strictEqual(reviewerArgs[1], "prep-s2");
+            "reviewer is fresh — no fork or resume subcommand"({ codexSpawnedArgs }) {
+                const reviewerArgs = codexSpawnedArgs[2]!;
+                Assert.ok(!reviewerArgs.includes("fork"));
+                Assert.ok(!reviewerArgs.includes("resume"));
             },
-            "worker prompt does NOT inline linked content"({ promptQueue }) {
-                const workerPrompt = promptQueue[2]!;
-                Assert.ok(!workerPrompt.includes(CONTRACT_SNIPPET_1));
-                Assert.ok(!workerPrompt.includes(CONTRACT_SNIPPET_2));
-                Assert.ok(!workerPrompt.includes(RULE_SNIPPET_1));
-                Assert.ok(!workerPrompt.includes(RULE_SNIPPET_2));
+            "worker prompt inlines all linked content"({ promptQueue }) {
+                const workerPrompt = promptQueue[1]!;
+                Assert.ok(workerPrompt.includes(CONTRACT_SNIPPET_1));
+                Assert.ok(workerPrompt.includes(CONTRACT_SNIPPET_2));
+                Assert.ok(workerPrompt.includes(RULE_SNIPPET_1));
+                Assert.ok(workerPrompt.includes(RULE_SNIPPET_2));
             },
-            "reviewer prompt does NOT inline linked content"({ promptQueue }) {
-                const reviewerPrompt = promptQueue[3]!;
-                Assert.ok(!reviewerPrompt.includes(CONTRACT_SNIPPET_1));
-                Assert.ok(!reviewerPrompt.includes(CONTRACT_SNIPPET_2));
-                Assert.ok(!reviewerPrompt.includes(RULE_SNIPPET_1));
-                Assert.ok(!reviewerPrompt.includes(RULE_SNIPPET_2));
+            "reviewer prompt inlines all linked content"({ promptQueue }) {
+                const reviewerPrompt = promptQueue[2]!;
+                Assert.ok(reviewerPrompt.includes(CONTRACT_SNIPPET_1));
+                Assert.ok(reviewerPrompt.includes(CONTRACT_SNIPPET_2));
+                Assert.ok(reviewerPrompt.includes(RULE_SNIPPET_1));
+                Assert.ok(reviewerPrompt.includes(RULE_SNIPPET_2));
             }
         }
     });
 
-    test("shape 3: claude/codex (branch B) — prep skipped, prompts inline linked content", {
+    test("shape 3: claude/codex — worker and reviewer are fresh and inline linked content", {
         ARRANGE() {
             const config:FlandersConfig = { worker: { tool: "claude", model: "m3", effort: "mid" }, reviewers: [{ tool: "codex", model: "m3", effort: "mid", optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
@@ -417,13 +411,13 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
             },
             "worker has no fork or resume args"({ claudeSpawnedArgs }) {
                 const workerArgs = claudeSpawnedArgs[1]!;
-                Assert.ok(!workerArgs.includes("--resume"), "worker must not have --resume in branch B");
-                Assert.ok(!workerArgs.includes("--fork-session"), "worker must not have --fork-session in branch B");
+                Assert.ok(!workerArgs.includes("--resume"), "worker must not have --resume");
+                Assert.ok(!workerArgs.includes("--fork-session"), "worker must not have --fork-session");
             },
             "reviewer has no fork or resume subcommand"({ codexSpawnedArgs }) {
                 const reviewerArgs = codexSpawnedArgs[0]!;
-                Assert.ok(!reviewerArgs.includes("fork"), "reviewer must not use fork in branch B");
-                Assert.ok(!reviewerArgs.includes("resume"), "reviewer must not use resume in branch B");
+                Assert.ok(!reviewerArgs.includes("fork"), "reviewer must not use fork");
+                Assert.ok(!reviewerArgs.includes("resume"), "reviewer must not use resume");
             },
             "worker prompt inlines all linked content"({ promptQueue }) {
                 const workerPrompt = promptQueue[1]!;
@@ -442,7 +436,7 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
         }
     });
 
-    test("shape 4: claude/claude different effort (branch B) — prep skipped, prompts inline linked content", {
+    test("shape 4: claude/claude with different effort — fresh worker and reviewer inline linked content", {
         ARRANGE() {
             const config:FlandersConfig = { worker: { tool: "claude", model: "m4", effort: "high" }, reviewers: [{ tool: "claude", model: "m4", effort: "low", optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
@@ -474,13 +468,13 @@ test.describe("Implement e2e: both tools and both prep-optimization branches", t
             },
             "worker has no fork or resume args"({ claudeSpawnedArgs }) {
                 const workerArgs = claudeSpawnedArgs[1]!;
-                Assert.ok(!workerArgs.includes("--resume"), "worker must not have --resume in branch B");
-                Assert.ok(!workerArgs.includes("--fork-session"), "worker must not have --fork-session in branch B");
+                Assert.ok(!workerArgs.includes("--resume"), "worker must not have --resume");
+                Assert.ok(!workerArgs.includes("--fork-session"), "worker must not have --fork-session");
             },
             "reviewer has no fork or resume args"({ claudeSpawnedArgs }) {
                 const reviewerArgs = claudeSpawnedArgs[2]!;
-                Assert.ok(!reviewerArgs.includes("--resume"), "reviewer must not have --resume in branch B");
-                Assert.ok(!reviewerArgs.includes("--fork-session"), "reviewer must not have --fork-session in branch B");
+                Assert.ok(!reviewerArgs.includes("--resume"), "reviewer must not have --resume");
+                Assert.ok(!reviewerArgs.includes("--fork-session"), "reviewer must not have --fork-session");
             },
             "worker prompt inlines all linked content"({ promptQueue }) {
                 const workerPrompt = promptQueue[1]!;

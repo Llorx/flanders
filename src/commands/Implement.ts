@@ -92,7 +92,6 @@ export class Implement {
     private _block:BottomBlock|null = null;
     private _buffered!:LineBufferedBlock;
     private _currentWorkerSessionId:string|null = null;
-    private _currentPrepSessionId:string|null = null;
     private _activeSession:RunningSession|null = null;
     private _activeScript:RunningScript|null = null;
     private _activeReviewerSessions:Set<AiSession> = new Set();
@@ -107,7 +106,6 @@ export class Implement {
     private _taskRateLimitMs:number = 0;
     private _taskRateLimitStartedAt:number|null = null;
     private _taskTokens = {it:0, ot:0};
-    private _restingFooterKind:"working"|"preparing" = "working";
     private _runPromise:Promise<number>;
     /** Public for testing: the stashed config is otherwise observable only as downstream AI invocation arguments (tool/model/effort). */
     get config():FlandersConfig|null { return this._config; }
@@ -227,7 +225,7 @@ export class Implement {
                 const refreshed = plan.parse();
                 const completedSoFar = refreshed.tasks.filter(t => t.done).length;
                 const indexLabel = `${completedSoFar + 1}/${totalTasks}`;
-                const taskOk = await this._runTask(plan, open, wsPaths, indexLabel, completedSoFar);
+                const taskOk = await this._runTask(plan, open, wsPaths, indexLabel);
                 if (this._disposed) {
                     this._finalizeBlock("Interrupted");
                     return 1;
@@ -287,12 +285,12 @@ export class Implement {
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList));
         await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt);
     }
-    private _setActivity(activity:Activity, iteration?:number|null):void {
+    private _setActivity(activity:Activity):void {
         /* coverage ignore next */ // — Defensive: _setActivity is only called within _runTask which always sets _currentTask.
         if (!this._currentTask) return;
         this._block!.setHeader({
             indexLabel: this._currentIndexLabel,
-            iteration: iteration === undefined ? this._currentIteration : iteration,
+            iteration: this._currentIteration,
             activity,
             taskNumber: this._currentTask.taskNumber || undefined,
             title: this._currentTask.title
@@ -317,13 +315,6 @@ export class Implement {
             plan: { tokens: planTotals.it + planTotals.ot, seconds: planTotals.t }
         });
     }
-    private _reviewerMatchesWorker(reviewer:FlandersRole):boolean {
-        const w = this._config!.worker;
-        return reviewer.tool === w.tool && reviewer.model === w.model && reviewer.effort === w.effort;
-    }
-    private _prepActive():boolean {
-        return this._config!.reviewers.some(r => this._reviewerMatchesWorker(r));
-    }
     private _gitOutputContext():OutputContext {
         return {
             write: text => this._buffered.write(text),
@@ -335,31 +326,15 @@ export class Implement {
             onResize: listener => this._contexts.output.onResize(listener)
         };
     }
-    private async _runTask(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, indexLabel:string, taskIndex:number):Promise<boolean> {
+    private async _runTask(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, indexLabel:string):Promise<boolean> {
         this._currentTask = task;
         this._currentIndexLabel = indexLabel;
         this._currentWorkerSessionId = null;
-        this._currentPrepSessionId = null;
         this._taskStartedAt = this._contexts.time.now();
         this._taskRateLimitMs = 0;
         this._taskRateLimitStartedAt = null;
         this._taskTokens = {it:0, ot:0};
         this._updateMetrics(plan);
-        const prepActive = this._prepActive();
-        if (prepActive) {
-            this._setActivity("preparing", null);
-            this._restingFooterKind = "preparing";
-            this._block!.setFooter({ kind: "preparing" });
-            const prepOk = await this._prepStage(plan, task, ws, taskIndex);
-            if (this._disposed) {
-                return false;
-            }
-            if (!prepOk) {
-                return false;
-            }
-            this._restingFooterKind = "working";
-            this._block!.setFooter({ kind: "working" });
-        }
         let iteration = 0;
         for (;;) {
             iteration++;
@@ -374,7 +349,7 @@ export class Implement {
                 return false;
             }
             this._setActivity("implementing");
-            const workerOk = await this._workerStage(plan, task, ws, iteration, prepActive);
+            const workerOk = await this._workerStage(plan, task, ws, iteration);
             /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
             if (this._disposed) {
                 return false;
@@ -406,7 +381,7 @@ export class Implement {
                 continue;
             }
             this._setActivity("reviewing");
-            const reviewOk = await this._reviewerStage(plan, task, ws, iteration, prepActive);
+            const reviewOk = await this._reviewerStage(plan, task, ws, iteration);
             /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
             if (this._disposed) {
                 return false;
@@ -446,51 +421,30 @@ export class Implement {
             return true;
         }
     }
-    private async _prepStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, taskIndex:number):Promise<boolean> {
-        const prompt = prompts.prep
-            .split(Placeholders.PLAN_PATH).join(plan.path)
-            .split(Placeholders.TASK_LINE).join(String(task.line))
-            .split(Placeholders.TASK_TITLE).join(task.title)
-            .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
-            .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
-            .split(Placeholders.BEHAVIOR_RULE_LIST).join(this._formatPathList(this._behaviorRuleList));
-        try {
-            const { result, capturedOutput } = await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt);
-            this._taskTokens.it += result.inputTokens;
-            this._taskTokens.ot += result.outputTokens;
-            await this._persistMetrics(plan, task.line);
-            this._updateMetrics(plan);
-            await this._writeLog(ws.prepLog(taskIndex), capturedOutput);
-            if (result.sessionId === null) {
-                this._workspace!.preserveOnDispose();
-                await this._writeErrorLog(ws, `prep returned no session id for task at line ${task.line} ("${task.title}")`);
-                this._buffered.writeError(`Hard stop: prep for task at line ${task.line} ("${task.title}") returned no session id. Inspect logs at ${ws.root}.\n`);
-                return false;
-            }
-            this._currentPrepSessionId = result.sessionId;
-            return true;
-        } catch (e) {
-            await this._persistMetrics(plan, task.line);
-            this._updateMetrics(plan);
-            this._workspace!.preserveOnDispose();
-            await this._writeErrorLog(ws, `prep stage failed: ${this._stringifyError(e)}`);
-            this._buffered.writeError(`Hard stop: prep for task at line ${task.line} ("${task.title}") failed. Inspect logs at ${ws.root}.\n`);
-            return false;
+    private async _workerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number):Promise<boolean> {
+        // Iteration 1 is a fresh invocation: the orchestrator injects the full task text and (via
+        // _appendLinkedContent) the full content of every referenced contract and rule. Iterations
+        // n>1 do NOT re-inject the task text or the referenced content (per
+        // src/commands/.spec/rules/ai/task-context.md):
+        //   - when the worker's session was captured, it resumes and a continuity note stands in;
+        //   - when no session is available, the iteration is a fresh fallback, so the worker is told
+        //     which task to implement and directed to re-read it and its references from disk.
+        let taskText:string;
+        if (iteration === 1) {
+            taskText = plan.fullTaskText(task);
+        } else if (this._currentWorkerSessionId !== null) {
+            taskText = "(The full task text and the contracts and rules it references were provided when this session began and remain available to you through session continuity; they are not repeated here.)";
+        } else {
+            taskText = `(Your previous session for this task could not be resumed, so this is a fresh invocation. You are continuing work on the task at line ${task.line} of the plan file, titled "${task.title}". Re-read that task and the contracts and rules it references directly from the files on disk — they are not re-injected here — and address the previous-iteration briefing below.)`;
         }
-    }
-    private async _workerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, prepActive:boolean):Promise<boolean> {
         let prompt = prompts.worker
             .split(Placeholders.PLAN_PATH).join(plan.path)
-            .split(Placeholders.TASK_LINE).join(String(task.line))
-            .split(Placeholders.TASK_TITLE).join(task.title)
+            .split(Placeholders.TASK_TEXT).join(taskText)
             .split(Placeholders.BUILD_SCRIPT_PATH).join(ws.buildScript)
             .split(Placeholders.TEST_SCRIPT_PATH).join(ws.testScript)
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
             .split(Placeholders.BEHAVIOR_RULE_LIST).join(this._formatPathList(this._behaviorRuleList));
-        if (iteration === 1 && !prepActive) {
-            prompt = await this._appendLinkedContent(plan, task, prompt);
-        }
         if (iteration > 1) {
             const briefing = prompts.previousIterationBriefing
                 .split(Placeholders.ITERATION).join(String(iteration))
@@ -498,10 +452,15 @@ export class Implement {
             prompt = `${prompt}\n\n${briefing}`;
         }
         try {
+            // Iteration 1 injects the referenced content here, inside the try, so a failure to read a
+            // referenced file surfaces as a worker-stage failure (briefing written to error.log, the
+            // inner loop restarted) rather than escaping the stage. The only hard-stop exit remains
+            // exceeding the per-task iteration cap (see iteration-loop.md).
+            if (iteration === 1) {
+                prompt = await this._appendLinkedContent(plan, task, prompt);
+            }
             const { result, capturedOutput } = iteration === 1
-                ? prepActive
-                    ? await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, null, this._currentPrepSessionId)
-                    : await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt)
+                ? await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt)
                 : await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, this._currentWorkerSessionId);
             if (result.sessionId !== null) {
                 this._currentWorkerSessionId = result.sessionId;
@@ -525,17 +484,20 @@ export class Implement {
         if (allPaths.length === 0) {
             return prompt;
         }
+        // The contract requires injecting the FULL content of every referenced contract and rule
+        // (see .spec/contracts/cli-commands/implement/iteration-loop.md). A read failure must not be
+        // papered over with a placeholder — that would launch the agent without the obligation it is
+        // bound to. The readFile rejection propagates to the caller, which is responsible for treating
+        // it as a stage failure. The inline-availability framing lives here, not in the static prompt
+        // template, because this content is appended only on the injecting iteration; a later
+        // iteration's prompt must not claim the references are inline when they are not.
         const sections:string[] = [];
         for (const relPath of allPaths) {
             const absPath = joinPath(this._options.projectRoot, relPath);
-            try {
-                const content = await this._contexts.fs.readFile(absPath);
-                sections.push(`## ${relPath}\n\n${content}`);
-            } catch {
-                sections.push(`## ${relPath}\n\n(file not found)`);
-            }
+            const content = await this._contexts.fs.readFile(absPath);
+            sections.push(`## ${relPath}\n\n${content}`);
         }
-        return `${prompt}\n\n## Linked reference content\n\n${sections.join("\n\n")}`;
+        return `${prompt}\n\n## Linked reference content\n\nThe full content of every contract and rule this task references is included below, so you do not need to open these files for this iteration:\n\n${sections.join("\n\n")}`;
     }
     private async _buildStage(plan:PlanFile, taskLine:number, ws:WorkspacePaths, iteration:number):Promise<boolean> {
         if (!(await isNonEmptyFile(this._contexts.fs, ws.buildScript))) {
@@ -623,7 +585,7 @@ export class Implement {
             }
         }
     }
-    private async _reviewerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, prepActive:boolean):Promise<boolean> {
+    private async _reviewerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number):Promise<boolean> {
         const reviewers = this._config!.reviewers;
         this._reviewerStates = reviewers.map<ReviewerEntry>(r => ({ tool: r.tool, model: r.model, effort: r.effort, state: "running" }));
         this._reviewerLogicalStatuses = reviewers.map<ReviewerLogicalStatus>(() => "running");
@@ -635,7 +597,7 @@ export class Implement {
         await this._workspace!.clearErrorLog();
         let failureCaught:unknown = null;
         const outcomes:Array<"verdict"|"cancelled"> = reviewers.map(() => "cancelled");
-        const launches = reviewers.map((reviewer, idx) => this._runOneReviewerToVerdict(plan, task, ws, iteration, prepActive, reviewer, idx)
+        const launches = reviewers.map((reviewer, idx) => this._runOneReviewerToVerdict(plan, task, ws, iteration, reviewer, idx)
             .then(outcome => { outcomes[idx] = outcome; })
             .catch(e => {
                 if (failureCaught === null) {
@@ -668,21 +630,19 @@ export class Implement {
         await this._workspace!.writeErrorLog(aggregate);
         return false;
     }
-    private async _runOneReviewerToVerdict(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, prepActive:boolean, reviewer:FlandersRole, idx:number):Promise<"verdict"|"cancelled"> {
+    private async _runOneReviewerToVerdict(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, reviewer:FlandersRole, idx:number):Promise<"verdict"|"cancelled"> {
         const reviewerNum = idx + 1;
-        const matchesWorker = this._reviewerMatchesWorker(reviewer);
-        const useBranchA = prepActive && matchesWorker;
+        // Every reviewer invocation is fresh and receives the same deterministic injection the
+        // worker's iteration 1 receives: the full task text plus the full content of every
+        // referenced contract and rule (appended by _appendLinkedContent).
         let prompt = prompts.reviewer
             .split(Placeholders.PLAN_PATH).join(plan.path)
-            .split(Placeholders.TASK_LINE).join(String(task.line))
-            .split(Placeholders.TASK_TITLE).join(task.title)
+            .split(Placeholders.TASK_TEXT).join(plan.fullTaskText(task))
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
             .split(Placeholders.BEHAVIOR_RULE_LIST).join(this._formatPathList(this._behaviorRuleList))
             .split(Placeholders.ERROR_LOG_PATH).join(ws.reviewerErrorLog(reviewerNum));
-        if (!useBranchA) {
-            prompt = await this._appendLinkedContent(plan, task, prompt);
-        }
+        prompt = await this._appendLinkedContent(plan, task, prompt);
         // Per-reviewer cancellation handle owned by the orchestrator: aborting it disposes whichever
         // invocation is in flight (wired below), which aborts a usage-limit wait per the
         // AiSession/AiRunner cancellation behavior. Set before the reviewer is awaited; removed in
@@ -730,9 +690,7 @@ export class Implement {
                 };
                 let runResult;
                 try {
-                    runResult = useBranchA
-                        ? await this._runAiWith(reviewer.tool, reviewer.model, reviewer.effort, prompt, null, this._currentPrepSessionId, callbacks)
-                        : await this._runAiWith(reviewer.tool, reviewer.model, reviewer.effort, prompt, null, null, callbacks);
+                    runResult = await this._runAiWith(reviewer.tool, reviewer.model, reviewer.effort, prompt, null, callbacks);
                 } catch (e) {
                     // A reviewer the round-completion logic intentionally cancelled is marked here:
                     // its in-flight session was disposed, surfacing as the runner's AbortError. The
@@ -805,7 +763,7 @@ export class Implement {
                     this._taskRateLimitStartedAt = null;
                 }
                 if (this._disposed) return;
-                this._block!.setFooter({ kind: this._restingFooterKind });
+                this._block!.setFooter({ kind: "working" });
             },
             register: (session) => {
                 this._activeSession = { session };
@@ -817,10 +775,10 @@ export class Implement {
             }
         };
     }
-    private _runAi(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId?:string|null, forkFromSessionId?:string|null) {
-        return this._runAiWith(tool, model, effort, prompt, initialSessionId ?? null, forkFromSessionId ?? null, this._defaultRunAiCallbacks());
+    private _runAi(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId?:string|null) {
+        return this._runAiWith(tool, model, effort, prompt, initialSessionId ?? null, this._defaultRunAiCallbacks());
     }
-    private async _runAiWith(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId:string|null, forkFromSessionId:string|null, callbacks:RunAiCallbacks) {
+    private async _runAiWith(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId:string|null, callbacks:RunAiCallbacks) {
         /* coverage ignore next 3 */ // — Defensive: disposed guard; _runAiWith is only called from methods that already checked _disposed.
         if (this._disposed) {
             throw new Error("Implement disposed");
@@ -848,7 +806,6 @@ export class Implement {
             model,
             effort,
             ...(initialSessionId != null ? { resumeSessionId: initialSessionId } : null),
-            ...(forkFromSessionId != null ? { forkParentSessionId: forkFromSessionId } : null),
             onLongWaitStart: callbacks.onLongWaitStart,
             onLongWaitEnd: callbacks.onLongWaitEnd
         }, {

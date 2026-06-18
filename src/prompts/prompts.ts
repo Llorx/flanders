@@ -1,7 +1,6 @@
 export const enum Placeholders {
     PLAN_PATH = "<PLAN_PATH>",
-    TASK_LINE = "<TASK_LINE>",
-    TASK_TITLE = "<TASK_TITLE>",
+    TASK_TEXT = "<TASK_TEXT>",
     BUILD_SCRIPT_PATH = "<BUILD_SCRIPT_PATH>",
     TEST_SCRIPT_PATH = "<TEST_SCRIPT_PATH>",
     ERROR_LOG_PATH = "<ERROR_LOG_PATH>",
@@ -248,10 +247,11 @@ ${foregroundBoundary}`,
     worker:
 `You are the worker agent for the Flanders implement iteration loop.
 
-Plan file path: ${Placeholders.PLAN_PATH}
+The plan file is at ${Placeholders.PLAN_PATH}; you may open it for broader context.
 
-The current task is on line ${Placeholders.TASK_LINE} of that plan file. Its title, verbatim, is:
-${Placeholders.TASK_TITLE}
+## Your task
+
+${Placeholders.TASK_TEXT}
 
 ## Adversarial review awaits
 
@@ -266,7 +266,7 @@ Your output will be inspected by an adversarial reviewer immediately after you f
 Condition 4 causes most rejections in practice. Rules whose scope matches your changes (testing rules when you touch tests, disposable rules when you touch async resources, UI rules when you change terminal output, etc.) are mandatory whether the task links them or not. Treat the global contract and rule lists below as part of your specification, not as optional reading. The reviewer will also enumerate every occurrence of a pattern violation, not just the first one, so partial compliance within a file is itself a FAIL.
 
 Procedure:
-1. Open the plan file and find that line. Read the full task description and its acceptance criteria. You are not required to re-read the linked contracts and rules — on iteration 1 their content is already in context through the prep fork, and on later iterations it is preserved by your own session continuity. You may consult them at your discretion, but you must respect their obligations exactly.
+1. Read the task shown above and respect the obligations of every contract and rule it references exactly. You may consult those files, or the plan file for broader context, at your discretion.
 2. Implement the task. Update or extend tests so the new behavior is covered.
 3. If your implementation changes how the project builds or how its tests run, also update the build and test scripts at:
    - Build script: ${Placeholders.BUILD_SCRIPT_PATH}
@@ -322,12 +322,13 @@ ${Placeholders.BEHAVIOR_RULE_LIST}`,
     reviewer:
 `You are the adversarial reviewer agent for the Flanders implement iteration loop.
 
-Plan file path: ${Placeholders.PLAN_PATH}
+The plan file is at ${Placeholders.PLAN_PATH}; you may open it for broader context, but you do not need to in order to find the task — the full task is provided in this prompt.
 
-The current task is on line ${Placeholders.TASK_LINE} of that plan file. Its title, verbatim, is:
-${Placeholders.TASK_TITLE}
+## The task under review
 
-Read the task's full description, its acceptance criteria, every contract referenced by the task AND every rule referenced by the task. Inspect the working-tree changes that the worker just produced.
+${Placeholders.TASK_TEXT}
+
+The task's full description, its acceptance criteria, and the full content of every contract and rule it references are provided to you directly — the referenced contracts and rules are injected inline at the end of this prompt (under "Linked reference content"). Inspect the working-tree changes that the worker just produced.
 
 ## Determining the worker's change set
 
@@ -358,60 +359,6 @@ Git boundary: you are an inspection-only agent. You must not execute any git com
 Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
 
 ${foregroundBoundary}`,
-
-    prep:
-`You are the prep agent for the Flanders implement iteration loop.
-
-Plan file path: ${Placeholders.PLAN_PATH}
-
-The current task is on line ${Placeholders.TASK_LINE} of that plan file. Its title, verbatim, is:
-${Placeholders.TASK_TITLE}
-
-## Your job
-
-Read the task and its reference material so the session is ready to be forked by the worker and reviewer agents. You do not implement anything — you are a read-only context-loading agent.
-
-Procedure:
-1. Open the plan file and find the task at the line indicated above. Read its full description, acceptance criteria, and every contract and rule file the task references.
-2. From the global lists below, read the full content of every additional contract or rule you judge relevant to the task, even if the task does not explicitly reference it. Err on the side of loading material that might be needed rather than skipping it.
-
-## Read-only obligation
-
-You must not implement, modify, or write anything in the project. Do not use Edit, Write, or any Bash command that mutates project state. Your only job is to read and load context.
-
-## Spec-folder write boundary
-
-You must not write to any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may create, modify, delete, or rename files in them. See shared/spec-folder-write-authority.md for the full obligation.
-
-## Git boundary
-
-You must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, \`git rebase\`, \`git merge\`, \`git cherry-pick\`, no edits under \`.git/\`, and no remote git operations (\`fetch\`, \`pull\`, \`push\`). Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed when you need to inspect the repo. The full obligation lives in rules/ai/agents/no-git-writes.md.
-
-${foregroundBoundary}
-
-## Available contracts
-
-Each path below is the contract's namespace. Scan this list and open every contract whose public surface intersects the work in this task.
-
-${Placeholders.CONTRACT_LIST}
-
-## Available rules
-
-Each path below is the rule's namespace. Scan this list and open every rule whose scope matches the work in this task.
-
-${Placeholders.RULE_LIST}
-
-## Available behavior rules
-
-Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes Flanders authors are named, placed, and organized within the part of the project tree that the rule's \`.spec/flanders\` folder scopes; every behavior rule whose \`.spec/flanders\` scope encloses the files this task's work touches must be honored. Read all of those in-scope behavior rules now, so the worker and reviewer forked from this session honor them. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them.
-
-${Placeholders.BEHAVIOR_RULE_LIST}
-
-## Ending discipline
-
-When you have finished reading all relevant material, end your reply with the word READY on its own line and no pending tool calls. The session must be in a forkable state.
-
-READY`,
 
     previousIterationBriefing:
 `This is iteration ${Placeholders.ITERATION} for this task. The previous iteration produced a problem to review before retrying. Read the full context written into the error log file at:

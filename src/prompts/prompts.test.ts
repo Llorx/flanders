@@ -60,142 +60,12 @@ function workerRuleClaimsParagraph(template: string) {
     return template.substring(start, end);
 }
 
-test.describe("prompts – prep", test => {
-    test("is a non-empty string", {
+test.describe("prompts – prep prompt removed", test => {
+    test("prompts no longer exposes a prep template", {
         ARRANGE() {},
-        ACT() { return prompts.prep; },
-        ASSERTS: {
-            "is a string"(template) {
-                Assert.strictEqual(typeof template, "string");
-            },
-            "is non-empty"(template) {
-                Assert.ok(template.length > 0);
-            }
-        }
-    });
-
-    test("contains all required placeholders", {
-        ARRANGE() {},
-        ACT() { return prompts.prep; },
-        ASSERTS: {
-            "contains <PLAN_PATH>"(template) {
-                Assert.ok(template.includes("<PLAN_PATH>"));
-            },
-            "contains <TASK_LINE>"(template) {
-                Assert.ok(template.includes("<TASK_LINE>"));
-            },
-            "contains <TASK_TITLE>"(template) {
-                Assert.ok(template.includes("<TASK_TITLE>"));
-            },
-            "contains <CONTRACT_LIST>"(template) {
-                Assert.ok(template.includes("<CONTRACT_LIST>"));
-            },
-            "contains <RULE_LIST>"(template) {
-                Assert.ok(template.includes("<RULE_LIST>"));
-            },
-            "contains <BEHAVIOR_RULE_LIST>"(template) {
-                Assert.ok(template.includes("<BEHAVIOR_RULE_LIST>"));
-            }
-        }
-    });
-
-    test("includes the Available behavior rules section", {
-        ARRANGE() {},
-        ACT() {
-            const start = prompts.prep.indexOf("## Available behavior rules");
-            const end = prompts.prep.indexOf("## Ending discipline", start);
-            return prompts.prep.substring(start, end);
-        },
-        ASSERTS: {
-            "section opens with the Available behavior rules heading"(section) {
-                Assert.ok(section.startsWith("## Available behavior rules"));
-            },
-            "section renders the BEHAVIOR_RULE_LIST placeholder"(section) {
-                Assert.ok(section.includes("<BEHAVIOR_RULE_LIST>"));
-            },
-            "section instructs honoring every in-scope behavior rule"(section) {
-                Assert.ok(section.includes("every behavior rule whose `.spec/flanders` scope encloses the files this task's work touches must be honored"));
-            },
-            "section states in-scope behavior rules are mandatory whether or not the task links them"(section) {
-                Assert.ok(section.includes("in-scope behavior rules are mandatory whether or not the task links them"));
-            }
-        }
-    });
-
-    test("includes the read-only obligation", {
-        ARRANGE() {},
-        ACT() { return prompts.prep; },
-        ASSERT(template) {
-            Assert.ok(template.includes("You must not implement, modify, or write anything in the project."));
-        }
-    });
-
-    test("includes the spec-folder write boundary", {
-        ARRANGE() {},
-        ACT() { return prompts.prep; },
-        ASSERTS: {
-            "names .spec/contracts folders"(template) {
-                Assert.ok(template.includes(".spec/contracts"));
-            },
-            "names .spec/rules folders"(template) {
-                Assert.ok(template.includes(".spec/rules"));
-            },
-            "references plans/"(template) {
-                Assert.ok(template.includes("plans/"));
-            },
-            "names no bare root contracts/ rules/ folder pair"(template) {
-                Assert.strictEqual(template.includes("`contracts/`, `rules/`"), false);
-            },
-            "references shared/spec-folder-write-authority.md"(template) {
-                Assert.ok(template.includes("shared/spec-folder-write-authority.md"));
-            }
-        }
-    });
-
-    test("includes the git-write boundary", {
-        ARRANGE() {},
-        ACT() { return prompts.prep; },
-        ASSERT(template) {
-            Assert.ok(template.includes("rules/ai/agents/no-git-writes.md"));
-        }
-    });
-
-    test("ends with the forkable-state acknowledgement token", {
-        ARRANGE() {},
-        ACT() { return prompts.prep; },
-        ASSERT(template) {
-            Assert.strictEqual(template.trimEnd().split("\n").pop(), "READY");
-        }
-    });
-
-    test("contains zero project-specific tooling references", {
-        ARRANGE() {},
-        ACT() { return prompts.prep; },
-        ASSERTS: {
-            "no npm"(template) {
-                Assert.strictEqual(template.includes("npm"), false);
-            },
-            "no aaa"(template) {
-                Assert.strictEqual(template.includes("aaa"), false);
-            },
-            "no jest"(template) {
-                Assert.strictEqual(template.includes("jest"), false);
-            },
-            "no cargo"(template) {
-                Assert.strictEqual(template.includes("cargo"), false);
-            },
-            "no tsc"(template) {
-                Assert.strictEqual(template.includes("tsc"), false);
-            },
-            "no node"(template) {
-                Assert.strictEqual(template.includes("node"), false);
-            },
-            "no vitest"(template) {
-                Assert.strictEqual(template.includes("vitest"), false);
-            },
-            "no mocha"(template) {
-                Assert.strictEqual(template.includes("mocha"), false);
-            }
+        ACT() { return prompts; },
+        ASSERT(p) {
+            Assert.strictEqual((p as Record<string, unknown>).prep, undefined);
         }
     });
 });
@@ -309,38 +179,65 @@ test.describe("prompts – worker", test => {
     });
 });
 
-test.describe("prompts – worker – prep-fork context relaxation", test => {
-    test("says the linked content is already in context and re-reading is not required", {
+test.describe("prompts – deterministic task-text injection", test => {
+    test("worker presents the injected task text instead of the line/title framing", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERTS: {
-            "contains the relaxation sentence"(template) {
-                Assert.ok(template.includes("You are not required to re-read the linked contracts and rules"));
+            "contains the <TASK_TEXT> placeholder"(template) {
+                Assert.ok(template.includes("<TASK_TEXT>"));
             },
-            "contains the prep fork explanation"(template) {
-                Assert.ok(template.includes("on iteration 1 their content is already in context through the prep fork"));
+            "contains the '## Your task' heading"(template) {
+                Assert.ok(template.includes("## Your task"));
             },
-            "contains the session continuity explanation"(template) {
-                Assert.ok(template.includes("on later iterations it is preserved by your own session continuity"));
+            "no longer contains the <TASK_LINE> placeholder"(template) {
+                Assert.strictEqual(template.includes("<TASK_LINE>"), false);
+            },
+            "no longer contains the <TASK_TITLE> placeholder"(template) {
+                Assert.strictEqual(template.includes("<TASK_TITLE>"), false);
+            },
+            "no longer instructs opening the plan file to find the task line"(template) {
+                Assert.strictEqual(template.includes("Open the plan file and find that line"), false);
+            },
+            "no longer references the prep fork"(template) {
+                Assert.strictEqual(template.includes("prep fork"), false);
+            },
+            "carries iteration-neutral framing to respect referenced obligations"(template) {
+                Assert.ok(template.includes("respect the obligations of every contract and rule it references exactly"));
+            },
+            "no longer unconditionally claims the full task is in this prompt"(template) {
+                Assert.strictEqual(template.includes("the full task is provided in this prompt"), false);
+            },
+            "no longer unconditionally claims the references are provided inline"(template) {
+                Assert.strictEqual(template.includes("provided in full inline at the end of this prompt"), false);
+            },
+            "no longer unconditionally tells the worker it need not open the referenced files"(template) {
+                Assert.strictEqual(template.includes("you are not required to open them"), false);
             }
         }
     });
 
-    test("no longer mandates re-reading every linked contract and rule", {
+    test("reviewer presents the injected task text instead of the line/title framing", {
         ARRANGE() {},
-        ACT() { return prompts.worker; },
+        ACT() { return prompts.reviewer; },
         ASSERTS: {
-            "old step-2 mandate is absent"(template) {
-                Assert.strictEqual(
-                    template.includes("Read every linked contract file and every linked rule file and respect their obligations exactly"),
-                    false
-                );
+            "contains the <TASK_TEXT> placeholder"(template) {
+                Assert.ok(template.includes("<TASK_TEXT>"));
             },
-            "old step-1 mandate for 'every linked contract file AND every linked rule file' is absent"(template) {
-                Assert.strictEqual(
-                    template.includes("and every linked contract file AND every linked rule file"),
-                    false
-                );
+            "contains the '## The task under review' heading"(template) {
+                Assert.ok(template.includes("## The task under review"));
+            },
+            "no longer contains the <TASK_LINE> placeholder"(template) {
+                Assert.strictEqual(template.includes("<TASK_LINE>"), false);
+            },
+            "no longer contains the <TASK_TITLE> placeholder"(template) {
+                Assert.strictEqual(template.includes("<TASK_TITLE>"), false);
+            },
+            "no longer points the reviewer at the plan line to locate the task"(template) {
+                Assert.strictEqual(template.includes("The current task is on line"), false);
+            },
+            "states the referenced contracts and rules are injected inline"(template) {
+                Assert.ok(template.includes("injected inline at the end of this prompt"));
             }
         }
     });
@@ -1285,9 +1182,6 @@ test.describe("prompts – foreground execution boundary", test => {
             },
             "reviewer cites the rule"(p) {
                 Assert.ok(p.reviewer.includes("rules/ai/agents/no-background-commands.md"));
-            },
-            "prep cites the rule"(p) {
-                Assert.ok(p.prep.includes("rules/ai/agents/no-background-commands.md"));
             }
         }
     });
@@ -1304,9 +1198,6 @@ test.describe("prompts – foreground execution boundary", test => {
             },
             "reviewer contains 'in the foreground'"(p) {
                 Assert.ok(p.reviewer.includes("in the foreground"));
-            },
-            "prep contains 'in the foreground'"(p) {
-                Assert.ok(p.prep.includes("in the foreground"));
             }
         }
     });
@@ -1323,9 +1214,6 @@ test.describe("prompts – foreground execution boundary", test => {
             },
             "reviewer forbids run_in_background"(p) {
                 Assert.ok(p.reviewer.includes("run_in_background"));
-            },
-            "prep forbids run_in_background"(p) {
-                Assert.ok(p.prep.includes("run_in_background"));
             }
         }
     });
