@@ -100,7 +100,7 @@ Every Flanders adversarial reviewer prompt instructs the reviewer to look advers
 ### Who this applies to
 
 - **Subject:** the construction of every Flanders adversarial reviewer prompt — the `implement` command's reviewer(s) (see [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md)) and the `/flanders-work` skill's reviewer subagent (see [.spec/contracts/ai-skills/work-skill.md](/.spec/contracts/ai-skills/work-skill.md)). The spec under review is the plan task and its acceptance criteria for `implement`, and the user's request for `/flanders-work`.
-- **Not subject:** the worker, the prep agent, the build/test detection agent, and the content-skill final validators (`/flanders-spec`, `/flanders-plan`), whose gate is governed by [src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way](/src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way).
+- **Not subject:** the worker, the build/test detection agent, and the content-skill final validators (`/flanders-spec`, `/flanders-plan`), whose gate is governed by [src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way](/src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way).
 
 ### Behavior
 

@@ -100,7 +100,7 @@ When the AI runner retries a call that was cut off by a retryable terminal event
 ### Who this applies to
 
 - **Subject:** the AI runner (see [src/ai/.spec/contracts/ai-runner.md](/src/ai/.spec/contracts/ai-runner.md)).
-- **Scope:** every call routed through that runner. The originating role does not matter — worker, adversarial reviewer, prep, detect agent, or any future caller — the `session_id` reuse on retry is a property of the runner, not of the caller.
+- **Scope:** every call routed through that runner. The originating role does not matter — worker, adversarial reviewer, detect agent, or any future caller — the `session_id` reuse on retry is a property of the runner, not of the caller.
 
 Callers do not configure this behavior: they get it for free by going through the runner.
 

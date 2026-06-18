@@ -68,7 +68,7 @@ The list below illustrates the pattern and is not exhaustive:
 - A task that **creates or modifies anything with timers, listeners, controllers, child processes, or other async lifecycle** links every applicable file under `src/.spec/rules/disposables/`.
 - A task that **changes terminal UI or live-region output** links every applicable file under `src/ui/.spec/rules/`.
 - A task that **adds or modifies retry, backoff, or rate-limit handling around AI or external calls** links every applicable file under `src/ai/.spec/rules/retry/`.
-- A task that **adds or modifies how task context reaches the worker or reviewer** (prep, fork, resume, in-prompt injection) links every applicable file under `src/commands/.spec/rules/ai/task-context/`.
+- A task that **adds or modifies how task context reaches the worker or reviewer** (in-prompt injection, session resume) links every applicable file under `src/commands/.spec/rules/ai/task-context/`.
 - A task that **adds or modifies how the AI runner invokes a CLI tool** (binary, flags, stdin, JSON event consumption) links every applicable file under `src/ai/.spec/rules/runner/`.
 - A task that **spawns or modifies a subagent's behavior** links every applicable file under `src/commands/.spec/rules/ai/agents/`.
 - A task that **adds or modifies anything inside a Flanders skill's own pipeline** links every applicable file under `src/prompts/.spec/rules/ai/skills/`.

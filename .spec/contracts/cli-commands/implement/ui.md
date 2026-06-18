@@ -20,19 +20,18 @@ The bottom-fixed block is present from the very first moment the command starts 
 The output region receives:
 - Flanders's own status writes (the equivalent of `console.log` from within Flanders).
 - The streaming stdout and stderr of every subprocess Flanders spawns:
-  - During the prep stage: the streaming output of the prep AI agent.
   - During `implementing` and `reviewing`: the streaming output of the AI agent.
   - During `building` and `testing`: the streaming output of the corresponding script.
 
 Output is line-buffered: only complete lines are written into the region. Each completed line is appended below the previous one and prior lines scroll upward. Long lines wrap at the terminal's natural wrap boundary. ANSI color and styling escape sequences emitted by the source program are passed through to the terminal unchanged.
 
-The streaming output of the AI agent — produced during the prep, `implementing`, and `reviewing` stages — is surfaced as a sequence of labeled messages: the agent's assistant replies, its reasoning, the tools or commands it runs, and the results of those. Each message is shown with a leading label colored according to its kind, as defined in `Colors`. The streaming output of the `building` and `testing` scripts is not an AI agent message: it is shown as-is, with its own ANSI passed through unchanged and no coloring added by Flanders.
+The streaming output of the AI agent — produced during the `implementing` and `reviewing` stages — is surfaced as a sequence of labeled messages: the agent's assistant replies, its reasoning, the tools or commands it runs, and the results of those. Each message is shown with a leading label colored according to its kind, as defined in `Colors`. The streaming output of the `building` and `testing` scripts is not an AI agent message: it is shown as-is, with its own ANSI passed through unchanged and no coloring added by Flanders.
 
 ## Header line content
 The header line shows the following fields on a single line, in this order:
 - Current task index out of total tasks (for example, `5/12`).
 - The current run iteration for the task (for example, `iter 2`).
-- The current activity, one of: `preparing`, `implementing`, `reviewing`, `building`, `testing`. In the per-task completion snapshot defined below, this field instead shows the literal `done`.
+- The current activity, one of: `implementing`, `reviewing`, `building`, `testing`. In the per-task completion snapshot defined below, this field instead shows the literal `done`.
 - The plan task number as it appears in the plan file (for example, `7.3`).
 - The task title as it appears in the plan file.
 
@@ -40,7 +39,7 @@ If the header content does not fit on the available terminal width, the entire l
 
 Each field is colored according to the scheme defined in `Colors`.
 
-Until the plan file has been parsed and validated, the header line's individual fields all render as blank — the row still occupies its line of the block. From the moment the plan is parsed onward, the `Current task index out of total tasks` field shows the total as the denominator: `0/12` before the first task starts, `N/N` when the noop `tasks completed` case applies because every task was already complete on startup. The other header fields remain blank until the first task is selected for work. For a task whose prep stage runs, they populate at the start of the prep stage — the task index, plan task number, and task title switch to that task and the activity field shows `preparing`; for a task whose prep stage is skipped, they populate at the start of the worker stage, with the activity field showing `implementing`. The `current run iteration` field stays blank throughout the prep stage and first shows a value (`iter 1`) when the worker stage begins, since the prep stage carries no iteration count.
+Until the plan file has been parsed and validated, the header line's individual fields all render as blank — the row still occupies its line of the block. From the moment the plan is parsed onward, the `Current task index out of total tasks` field shows the total as the denominator: `0/12` before the first task starts, `N/N` when the noop `tasks completed` case applies because every task was already complete on startup. The other header fields remain blank until the first task is selected for work. They populate at the start of that task's worker stage — the task index, plan task number, and task title switch to that task, the activity field shows `implementing`, and the `current run iteration` field shows `iter 1`.
 
 ## Metrics line content
 The metrics line shows, on a single line, two paired figures separated by a vertical bar:
@@ -61,30 +60,25 @@ If the full line does not fit on the terminal width, Flanders falls back to a co
 
 Each field is colored according to the scheme defined in `Colors`.
 
-Until the plan file has been parsed and validated, both the `task` and `plan` pairs render as blank — the row still occupies its line of the block. From the moment the plan is parsed onward, the `plan` pair shows the accumulated tokens and time of the plan and keeps doing so during the git preflight and the `tasks completed` noop case. The `task` pair stays blank until work on the first task begins — at the start of that task's prep stage when its prep stage runs, otherwise at the start of its worker stage.
+Until the plan file has been parsed and validated, both the `task` and `plan` pairs render as blank — the row still occupies its line of the block. From the moment the plan is parsed onward, the `plan` pair shows the accumulated tokens and time of the plan and keeps doing so during the git preflight and the `tasks completed` noop case. The `task` pair stays blank until work on the first task begins, at the start of that task's worker stage.
 
-When the prep stage runs for a task, the `task` pair resets to that task at the start of the prep stage and advances with the prep's token and time consumption while the prep runs; the `plan` pair advances by the same prep consumption. The prep's consumption is part of the task's consumption and is reflected in both pairs.
+When work moves to a new task, the `task` pair resets to that task at the start of its worker stage and advances with that task's consumption as the task progresses; the `plan` pair keeps accumulating across every task.
 
 While the waiting footer state is active, the tokens and time values on this line freeze at their last reported value and only resume advancing when normal work resumes.
 
 ## Footer line — normal state
 The footer line shows a single label, `Working`, accompanied by a smooth animated indicator. The animation is a continuous motion that gives the user a clear visual cue that the program is alive and progressing — for example, a spinner cycling through a sequence of glyphs, or a wave that moves a single highlighted character across the label. The animation runs at 5 frames per second. The label and the animated indicator are both rendered in orange.
 
-The `Working` label and its animation are present from the very first instant the command starts and persist across every phase — argv parsing, plan validation, git preflight, the `tasks completed` noop case, and the iteration loop — until the command is about to exit, at which point the footer line transitions to the terminal label defined in `Cleanup on exit`. Two phases interrupt the `Working` label: the prep stage, when the footer shows the preparing state defined in `Footer line — preparing state`; and the adversarial review stage, when it shows the reviewing state defined in `Footer line — reviewing state`.
-
-## Footer line — preparing state
-While the prep stage runs for a newly selected task — when it runs (see [src/commands/.spec/rules/ai/task-context.md#the-prep-agent-runs-when-at-least-one-reviewer-shares-the-workers-tool-model-and-effort](/src/commands/.spec/rules/ai/task-context.md#the-prep-agent-runs-when-at-least-one-reviewer-shares-the-workers-tool-model-and-effort)), the same stage during which the header activity field shows `preparing` — the footer line shows the single label `Preparing`, accompanied by the same smooth animated indicator as the normal state: a continuous motion running at 5 frames per second, with both the label and the indicator rendered in orange.
-
-When the prep stage ends and the worker stage begins, the footer line transitions to the `Working` state. When the prep stage is skipped for a task, the footer line never enters the preparing state for that task and is in the `Working` state as the worker stage begins.
+The `Working` label and its animation are present from the very first instant the command starts and persist across every phase — argv parsing, plan validation, git preflight, the `tasks completed` noop case, and the iteration loop — until the command is about to exit, at which point the footer line transitions to the terminal label defined in `Cleanup on exit`. One phase interrupts the `Working` label: the adversarial review stage, when it shows the reviewing state defined in `Footer line — reviewing state`.
 
 ## Footer line — waiting state
 While the runner is waiting for a retry, the footer line transitions to a label that conveys wait status to the user. The exact label content, wait information shown, and which retries trigger this state are defined by rules.
 
 While the waiting state is active, the working animation is suspended.
 
-When the wait ends and normal AI work resumes, the footer line transitions back to its pre-wait normal state — the `Preparing` state when the wait occurred during the prep stage, the `Working` state when it occurred during the worker stage — and the animation restarts.
+When the wait ends and normal AI work resumes, the footer line transitions back to its pre-wait normal `Working` state and the animation restarts.
 
-The waiting state described here covers the worker-side AI waits (the prep and worker stages). It does not apply during the adversarial review stage; a reviewer's rate-limit wait is surfaced instead as that reviewer's `waiting` status inside the reviewing footer line (see `Footer line — reviewing state`).
+The waiting state described here covers the worker-stage AI waits. It does not apply during the adversarial review stage; a reviewer's rate-limit wait is surfaced instead as that reviewer's `waiting` status inside the reviewing footer line (see `Footer line — reviewing state`).
 
 ## Footer line — reviewing state
 While the adversarial review stage is running — the same phase during which the header activity field shows `reviewing` — the footer line replaces the `Working` label and its animation with a per-reviewer status line that reports every configured reviewer and its current state on a single line. The working animation is suspended for the duration of the review stage.
@@ -128,7 +122,7 @@ The header line and the metrics line are rendered with field-by-field coloring. 
 Header line fields:
 - The current task index (for example, `5/12`) — cyan.
 - The current run iteration (for example, `iter 2`) — yellow.
-- The current activity — magenta when it shows one of the five live values (`preparing`, `implementing`, `reviewing`, `building`, `testing`); green when it shows `done` in the per-task completion snapshot.
+- The current activity — magenta when it shows one of the four live values (`implementing`, `reviewing`, `building`, `testing`); green when it shows `done` in the per-task completion snapshot.
 - The plan task number (for example, `7.3`) — green.
 - The task title — terminal default color.
 
@@ -166,7 +160,7 @@ The bottom-fixed block is never removed when the command exits. It stays on scre
 
 The only state change at exit is on the footer line. Just before the process exits, the footer's animation is stopped and its label is replaced with a terminal label that names how the command ended:
 - `Done` — every termination path that is not an error, including the successful completion of all remaining tasks (`all tasks completed`) and the noop case where every task was already complete at startup (`tasks completed`).
-- `Hard stop` — a hard stop occurred: the per-task iteration cap was exceeded for some task, or the prep optimization failed irrecoverably.
+- `Hard stop` — a hard stop occurred: the per-task iteration cap was exceeded for some task.
 - `Interrupted` — the command received an interruption signal (for example, Ctrl+C).
 - `Failed` — any other failure, including unknown CLI flag, plan validation failure, missing or empty `plans/` folder, and git preflight failure.
 

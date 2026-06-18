@@ -10,13 +10,13 @@ Adding a new AI tool to Flanders is a matter of writing a new adapter that imple
 
 - **Subject:** every per-tool adapter. Today: the Claude adapter (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)) and the Codex adapter (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)). Any future adapter falls under this rule the moment it is added.
 - **Subject:** the AI runner, which consumes the interface and is forbidden from branching on the underlying tool.
-- **Not subject:** the call sites of the runner (worker stage, reviewer stage, detect agent, prep). They see only the runner's high-level result (success or non-retryable error), not the events.
+- **Not subject:** the call sites of the runner (worker stage, reviewer stage, detect agent). They see only the runner's high-level result (success or non-retryable error), not the events.
 
 ### Adapter signature
 
 Every adapter exposes one invocation function. Its signature, abstractly:
 
-    invoke({ prompt, model, effort, resumeSessionId?, forkParentSessionId?, abortSignal }) → AsyncIterable<ToolEvent>
+    invoke({ prompt, model, effort, resumeSessionId?, abortSignal }) → AsyncIterable<ToolEvent>
 
 Arguments:
 
@@ -24,10 +24,7 @@ Arguments:
 - `model` — the model identifier persisted in `.flanders/config.json` per [src/workspace/.spec/rules/flanders-config/file-format.md](/src/workspace/.spec/rules/flanders-config/file-format.md). An empty string means "default configured model" and the adapter must not pass an explicit model flag to its binary.
 - `effort` — the effort identifier persisted in `.flanders/config.json`. An empty string means "default configured effort" and the adapter must not pass an explicit effort flag.
 - `resumeSessionId` — when set, the adapter resumes the previous session with that id (used by [src/commands/.spec/rules/ai/task-context.md#the-worker-resumes-its-captured-session_id-across-iterations-of-the-same-task](/src/commands/.spec/rules/ai/task-context.md#the-worker-resumes-its-captured-session_id-across-iterations-of-the-same-task)). When unset, the adapter starts a fresh invocation.
-- `forkParentSessionId` — when set, the adapter forks from that parent session (used by the branch-A case in [src/commands/.spec/rules/ai/task-context.md#the-prep-agent-runs-when-at-least-one-reviewer-shares-the-workers-tool-model-and-effort](/src/commands/.spec/rules/ai/task-context.md#the-prep-agent-runs-when-at-least-one-reviewer-shares-the-workers-tool-model-and-effort)). When unset, no fork happens.
 - `abortSignal` — when the signal triggers, the adapter sends the appropriate termination signal to its spawned process, drains any remaining buffered output, and ends the iterable promptly. The runner waits for the iterable to close; the adapter does not return until the child process has exited.
-
-`resumeSessionId` and `forkParentSessionId` are mutually exclusive: at most one is set per invocation.
 
 The return value is an async iterable of `ToolEvent`. The runner consumes events as they arrive and reacts to each one according to its type.
 
@@ -148,7 +145,7 @@ A Flanders AI invocation runs a single turn to completion with no human in the l
 ### Who this applies to
 
 - **Subject:** every per-tool adapter — today the Claude adapter ([src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)) and the Codex adapter ([src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)), and any adapter added later. Each adapter realizes this obligation through the specific flags and input handling of its own binary, pinned in that adapter's rule.
-- **Not subject:** the AI runner and the runner's call sites (worker stage, reviewer stage, detect-agent, prep), which never touch a tool's invocation surface directly.
+- **Not subject:** the AI runner and the runner's call sites (worker stage, reviewer stage, detect-agent), which never touch a tool's invocation surface directly.
 
 The user-visible consequence of this rule — that an implement run never pauses for the AI to ask the user anything — is stated in [.spec/contracts/cli-commands/implement/non-interactive.md](/.spec/contracts/cli-commands/implement/non-interactive.md).
 
@@ -178,7 +175,7 @@ When the configured `model` is non-empty, the adapter appends `--model <model>`.
 
 When the configured `effort` is non-empty, the adapter appends `--effort <effort>` — the Claude Code flag that sets the reasoning-effort level for the launched session — passing the configured value verbatim. When it is the empty string, the flag is not passed and the Claude default applies.
 
-When `resumeSessionId` is supplied, the adapter appends `--resume <resumeSessionId>`. When `forkParentSessionId` is supplied, the adapter uses the Claude flag that forks a session from the given parent. The two flags are mutually exclusive at the interface level (see [src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface](/src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface)); the adapter does not emit both.
+When `resumeSessionId` is supplied, the adapter appends `--resume <resumeSessionId>`. When it is unset, no resume flag is passed and the invocation starts fresh.
 
 ### Native event format
 
@@ -270,9 +267,9 @@ When the configured `model` is non-empty, the adapter appends `-m <model>`. When
 
 When the configured `effort` is non-empty, the adapter appends `-c model_reasoning_effort=<effort>`. Values follow what Codex documents at the time of the run (today: `minimal`, `low`, `medium`, `high`, `xhigh`). When the configured `effort` is the empty string, the override is not passed.
 
-When `resumeSessionId` is supplied, the adapter switches the subcommand from `exec` to `codex resume <resumeSessionId>`, applying the same non-interactive overrides (`-c approval_policy=never`, `-c sandbox_mode=danger-full-access`, `--json`). When `forkParentSessionId` is supplied, the adapter uses `codex fork <forkParentSessionId>` with the same overrides. The two are mutually exclusive at the interface level; the adapter does not emit both.
+When `resumeSessionId` is supplied, the adapter switches the subcommand from `exec` to `codex resume <resumeSessionId>`, applying the same non-interactive overrides (`-c approval_policy=never`, `-c sandbox_mode=danger-full-access`, `--json`).
 
-When the Codex CLI on the host does not support `codex resume` or `codex fork` (older version), the adapter falls back to a fresh `codex exec` rather than silently changing semantics. The fallback is surfaced through an `output` event so the user can see that continuity was lost; it does not change the retryability of the call.
+When the Codex CLI on the host does not support `codex resume` (older version), the adapter falls back to a fresh `codex exec` rather than silently changing semantics. The fallback is surfaced through an `output` event so the user can see that continuity was lost; it does not change the retryability of the call.
 
 `-c` overrides are repeatable. The adapter emits one `-c key=value` per override and never collapses multiple overrides into a single string.
 
@@ -280,7 +277,7 @@ When the Codex CLI on the host does not support `codex resume` or `codex fork` (
 
 The Codex CLI's `exec --json` output is a sequence of newline-delimited JSON events from the `ThreadEvent` family exposed by the Codex TypeScript SDK. The adapter parses each line and routes the object based on its top-level `type`. The event types it acts on are:
 
-- `thread.started` — carries the run's `thread_id` string. This is the session identifier the adapter surfaces and the value reused for `codex resume` / `codex fork`.
+- `thread.started` — carries the run's `thread_id` string. This is the session identifier the adapter surfaces and the value reused for `codex resume`.
 - `turn.started` — turn boundary marker; filtered.
 - `item.started` — an item that is still in progress (its `status` is `in_progress`); filtered. Only `item.completed` items map to output.
 - `item.completed` — carries a completed `item`; the item's own `type` drives the output mapping below.
@@ -356,7 +353,7 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `codex` p
 - The adapter collapses multiple `-c` overrides into a single string or reuses the same `-c` for multiple keys.
 - The adapter retries on a message whose text does not contain any of the explicit retryable substrings above and whose process did not exit by signal or unexpectedly mid-turn.
 - The adapter writes Codex's native output to the user's terminal directly, instead of emitting `output` events.
-- The adapter reads the session id from a field other than `thread.started`'s `thread_id`, so no `session` event is emitted and continuity (resume / fork) is lost.
+- The adapter reads the session id from a field other than `thread.started`'s `thread_id`, so no `session` event is emitted and continuity (resume) is lost.
 - The adapter looks for the assistant text in a `content` array of role-tagged blocks instead of the flat `item.text` on the `agent_message` item, capturing nothing.
 - The adapter emits an `output` event for an `item.started` event instead of filtering it and emitting only on `item.completed`.
 - The adapter ignores the `usage` object on `turn.completed` and reports no token usage to the runner, so the displayed token figures stay at zero.

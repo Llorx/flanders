@@ -2,7 +2,7 @@
 
 ## Autonomous subagents never run commands in the background
 
-Any AI instance (Claude Code, Codex CLI, or any other supported tool) that runs as an autonomous agent inside this project — workers, reviewers, adversarial reviewers, prep, validators, detect, and in general any subagent launched by a skill, by an orchestration, or by the `implement` command — must run every command it executes in the foreground and keep its turn active until that command finishes and its result is in hand. It is forbidden from starting any command in the background and from ending its turn while a command it spawned is still running.
+Any AI instance (Claude Code, Codex CLI, or any other supported tool) that runs as an autonomous agent inside this project — workers, reviewers, adversarial reviewers, validators, detect, and in general any subagent launched by a skill, by an orchestration, or by the `implement` command — must run every command it executes in the foreground and keep its turn active until that command finishes and its result is in hand. It is forbidden from starting any command in the background and from ending its turn while a command it spawned is still running.
 
 This binds every command without exception: build scripts, test scripts, linters, and any other shell command. A long-running command is still run in the foreground; the subagent waits for it to complete rather than detaching it.
 
@@ -10,7 +10,7 @@ The only exempt instance is the interactive session with the user, which may bac
 
 ### Who this applies to
 
-- **Subject to the rule:** every subagent launched through the AI tool's subagent mechanism (in Claude Code, the `Agent` tool with any `subagent_type`; in Codex CLI, the equivalent when one exists), every AI-tool process launched by a skill or by the `implement` command as worker/reviewer/prep/validator/detect, and any instance that operates without a human answering turn by turn.
+- **Subject to the rule:** every subagent launched through the AI tool's subagent mechanism (in Claude Code, the `Agent` tool with any `subagent_type`; in Codex CLI, the equivalent when one exists), every AI-tool process launched by a skill or by the `implement` command as worker/reviewer/validator/detect, and any instance that operates without a human answering turn by turn.
 - **Exempt:** the interactive session in which the user is conversing with the AI tool. That session may background a command when the user asks for it explicitly. An order inferred or anticipated by the tool does not count as an explicit order.
 
 A subagent does not inherit permission to background commands just because the session that launched it could. The prohibition is by role, not by invocation chain.
@@ -47,7 +47,7 @@ The only exempt instance is the interactive session with the user, which may run
 
 ### Who this applies to
 
-- **Subject to the rule:** every subagent launched through the AI tool's subagent mechanism (in Claude Code, the `Agent` tool with any `subagent_type`; in Codex CLI, the equivalent when one exists), every AI-tool process launched by a skill or by the `implement` command as worker/reviewer/prep/validator/detect, and any instance that operates without a human answering turn by turn.
+- **Subject to the rule:** every subagent launched through the AI tool's subagent mechanism (in Claude Code, the `Agent` tool with any `subagent_type`; in Codex CLI, the equivalent when one exists), every AI-tool process launched by a skill or by the `implement` command as worker/reviewer/validator/detect, and any instance that operates without a human answering turn by turn.
 - **Exempt:** the interactive session in which the user is conversing with the AI tool. That session may run git write commands when the user asks for them explicitly. An order inferred or anticipated by Claude does not count as an explicit order.
 
 A subagent does not inherit permission to write to git just because the session that launched it had it. The prohibition is by role, not by invocation chain.

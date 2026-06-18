@@ -70,5 +70,12 @@ Each leaf task carries a description and an explicit acceptance criteria section
 ## Contract and rule references
 Each leaf task links the contract file or files that govern it and the rule file or files that apply to it. Each link is a markdown link, per [.spec/contracts/shared/cross-file-reference-links.md](/.spec/contracts/shared/cross-file-reference-links.md): its text is the file's namespace — its path relative to the project root — and its target resolves to that file. When a specific section or line range of a contract or rule is the relevant obligation, the link points at that section or line range in addition to the file.
 
+Because these links resolve to real files by their namespace, they are the machine-resolvable set the implement command reads to obtain the contracts and rules whose content it injects into the worker and reviewer prompts (see [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md)).
+
+## Task content extent
+A leaf task's content — its description, its acceptance criteria, and its contract and rule reference links — occupies the contiguous region of the document that begins at the task's line and runs down to, but does not include, the next task line in document order, or the end of the file when no task line follows. The bounding next task line is the next line in either checkbox state, open `[ ]` or done `[x]`; a completed task that follows still ends the preceding task's content.
+
+This extent is what the implement command extracts verbatim as the full task text it injects into the worker and reviewer prompts (see [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md)). Lines that are not task lines — parent grouping headings, blank lines, prose, link bullets — never bound a task's content; only the next task line does.
+
 ## Updating tasks
 While the implement command works on a task, it rewrites the task line in place to keep the metrics object up to date with the latest accumulated values. When the task is accepted, the same rewrite flips the checkbox from `[ ]` to `[x]`. Every rewrite is confined to the matched task line; surrounding content is preserved verbatim.
