@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { formatCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWorkingFooter, formatPreparingFooter, formatWaitingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, stripAnsi, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
+import { formatCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWorkingFooter, formatWaitingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, stripAnsi, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
 
 test.describe("formatCountdown", test => {
     test("returns minutes only when remaining is under one hour", {
@@ -286,18 +286,6 @@ test.describe("formatHeaderLine", test => {
         },
         ASSERT(result) {
             Assert.ok(result.includes(MAGENTA + "testing" + RESET), "testing should be magenta");
-        }
-    });
-
-    test("applies magenta to preparing activity", {
-        ARRANGE() {
-            return { indexLabel: "1/1", iter: null, activity: "preparing", taskNumber: undefined, title: "T", cols: 120 };
-        },
-        ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
-        },
-        ASSERT(result) {
-            Assert.ok(result.includes(MAGENTA + "preparing" + RESET), "preparing should be magenta");
         }
     });
 
@@ -1455,62 +1443,6 @@ test.describe("formatWorkingFooter", test => {
             },
             "colors the surviving prefix in ORANGE with trailing RESET"(result) {
                 Assert.strictEqual(result, ORANGE + "⣋ Wo" + RESET + "…");
-            }
-        }
-    });
-});
-
-test.describe("formatPreparingFooter", test => {
-    test("returns the full ORANGE-wrapped string when the plain text fits within cols", {
-        ARRANGE() {
-            return { frame: "⣋", cols: 120 };
-        },
-        ACT({ frame, cols }) {
-            return formatPreparingFooter(frame, cols);
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, ORANGE + "⣋ Preparing" + RESET);
-        }
-    });
-
-    test("returns the full untruncated string at exact boundary (plain length === cols)", {
-        ARRANGE() {
-            const frame = "⣋";
-            const plain = `${frame} Preparing`;
-            return { frame, cols: plain.length, plain };
-        },
-        ACT({ frame, cols }) {
-            return formatPreparingFooter(frame, cols);
-        },
-        ASSERTS: {
-            "returns the full ORANGE-wrapped string"(result, { plain }) {
-                Assert.strictEqual(result, ORANGE + plain + RESET);
-            },
-            "contains no ellipsis"(result) {
-                Assert.ok(!result.includes("…"));
-            }
-        }
-    });
-
-    test("truncates with a trailing ellipsis when the plain text exceeds cols", {
-        ARRANGE() {
-            return { frame: "⣋", cols: 5 };
-        },
-        ACT({ frame, cols }) {
-            return formatPreparingFooter(frame, cols);
-        },
-        ASSERTS: {
-            "exact truncated plain string matches"(result) {
-                Assert.strictEqual(stripAnsi(result), "⣋ Pr…");
-            },
-            "plain text length equals cols"(result) {
-                Assert.strictEqual(stripAnsi(result).length, 5);
-            },
-            "ends with ellipsis"(result) {
-                Assert.ok(stripAnsi(result).endsWith("…"));
-            },
-            "colors the surviving prefix in ORANGE with trailing RESET"(result) {
-                Assert.strictEqual(result, ORANGE + "⣋ Pr" + RESET + "…");
             }
         }
     });

@@ -101,7 +101,7 @@ export function formatActiveTime(seconds:number):string {
     return `${h}h${pad2(m)}m${pad2(s % 60)}s`;
 }
 
-const LIVE_ACTIVITIES = new Set(["preparing", "implementing", "reviewing", "building", "testing"]);
+const LIVE_ACTIVITIES = new Set(["implementing", "reviewing", "building", "testing"]);
 
 export function formatHeaderLine(indexLabel:string|null, iteration:number|null, activity:string|null, taskNumber:string|null|undefined, title:string|null, cols:number):string {
     const segments:Segment[] = [];
@@ -276,10 +276,6 @@ function fitOrangeFooterLine(text:string, cols:number):string {
 
 export function formatWorkingFooter(frame:string, cols:number):string {
     return fitOrangeFooterLine(`${frame} Working`, cols);
-}
-
-export function formatPreparingFooter(frame:string, cols:number):string {
-    return fitOrangeFooterLine(`${frame} Preparing`, cols);
 }
 
 export function formatWaitingFooter(heading:string, dateTime:string, countdown:string, cols:number):string {
