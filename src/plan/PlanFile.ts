@@ -111,15 +111,13 @@ export function parsePlan(content:string):PlanParseResult {
     };
 }
 
-const BACKTICK_PATH = /`([^`]+)`/g;
+const MARKDOWN_LINK = /\[[^\]]*\]\(([^)]+)\)/g;
+const CONTRACTS_SEGMENT = ".spec/contracts/";
+const RULES_SEGMENT = ".spec/rules/";
 
-function extractPathsFromLine(text:string):string[] {
-    const paths:string[] = [];
-    let m;
-    while ((m = BACKTICK_PATH.exec(text)) !== null) {
-        paths.push(m[1]!);
-    }
-    return paths;
+function detectNewline(content:string):string {
+    const newlineMatch = /\r\n|\n/.exec(content);
+    return newlineMatch ? newlineMatch[0] : "\n";
 }
 
 function taskBodyLines(content:string, taskLineNumber:number):string[] {
@@ -133,16 +131,37 @@ function taskBodyLines(content:string, taskLineNumber:number):string[] {
     return body;
 }
 
+// The full verbatim text of a leaf task: its own line plus its body, from the task line
+// down to — but not including — the next task line (open or done) or the end of the file.
+// Newline style and content are preserved exactly, reusing taskBodyLines' boundary scan.
+export function extractFullTaskText(content:string, taskLineNumber:number):string {
+    const lines = content.split(/\r?\n/);
+    const taskLine = lines[taskLineNumber - 1]!;
+    const body = taskBodyLines(content, taskLineNumber);
+    return [taskLine, ...body].join(detectNewline(content));
+}
+
+// Resolves the distinct contract and rule files a task references from the markdown links
+// in its body whose target points into a `.spec/contracts` or `.spec/rules` folder. Each
+// target has its leading `/` and any `#…` fragment dropped to yield the project-root-relative
+// path, classified by the `.spec/contracts/`/`.spec/rules/` segment and de-duplicated.
 export function parseLinkedPaths(content:string, taskLineNumber:number):TaskLinkedPaths {
     const body = taskBodyLines(content, taskLineNumber);
-    let contracts:string[] = [];
-    let rules:string[] = [];
+    const contracts:string[] = [];
+    const rules:string[] = [];
     for (const line of body) {
-        const trimmed = line.trimStart();
-        if (trimmed.startsWith("Linked contracts:")) {
-            contracts = extractPathsFromLine(trimmed.slice("Linked contracts:".length));
-        } else if (trimmed.startsWith("Linked rules:")) {
-            rules = extractPathsFromLine(trimmed.slice("Linked rules:".length));
+        let m;
+        while ((m = MARKDOWN_LINK.exec(line)) !== null) {
+            const path = m[1]!.split("#")[0]!.replace(/^\//, "");
+            if (path.includes(CONTRACTS_SEGMENT)) {
+                if (!contracts.includes(path)) {
+                    contracts.push(path);
+                }
+            } else if (path.includes(RULES_SEGMENT)) {
+                if (!rules.includes(path)) {
+                    rules.push(path);
+                }
+            }
         }
     }
     return { contracts, rules };
@@ -181,6 +200,9 @@ export class PlanFile {
     linkedPaths(task:PlanTask):TaskLinkedPaths {
         return parseLinkedPaths(this._content, task.line);
     }
+    fullTaskText(task:PlanTask):string {
+        return extractFullTaskText(this._content, task.line);
+    }
     planTotals():TaskMetrics {
         const { tasks } = parsePlan(this._content);
         let it = 0, ot = 0, t = 0;
@@ -193,8 +215,7 @@ export class PlanFile {
     }
     private async _rewriteTaskLine(lineNumber:number, metrics:TaskMetrics, flip:"open"|"done"|"none"):Promise<void> {
         validateMetricsInput(metrics);
-        const newlineMatch = /\r\n|\n/.exec(this._content);
-        const newline = newlineMatch ? newlineMatch[0] : "\n";
+        const newline = detectNewline(this._content);
         const lines = this._content.split(/\r?\n/);
         const idx = lineNumber - 1;
         const raw = lines[idx];

@@ -67,7 +67,7 @@ const PLAN_PATH = "/project/plans/test.md";
 const WS_ROOT = "/tmp/flanders-ws123";
 const CONFIG_PATH = "/project/.flanders/config.json";
 
-function planWithLinkedFiles(linkedContracts:string, linkedRules:string):string {
+function planWithLinkedFiles(contractLinks:string, ruleLinks:string):string {
     return [
         "# Plan",
         "",
@@ -75,9 +75,9 @@ function planWithLinkedFiles(linkedContracts:string, linkedRules:string):string 
         "",
         "  Description.",
         "",
-        `  Linked contracts: ${linkedContracts}`,
+        `  Contracts: ${contractLinks}`,
         "",
-        `  Linked rules: ${linkedRules}`,
+        `  Rules: ${ruleLinks}`,
         ""
     ].join("\n");
 }
@@ -242,8 +242,8 @@ function gitRunQueue(gitQueue:ScriptResponse[], taskCount = 1):void {
 }
 
 const LINKED_PLAN = planWithLinkedFiles(
-    "`contracts/e2e-c1.md`. `contracts/e2e-c2.md`.",
-    "`rules/e2e-r1.md`. `rules/e2e-r2.md`."
+    "[.spec/contracts/e2e-c1.md](/.spec/contracts/e2e-c1.md) [.spec/contracts/e2e-c2.md](/.spec/contracts/e2e-c2.md)",
+    "[.spec/rules/e2e-r1.md](/.spec/rules/e2e-r1.md) [.spec/rules/e2e-r2.md](/.spec/rules/e2e-r2.md)"
 );
 const CONTRACT_SNIPPET_1 = "E2E_CONTRACT_SNIPPET_ONE";
 const CONTRACT_SNIPPET_2 = "E2E_CONTRACT_SNIPPET_TWO";
@@ -251,10 +251,10 @@ const RULE_SNIPPET_1 = "E2E_RULE_SNIPPET_ONE";
 const RULE_SNIPPET_2 = "E2E_RULE_SNIPPET_TWO";
 
 function setLinkedFiles(files:Map<string, string>):void {
-    files.set("/project/contracts/e2e-c1.md", CONTRACT_SNIPPET_1);
-    files.set("/project/contracts/e2e-c2.md", CONTRACT_SNIPPET_2);
-    files.set("/project/rules/e2e-r1.md", RULE_SNIPPET_1);
-    files.set("/project/rules/e2e-r2.md", RULE_SNIPPET_2);
+    files.set("/project/.spec/contracts/e2e-c1.md", CONTRACT_SNIPPET_1);
+    files.set("/project/.spec/contracts/e2e-c2.md", CONTRACT_SNIPPET_2);
+    files.set("/project/.spec/rules/e2e-r1.md", RULE_SNIPPET_1);
+    files.set("/project/.spec/rules/e2e-r2.md", RULE_SNIPPET_2);
 }
 
 type E2eResult = {

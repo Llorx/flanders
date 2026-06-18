@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { parsePlan, parseLinkedPaths, PlanFile } from "./PlanFile";
+import { parsePlan, parseLinkedPaths, extractFullTaskText, PlanFile } from "./PlanFile";
 import type { FsContext } from "../contexts";
 
 function mockFs(initialContent:string):{ fs:FsContext; content():string } {
@@ -971,16 +971,20 @@ test.describe("PlanFile.planTotals", test => {
 });
 
 test.describe("parseLinkedPaths", test => {
-    test("extracts contract and rule paths from task body", {
+    test("partitions contract and rule paths from the task body's markdown links", {
         ARRANGE() {
             return [
                 '- [ ]{"it":0,"ot":0,"t":0} 1.1 Some task',
                 '',
                 '  Description text.',
                 '',
-                '  Linked contracts: `contracts/foo.md`, `contracts/bar.md`.',
+                '  Contracts:',
+                '  - [.spec/contracts/foo.md](/.spec/contracts/foo.md)',
+                '  - [.spec/contracts/bar.md](/.spec/contracts/bar.md)',
                 '',
-                '  Linked rules: `rules/a.md`, `rules/b.md`.',
+                '  Rules:',
+                '  - [.spec/rules/a.md](/.spec/rules/a.md)',
+                '  - [.spec/rules/b.md](/.spec/rules/b.md)',
                 ''
             ].join("\n");
         },
@@ -988,23 +992,25 @@ test.describe("parseLinkedPaths", test => {
             return parseLinkedPaths(content, 1);
         },
         ASSERTS: {
-            "contracts array matches"(result) {
-                Assert.deepStrictEqual(result.contracts, ["contracts/foo.md", "contracts/bar.md"]);
+            "contracts array holds the contract-targeted links in order"(result) {
+                Assert.deepStrictEqual(result.contracts, [".spec/contracts/foo.md", ".spec/contracts/bar.md"]);
             },
-            "rules array matches"(result) {
-                Assert.deepStrictEqual(result.rules, ["rules/a.md", "rules/b.md"]);
+            "rules array holds the rule-targeted links in order"(result) {
+                Assert.deepStrictEqual(result.rules, [".spec/rules/a.md", ".spec/rules/b.md"]);
             }
         }
     });
 
-    test("strips trailing parenthetical annotations from paths", {
+    test("a link carrying a section anchor resolves to the whole file (leading slash and fragment dropped)", {
         ARRANGE() {
             return [
-                '- [ ]{"it":0,"ot":0,"t":0} 2.1 Task with annotations',
+                '- [ ]{"it":0,"ot":0,"t":0} 2.1 Task with anchors',
                 '',
-                '  Linked contracts: `contracts/cli-commands/implement/iteration-loop.md` (Worker stage), `contracts/cli-commands/implement/ai-runner.md`.',
+                '  Contracts:',
+                '  - [.spec/contracts/cli-commands/implement/iteration-loop.md#worker-stage](/.spec/contracts/cli-commands/implement/iteration-loop.md#worker-stage)',
                 '',
-                '  Linked rules: `rules/ai/task-context/worker-iter1-context.md` (every bullet of branches A and B), `rules/ai/task-context/prep-optimization.md` (gating reference).',
+                '  Rules:',
+                '  - [src/plan/.spec/rules/plan-parsing/task-body-extraction.md](/src/plan/.spec/rules/plan-parsing/task-body-extraction.md)',
                 ''
             ].join("\n");
         },
@@ -1012,25 +1018,67 @@ test.describe("parseLinkedPaths", test => {
             return parseLinkedPaths(content, 1);
         },
         ASSERTS: {
-            "contracts array has bare paths"(result) {
-                Assert.deepStrictEqual(result.contracts, [
-                    "contracts/cli-commands/implement/iteration-loop.md",
-                    "contracts/cli-commands/implement/ai-runner.md"
-                ]);
+            "anchored contract link resolves to the whole file"(result) {
+                Assert.deepStrictEqual(result.contracts, [".spec/contracts/cli-commands/implement/iteration-loop.md"]);
             },
-            "rules array has bare paths"(result) {
-                Assert.deepStrictEqual(result.rules, [
-                    "rules/ai/task-context/worker-iter1-context.md",
-                    "rules/ai/task-context/prep-optimization.md"
-                ]);
+            "nested-namespace rule link resolves with the leading slash dropped"(result) {
+                Assert.deepStrictEqual(result.rules, ["src/plan/.spec/rules/plan-parsing/task-body-extraction.md"]);
             }
         }
     });
 
-    test("returns empty arrays when no linked lines exist", {
+    test("the same file referenced more than once via different anchors yields a single path", {
         ARRANGE() {
             return [
-                '- [ ]{"it":0,"ot":0,"t":0} 3.1 No links',
+                '- [ ]{"it":0,"ot":0,"t":0} 3.1 Task with duplicate references',
+                '',
+                '  - [.spec/contracts/dup.md#section-one](/.spec/contracts/dup.md#section-one)',
+                '  - [.spec/contracts/dup.md#section-two](/.spec/contracts/dup.md#section-two)',
+                '  - [.spec/rules/dup-rule.md#a](/.spec/rules/dup-rule.md#a)',
+                '  - [.spec/rules/dup-rule.md#b](/.spec/rules/dup-rule.md#b)',
+                ''
+            ].join("\n");
+        },
+        ACT(content) {
+            return parseLinkedPaths(content, 1);
+        },
+        ASSERTS: {
+            "the duplicated contract collapses to one path"(result) {
+                Assert.deepStrictEqual(result.contracts, [".spec/contracts/dup.md"]);
+            },
+            "the duplicated rule collapses to one path"(result) {
+                Assert.deepStrictEqual(result.rules, [".spec/rules/dup-rule.md"]);
+            }
+        }
+    });
+
+    test("a markdown link whose target is neither a contract nor a rule is ignored", {
+        ARRANGE() {
+            return [
+                '- [ ]{"it":0,"ot":0,"t":0} 4.1 Task with extra links',
+                '',
+                '  See [.spec/overview.md](/.spec/overview.md) and [external](https://example.com).',
+                '  - [.spec/contracts/kept.md](/.spec/contracts/kept.md)',
+                ''
+            ].join("\n");
+        },
+        ACT(content) {
+            return parseLinkedPaths(content, 1);
+        },
+        ASSERTS: {
+            "only the contract-targeted link is kept"(result) {
+                Assert.deepStrictEqual(result.contracts, [".spec/contracts/kept.md"]);
+            },
+            "no rule is resolved from the non-spec links"(result) {
+                Assert.deepStrictEqual(result.rules, []);
+            }
+        }
+    });
+
+    test("returns empty arrays when the task body carries no markdown links", {
+        ARRANGE() {
+            return [
+                '- [ ]{"it":0,"ot":0,"t":0} 5.1 No links',
                 '',
                 '  Just a description.',
                 ''
@@ -1049,16 +1097,40 @@ test.describe("parseLinkedPaths", test => {
         }
     });
 
+    test("an old-style backtick reference (no markdown link) resolves to nothing", {
+        ARRANGE() {
+            return [
+                '- [ ]{"it":0,"ot":0,"t":0} 6.1 Backtick-only references',
+                '',
+                '  Linked contracts: `.spec/contracts/foo.md`.',
+                '',
+                '  Linked rules: `.spec/rules/bar.md`.',
+                ''
+            ].join("\n");
+        },
+        ACT(content) {
+            return parseLinkedPaths(content, 1);
+        },
+        ASSERTS: {
+            "no contract is resolved from a backtick path"(result) {
+                Assert.deepStrictEqual(result.contracts, []);
+            },
+            "no rule is resolved from a backtick path"(result) {
+                Assert.deepStrictEqual(result.rules, []);
+            }
+        }
+    });
+
     test("stops at the next task line", {
         ARRANGE() {
             return [
                 '- [ ]{"it":0,"ot":0,"t":0} 1.1 First task',
                 '',
-                '  Linked contracts: `contracts/first.md`.',
+                '  - [.spec/contracts/first.md](/.spec/contracts/first.md)',
                 '',
                 '- [ ]{"it":0,"ot":0,"t":0} 1.2 Second task',
                 '',
-                '  Linked contracts: `contracts/second.md`.',
+                '  - [.spec/contracts/second.md](/.spec/contracts/second.md)',
                 ''
             ].join("\n");
         },
@@ -1067,7 +1139,7 @@ test.describe("parseLinkedPaths", test => {
         },
         ASSERTS: {
             "only first task contracts"(result) {
-                Assert.deepStrictEqual(result.contracts, ["contracts/first.md"]);
+                Assert.deepStrictEqual(result.contracts, [".spec/contracts/first.md"]);
             },
             "rules array is empty"(result) {
                 Assert.deepStrictEqual(result.rules, []);
@@ -1080,8 +1152,8 @@ test.describe("parseLinkedPaths", test => {
             const content = [
                 '- [ ]{"it":0,"ot":0,"t":0} 1.1 Task',
                 '',
-                '  Linked contracts: `contracts/x.md`.',
-                '  Linked rules: `rules/y.md`.',
+                '  - [.spec/contracts/x.md](/.spec/contracts/x.md)',
+                '  - [.spec/rules/y.md](/.spec/rules/y.md)',
                 ''
             ].join("\n");
             return mockFs(content);
@@ -1093,11 +1165,105 @@ test.describe("parseLinkedPaths", test => {
         },
         ASSERTS: {
             "contracts match"(result) {
-                Assert.deepStrictEqual(result.contracts, ["contracts/x.md"]);
+                Assert.deepStrictEqual(result.contracts, [".spec/contracts/x.md"]);
             },
             "rules match"(result) {
-                Assert.deepStrictEqual(result.rules, ["rules/y.md"]);
+                Assert.deepStrictEqual(result.rules, [".spec/rules/y.md"]);
             }
+        }
+    });
+});
+
+test.describe("extractFullTaskText", test => {
+    test("captures the task's own line through the line before a following done task, verbatim", {
+        ARRANGE() {
+            const content = [
+                "# Plan",
+                "",
+                '- [ ]{"it":0,"ot":0,"t":0} 1 First task',
+                "  Description line.",
+                "  Contracts: [.spec/contracts/c.md](/.spec/contracts/c.md)",
+                '- [x]{"it":1,"ot":2,"t":3} 2 Done task',
+                "  Should not be included.",
+                ""
+            ].join("\n");
+            const expected = [
+                '- [ ]{"it":0,"ot":0,"t":0} 1 First task',
+                "  Description line.",
+                "  Contracts: [.spec/contracts/c.md](/.spec/contracts/c.md)"
+            ].join("\n");
+            return { content, expected };
+        },
+        ACT({ content }) {
+            return extractFullTaskText(content, 3);
+        },
+        ASSERTS: {
+            "returns the task line through the line before the next task line, verbatim"(result, { expected }) {
+                Assert.strictEqual(result, expected);
+            },
+            "includes the task's own line"(result) {
+                Assert.strictEqual(result.split("\n")[0], '- [ ]{"it":0,"ot":0,"t":0} 1 First task');
+            },
+            "does not extend into the following done task"(result) {
+                Assert.strictEqual(result.includes("2 Done task"), false);
+            }
+        }
+    });
+
+    test("extends a task with no following task line to the end of the file, verbatim", {
+        ARRANGE() {
+            const content = [
+                '- [ ]{"it":0,"ot":0,"t":0} 1 Only task',
+                "  Body line one.",
+                "  Body line two.",
+                ""
+            ].join("\n");
+            return { content };
+        },
+        ACT({ content }) {
+            return extractFullTaskText(content, 1);
+        },
+        ASSERT(result, { content }) {
+            Assert.strictEqual(result, content);
+        }
+    });
+
+    test("preserves CRLF newline style and stops at the next task line", {
+        ARRANGE() {
+            return '- [ ]{"it":0,"ot":0,"t":0} 1 Task\r\n  Body.\r\n- [x]{"it":0,"ot":0,"t":0} 2 Next\r\n';
+        },
+        ACT(content) {
+            return extractFullTaskText(content, 1);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, '- [ ]{"it":0,"ot":0,"t":0} 1 Task\r\n  Body.');
+        }
+    });
+
+    test("PlanFile.fullTaskText delegates to extractFullTaskText", {
+        ARRANGE() {
+            const content = [
+                "# Plan",
+                "",
+                '- [ ]{"it":0,"ot":0,"t":0} 1 Target task',
+                "  Body of target.",
+                '- [ ]{"it":0,"ot":0,"t":0} 2 Other task',
+                "  Body of other.",
+                ""
+            ].join("\n");
+            const expected = [
+                '- [ ]{"it":0,"ot":0,"t":0} 1 Target task',
+                "  Body of target."
+            ].join("\n");
+            return { mock: mockFs(content), expected };
+        },
+        async ACT({ mock }) {
+            const plan = await PlanFile.load("plan.md", mock.fs);
+            const task = plan.nextOpenTask()!;
+            return plan.fullTaskText(task);
+        },
+        ASSERT(result, { expected }) {
+            Assert.strictEqual(result, expected);
         }
     });
 });

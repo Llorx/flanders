@@ -6859,7 +6859,7 @@ test.describe("Implement prep-optimization condition", test => {
     });
 });
 
-function planWithLinkedFiles(linkedContracts:string, linkedRules:string):string {
+function planWithLinkedFiles(contractLinks:string, ruleLinks:string):string {
     return [
         "# Plan",
         "",
@@ -6867,9 +6867,9 @@ function planWithLinkedFiles(linkedContracts:string, linkedRules:string):string 
         "",
         "  Description.",
         "",
-        `  Linked contracts: ${linkedContracts}`,
+        `  Contracts: ${contractLinks}`,
         "",
-        `  Linked rules: ${linkedRules}`,
+        `  Rules: ${ruleLinks}`,
         ""
     ].join("\n");
 }
@@ -6893,12 +6893,12 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
             const plan = planWithLinkedFiles(
-                "`contracts/linked-c.md`.",
-                "`rules/linked-r.md`."
+                "[.spec/contracts/linked-c.md](/.spec/contracts/linked-c.md)",
+                "[.spec/rules/linked-r.md](/.spec/rules/linked-r.md)"
             );
             s.files.set(PLAN_PATH, plan);
-            s.files.set("/project/contracts/linked-c.md", "UNIQUE_CONTRACT_SNIPPET_ALPHA");
-            s.files.set("/project/rules/linked-r.md", "UNIQUE_RULE_SNIPPET_ALPHA");
+            s.files.set("/project/.spec/contracts/linked-c.md", "UNIQUE_CONTRACT_SNIPPET_ALPHA");
+            s.files.set("/project/.spec/rules/linked-r.md", "UNIQUE_RULE_SNIPPET_ALPHA");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
             // detect
             s.claudeQueue.push({ text: "ok" });
@@ -6946,13 +6946,13 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
-                "`contracts/linked-c.md`.",
-                "`rules/linked-r.md`."
+                "[.spec/contracts/linked-c.md](/.spec/contracts/linked-c.md)",
+                "[.spec/rules/linked-r.md](/.spec/rules/linked-r.md)"
             );
             s.files.set(PLAN_PATH, plan);
-            s.files.set("/project/contracts/linked-c.md", "UNIQUE_CONTRACT_SNIPPET_BETA");
-            s.files.set("/project/rules/linked-r.md", "UNIQUE_RULE_SNIPPET_BETA");
-            s.files.set("/project/contracts/unlinked-global.md", "UNLINKED_GLOBAL_SNIPPET");
+            s.files.set("/project/.spec/contracts/linked-c.md", "UNIQUE_CONTRACT_SNIPPET_BETA");
+            s.files.set("/project/.spec/rules/linked-r.md", "UNIQUE_RULE_SNIPPET_BETA");
+            s.files.set("/project/.spec/contracts/unlinked-global.md", "UNLINKED_GLOBAL_SNIPPET");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
             // detect
             s.claudeQueue.push({ text: "ok" });
@@ -7001,10 +7001,10 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const plan = planWithLinkedFiles("`contracts/c.md`.", "`rules/r.md`.");
+            const plan = planWithLinkedFiles("[.spec/contracts/c.md](/.spec/contracts/c.md)", "[.spec/rules/r.md](/.spec/rules/r.md)");
             s.files.set(PLAN_PATH, plan);
-            s.files.set("/project/contracts/c.md", "c");
-            s.files.set("/project/rules/r.md", "r");
+            s.files.set("/project/.spec/contracts/c.md", "c");
+            s.files.set("/project/.spec/rules/r.md", "r");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "READY", sessionId: "prep-cap" });
@@ -7039,10 +7039,10 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
             gitRunQueue(s.gitQueue);
             const config:FlandersConfig = { worker: { tool: "claude", model: "a", effort: "" }, reviewers: [{ tool: "codex", model: "b", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
-            const plan = planWithLinkedFiles("`contracts/c.md`.", "`rules/r.md`.");
+            const plan = planWithLinkedFiles("[.spec/contracts/c.md](/.spec/contracts/c.md)", "[.spec/rules/r.md](/.spec/rules/r.md)");
             s.files.set(PLAN_PATH, plan);
-            s.files.set("/project/contracts/c.md", "c");
-            s.files.set("/project/rules/r.md", "r");
+            s.files.set("/project/.spec/contracts/c.md", "c");
+            s.files.set("/project/.spec/rules/r.md", "r");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
             s.claudeQueue.push({ text: "ok" });
             // worker — prepActive=false, so no prep
@@ -7086,11 +7086,11 @@ test.describe("Implement worker iter 1 branch A vs branch B", test => {
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
-                "`contracts/exists.md` `contracts/missing.md`.",
+                "[.spec/contracts/exists.md](/.spec/contracts/exists.md) [.spec/contracts/missing.md](/.spec/contracts/missing.md)",
                 ""
             );
             s.files.set(PLAN_PATH, plan);
-            s.files.set("/project/contracts/exists.md", "EXISTS_CONTENT");
+            s.files.set("/project/.spec/contracts/exists.md", "EXISTS_CONTENT");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "worker done" });
@@ -7190,12 +7190,12 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
-                "`contracts/linked-c.md`.",
-                "`rules/linked-r.md`."
+                "[.spec/contracts/linked-c.md](/.spec/contracts/linked-c.md)",
+                "[.spec/rules/linked-r.md](/.spec/rules/linked-r.md)"
             );
             s.files.set(PLAN_PATH, plan);
-            s.files.set("/project/contracts/linked-c.md", "UNIQUE_CONTRACT_ITER2_NOREPLAY");
-            s.files.set("/project/rules/linked-r.md", "UNIQUE_RULE_ITER2_NOREPLAY");
+            s.files.set("/project/.spec/contracts/linked-c.md", "UNIQUE_CONTRACT_ITER2_NOREPLAY");
+            s.files.set("/project/.spec/rules/linked-r.md", "UNIQUE_RULE_ITER2_NOREPLAY");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
             // detect
             s.claudeQueue.push({ text: "ok" });
@@ -7418,12 +7418,12 @@ test.describe("Implement reviewer branch A vs branch B", test => {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
             const plan = planWithLinkedFiles(
-                "`contracts/linked-c.md`.",
-                "`rules/linked-r.md`."
+                "[.spec/contracts/linked-c.md](/.spec/contracts/linked-c.md)",
+                "[.spec/rules/linked-r.md](/.spec/rules/linked-r.md)"
             );
             s.files.set(PLAN_PATH, plan);
-            s.files.set("/project/contracts/linked-c.md", "UNIQUE_REVIEWER_CONTRACT_ALPHA");
-            s.files.set("/project/rules/linked-r.md", "UNIQUE_REVIEWER_RULE_ALPHA");
+            s.files.set("/project/.spec/contracts/linked-c.md", "UNIQUE_REVIEWER_CONTRACT_ALPHA");
+            s.files.set("/project/.spec/rules/linked-r.md", "UNIQUE_REVIEWER_RULE_ALPHA");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "READY", sessionId: "prep-rev-a" });
@@ -7466,13 +7466,13 @@ test.describe("Implement reviewer branch A vs branch B", test => {
             const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "codex", model: "", effort: "", optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
-                "`contracts/linked-c.md`.",
-                "`rules/linked-r.md`."
+                "[.spec/contracts/linked-c.md](/.spec/contracts/linked-c.md)",
+                "[.spec/rules/linked-r.md](/.spec/rules/linked-r.md)"
             );
             s.files.set(PLAN_PATH, plan);
-            s.files.set("/project/contracts/linked-c.md", "UNIQUE_REVIEWER_CONTRACT_BETA");
-            s.files.set("/project/rules/linked-r.md", "UNIQUE_REVIEWER_RULE_BETA");
-            s.files.set("/project/contracts/unlinked-global.md", "UNLINKED_REVIEWER_GLOBAL_SNIPPET");
+            s.files.set("/project/.spec/contracts/linked-c.md", "UNIQUE_REVIEWER_CONTRACT_BETA");
+            s.files.set("/project/.spec/rules/linked-r.md", "UNIQUE_REVIEWER_RULE_BETA");
+            s.files.set("/project/.spec/contracts/unlinked-global.md", "UNLINKED_REVIEWER_GLOBAL_SNIPPET");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "worker done", sessionId: "worker-rev-b" });
@@ -7516,12 +7516,12 @@ test.describe("Implement reviewer branch A vs branch B", test => {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
             const plan = planWithLinkedFiles(
-                "`contracts/linked-c.md`.",
-                "`rules/linked-r.md`."
+                "[.spec/contracts/linked-c.md](/.spec/contracts/linked-c.md)",
+                "[.spec/rules/linked-r.md](/.spec/rules/linked-r.md)"
             );
             s.files.set(PLAN_PATH, plan);
-            s.files.set("/project/contracts/linked-c.md", "ALPHA_2ITER_CONTRACT");
-            s.files.set("/project/rules/linked-r.md", "ALPHA_2ITER_RULE");
+            s.files.set("/project/.spec/contracts/linked-c.md", "ALPHA_2ITER_CONTRACT");
+            s.files.set("/project/.spec/rules/linked-r.md", "ALPHA_2ITER_RULE");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "READY", sessionId: "prep-rev-2iter" });
@@ -7582,12 +7582,12 @@ test.describe("Implement multiple parallel reviewers", test => {
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             const plan = planWithLinkedFiles(
-                "`contracts/linked-c.md`.",
-                "`rules/linked-r.md`."
+                "[.spec/contracts/linked-c.md](/.spec/contracts/linked-c.md)",
+                "[.spec/rules/linked-r.md](/.spec/rules/linked-r.md)"
             );
             s.files.set(PLAN_PATH, plan);
-            s.files.set("/project/contracts/linked-c.md", "MIXED_CONTRACT_SNIPPET");
-            s.files.set("/project/rules/linked-r.md", "MIXED_RULE_SNIPPET");
+            s.files.set("/project/.spec/contracts/linked-c.md", "MIXED_CONTRACT_SNIPPET");
+            s.files.set("/project/.spec/rules/linked-r.md", "MIXED_RULE_SNIPPET");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
             // detect, prep (captures PREP-MIXED), worker — 3 claude spawns
             s.claudeQueue.push({ text: "ok" });
