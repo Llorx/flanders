@@ -243,3 +243,28 @@ This obligation complements [src/prompts/.spec/rules/ai/skills/skills-common.md#
 - A `/flanders-spec` contract or rule cross-references another spec file by a path relative to the referencing file's own location instead of the referenced file's project-root-relative namespace.
 - The skill artifact body source describes the reference-link form only as a "relative path," leaving it open to a file-relative reading instead of pinning it to the project-root-relative namespace.
 - A link target a generated body produces omits the single leading slash, or carries more than one, so it does not resolve against the project root.
+
+## The markdown `/flanders-spec` and `/flanders-plan` author writes each paragraph as a single unwrapped line
+
+Every markdown file the two Flanders content skills write expresses each paragraph of flowing prose as a single continuous physical line. The skills never insert a line break inside a paragraph to keep the line within a maximum column width; soft-wrapping for display is left to the reader's editor or viewer. The only line breaks the skills write are the ones markdown structure requires — a blank line separating two paragraphs, a list item, a heading, a table row, and the line breaks inside a fenced code block.
+
+### Who this applies to
+
+- **Subject:** the source content that produces the `/flanders-spec` and `/flanders-plan` skill artifact bodies — the prompt text the `install` command ships — at the point where it tells the skill how to draft; and those two skills at runtime, for every markdown file they write: the contracts and rules `/flanders-spec` writes or updates under a `.spec/contracts` or `.spec/rules` folder, and the plan file `/flanders-plan` writes under `plans/`.
+- **Not subject:** `/flanders-work`, which implements code and whose deliverable is not an authored markdown document; the skill artifact body files themselves, which `install` writes into the user's AI-tool skill folders; and every other agent or command.
+
+### What "a single unwrapped line" means
+
+- A paragraph — a run of prose not interrupted by a blank line or a structural element — occupies exactly one physical line in the file, however long that line is. The reader's editor wraps it for display; the file does not carry the wrap.
+- A line break is written only where markdown gives it meaning: between two paragraphs (a blank line), between list items, before and after a heading, between table rows, and inside a fenced code block. A break inserted purely to cap the visual width of a paragraph is none of these and is not written.
+- The contents of a fenced code block are reproduced exactly as they are and are never re-wrapped to a width budget — their line breaks are content, not paragraph wrapping.
+
+### How to apply
+
+The `/flanders-spec` and `/flanders-plan` skill artifact bodies state this **actively in their drafting guidance** — a direct instruction to write each paragraph as one continuous line and to break a line only where markdown structure requires it — placed where the body tells the skill how to draft. The active instruction stops a hard-wrapped paragraph from being written in the first place, rather than relying on a later pass to unwrap it. The instruction is inlined in the body, carrying no flanders-internal spec citation, per [src/prompts/.spec/rules/ai/skills/skills-common.md#flanders-skill-artifact-prompts-are-self-contained--no-citations-of-flanders-internal-spec-paths](/src/prompts/.spec/rules/ai/skills/skills-common.md#flanders-skill-artifact-prompts-are-self-contained--no-citations-of-flanders-internal-spec-paths).
+
+### Failure signals
+
+- A contract, rule, or plan file authored by a content skill breaks a paragraph of prose across multiple physical lines to fit a column width.
+- A content skill's artifact body omits the active drafting instruction to write each paragraph as a single unwrapped line.
+- A content skill re-wraps the contents of a fenced code block to a width budget instead of reproducing them verbatim.

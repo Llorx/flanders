@@ -741,6 +741,25 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("plan content rules carry the single-line-paragraph obligation", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "instructs writing each paragraph as a single continuous line"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("Write each paragraph of prose in the plan as a single continuous line"), "the Plan content rules list must instruct writing each paragraph as a single continuous line");
+            },
+            "permits a line break only where markdown structure requires it"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("insert a line break only where markdown structure requires it"), "the Plan content rules list must permit a line break only where markdown structure requires it");
+            },
+            "forbids wrapping a paragraph to a maximum column width"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("Never break a paragraph across multiple lines to keep it within a maximum column width"), "the Plan content rules list must forbid wrapping a paragraph to a maximum column width");
+            }
+        }
+    });
+
     test("covers updated plan content rules", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
@@ -1284,6 +1303,25 @@ test.describe("skills – specSkillBody", test => {
             "names the guards-a-plausible-mistake load-bearing condition"(body) {
                 const draftingSection = body.slice(body.indexOf("Drafting phase"), body.indexOf("Final validation"));
                 Assert.ok(draftingSection.includes("it guards a behavior a competent implementer reading only the positive spec would plausibly introduce"), "the drafting guidance must name the guards-a-plausible-mistake load-bearing condition");
+            }
+        }
+    });
+
+    test("carries the active single-line-paragraph instruction in drafting guidance", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "instructs writing each paragraph as a single continuous line"(body) {
+                const draftingSection = body.slice(body.indexOf("Drafting phase"), body.indexOf("Final validation"));
+                Assert.ok(draftingSection.includes("Write each paragraph of prose as a single continuous line"), "the drafting guidance must instruct writing each paragraph as a single continuous line");
+            },
+            "permits a line break only where markdown structure requires it"(body) {
+                const draftingSection = body.slice(body.indexOf("Drafting phase"), body.indexOf("Final validation"));
+                Assert.ok(draftingSection.includes("insert a line break only where markdown structure requires it"), "the drafting guidance must permit a line break only where markdown structure requires it");
+            },
+            "forbids wrapping a paragraph to a maximum column width"(body) {
+                const draftingSection = body.slice(body.indexOf("Drafting phase"), body.indexOf("Final validation"));
+                Assert.ok(draftingSection.includes("Never break a paragraph across multiple lines to keep it within a maximum column width"), "the drafting guidance must forbid wrapping a paragraph to a maximum column width");
             }
         }
     });
