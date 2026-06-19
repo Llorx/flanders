@@ -47,7 +47,7 @@ Each redraw of the region recomputes, from those structured fields and the curre
 
 - A change of any field the region owns (header content, metrics totals, footer label, waiting countdown, etc.).
 - An animation tick — for example, the spinner glyph advancing.
-- A transition between subordinate states of the region (for example, between the normal `Working` footer state and the waiting footer state, or between the live footer label and the terminal-state label at exit).
+- A transition between subordinate states of the region (for example, between the normal working footer state and the waiting footer state, or between the live footer label and the terminal-state label at exit).
 - A write above the region that requires the region to be re-anchored.
 - A terminal resize.
 
@@ -81,7 +81,7 @@ The footer's waiting state is reserved for retry waits long enough to be worth s
 ### Who this applies to
 
 - **Subject:** the bottom-fixed UI block, specifically its footer line.
-- **Scope:** the transition between the normal footer state and the waiting footer state defined by the UI contract, for the worker-stage AI waits. The normal footer state is the `Working` state during the worker stage (see [.spec/contracts/cli-commands/implement/ui.md](/.spec/contracts/cli-commands/implement/ui.md)). The adversarial review stage is out of this scope: it does not use the global waiting footer state. A reviewer's rate-limit wait during the review stage is surfaced as that reviewer's `waiting` status inside the reviewing footer line (see [.spec/contracts/cli-commands/implement/ui.md](/.spec/contracts/cli-commands/implement/ui.md), `Footer line — reviewing state`), not by switching the whole footer into the global waiting state.
+- **Scope:** the transition between the normal footer state and the waiting footer state defined by the UI contract, for the worker-stage AI waits. The normal footer state is the working footer state during the worker stage (see [.spec/contracts/cli-commands/implement/ui.md](/.spec/contracts/cli-commands/implement/ui.md)). The adversarial review stage is out of this scope: it does not use the global waiting footer state. A reviewer's rate-limit wait during the review stage is surfaced as that reviewer's `waiting` status inside the reviewing footer line (see [.spec/contracts/cli-commands/implement/ui.md](/.spec/contracts/cli-commands/implement/ui.md), `Footer line — reviewing state`), not by switching the whole footer into the global waiting state.
 
 ### When the waiting state is shown
 
@@ -90,7 +90,7 @@ The footer's waiting state is reserved for retry waits long enough to be worth s
 
 ### When the waiting state is not shown
 
-- A transient-error backoff (see [src/ai/.spec/rules/retry.md#transient-retries-use-exponential-backoff-capped-at-one-minute](/src/ai/.spec/rules/retry.md#transient-retries-use-exponential-backoff-capped-at-one-minute)). These waits are capped at one minute and the user does not benefit from a dedicated footer state for them; the footer stays in its normal `Working` footer state and the animation continues.
+- A transient-error backoff (see [src/ai/.spec/rules/retry.md#transient-retries-use-exponential-backoff-capped-at-one-minute](/src/ai/.spec/rules/retry.md#transient-retries-use-exponential-backoff-capped-at-one-minute)). These waits are capped at one minute and the user does not benefit from a dedicated footer state for them; the footer stays in its normal working footer state and the animation continues.
 - Any retry whose duration cannot be reliably surfaced upfront, unless the contract explicitly extends the waiting state to cover it.
 
 ### Failure signals

@@ -18,7 +18,7 @@ Execute a plan file end-to-end: implement each open task with a worker AI, valid
 2. Read the selected plan file.
 3. Validate the plan file against [.spec/contracts/shared/plan-file-format.md](/.spec/contracts/shared/plan-file-format.md) programmatically before doing anything else, and verify at least one task line was detected. On failure, exit non-zero with a diagnostic that names the problem, the path to the offending file, and the offending line. This validation runs unconditionally because plan files are not validated against this format when `/flanders-plan` generates them.
 4. Detect which tasks are open and which are completed using the rules from [.spec/contracts/shared/plan-file-format.md](/.spec/contracts/shared/plan-file-format.md).
-5. If every task is already marked complete, print `tasks completed` and exit successfully.
+5. If every task is already marked complete, print the tasks-completed message — one variant chosen at random from its pool — and exit successfully.
 6. Run the git preflight check (see [.spec/contracts/cli-commands/implement/git-integration.md](/.spec/contracts/cli-commands/implement/git-integration.md)), which requires the project to be a git repository and the working tree to have no unstaged changes other than the selected plan file; staged changes are permitted and are folded into the first accepted task's commit. If the preflight fails, exit non-zero before setting up any workspace.
 7. Set up the run workspace (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)).
 8. Run the iteration loop (see [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md)), advancing one task at a time.
@@ -29,6 +29,8 @@ Execute a plan file end-to-end: implement each open task with a worker AI, valid
 - Ambiguous plan selection — exit non-zero at startup when `[plan]` is omitted and `plans/` contains more than one file. The diagnostic lists the available plan files and instructs the user to re-run naming one.
 - Plan validation failure — exit non-zero at startup when the plan file is missing, empty, or contains malformed task lines. The diagnostic names the problem and the path to the file.
 - Git preflight failure — exit non-zero at startup when the project is not a git repository, or when the working tree has unstaged changes other than the selected plan file (staged changes do not cause failure). See [.spec/contracts/cli-commands/implement/git-integration.md](/.spec/contracts/cli-commands/implement/git-integration.md).
-- `tasks completed` — printed and exit successfully when every task in the plan was already marked complete at startup.
-- `all tasks completed` — printed and exit successfully when every remaining task was implemented and accepted during this run.
+- Already-complete noop — one variant of the tasks-completed message is printed, and the command exits successfully, when every task in the plan was already marked complete at startup.
+- Run complete — one variant of the all-tasks-completed message is printed, and the command exits successfully, when every remaining task was implemented and accepted during this run.
 - Hard stop — printed and exit non-zero on a hard stop: when the per-task iteration cap is exceeded for any single task.
+
+Each completion message above — the tasks-completed message and the all-tasks-completed message — is realized as one variant chosen at random from a pool of Ned-Flanders-flavored variants whose membership is pinned by [src/.spec/rules/flanders-voice-cli-variants.md](/src/.spec/rules/flanders-voice-cli-variants.md); the voice they carry is defined in [.spec/contracts/shared/flanders-voice.md](/.spec/contracts/shared/flanders-voice.md).

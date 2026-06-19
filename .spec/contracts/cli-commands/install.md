@@ -95,6 +95,9 @@ Existing files at the destination paths — both skill artifacts and `.flanders/
 ## Output
 On success, the command prints to standard output the list of files it wrote, one path per line. Each path identifies an installed skill artifact or a configuration file unambiguously. The list is exhaustive — every file the command created or overwrote, including the configuration files inside `.flanders/`, is included.
 
+## Voice
+The command's interactive prompts and its own status writes carry the Flanders voice defined in [.spec/contracts/shared/flanders-voice.md](/.spec/contracts/shared/flanders-voice.md). The voice seasons that prose only; the printed file paths, the flag names, and every flag value are reported exactly as they are, untouched by the flavor.
+
 ## Errors
 - `--global` and `--project` supplied together: exits non-zero with a diagnostic naming the conflict.
 - A flag for a closed-set question — any tool flag, or the `codex` effort flag — is supplied with a value outside that closed set: exits non-zero with a diagnostic that names the offending flag and value. Model flags and the `claude` effort flag are open and never trigger this error.

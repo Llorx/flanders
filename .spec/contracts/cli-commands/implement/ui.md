@@ -14,7 +14,7 @@ The UI is composed of two regions stacked vertically inside the terminal:
 
 The bottom-fixed block stays pinned in place at the bottom of the terminal while output appears above it. The UI does not draw vertical borders, surrounding boxes, or any other persistent decoration outside this fixed block. Flanders does not take over the full screen, does not switch to an alternate-screen buffer, and does not lay out content using its own row/column geometry beyond the four pinned lines.
 
-The bottom-fixed block is present from the very first moment the command starts running. It appears before any other output is produced — including argv error messages, plan validation diagnostics, git preflight diagnostics, the `tasks completed` noop message, and the streaming output of the very first task — and stays anchored at the bottom for the entire run. The block is never removed from the screen: it remains visible after the command process has exited, and the user's shell prompt resumes on the line immediately below the block, not in place of it. The only state change at exit is on the footer line, as defined in `Cleanup on exit`. Every other rule in this contract — output always above the block, the block always present, the block redrawn on every state change and on resize — applies from the first moment of the command and is never suspended.
+The bottom-fixed block is present from the very first moment the command starts running. It appears before any other output is produced — including argv error messages, plan validation diagnostics, git preflight diagnostics, the tasks-completed noop message, and the streaming output of the very first task — and stays anchored at the bottom for the entire run. The block is never removed from the screen: it remains visible after the command process has exited, and the user's shell prompt resumes on the line immediately below the block, not in place of it. The only state change at exit is on the footer line, as defined in `Cleanup on exit`. Every other rule in this contract — output always above the block, the block always present, the block redrawn on every state change and on resize — applies from the first moment of the command and is never suspended.
 
 ## Output region content
 The output region receives:
@@ -39,7 +39,7 @@ If the header content does not fit on the available terminal width, the entire l
 
 Each field is colored according to the scheme defined in `Colors`.
 
-Until the plan file has been parsed and validated, the header line's individual fields all render as blank — the row still occupies its line of the block. From the moment the plan is parsed onward, the `Current task index out of total tasks` field shows the total as the denominator: `0/12` before the first task starts, `N/N` when the noop `tasks completed` case applies because every task was already complete on startup. The other header fields remain blank until the first task is selected for work. They populate at the start of that task's worker stage — the task index, plan task number, and task title switch to that task, the activity field shows `implementing`, and the `current run iteration` field shows `iter 1`.
+Until the plan file has been parsed and validated, the header line's individual fields all render as blank — the row still occupies its line of the block. From the moment the plan is parsed onward, the `Current task index out of total tasks` field shows the total as the denominator: `0/12` before the first task starts, `N/N` when the noop tasks-completed case applies because every task was already complete on startup. The other header fields remain blank until the first task is selected for work. They populate at the start of that task's worker stage — the task index, plan task number, and task title switch to that task, the activity field shows `implementing`, and the `current run iteration` field shows `iter 1`.
 
 ## Metrics line content
 The metrics line shows, on a single line, two paired figures separated by a vertical bar:
@@ -60,28 +60,28 @@ If the full line does not fit on the terminal width, Flanders falls back to a co
 
 Each field is colored according to the scheme defined in `Colors`.
 
-Until the plan file has been parsed and validated, both the `task` and `plan` pairs render as blank — the row still occupies its line of the block. From the moment the plan is parsed onward, the `plan` pair shows the accumulated tokens and time of the plan and keeps doing so during the git preflight and the `tasks completed` noop case. The `task` pair stays blank until work on the first task begins, at the start of that task's worker stage.
+Until the plan file has been parsed and validated, both the `task` and `plan` pairs render as blank — the row still occupies its line of the block. From the moment the plan is parsed onward, the `plan` pair shows the accumulated tokens and time of the plan and keeps doing so during the git preflight and the tasks-completed noop case. The `task` pair stays blank until work on the first task begins, at the start of that task's worker stage.
 
 When work moves to a new task, the `task` pair resets to that task at the start of its worker stage and advances with that task's consumption as the task progresses; the `plan` pair keeps accumulating across every task.
 
 While the waiting footer state is active, the tokens and time values on this line freeze at their last reported value and only resume advancing when normal work resumes.
 
 ## Footer line — normal state
-The footer line shows a single label, `Working`, accompanied by a smooth animated indicator. The animation is a continuous motion that gives the user a clear visual cue that the program is alive and progressing — for example, a spinner cycling through a sequence of glyphs, or a wave that moves a single highlighted character across the label. The animation runs at 5 frames per second. The label and the animated indicator are both rendered in orange.
+The footer line shows a working label accompanied by a smooth animated indicator. The working label is drawn from a pool of short Ned-Flanders-flavored variants whose membership is pinned by [src/.spec/rules/flanders-voice-cli-variants.md](/src/.spec/rules/flanders-voice-cli-variants.md), and it rotates to a different variant than the one currently shown every 5 seconds, so the label keeps changing while work continues. The animated indicator is a continuous motion that gives the user a clear visual cue that the program is alive and progressing — for example, a spinner cycling through a sequence of glyphs, or a wave that moves a single highlighted character across the label. The indicator animation runs at 5 frames per second, a cadence independent of the 5-second label rotation. The working label and the animated indicator are both rendered in orange. The voice these variants carry is defined in [.spec/contracts/shared/flanders-voice.md](/.spec/contracts/shared/flanders-voice.md).
 
-The `Working` label and its animation are present from the very first instant the command starts and persist across every phase — argv parsing, plan validation, git preflight, the `tasks completed` noop case, and the iteration loop — until the command is about to exit, at which point the footer line transitions to the terminal label defined in `Cleanup on exit`. One phase interrupts the `Working` label: the adversarial review stage, when it shows the reviewing state defined in `Footer line — reviewing state`.
+The working label and its animation are present from the very first instant the command starts and persist across every phase — argv parsing, plan validation, git preflight, the tasks-completed noop case, and the iteration loop — until the command is about to exit, at which point the footer line transitions to the terminal label defined in `Cleanup on exit`. One phase interrupts the working label: the adversarial review stage, when it shows the reviewing state defined in `Footer line — reviewing state`.
 
 ## Footer line — waiting state
 While the runner is waiting for a retry, the footer line transitions to a label that conveys wait status to the user. The exact label content, wait information shown, and which retries trigger this state are defined by rules.
 
 While the waiting state is active, the working animation is suspended.
 
-When the wait ends and normal AI work resumes, the footer line transitions back to its pre-wait normal `Working` state and the animation restarts.
+When the wait ends and normal AI work resumes, the footer line transitions back to its pre-wait normal working state, and the animation and the label rotation restart.
 
 The waiting state described here covers the worker-stage AI waits. It does not apply during the adversarial review stage; a reviewer's rate-limit wait is surfaced instead as that reviewer's `waiting` status inside the reviewing footer line (see `Footer line — reviewing state`).
 
 ## Footer line — reviewing state
-While the adversarial review stage is running — the same phase during which the header activity field shows `reviewing` — the footer line replaces the `Working` label and its animation with a per-reviewer status line that reports every configured reviewer and its current state on a single line. The working animation is suspended for the duration of the review stage.
+While the adversarial review stage is running — the same phase during which the header activity field shows `reviewing` — the footer line replaces the working label and its animation with a per-reviewer status line that reports every configured reviewer and its current state on a single line. The working animation is suspended for the duration of the review stage.
 
 The line begins with the literal prefix `review: ` followed by one entry per configured reviewer, in the order the reviewers were configured, separated by `, `. Each entry has the shape:
 
@@ -104,7 +104,7 @@ The reviewing footer line is compacted to fit the terminal width. The compaction
 3. **Truncation** — when the compact form also does not fit, the line is truncated with an ellipsis at the end.
 
 ## Per-task completion snapshot
-Whenever a task is accepted at the commit/check stage (see [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md)) and its checkbox is flipped to `[x]`, Flanders emits a snapshot of that task into the output region before work on the next task begins. The snapshot is emitted for every accepted task, including the last task in the plan; the run's final `all tasks completed` (or `tasks completed`) message is printed after the last snapshot.
+Whenever a task is accepted at the commit/check stage (see [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md)) and its checkbox is flipped to `[x]`, Flanders emits a snapshot of that task into the output region before work on the next task begins. The snapshot is emitted for every accepted task, including the last task in the plan; the run's final all-tasks-completed (or tasks-completed) message is printed after the last snapshot.
 
 The snapshot consists of, in order:
 1. A horizontal separator line that spans the terminal width, using the same glyph as the separator inside the bottom-fixed block.
@@ -151,17 +151,17 @@ Each line is fitted to the current terminal width before it is drawn, by applyin
 2. Any compact form the line defines — for example, the metrics line's abbreviated `t:`/`p:` labels, or the reviewing footer's dropped per-reviewer `(<model> <effort>)` descriptors. A line that defines no compact form skips this step.
 3. Truncation with an ellipsis at the end when no form fits.
 
-The separator spans the full terminal width; the header, the metrics, and the footer are fitted as above. This fit is recomputed on every redraw — a change in any field, an animation tick, a waiting-countdown tick, a transition into or out of the waiting or reviewing state, a write above the block, and a terminal resize — against the current state and the current terminal width, and is never frozen at the width of an earlier draw.
+The separator spans the full terminal width; the header, the metrics, and the footer are fitted as above. This fit is recomputed on every redraw — a change in any field, an animation tick, a working-label rotation tick, a waiting-countdown tick, a transition into or out of the waiting or reviewing state, a write above the block, and a terminal resize — against the current state and the current terminal width, and is never frozen at the width of an earlier draw.
 
 On a terminal resize the block recomputes and redraws all four lines at the new width and re-anchors to the bottom of the terminal, leaving no rows from the previous size on screen and remaining exactly four rows. Output already written into the scrolling region above the block is not retroactively reflowed; subsequent output flows according to the new width.
 
 ## Cleanup on exit
 The bottom-fixed block is never removed when the command exits. It stays on screen as the last thing the user sees, and the user's shell prompt resumes on the line immediately below the block. All prior output remains accessible through the terminal's standard scrollback exactly as during the run.
 
-The only state change at exit is on the footer line. Just before the process exits, the footer's animation is stopped and its label is replaced with a terminal label that names how the command ended:
-- `Done` — every termination path that is not an error, including the successful completion of all remaining tasks (`all tasks completed`) and the noop case where every task was already complete at startup (`tasks completed`).
-- `Hard stop` — a hard stop occurred: the per-task iteration cap was exceeded for some task.
-- `Interrupted` — the command received an interruption signal (for example, Ctrl+C).
-- `Failed` — any other failure, including unknown CLI flag, plan validation failure, missing or empty `plans/` folder, and git preflight failure.
+The only state change at exit is on the footer line. Just before the process exits, the footer's animation and label rotation are stopped, and the label is replaced with a terminal label that names how the command ended. The terminal label is one variant chosen at random from the pool for that outcome, whose membership is pinned by [src/.spec/rules/flanders-voice-cli-variants.md](/src/.spec/rules/flanders-voice-cli-variants.md). The outcomes and their pools are:
+- Success — every termination path that is not an error, including the successful completion of all remaining tasks (the all-tasks-completed message) and the noop case where every task was already complete at startup (the tasks-completed message). The label is one variant from the success pool.
+- Hard stop — a hard stop occurred: the per-task iteration cap was exceeded for some task. The label is one variant from the hard-stop pool.
+- Interruption — the command received an interruption signal (for example, Ctrl+C). The label is one variant from the interruption pool.
+- Failure — any other failure, including unknown CLI flag, plan validation failure, missing or empty `plans/` folder, and git preflight failure. The label is one variant from the failure pool.
 
-The terminal label is rendered in the same orange as the live `Working` state. The header and metrics lines are not modified at exit; they keep whatever value they were showing at the moment the command terminated.
+The terminal label is rendered in the same orange as the live working state. The header and metrics lines are not modified at exit; they keep whatever value they were showing at the moment the command terminated.

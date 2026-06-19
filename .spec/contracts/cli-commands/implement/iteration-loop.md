@@ -14,7 +14,7 @@ While there is an unchecked task in the plan file:
 3. Run the inner loop (below).
 4. On a successful inner loop, the task's checkbox is flipped from open to done in the plan file. Continue with the next task.
 
-When no unchecked tasks remain, print `all tasks completed` and exit successfully.
+When no unchecked tasks remain, print the all-tasks-completed message — one variant chosen at random from its pool (see [.spec/contracts/cli-commands/implement/overview.md](/.spec/contracts/cli-commands/implement/overview.md)) — and exit successfully.
 
 ## Inner loop (per task)
 Each iteration walks through the stages below in order. Any stage that fails writes context to the `error.log` file inside the temporary folder and restarts the inner loop at stage 1; the next iteration's worker prompt automatically includes the previous-iteration briefing because the iteration counter is greater than 1.
