@@ -105,7 +105,8 @@ const BASE_ARGV = [
     "--output-format", "stream-json",
     "--include-partial-messages",
     "--verbose",
-    "--print"
+    "--print",
+    "--dangerously-skip-permissions"
 ];
 
 test.describe("ClaudeAdapter", test => {
@@ -134,6 +135,26 @@ test.describe("ClaudeAdapter", test => {
                 const effortEvents = result.events.filter(e => e.type === "output" && e.title === "Effort unsupported");
                 Assert.strictEqual(effortEvents.length, 0);
             }
+        }
+    });
+
+    test("spawn args include --dangerously-skip-permissions for maximum access", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            proc.$emit("exit", 0);
+            for await (const _ of iterable) { void _; }
+            return claude.$spawned[0]!.args;
+        },
+        ASSERT(result) {
+            Assert.ok(result.includes("--dangerously-skip-permissions"));
         }
     });
 

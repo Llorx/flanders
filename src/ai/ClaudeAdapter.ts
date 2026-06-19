@@ -249,7 +249,8 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
             "--output-format", "stream-json",
             "--include-partial-messages",
             "--verbose",
-            "--print"
+            "--print",
+            "--dangerously-skip-permissions"
         );
 
         return argv;

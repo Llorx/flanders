@@ -149,6 +149,17 @@ A Flanders AI invocation runs a single turn to completion with no human in the l
 
 The user-visible consequence of this rule — that an implement run never pauses for the AI to ask the user anything — is stated in [.spec/contracts/cli-commands/implement/non-interactive.md](/.spec/contracts/cli-commands/implement/non-interactive.md).
 
+## Every AI adapter grants its tool the maximum access its CLI offers
+
+A Flanders AI invocation runs the configured tool in the most permissive access mode its CLI exposes, so the tool can read, write, and execute freely across the project's working tree and reach the resources it needs to complete the task, with no access gate narrowing or denying an operation mid-turn. Each per-tool adapter passes the flag(s) that put its binary in that mode. Flanders runs the worker in the project's own working tree because that tree is the artefact `implement` is producing; the access the adapter grants is full access to that tree, not confinement to a narrower sandbox or to an allow-list of operations.
+
+This obligation is distinct from non-interactivity (see [src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively](/src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively)): non-interactivity removes the human-in-the-loop pause, while maximum access removes the gate that would otherwise restrict what the tool may do once it is running. An adapter that is non-interactive but access-restricted lets an operation the task needs be silently denied instead of running it; granting maximum access is what lets every such operation run to completion.
+
+### Who this applies to
+
+- **Subject:** every per-tool adapter — today the Claude adapter (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)) and the Codex adapter (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)), and any adapter added later. Each adapter realizes this obligation through the specific access flag(s) of its own binary, pinned in that adapter's rule.
+- **Not subject:** the AI runner and the runner's call sites (worker stage, reviewer stage, detect agent), which never touch a tool's invocation surface directly.
+
 ## The Claude adapter spawns `claude --print --output-format stream-json` and maps its events to the tool interface
 
 The Claude adapter is the per-tool implementation of the generic tool-adapter interface defined in [src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface](/src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface). It is the bridge between the `claude` binary's native `stream-json` event format and the runner's abstract `ToolEvent` stream. This rule pins both how the binary is invoked and how each native event is mapped to a `ToolEvent`.
@@ -166,8 +177,9 @@ The adapter spawns `claude` with at least the following arguments:
 - `--output-format stream-json` — line-delimited structured events on stdout.
 - `--input-format stream-json` — the input is itself a stream-json message sequence, with the prompt embedded in the first user message.
 - `--verbose` — required by Claude Code when `--output-format stream-json` is in use; the additional event types do not affect mapping because the adapter keys event interpretation off `type` plus payload fields.
+- `--dangerously-skip-permissions` — puts Claude in its most permissive access mode, realizing [src/ai/.spec/rules/runner.md#every-ai-adapter-grants-its-tool-the-maximum-access-its-cli-offers](/src/ai/.spec/rules/runner.md#every-ai-adapter-grants-its-tool-the-maximum-access-its-cli-offers): every tool use runs without a permission gate.
 
-Per [src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively](/src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively), the invocation is non-interactive. The Claude adapter realizes this by not passing `--permission-prompt-tool=stdio` or any other approval, permission, or interactive-prompt flag.
+Per [src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively](/src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively), the invocation is non-interactive. The Claude adapter realizes this by not passing `--permission-prompt-tool=stdio` or any other flag that opens an approval or interactive-prompt channel; `--dangerously-skip-permissions` opens no such channel — it suppresses permission prompts rather than soliciting input — so it is consistent with the non-interactive invocation.
 
 The prompt is delivered as a single user message inside the input stream-json on stdin. The adapter closes stdin immediately after writing that message, so Claude knows the single turn has ended and the process terminates on its own once the turn completes; the adapter never keeps stdin open after the prompt, since an open stdin would leave the turn unterminated.
 
@@ -231,7 +243,8 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `claude` 
 
 - The adapter spawns `claude` without `--print` or without `--output-format stream-json`, polluting the parser with TUI escapes or with a non-streaming payload.
 - The adapter inlines the prompt as an argv argument instead of streaming it through stdin.
-- The adapter passes `--permission-prompt-tool=stdio` or any other approval, permission, or interactive-prompt flag, turning a non-interactive call into one that can pause for input.
+- The adapter passes `--permission-prompt-tool=stdio` or any other flag that opens an approval or interactive-prompt channel, turning a non-interactive call into one that can pause for input.
+- The adapter drops `--dangerously-skip-permissions`, so Claude's tool uses are gated or denied instead of running with the full access the maximum-access rule requires.
 - The adapter keeps stdin open after writing the prompt — for example to hold a control channel — so the turn never ends and the spawned `claude` process never exits.
 - The adapter processes a `control_request` / permission event, writes a `control_response` on stdin, or forwards a question to the user, instead of running the turn to completion without human interaction.
 - The adapter passes `--model ""` (empty string) instead of omitting the flag when the configured model is empty. Likewise for `--effort`.
@@ -258,7 +271,7 @@ The adapter spawns `codex` with at least the following arguments:
 - `exec` — the non-interactive subcommand.
 - `--json` — newline-delimited JSON events on stdout (one per state change).
 - `-c approval_policy=never` — disable approval prompts, realizing the non-interactive invocation required by [src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively](/src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively).
-- `-c sandbox_mode=danger-full-access` — Flanders runs the worker in the project's own working tree because that is the artefact `implement` is producing; the sandbox is the working tree itself, not a surrounding host.
+- `-c sandbox_mode=danger-full-access` — puts Codex in its most permissive access mode, realizing [src/ai/.spec/rules/runner.md#every-ai-adapter-grants-its-tool-the-maximum-access-its-cli-offers](/src/ai/.spec/rules/runner.md#every-ai-adapter-grants-its-tool-the-maximum-access-its-cli-offers); the sandbox is the working tree itself, not a surrounding host.
 - A trailing `-` argument indicating the prompt is to be read from stdin.
 
 The prompt is then written to the spawned process's stdin and the stdin is closed.
