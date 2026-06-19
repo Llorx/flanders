@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { formatCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWorkingFooter, formatWaitingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, stripAnsi, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
+import { formatCountdown, formatCompactCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWorkingFooter, formatWaitingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, stripAnsi, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
 
 test.describe("formatCountdown", test => {
     test("returns minutes only when remaining is under one hour", {
@@ -90,6 +90,88 @@ test.describe("formatCountdown", test => {
         ACT(ms) { return formatCountdown(ms); },
         ASSERT(result) {
             Assert.strictEqual(result, "2 days, 3 hours, 45 minutes");
+        }
+    });
+});
+
+test.describe("formatCompactCountdown", test => {
+    test("returns compact minutes only when remaining is under one hour", {
+        ARRANGE() { return 14 * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "14m");
+        }
+    });
+
+    test("returns 1m for any remainder under one minute", {
+        ARRANGE() { return 30 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "1m");
+        }
+    });
+
+    test("stays in minutes tier at the last value below the one-hour boundary", {
+        ARRANGE() { return 59 * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "59m");
+        }
+    });
+
+    test("returns compact hours and minutes for 134 minutes", {
+        ARRANGE() { return 134 * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "2h14m");
+        }
+    });
+
+    test("renders every component of the hour tier at exactly one hour", {
+        ARRANGE() { return 60 * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "1h0m");
+        }
+    });
+
+    test("stays in hours tier at the last value below the one-day boundary", {
+        ARRANGE() { return (23 * 60 + 59) * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "23h59m");
+        }
+    });
+
+    test("returns compact days, hours and minutes for one day plus 2h14m", {
+        ARRANGE() { return (24 * 60 + 134) * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "1d2h14m");
+        }
+    });
+
+    test("renders every component of the day tier at exactly one day", {
+        ARRANGE() { return 24 * 60 * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "1d0h0m");
+        }
+    });
+
+    test("does not zero-pad a single-digit minute component in the hour tier", {
+        ARRANGE() { return 124 * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "2h4m");
+        }
+    });
+
+    test("does not zero-pad single-digit hour and minute components in the day tier", {
+        ARRANGE() { return (24 * 60 + 124) * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "1d2h4m");
         }
     });
 });

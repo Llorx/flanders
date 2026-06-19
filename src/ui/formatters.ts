@@ -55,21 +55,52 @@ export function renderSegmentsToWidth(segments:Segment[], cols:number):string {
     return result;
 }
 
-export function formatCountdown(remainingMs:number):string {
+type CountdownTier = "days" | "hours" | "minutes";
+
+type CountdownParts = {
+    tier:CountdownTier;
+    days:number;
+    hours:number;
+    minutes:number;
+};
+
+function decomposeCountdown(remainingMs:number):CountdownParts {
     const totalMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
     if (totalMinutes >= 24 * 60) {
         const days = Math.floor(totalMinutes / (24 * 60));
         const remainder = totalMinutes - days * 24 * 60;
         const hours = Math.floor(remainder / 60);
         const minutes = remainder % 60;
-        return `${days} days, ${hours} hours, ${minutes} minutes`;
+        return { tier: "days", days, hours, minutes };
     }
     if (totalMinutes >= 60) {
         const hours = Math.floor(totalMinutes / 60);
         const minutes = totalMinutes % 60;
+        return { tier: "hours", days: 0, hours, minutes };
+    }
+    return { tier: "minutes", days: 0, hours: 0, minutes: totalMinutes };
+}
+
+export function formatCountdown(remainingMs:number):string {
+    const { tier, days, hours, minutes } = decomposeCountdown(remainingMs);
+    if (tier === "days") {
+        return `${days} days, ${hours} hours, ${minutes} minutes`;
+    }
+    if (tier === "hours") {
         return `${hours} hours ${minutes} minutes`;
     }
-    return `${totalMinutes} minutes`;
+    return `${minutes} minutes`;
+}
+
+export function formatCompactCountdown(remainingMs:number):string {
+    const { tier, days, hours, minutes } = decomposeCountdown(remainingMs);
+    if (tier === "days") {
+        return `${days}d${hours}h${minutes}m`;
+    }
+    if (tier === "hours") {
+        return `${hours}h${minutes}m`;
+    }
+    return `${minutes}m`;
 }
 
 export function formatDateTime(date:Date):string {
