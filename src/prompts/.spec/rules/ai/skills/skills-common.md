@@ -194,7 +194,7 @@ The body of every Flanders skill artifact — the prompt text that the `install`
 
 ### What is permitted in a skill artifact body
 
-- Structural references to the user's project spec folders by their conventional shape — `.spec/contracts` and `.spec/rules` folders (which may appear at any level of the project tree) and the project-root `plans/` folder — without naming a specific file inside them. For example: "discover every `.spec/contracts` folder in the project tree", "persist exactly one markdown file inside the project's `plans/` folder", "for every leaf task, link the relevant contract file or files by their listed relative path".
+- Structural references to the user's project spec folders by their conventional shape — `.spec/contracts` and `.spec/rules` folders (which may appear at any level of the project tree) and the project-root `plans/` folder — without naming a specific file inside them. For example: "discover every `.spec/contracts` folder in the project tree", "persist exactly one markdown file inside the project's `plans/` folder", "for every leaf task, link the relevant contract file or files by their listed namespace (its project-root-relative path)".
 - Names of user-visible AI tools the skill targets (Claude Code, Codex CLI) and the install destinations those tools use as already pinned by the install behavior the user has consented to.
 
 The body never embeds a specific file path that points to a file from flanders' own spec.
@@ -211,3 +211,35 @@ When a flanders-internal spec file is renamed, the correct response in any skill
 - A skill artifact body says "the full obligation lives in X.md", "verbatim from X.md", or any analogous deferral, where X is a flanders-internal spec path.
 - A flanders-internal spec file is renamed and the rename is propagated into a skill artifact body as a path update, instead of the citation being removed entirely.
 - The artifact body source in flanders' codebase is edited to add a new citation to a flanders-internal spec path instead of inlining the obligation.
+
+## Skill artifact bodies instruct cross-reference links in project-root-relative namespace form
+
+Every cross-reference link a Flanders content skill produces in the user's project — a reference one contract or rule makes to another (`/flanders-spec` output), or a plan task's link to a contract or rule (`/flanders-plan` output) — names the referenced file by its project-root-relative namespace, per [.spec/contracts/shared/cross-file-reference-links.md](/.spec/contracts/shared/cross-file-reference-links.md). The skill artifact body states that form explicitly in its drafting guidance, so the skill resolves every link against the project root rather than computing a path relative to the referencing file's own location.
+
+### Who this applies to
+
+- **Subject:** the source content that produces the `/flanders-spec` and `/flanders-plan` skill artifact bodies — every place in the flanders codebase where that prompt text is authored or assembled.
+- **Subject:** the resulting `/flanders-spec` and `/flanders-plan` skill artifact files that `install` writes into the user's AI-tool skill folders.
+- **Not subject:** `/flanders-work` — it implements code and produces no contract/rule cross-references or plan task links. Other agents and commands are likewise out of scope.
+- **Not subject:** the files inside flanders' own `.spec/contracts` and `.spec/rules` folders, whose cross-reference form is governed directly by [.spec/contracts/shared/cross-file-reference-links.md](/.spec/contracts/shared/cross-file-reference-links.md) rather than by a generated skill body.
+
+### What the body instructs
+
+The skill artifact body tells the skill, in its drafting guidance, that every cross-reference link it writes takes this form:
+
+- The **link text** is the referenced file's namespace exactly as it appears in the available-specs listing the skill is given — a path relative to the project root, written without a leading slash.
+- The **link target** is that same namespace prefixed with a single leading slash, so the link resolves against the project root and can be followed from a referencing file at any depth in the project tree.
+- When the relevant obligation lives in a specific section or line range, the link text names that section or range and the target carries the matching fragment — the heading anchor for a section, `#L<n>` for a single line, or `#L<n>-L<m>` for a line range.
+
+The body names this form as the referenced file's project-root-relative namespace. It does not describe the form as a bare "relative path," which a reader could compute relative to the referencing file's own directory.
+
+### How this relates to the self-contained rule
+
+This obligation complements [src/prompts/.spec/rules/ai/skills/skills-common.md#flanders-skill-artifact-prompts-are-self-contained--no-citations-of-flanders-internal-spec-paths](/src/prompts/.spec/rules/ai/skills/skills-common.md#flanders-skill-artifact-prompts-are-self-contained--no-citations-of-flanders-internal-spec-paths). That rule keeps the body from citing flanders' own internal spec files and requires every obligation to be inlined; this rule pins the form of the cross-reference links the skill produces in the user's own project. The body inlines the reference-link form rather than deferring to the flanders-internal contract that defines it, and the form it inlines is the project-root-relative namespace.
+
+### Failure signals
+
+- A `/flanders-plan` task links a contract or rule by a path computed relative to the plan file's location (for example `../src/.spec/rules/...`) instead of the file's project-root-relative namespace.
+- A `/flanders-spec` contract or rule cross-references another spec file by a path relative to the referencing file's own location instead of the referenced file's project-root-relative namespace.
+- The skill artifact body source describes the reference-link form only as a "relative path," leaving it open to a file-relative reading instead of pinning it to the project-root-relative namespace.
+- A link target a generated body produces omits the single leading slash, or carries more than one, so it does not resolve against the project root.

@@ -322,6 +322,25 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("covers project-root-relative namespace form for contract and rule links", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "states the link text carries the listed namespace with no leading slash"(body) {
+                Assert.ok(body.includes("with no leading slash"), "must state the link text is the listed namespace with no leading slash");
+            },
+            "states the link target is prefixed with a single leading slash"(body) {
+                Assert.ok(body.includes("prefixed with a single leading slash"), "must state the link target is prefixed with a single leading slash");
+            },
+            "forbids a path computed relative to the plan file"(body) {
+                Assert.ok(body.includes("never as a path computed relative to the plan file's own location"), "must forbid a path computed relative to the plan file's own location");
+            },
+            "validator checks links are in project-root-relative namespace form"(body) {
+                Assert.ok(body.includes("project-root-relative namespace form"), "validator must check links are in project-root-relative namespace form");
+            }
+        }
+    });
+
     test("covers contract or rule compliance", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
@@ -1192,6 +1211,22 @@ test.describe("skills – specSkillBody", test => {
             },
             "treats an in-scope behavior rule as binding, not advisory"(body) {
                 Assert.ok(body.includes("an in-scope behavior rule is binding on that work, not advisory"), "an in-scope behavior rule must be binding, not advisory");
+            }
+        }
+    });
+
+    test("states cross-reference link form in project-root-relative namespace form", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "instructs writing every cross-reference as a markdown link"(body) {
+                Assert.ok(body.includes("Write every cross-reference to another spec file as a markdown link"), "must instruct writing every cross-reference as a markdown link");
+            },
+            "states the link target is prefixed with a single leading slash"(body) {
+                Assert.ok(body.includes("prefixed with a single leading slash"), "must state the link target is prefixed with a single leading slash");
+            },
+            "forbids a path computed relative to the referencing file"(body) {
+                Assert.ok(body.includes("never as a path computed relative to the referencing file's own location"), "must forbid a path computed relative to the referencing file's own location");
             }
         }
     });
