@@ -1829,4 +1829,198 @@ test.describe("BottomBlock", test => {
             }
         }
     });
+
+    test("reviewing footer with a waiting reviewer recomputes its countdown from time.now() and ticks it down each second", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "waiting", endTime: 120000 }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            block.mount();
+            io.reset();
+            return { io, time };
+        },
+        ACT({ io, time }) {
+            time.advance(1000);
+            const firstTick = io.output;
+            io.reset();
+            time.advance(60000);
+            const secondTick = io.output;
+            return { firstTick, secondTick, pendingCount: time.pendingCount };
+        },
+        ASSERTS: {
+            "the one-second tick clears and redraws the block"(result) {
+                Assert.ok(result.firstTick.includes(CLEAR_SEQ));
+            },
+            "the first tick footer shows the reviewer countdown at 2m"(result) {
+                const lastDraw = result.firstTick.split(CLEAR_SEQ).pop() ?? "";
+                const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
+                Assert.strictEqual(footerPlain, "review: claude (default): waiting 2m");
+            },
+            "the later tick footer shows the countdown decreased to 1m"(result) {
+                const lastDraw = result.secondTick.split(CLEAR_SEQ).pop() ?? "";
+                const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
+                Assert.strictEqual(footerPlain, "review: claude (default): waiting 1m");
+            },
+            "exactly one countdown timer remains pending — no spinner animation tick is scheduled"(result) {
+                Assert.strictEqual(result.pendingCount, 1);
+            }
+        }
+    });
+
+    test("reviewing footer with a waiting reviewer schedules a countdown tick that finalize cancels through _cancelTimers", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "waiting", endTime: 600000 }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            block.mount();
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            const pendingWhileReviewing = time.pendingCount;
+            block.finalize("Done");
+            const pendingAfterFinalize = time.pendingCount;
+            io.reset();
+            time.advance(5000);
+            const writesAfterAdvance = io.writes.length;
+            return { pendingWhileReviewing, pendingAfterFinalize, writesAfterAdvance };
+        },
+        ASSERTS: {
+            "a countdown timer is pending while reviewing with a waiting reviewer"(result) {
+                Assert.strictEqual(result.pendingWhileReviewing, 1);
+            },
+            "finalize cancels the countdown timer"(result) {
+                Assert.strictEqual(result.pendingAfterFinalize, 0);
+            },
+            "no countdown tick fires after finalize"(result) {
+                Assert.strictEqual(result.writesAfterAdvance, 0);
+            }
+        }
+    });
+
+    test("reviewing footer countdown tick is cancelled when setFooter switches to a reviewing footer with no waiting reviewer", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            const waiting:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "waiting", endTime: 600000 }];
+            block.setFooter({ kind: "reviewing", reviewers: waiting });
+            block.mount();
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            const pendingWhileWaiting = time.pendingCount;
+            const running:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            block.setFooter({ kind: "reviewing", reviewers: running });
+            const pendingAfterSwitch = time.pendingCount;
+            io.reset();
+            time.advance(5000);
+            const writesAfterAdvance = io.writes.length;
+            return { pendingWhileWaiting, pendingAfterSwitch, writesAfterAdvance };
+        },
+        ASSERTS: {
+            "a countdown timer was pending with the waiting reviewer"(result) {
+                Assert.strictEqual(result.pendingWhileWaiting, 1);
+            },
+            "no timer remains after switching to a reviewing footer with no waiting reviewer"(result) {
+                Assert.strictEqual(result.pendingAfterSwitch, 0);
+            },
+            "no tick fires after the switch"(result) {
+                Assert.strictEqual(result.writesAfterAdvance, 0);
+            }
+        }
+    });
+
+    test("reviewing footer countdown tick is cancelled on dispose through _cancelTimers", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "waiting", endTime: 600000 }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            block.mount();
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            block.dispose();
+            const pendingAfterDispose = time.pendingCount;
+            time.advance(5000);
+            const writesAfterAdvance = io.writes.length;
+            return { pendingAfterDispose, writesAfterAdvance };
+        },
+        ASSERTS: {
+            "dispose cancels the countdown timer"(result) {
+                Assert.strictEqual(result.pendingAfterDispose, 0);
+            },
+            "no tick fires after dispose"(result) {
+                Assert.strictEqual(result.writesAfterAdvance, 0);
+            }
+        }
+    });
+
+    test("reviewing footer with two waiting reviewers renders each reviewer's own countdown from its own endTime", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.mount();
+            io.reset();
+            // Two reviewers waiting at the same instant with distinct end times must
+            // each render their own compact countdown (2h14m vs 14m), proving the
+            // countdowns are recomputed independently and not shared.
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "waiting", endTime: 134 * 60 * 1000 },
+                { tool: "codex", model: "gpt-5", effort: "high", state: "waiting", endTime: 14 * 60 * 1000 }
+            ];
+            return { io, block, reviewers };
+        },
+        ACT({ io, block, reviewers }) {
+            block.setFooter({ kind: "reviewing", reviewers });
+            const output = io.output;
+            block.dispose();
+            return output;
+        },
+        ASSERT(output) {
+            const footerPlain = stripAnsi(output.split("\n").pop() ?? "");
+            Assert.strictEqual(footerPlain, "review: claude (default): waiting 2h14m, codex (gpt-5 high): waiting 14m");
+        }
+    });
+
+    test("@xterm/headless: a reviewing footer with a waiting reviewer renders its compact countdown on the bottom row and keeps the block at exactly four rows", {
+        ARRANGE() {
+            return { cols: 120, termRows: 24 };
+        },
+        async ACT({ cols, termRows }) {
+            const { term, block, flush } = await mountEmulatorBlock(cols, termRows);
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "waiting", endTime: 134 * 60 * 1000 },
+                { tool: "codex", model: "gpt-5", effort: "high", state: "running" }
+            ];
+            block.setFooter({ kind: "reviewing", reviewers });
+            await flush();
+            const rows = readEmulatorViewport(term);
+            block.dispose();
+            term.dispose();
+            return { rows, termRows };
+        },
+        ASSERTS: {
+            "the footer row shows the reviewing line with the compact countdown"(result) {
+                Assert.strictEqual(result.rows[result.termRows - 1], "review: claude (default): waiting 2h14m, codex (gpt-5 high): running");
+            },
+            "the separator row spans the full width with only ─ glyphs"(result) {
+                Assert.strictEqual(result.rows[result.termRows - 4], SEPARATOR_GLYPH.repeat(120));
+            },
+            "the block occupies exactly four terminal rows — every row above the bottom four is empty"(result) {
+                Assert.deepStrictEqual(result.rows.slice(0, result.termRows - 4), new Array(result.termRows - 4).fill(""));
+            }
+        }
+    });
 });

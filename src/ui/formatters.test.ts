@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { formatCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatTerminalFooter, formatWorkingFooter, formatWaitingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, stripAnsi, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
+import { formatCountdown, formatCompactCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatTerminalFooter, formatWorkingFooter, formatWaitingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, stripAnsi, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
 
 test.describe("formatCountdown", test => {
     test("returns minutes only when remaining is under one hour", {
@@ -90,6 +90,88 @@ test.describe("formatCountdown", test => {
         ACT(ms) { return formatCountdown(ms); },
         ASSERT(result) {
             Assert.strictEqual(result, "2 days, 3 hours, 45 minutes");
+        }
+    });
+});
+
+test.describe("formatCompactCountdown", test => {
+    test("returns compact minutes only when remaining is under one hour", {
+        ARRANGE() { return 14 * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "14m");
+        }
+    });
+
+    test("returns 1m for any remainder under one minute", {
+        ARRANGE() { return 30 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "1m");
+        }
+    });
+
+    test("stays in minutes tier at the last value below the one-hour boundary", {
+        ARRANGE() { return 59 * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "59m");
+        }
+    });
+
+    test("returns compact hours and minutes for 134 minutes", {
+        ARRANGE() { return 134 * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "2h14m");
+        }
+    });
+
+    test("renders every component of the hour tier at exactly one hour", {
+        ARRANGE() { return 60 * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "1h0m");
+        }
+    });
+
+    test("stays in hours tier at the last value below the one-day boundary", {
+        ARRANGE() { return (23 * 60 + 59) * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "23h59m");
+        }
+    });
+
+    test("returns compact days, hours and minutes for one day plus 2h14m", {
+        ARRANGE() { return (24 * 60 + 134) * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "1d2h14m");
+        }
+    });
+
+    test("renders every component of the day tier at exactly one day", {
+        ARRANGE() { return 24 * 60 * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "1d0h0m");
+        }
+    });
+
+    test("does not zero-pad a single-digit minute component in the hour tier", {
+        ARRANGE() { return 124 * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "2h4m");
+        }
+    });
+
+    test("does not zero-pad single-digit hour and minute components in the day tier", {
+        ARRANGE() { return (24 * 60 + 124) * 60 * 1000; },
+        ACT(ms) { return formatCompactCountdown(ms); },
+        ASSERT(result) {
+            Assert.strictEqual(result, "1d2h4m");
         }
     });
 });
@@ -1118,7 +1200,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers };
         },
         ACT({ reviewers }) {
-            return formatReviewingFooter(reviewers, 120);
+            return formatReviewingFooter(reviewers, 120, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(stripAnsi(result), "review: claude (default): running");
@@ -1131,7 +1213,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers };
         },
         ACT({ reviewers }) {
-            return formatReviewingFooter(reviewers, 120);
+            return formatReviewingFooter(reviewers, 120, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(stripAnsi(result), "review: codex (gpt-5.5 xhigh): ok");
@@ -1144,7 +1226,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers };
         },
         ACT({ reviewers }) {
-            return formatReviewingFooter(reviewers, 120);
+            return formatReviewingFooter(reviewers, 120, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(stripAnsi(result), "review: claude (high): waiting");
@@ -1157,7 +1239,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers };
         },
         ACT({ reviewers }) {
-            return formatReviewingFooter(reviewers, 120);
+            return formatReviewingFooter(reviewers, 120, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(stripAnsi(result), "review: claude (default high): fail");
@@ -1170,7 +1252,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers };
         },
         ACT({ reviewers }) {
-            return formatReviewingFooter(reviewers, 120);
+            return formatReviewingFooter(reviewers, 120, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(stripAnsi(result), "review: codex (low default): running");
@@ -1183,7 +1265,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers };
         },
         ACT({ reviewers }) {
-            return formatReviewingFooter(reviewers, 120);
+            return formatReviewingFooter(reviewers, 120, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(stripAnsi(result), "review: claude (default): running");
@@ -1196,7 +1278,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers };
         },
         ACT({ reviewers }) {
-            return formatReviewingFooter(reviewers, 120);
+            return formatReviewingFooter(reviewers, 120, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(stripAnsi(result), "review: claude (default): waiting");
@@ -1209,7 +1291,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers };
         },
         ACT({ reviewers }) {
-            return formatReviewingFooter(reviewers, 120);
+            return formatReviewingFooter(reviewers, 120, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(stripAnsi(result), "review: claude (default): ok");
@@ -1222,7 +1304,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers };
         },
         ACT({ reviewers }) {
-            return formatReviewingFooter(reviewers, 120);
+            return formatReviewingFooter(reviewers, 120, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(stripAnsi(result), "review: claude (default): fail");
@@ -1239,7 +1321,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers };
         },
         ACT({ reviewers }) {
-            return formatReviewingFooter(reviewers, 200);
+            return formatReviewingFooter(reviewers, 200, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(stripAnsi(result), "review: claude (default): running, codex (gpt-5 high): ok, claude (sonnet): fail");
@@ -1253,7 +1335,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers, cols: fullText.length, fullText };
         },
         ACT({ reviewers, cols }) {
-            return formatReviewingFooter(reviewers, cols);
+            return formatReviewingFooter(reviewers, cols, 0);
         },
         ASSERT(result, { fullText }) {
             Assert.strictEqual(stripAnsi(result), fullText);
@@ -1270,7 +1352,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers, cols: fullText.length - 1 };
         },
         ACT({ reviewers, cols }) {
-            return formatReviewingFooter(reviewers, cols);
+            return formatReviewingFooter(reviewers, cols, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(stripAnsi(result), "review: claude: running, claude: running");
@@ -1287,7 +1369,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers, cols: compact.length, compact };
         },
         ACT({ reviewers, cols }) {
-            return formatReviewingFooter(reviewers, cols);
+            return formatReviewingFooter(reviewers, cols, 0);
         },
         ASSERT(result, { compact }) {
             Assert.strictEqual(stripAnsi(result), compact);
@@ -1303,7 +1385,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers, cols: 15 };
         },
         ACT({ reviewers, cols }) {
-            return formatReviewingFooter(reviewers, cols);
+            return formatReviewingFooter(reviewers, cols, 0);
         },
         ASSERTS: {
             "exact truncated plain string matches"(result) {
@@ -1324,7 +1406,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers };
         },
         ACT({ reviewers }) {
-            return formatReviewingFooter(reviewers, 120);
+            return formatReviewingFooter(reviewers, 120, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(result, ORANGE + "review: claude (default): running" + RESET);
@@ -1341,7 +1423,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers, cols: fullText.length - 1 };
         },
         ACT({ reviewers, cols }) {
-            return formatReviewingFooter(reviewers, cols);
+            return formatReviewingFooter(reviewers, cols, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(result, ORANGE + "review: claude: running, claude: running" + RESET);
@@ -1357,7 +1439,7 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers, cols: 15 };
         },
         ACT({ reviewers, cols }) {
-            return formatReviewingFooter(reviewers, cols);
+            return formatReviewingFooter(reviewers, cols, 0);
         },
         ASSERT(result) {
             Assert.strictEqual(result, ORANGE + "review: claude" + RESET + "…");
@@ -1373,9 +1455,9 @@ test.describe("formatReviewingFooter", test => {
             return { reviewers };
         },
         ACT({ reviewers }) {
-            const wide = formatReviewingFooter(reviewers, 120);
-            const narrow = formatReviewingFooter(reviewers, 50);
-            const tiny = formatReviewingFooter(reviewers, 15);
+            const wide = formatReviewingFooter(reviewers, 120, 0);
+            const narrow = formatReviewingFooter(reviewers, 50, 0);
+            const tiny = formatReviewingFooter(reviewers, 15, 0);
             return { wide, narrow, tiny };
         },
         ASSERTS: {
@@ -1388,6 +1470,134 @@ test.describe("formatReviewingFooter", test => {
             "tiny width returns the truncated form"(result) {
                 Assert.strictEqual(stripAnsi(result.tiny), "review: claude…");
             }
+        }
+    });
+
+    test("renders a waiting reviewer with an endTime as 'waiting <compact>' alongside other reviewers", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "waiting", endTime: 134 * 60 * 1000 },
+                { tool: "codex", model: "gpt-5", effort: "high", state: "running" }
+            ];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 200, 0);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default): waiting 2h14m, codex (gpt-5 high): running");
+        }
+    });
+
+    test("computes a waiting reviewer's remaining wait from endTime minus nowMs", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "waiting", endTime: 200 * 60 * 1000 }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 200, 66 * 60 * 1000);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default): waiting 2h14m");
+        }
+    });
+
+    test("clamps a waiting reviewer's elapsed remaining wait to zero, rendering '1m'", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "waiting", endTime: 1000 }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 200, 60000);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default): waiting 1m");
+        }
+    });
+
+    test("renders a waiting reviewer with no endTime as the bare 'waiting'", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "waiting" }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 200, 5_000_000);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default): waiting");
+        }
+    });
+
+    test("keeps a waiting reviewer's countdown through the compact-form tier, dropping only the descriptor", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "sonnet", effort: "high", state: "waiting", endTime: 134 * 60 * 1000 },
+                { tool: "codex", model: "gpt-5", effort: "high", state: "running" }
+            ];
+            const compact = "review: claude: waiting 2h14m, codex: running";
+            // cols equal to the compact width: the full form (with descriptors) does
+            // not fit, the compact form fits exactly, so the countdown must survive.
+            return { reviewers, cols: compact.length, compact };
+        },
+        ACT({ reviewers, cols }) {
+            return formatReviewingFooter(reviewers, cols, 0);
+        },
+        ASSERT(result, { compact }) {
+            Assert.strictEqual(stripAnsi(result), compact);
+        }
+    });
+
+    test("cuts a waiting reviewer's countdown only at the truncation tier", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "sonnet", effort: "high", state: "waiting", endTime: 134 * 60 * 1000 }];
+            return { reviewers, cols: 15 };
+        },
+        ACT({ reviewers, cols }) {
+            return formatReviewingFooter(reviewers, cols, 0);
+        },
+        ASSERTS: {
+            "exact truncated plain string matches"(result) {
+                Assert.strictEqual(stripAnsi(result), "review: claude…");
+            },
+            "plain text length equals cols"(result) {
+                Assert.strictEqual(stripAnsi(result).length, 15);
+            }
+        }
+    });
+
+    test("renders each waiting reviewer's own countdown independently from its own endTime", {
+        ARRANGE() {
+            // Two reviewers waiting at the same instant with distinct end times must
+            // each render their own compact countdown (2h14m vs 14m), not a shared one.
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "waiting", endTime: 134 * 60 * 1000 },
+                { tool: "codex", model: "", effort: "", state: "waiting", endTime: 14 * 60 * 1000 }
+            ];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 200, 0);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default): waiting 2h14m, codex (default): waiting 14m");
+        }
+    });
+
+    test("recomputes each waiting reviewer's countdown against a shared nowMs", {
+        ARRANGE() {
+            // Distinct end times relative to a non-zero nowMs: each remaining wait is
+            // (endTime - nowMs), so the two countdowns differ (1h0m vs 5m).
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "waiting", endTime: 70 * 60 * 1000 },
+                { tool: "codex", model: "", effort: "", state: "waiting", endTime: 15 * 60 * 1000 }
+            ];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(reviewers, 200, 10 * 60 * 1000);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "review: claude (default): waiting 1h0m, codex (default): waiting 5m");
         }
     });
 });

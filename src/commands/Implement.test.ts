@@ -7,8 +7,8 @@ import type { ImplementContexts } from "./Implement";
 import type { FlandersConfig } from "../workspace/FlandersConfig";
 import type { SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 import { BottomBlock } from "../ui/BottomBlock";
-import type { HeaderFields, MetricsFields, TerminalLabel } from "../ui/BottomBlock";
-import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, SEPARATOR_GLYPH, stripAnsi } from "../ui/formatters";
+import type { HeaderFields, MetricsFields, TerminalLabel, ReviewerEntry } from "../ui/BottomBlock";
+import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, SEPARATOR_GLYPH, formatDateTime, stripAnsi } from "../ui/formatters";
 import { workingPool, successPool, hardStopPool, interruptionPool, failurePool, tasksCompletedPool, allTasksCompletedPool } from "../voiceVariants";
 
 // The stub random context returns 0, so the rotating working footer label is
@@ -1480,6 +1480,12 @@ function controllableTime() {
     };
 }
 
+// Claude stub where spawn number `rateLimitOnSpawn` emits a rate_limit event (driving the runner
+// into a rate-limit wait) and every other spawn replies from `s.claudeQueue`. Spawns named via
+// `hold(...)` have their emission deferred until `release(n)` — so a test can observe the footer at
+// rest after the wait resolves but before the next AI call produces any output (the hold mechanism
+// mirrors gatedClaudeStub; sharing it here avoids a near-duplicate stub per docs/rules/code-deduplication.md).
+// With no spawn held the dispatch is `setImmediate(emit)` for every spawn, identical to the original.
 function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
     const s = stubContexts();
     gitRunQueue(s.gitQueue);
@@ -1487,9 +1493,12 @@ function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
     (s.contexts as any).time = time.ctx;
     s.files.set(PLAN_PATH, PLAN_ONE_TASK);
     let spawnCount = 0;
+    const holdSet = new Set<number>();
+    const releasers = new Map<number, () => void>();
     (s.contexts.claude as any).spawn = (_command:string, args:readonly string[]) => {
         s.claudeSpawnedArgs.push([...args]);
         spawnCount++;
+        const mySpawn = spawnCount;
         const proc = fakeProcess();
         const origStdin = proc.stdin!;
         let capturedPrompt = "";
@@ -1497,32 +1506,42 @@ function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
             write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; s.promptQueue.push(p.message.content); } } catch {} },
             end() { origStdin.end(); }
         };
-        if (spawnCount === rateLimitOnSpawn) {
-            setImmediate(() => {
+        let emit:() => void;
+        if (mySpawn === rateLimitOnSpawn) {
+            emit = () => {
                 proc.$emitStdout(rateLimitEvent(time.ctx.now(), retryAfterSeconds) + "\n");
                 proc.$emit("exit", 0);
-            });
+            };
         } else {
             const response = s.claudeQueue.shift();
-            if (!response) {
-                setImmediate(() => proc.$emit("error", new Error("claude queue exhausted")));
-                return proc;
-            }
-            setImmediate(() => {
+            emit = () => {
+                if (!response) {
+                    proc.$emit("error", new Error("claude queue exhausted"));
+                    return;
+                }
                 if (response.errorLog !== undefined) {
-                    const target = targetErrorLogFromPrompt(capturedPrompt);
-                    s.files.set(target, response.errorLog);
+                    s.files.set(targetErrorLogFromPrompt(capturedPrompt), response.errorLog);
                 }
                 if (response.stderr) {
                     proc.$emitStderr(response.stderr);
                 }
                 proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
                 proc.$emit("exit", 0);
-            });
+            };
+        }
+        if (holdSet.has(mySpawn)) {
+            releasers.set(mySpawn, () => setImmediate(emit));
+        } else {
+            setImmediate(emit);
         }
         return proc;
     };
-    return { s, time };
+    return {
+        s,
+        time,
+        hold(...spawns:number[]) { for (const n of spawns) holdSet.add(n); },
+        release(spawn:number) { const r = releasers.get(spawn); if (r) { releasers.delete(spawn); r(); } }
+    };
 }
 
 async function flush(rounds = 20) {
@@ -1761,6 +1780,64 @@ test.describe("Implement rate-limit footer", test => {
         },
         ASSERT(output) {
             Assert.ok(output.includes("1 hours 30 minutes"), "should format as hours and minutes for >= 1h wait");
+        }
+    });
+
+    test("a rate-limit wait during the build/test detection stage shows the Waiting rate limit footer and returns to Working", {
+        ARRANGE() {
+            // Spawn 1 is the build/test command detection ("validator") agent, which runs through
+            // _detectBuildAndTest -> _runAi -> _defaultRunAiCallbacks before the iteration loop
+            // starts, while _currentTask is still null. Rate-limiting spawn 1 (with a 300s = 5
+            // minute wait) exercises the single-agent waiting footer for the detection stage. The
+            // detect retry (spawn 2) is held so that, once the wait resolves, the run pauses at the
+            // retry and the footer is observably at rest on Working — isolating the wait-resolution
+            // render from the later post-review `setFooter({kind:"working"})`. Releasing spawn 2 lets
+            // the worker (spawn 3) and reviewer (spawn 4) finish the single accepted iteration (exit 0).
+            const r = rateLimitStub(1, 300);
+            r.hold(2);
+            r.s.claudeQueue.push({ text: "ok" });                        // detect retry (spawn 2, held)
+            r.s.claudeQueue.push({ text: "worker" });                    // worker (spawn 3)
+            r.s.claudeQueue.push({ text: "reviewer ok", errorLog: "" }); // reviewer (spawn 4)
+            return r;
+        },
+        async ACT({ s, time, release }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+            await flush();
+            const outputDuringRateLimit = s.written.join("");
+            time.advance(300000);
+            await flush();
+            // The detect retry (spawn 2) is held, so the last render is the post-wait footer.
+            const footerAfterWait = stripAnsi(s.written.join("").split("\n").pop() ?? "");
+            release(2);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, outputDuringRateLimit, footerAfterWait };
+        },
+        ASSERTS: {
+            "exits successfully"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the rate-limit fires before the worker stage — no implementing activity has been shown yet"({ outputDuringRateLimit }) {
+                Assert.ok(
+                    !stripAnsi(outputDuringRateLimit).includes("implementing"),
+                    `the detection-stage wait must precede the worker stage, got: ${JSON.stringify(stripAnsi(outputDuringRateLimit))}`
+                );
+            },
+            "the footer heading during the detection wait is exactly Waiting rate limit"({ outputDuringRateLimit }) {
+                const footer = stripAnsi(outputDuringRateLimit.split("\n").pop() ?? "");
+                Assert.strictEqual(footer.split(" — ")[0], "Waiting rate limit");
+            },
+            "the footer shows the expected end date and time"({ outputDuringRateLimit }) {
+                const footer = stripAnsi(outputDuringRateLimit.split("\n").pop() ?? "");
+                Assert.strictEqual(footer.split(" — ")[1], formatDateTime(new Date(300000)));
+            },
+            "the footer shows the live countdown"({ outputDuringRateLimit }) {
+                const footer = stripAnsi(outputDuringRateLimit.split("\n").pop() ?? "");
+                Assert.strictEqual(footer.split(" — ")[2], "5 minutes");
+            },
+            "the rendered footer returns to Working when the detection-stage wait resolves"({ footerAfterWait }) {
+                Assert.strictEqual(footerAfterWait, `⣋ ${WORKING_LABEL}`);
+            }
         }
     });
 });
@@ -7337,6 +7414,118 @@ test.describe("Implement multiple parallel reviewers", test => {
                     if (compressed[compressed.length - 1] !== st) compressed.push(st);
                 }
                 Assert.deepStrictEqual(compressed, ["running", "waiting", "running", "ok"]);
+            }
+        }
+    });
+
+    test("a rate-limited reviewer carries its endTime into the reviewing footer entry", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            const time = controllableTime();
+            (s.contexts as any).time = time.ctx;
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "claude-opus-4-1", effort: "high", optional: false }
+                ],
+                minimumReviews: 1
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            // Capture the full ReviewerEntry of every reviewing snapshot (preserving
+            // endTime) so the test can assert the end time the production path carries
+            // into BottomBlock. The rendered terminal output (s.written) is asserted
+            // below too, so the test pins both the structured endTime and that it
+            // renders as this reviewer's compact countdown in the live reviewing footer.
+            type FooterSnapshot = { kind:string; reviewers?:ReviewerEntry[] };
+            const footerCalls:FooterSnapshot[] = [];
+            const origSetFooter = BottomBlock.prototype.setFooter;
+            BottomBlock.prototype.setFooter = function(state) {
+                if (state.kind === "reviewing") {
+                    footerCalls.push({ kind: state.kind, reviewers: state.reviewers.map(r => ({ ...r })) });
+                } else {
+                    footerCalls.push({ kind: state.kind });
+                }
+                origSetFooter.call(this, state);
+            };
+            let spawnCount = 0;
+            (s.contexts.claude as any).spawn = () => {
+                spawnCount++;
+                const proc = fakeProcess();
+                const origStdin = proc.stdin!;
+                let capturedPrompt = "";
+                (proc as any).stdin = {
+                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; s.promptQueue.push(p.message.content); } } catch {} },
+                    end() { origStdin.end(); }
+                };
+                if (spawnCount === 3) {
+                    // First reviewer call (after detect + worker): rate-limit. now=3000 at
+                    // emission, retryAfter 5s → resetsAt 8 → waitUntilMs (endTime) 8000.
+                    time.advance(1000);
+                    setImmediate(() => {
+                        proc.$emitStdout(rateLimitEvent(time.ctx.now(), 5) + "\n");
+                        proc.$emit("exit", 0);
+                    });
+                } else {
+                    time.advance(1000);
+                    const response = s.claudeQueue.shift()!;
+                    setImmediate(() => {
+                        if (response.errorLog !== undefined) {
+                            const target = targetErrorLogFromPrompt(capturedPrompt);
+                            s.files.set(target, response.errorLog);
+                        }
+                        proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
+                        proc.$emit("exit", 0);
+                    });
+                }
+                return proc;
+            };
+            s.claudeQueue.push({ text: "ok", inputTokens: 5, outputTokens: 5 });
+            s.claudeQueue.push({ text: "worker", inputTokens: 50, outputTokens: 25 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25, errorLog: "" });
+            return { s, time, footerCalls, origSetFooter };
+        },
+        async ACT({ s, time, origSetFooter }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+                await flush();
+                time.advance(5000);
+                await flush();
+                const code = await cmd.result();
+                await cmd.dispose();
+                return code;
+            } finally {
+                BottomBlock.prototype.setFooter = origSetFooter;
+            }
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the waiting reviewing snapshot carries the reviewer's rate-limit endTime"(_code, { footerCalls }) {
+                const waiting = footerCalls.filter(c => c.kind === "reviewing").find(c => c.reviewers![0]!.state === "waiting");
+                Assert.ok(waiting, "expected a waiting reviewing snapshot");
+                Assert.strictEqual(waiting!.reviewers![0]!.endTime, 8000);
+            },
+            "non-waiting reviewing snapshots carry no endTime"(_code, { footerCalls }) {
+                const nonWaiting = footerCalls.filter(c => c.kind === "reviewing").filter(c => c.reviewers![0]!.state !== "waiting");
+                Assert.ok(nonWaiting.length > 0, "expected non-waiting reviewing snapshots");
+                for (const snap of nonWaiting) {
+                    Assert.strictEqual(snap.reviewers![0]!.endTime, undefined);
+                }
+            },
+            "the rendered reviewing footer shows this reviewer's compact countdown"(_code, { s }) {
+                // onLongWaitStart fires at now=3000 with endTime=8000, so the live footer
+                // renders remaining=5000ms as formatCompactCountdown → the compact "1m"
+                // (not the verbose "1 minutes"). Asserting the whole reviewing-footer line
+                // ties the countdown to this reviewer's entry; a regression that dropped the
+                // endTime would render the bare "waiting" without the " 1m" suffix and fail.
+                const rendered = stripAnsi(s.written.join(""));
+                Assert.ok(
+                    rendered.includes("review: claude (claude-opus-4-1 high): waiting 1m"),
+                    `expected the rendered footer to show this reviewer's compact countdown, got: ${rendered}`
+                );
             }
         }
     });

@@ -537,12 +537,27 @@ export class Implement {
         return true;
     }
     private _setReviewerState(reviewerIdx:number, state:ReviewerState):void {
+        this._writeReviewerEntry(reviewerIdx, state, undefined);
+    }
+    // The waiting variant carries the reviewer's own rate-limit end time so the
+    // reviewing footer renders that reviewer's compact countdown (recomputed from
+    // the live clock on every redraw, never cached). Non-waiting states go through
+    // _setReviewerState and carry no endTime; re-rendering with the non-waiting
+    // variant therefore clears any previously-shown countdown.
+    private _setReviewerWaiting(reviewerIdx:number, endTimeMs:number):void {
+        this._writeReviewerEntry(reviewerIdx, "waiting", endTimeMs);
+    }
+    private _writeReviewerEntry(reviewerIdx:number, state:ReviewerState, endTime:number|undefined):void {
         /* coverage ignore next */ // — Defensive: _reviewerStates is initialized at the start of _reviewerStage before any reviewer launches.
         if (!this._reviewerStates) return;
         const entry = this._reviewerStates[reviewerIdx];
         /* coverage ignore next */ // — Defensive: callers always pass a valid in-range reviewerIdx.
         if (!entry) return;
-        this._reviewerStates[reviewerIdx] = { tool: entry.tool, model: entry.model, effort: entry.effort, state };
+        const next:ReviewerEntry = { tool: entry.tool, model: entry.model, effort: entry.effort, state };
+        if (endTime !== undefined) {
+            next.endTime = endTime;
+        }
+        this._reviewerStates[reviewerIdx] = next;
         this._renderReviewingFooter();
     }
     private _renderReviewingFooter():void {
@@ -666,10 +681,10 @@ export class Implement {
                     void currentSession.dispose();
                 };
                 const callbacks:RunAiCallbacks = {
-                    onLongWaitStart: () => {
+                    onLongWaitStart: (_kind, endTimeMs) => {
                         /* coverage ignore next */ // — Defensive: disposed guard during long-wait callback.
                         if (this._disposed) return;
-                        this._setReviewerState(idx, "waiting");
+                        this._setReviewerWaiting(idx, endTimeMs);
                         this._setReviewerLogicalStatus(idx, "waiting");
                     },
                     onLongWaitEnd: () => {

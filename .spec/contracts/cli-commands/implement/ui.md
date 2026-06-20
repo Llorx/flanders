@@ -69,7 +69,7 @@ While the waiting footer state is active, the tokens and time values on this lin
 ## Footer line — normal state
 The footer line shows a working label accompanied by a smooth animated indicator. The working label is drawn from a pool of short Ned-Flanders-flavored variants whose membership is pinned by [src/.spec/rules/flanders-voice-cli-variants.md](/src/.spec/rules/flanders-voice-cli-variants.md), and it rotates to a different variant than the one currently shown every 5 seconds, so the label keeps changing while work continues. The animated indicator is a continuous motion that gives the user a clear visual cue that the program is alive and progressing — for example, a spinner cycling through a sequence of glyphs, or a wave that moves a single highlighted character across the label. The indicator animation runs at 5 frames per second, a cadence independent of the 5-second label rotation. The working label and the animated indicator are both rendered in orange. The voice these variants carry is defined in [.spec/contracts/shared/flanders-voice.md](/.spec/contracts/shared/flanders-voice.md).
 
-The working label and its animation are present from the very first instant the command starts and persist across every phase — argv parsing, plan validation, git preflight, the tasks-completed noop case, and the iteration loop — until the command is about to exit, at which point the footer line transitions to the terminal label defined in `Cleanup on exit`. One phase interrupts the working label: the adversarial review stage, when it shows the reviewing state defined in `Footer line — reviewing state`.
+The working label and its animation are present from the very first instant the command starts and persist across every phase — argv parsing, plan validation, git preflight, the build and test command detection that runs at startup (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)), the tasks-completed noop case, and the iteration loop — until the command is about to exit, at which point the footer line transitions to the terminal label defined in `Cleanup on exit`. One phase interrupts the working label: the adversarial review stage, when it shows the reviewing state defined in `Footer line — reviewing state`.
 
 ## Footer line — waiting state
 While the runner is waiting for a retry, the footer line transitions to a label that conveys wait status to the user. The exact label content, wait information shown, and which retries trigger this state are defined by rules.
@@ -78,7 +78,7 @@ While the waiting state is active, the working animation is suspended.
 
 When the wait ends and normal AI work resumes, the footer line transitions back to its pre-wait normal working state, and the animation and the label rotation restart.
 
-The waiting state described here covers the worker-stage AI waits. It does not apply during the adversarial review stage; a reviewer's rate-limit wait is surfaced instead as that reviewer's `waiting` status inside the reviewing footer line (see `Footer line — reviewing state`).
+The waiting state described here covers every stage in which a single AI agent runs at a time: the worker stage and the build and test command detection that runs at startup before the iteration loop (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)). In each of these stages a rate-limit wait transitions the footer into this waiting state with the same label content. It does not apply during the adversarial review stage, where several reviewers run at once; a reviewer's rate-limit wait is surfaced instead as that reviewer's `waiting` status with its own countdown inside the reviewing footer line (see `Footer line — reviewing state`).
 
 ## Footer line — reviewing state
 While the adversarial review stage is running — the same phase during which the header activity field shows `reviewing` — the footer line replaces the working label and its animation with a per-reviewer status line that reports every configured reviewer and its current state on a single line. The working animation is suspended for the duration of the review stage.
@@ -91,9 +91,16 @@ The line begins with the literal prefix `review: ` followed by one entry per con
 - **`(<model> <effort>)`** — the reviewer's model/effort descriptor. The model token is the reviewer's configured model, or the literal `default` when the configured model is the default configured model. The effort token is the reviewer's configured effort, or the literal `default` when the configured effort is the default configured effort. The effort token is appended after a single space only when the configured effort string differs from the configured model string; when the two configured strings are equal — including the common case where both are the default — only the model token is shown, so a reviewer left fully on defaults renders as `(default)` rather than `(default default)`.
 - **`<state>`** — one of:
   - `running` — the reviewer's invocation is in progress.
-  - `waiting` — the reviewer's invocation is in a rate-limit wait. A short transient-error backoff does not move a reviewer into `waiting`; it stays `running` (consistent with [src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-state-appears-only-for-long-retry-waits](/src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-state-appears-only-for-long-retry-waits)).
+  - `waiting <countdown>` — the reviewer's invocation is in a rate-limit wait, followed by a compact live countdown of that reviewer's own remaining wait. Each rate-limited reviewer shows its own countdown, recomputed independently of the others. A short transient-error backoff does not move a reviewer into `waiting`; it stays `running` (consistent with [src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-state-appears-only-for-long-retry-waits](/src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-state-appears-only-for-long-retry-waits)).
   - `ok` — the reviewer finished and recorded no violations.
   - `fail` — the reviewer finished and recorded one or more violations.
+
+The `<countdown>` shown after `waiting` is that reviewer's remaining wait in a compact duration form, with no zero-padding of the numeric components, switching format at the same boundaries as the worker waiting countdown (see [src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-label-shows-a-heading-an-expected-end-and-a-countdown](/src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-label-shows-a-heading-an-expected-end-and-a-countdown)):
+- `<minutes>m` when the remaining wait is shorter than one hour (for example, `14m`).
+- `<hours>h<minutes>m` when the remaining wait is at least one hour but shorter than one day (for example, `2h14m`).
+- `<days>d<hours>h<minutes>m` when the remaining wait is at least one day (for example, `1d2h14m`).
+
+The countdown recomputes on every redraw from the current clock and that reviewer's target end time, and is never stored as a precomputed string between redraws (see [src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state](/src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state)).
 
 The line is rendered in the same orange as the rest of the footer line.
 
@@ -102,6 +109,8 @@ The reviewing footer line is compacted to fit the terminal width. The compaction
 1. **Full form** — every entry shown as `<tool> (<model> <effort>): <state>`.
 2. **Compact form** — when the full form does not fit, the `(<model> <effort>)` descriptor is dropped from every entry, leaving `review: <tool>: <state>, …`.
 3. **Truncation** — when the compact form also does not fit, the line is truncated with an ellipsis at the end.
+
+A reviewer's `waiting <countdown>` keeps its countdown in both the full and the compact form: the compact tier drops only the `(<model> <effort>)` descriptor, never the `<state>` or the countdown that follows it. The countdown is cut only when the line reaches the truncation tier.
 
 ## Per-task completion snapshot
 Whenever a task is accepted at the commit/check stage (see [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md)) and its checkbox is flipped to `[x]`, Flanders emits a snapshot of that task into the output region before work on the next task begins. The snapshot is emitted for every accepted task, including the last task in the plan; the run's final all-tasks-completed (or tasks-completed) message is printed after the last snapshot.
@@ -151,7 +160,7 @@ Each line is fitted to the current terminal width before it is drawn, by applyin
 2. Any compact form the line defines — for example, the metrics line's abbreviated `t:`/`p:` labels, or the reviewing footer's dropped per-reviewer `(<model> <effort>)` descriptors. A line that defines no compact form skips this step.
 3. Truncation with an ellipsis at the end when no form fits.
 
-The separator spans the full terminal width; the header, the metrics, and the footer are fitted as above. This fit is recomputed on every redraw — a change in any field, an animation tick, a working-label rotation tick, a waiting-countdown tick, a transition into or out of the waiting or reviewing state, a write above the block, and a terminal resize — against the current state and the current terminal width, and is never frozen at the width of an earlier draw.
+The separator spans the full terminal width; the header, the metrics, and the footer are fitted as above. This fit is recomputed on every redraw — a change in any field, an animation tick, a working-label rotation tick, a countdown tick (the waiting footer's countdown or any reviewer's `waiting` countdown), a transition into or out of the waiting or reviewing state, a write above the block, and a terminal resize — against the current state and the current terminal width, and is never frozen at the width of an earlier draw.
 
 On a terminal resize the block recomputes and redraws all four lines at the new width and re-anchors to the bottom of the terminal, leaving no rows from the previous size on screen and remaining exactly four rows. Output already written into the scrolling region above the block is not retroactively reflowed; subsequent output flows according to the new width.
 
