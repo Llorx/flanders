@@ -250,7 +250,7 @@ ${citationFreeReviewerMethodology.audit}`;
 // reviewer prompt assembled in skills.ts. See .spec/contracts/shared/flanders-voice.md and
 // src/prompts/.spec/rules/ai/flanders-tone.md.
 const voiceLocalization =
-    "using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner. Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, fall back to the most widely recognized localization of that language when the user's region cannot be determined, and carry the character's original-language manner across in spirit only when the language has no established localization of the character at all.";
+    "using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner. Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, and fall back to the most widely recognized localization of that language when the user's region cannot be determined. When you are addressing the user in a language other than English, the flavor never appears as the character's English-language manner; and when the language has no established localization of the character, or you cannot otherwise render it in that localization, the message is delivered plainly, with no flavor.";
 // The exclusion list, ending at the items every surface shares — machine-read tokens and git commit
 // messages — so the full exclusion set the Flanders-voice rule requires is inlined on every surface.
 // The surface-specific carve-outs (a reviewer's violation entries, a skill's authored artifacts) are
@@ -276,7 +276,7 @@ export interface FlandersVoiceParts {
 export function buildFlandersVoiceSection(parts: FlandersVoiceParts): string {
     return `## Voice
 
-Season ${parts.subject} — with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner, so the voice is a steady, recognizable presence across the whole run rather than a rare flourish. Keep it light — typically a single touch per message, never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor ${parts.languageFraming}, ${voiceLocalization} ${voiceExclusionLead}${parts.finalExclusion}${voiceTail}${parts.trailer}`;
+Season ${parts.subject} — with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner, so the voice is a steady, recognizable presence across the whole run rather than a rare flourish, the one exception being a message whose language has no established localization of the character, or that you cannot render in that localization, which is delivered plainly with no touch. Keep it light — typically a single touch per message, never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor ${parts.languageFraming}, ${voiceLocalization} ${voiceExclusionLead}${parts.finalExclusion}${voiceTail}${parts.trailer}`;
 }
 
 // The implement worker and reviewer prompts' tone instruction. The agents season their streamed

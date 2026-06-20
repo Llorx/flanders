@@ -52,7 +52,7 @@ const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entr
 const EXPECTED_TONE_PROSE_HEAD =
 `## Voice
 
-Season your user-facing narration — the prose you stream as you work — with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner, so the voice is a steady, recognizable presence across the whole run rather than a rare flourish. Keep it light — typically a single touch per message, never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the same language you are already narrating in, using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner. Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, fall back to the most widely recognized localization of that language when the user's region cannot be determined, and carry the character's original-language manner across in spirit only when the language has no established localization of the character at all. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages`;
+Season your user-facing narration — the prose you stream as you work — with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner, so the voice is a steady, recognizable presence across the whole run rather than a rare flourish, the one exception being a message whose language has no established localization of the character, or that you cannot render in that localization, which is delivered plainly with no touch. Keep it light — typically a single touch per message, never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the same language you are already narrating in, using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner. Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, and fall back to the most widely recognized localization of that language when the user's region cannot be determined. When you are addressing the user in a language other than English, the flavor never appears as the character's English-language manner; and when the language has no established localization of the character, or you cannot otherwise render it in that localization, the message is delivered plainly, with no flavor. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages`;
 
 const EXPECTED_TONE_TAIL = " — all of which stay exact and as actionable as before.";
 
@@ -1803,6 +1803,9 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "limits the flavor to a single touch per message"(template) {
                 Assert.ok(template.includes("typically a single touch per message"));
             },
+            "the lead sentence carries the single plain-delivery exception"(template) {
+                Assert.ok(template.includes("rather than a rare flourish, the one exception being a message whose language has no established localization of the character, or that you cannot render in that localization, which is delivered plainly with no touch."));
+            },
             "no longer carries the old occasional cadence"(template) {
                 Assert.strictEqual(template.includes("an occasional, soft Ned-Flanders touch"), false);
             },
@@ -1821,8 +1824,17 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "directs the genuine regional established localization rather than a word-for-word translation"(template) {
                 Assert.ok(template.includes("Render the flavor in the same language you are already narrating in, using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner."));
             },
-            "detects and matches the regional idiom, falls back to the most widely recognized localization, and carries the manner in spirit only when none exists"(template) {
-                Assert.ok(template.includes("Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, fall back to the most widely recognized localization of that language when the user's region cannot be determined, and carry the character's original-language manner across in spirit only when the language has no established localization of the character at all."));
+            "detects and matches the regional idiom and falls back to the most widely recognized localization"(template) {
+                Assert.ok(template.includes("Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, and fall back to the most widely recognized localization of that language when the user's region cannot be determined."));
+            },
+            "in another language the flavor never appears as the character's English-language manner"(template) {
+                Assert.ok(template.includes("When you are addressing the user in a language other than English, the flavor never appears as the character's English-language manner"));
+            },
+            "delivers the message plainly with no flavor when no established localization exists or it cannot be rendered"(template) {
+                Assert.ok(template.includes("when the language has no established localization of the character, or you cannot otherwise render it in that localization, the message is delivered plainly, with no flavor."));
+            },
+            "no longer carries the original-language-manner in-spirit fallback"(template) {
+                Assert.strictEqual(template.includes("carry the character's original-language manner across in spirit"), false);
             },
             "drops the old word-for-word English-origin fallback wording"(template) {
                 Assert.strictEqual(template.includes("use the English-origin Flanders-isms"), false);
@@ -1868,6 +1880,9 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "limits the flavor to a single touch per message"(template) {
                 Assert.ok(template.includes("typically a single touch per message"));
             },
+            "the lead sentence carries the single plain-delivery exception"(template) {
+                Assert.ok(template.includes("rather than a rare flourish, the one exception being a message whose language has no established localization of the character, or that you cannot render in that localization, which is delivered plainly with no touch."));
+            },
             "no longer carries the old occasional cadence"(template) {
                 Assert.strictEqual(template.includes("an occasional, soft Ned-Flanders touch"), false);
             },
@@ -1883,8 +1898,17 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "directs the genuine regional established localization rather than a word-for-word translation"(template) {
                 Assert.ok(template.includes("Render the flavor in the same language you are already narrating in, using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner."));
             },
-            "detects and matches the regional idiom, falls back to the most widely recognized localization, and carries the manner in spirit only when none exists"(template) {
-                Assert.ok(template.includes("Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, fall back to the most widely recognized localization of that language when the user's region cannot be determined, and carry the character's original-language manner across in spirit only when the language has no established localization of the character at all."));
+            "detects and matches the regional idiom and falls back to the most widely recognized localization"(template) {
+                Assert.ok(template.includes("Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, and fall back to the most widely recognized localization of that language when the user's region cannot be determined."));
+            },
+            "in another language the flavor never appears as the character's English-language manner"(template) {
+                Assert.ok(template.includes("When you are addressing the user in a language other than English, the flavor never appears as the character's English-language manner"));
+            },
+            "delivers the message plainly with no flavor when no established localization exists or it cannot be rendered"(template) {
+                Assert.ok(template.includes("when the language has no established localization of the character, or you cannot otherwise render it in that localization, the message is delivered plainly, with no flavor."));
+            },
+            "no longer carries the original-language-manner in-spirit fallback"(template) {
+                Assert.strictEqual(template.includes("carry the character's original-language manner across in spirit"), false);
             },
             "drops the old word-for-word English-origin fallback wording"(template) {
                 Assert.strictEqual(template.includes("use the English-origin Flanders-isms"), false);
