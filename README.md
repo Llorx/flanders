@@ -9,8 +9,10 @@ Hi-diddly-ho, neighbor! Flanders is a Node.js toolkit that helps you author cont
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Installation](#installation)
-- [Usage](#usage)
 - [Configuration](#configuration)
+- [Usage](#usage)
+- [Voice](#voice)
+- [Project metadata](#project-metadata)
 
 ## How it works
 
@@ -107,3 +109,49 @@ The skills-tool answer is used by `install` itself to decide which folders to wr
 ### Which configuration wins
 
 When a command reads the configuration, a project-scope `.flanders/` always takes precedence over a global one — and it's all or nothing, with no field-by-field merge between the two. So a project `.flanders/` is used in full when it's present; otherwise the global `~/.flanders/` is used.
+
+## Usage
+
+With Flanders installed, here's how to put it to work — running plans from the CLI and shaping them with the three skills.
+
+### Implementing a plan
+
+```sh
+npx flanders implement [plan]
+```
+
+`implement` takes a plan from your `plans/` folder and carries it through from start to finish. Leave `[plan]` off and Flanders runs the single plan in `plans/` for you automatically; when there's more than one, it lists them and asks you to re-run naming the one to implement. From there it works through each open task with the worker AI, gating every result through build, test, and adversarial review before marking that task complete in the plan — and it commits once per accepted task, so each step lands as its own neat little commit. The project must be a git repository: `implement` needs git and has no flag to turn it off.
+
+### The three skills
+
+The skills become available after a successful `npx flanders install` run. Each one shapes a different part of the spec → plan → implement cycle:
+
+- **`/flanders-spec`** — turns a free-form request into your contracts, rules, and behavior rules, written into the `.spec/contracts`, `.spec/rules`, and `.spec/flanders` folders.
+- **`/flanders-plan`** — derives a single, ordered, contract-aware work plan under `plans/` from your request.
+- **`/flanders-work`** — implements a small, self-contained request directly and gates it through a single adversarial review, all in one invocation — no plan file and no commit.
+
+### A typical workflow
+
+Here's the neighborly path from a blank slate to shipped code:
+
+1. **`npx flanders install`** — set Flanders up and deliver the skills.
+2. **`/flanders-spec`** — capture your obligations and conventions as contracts and rules.
+3. **`/flanders-plan`** — derive an ordered work plan from them under `plans/`.
+4. **`npx flanders implement`** — build the plan task by task, each result gated through build, test, and review.
+
+And when a change is small enough that a whole plan would be overkill, **`/flanders-work`** is your shortcut — it carries that one request from request to reviewed finish without a plan or a commit.
+
+## Voice
+
+You may notice Flanders is a friendly neighbor through and through: every surface that speaks to you — the `install` command's interactive prompts, the status writes of both `install` and `implement`, the live `implement` UI, and the narration from the worker, the reviewers, and the skills — carries a gentle, good-natured Ned-Flanders tone. It's only ever a light seasoning, mind you: the flavor colors how a message reads, but it never changes what the message means or how accurate it is, and it never lands on the things that must stay exact — command names, paths, flags, the facts inside a diagnostic, or git commit messages.
+
+---
+
+## Project metadata
+
+- **Package** — `flanders`
+- **License** — MIT
+- **Author** — Llorx
+- **Repository** — git+https://github.com/Llorx/flanders.git
+- **Issues** — https://github.com/Llorx/flanders/issues
+- **Homepage** — https://github.com/Llorx/flanders#readme
