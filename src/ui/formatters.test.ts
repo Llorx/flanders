@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { formatCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWorkingFooter, formatWaitingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, stripAnsi, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
+import { formatCountdown, formatDateTime, truncateToWidth, formatTokens, formatActiveTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatTerminalFooter, formatWorkingFooter, formatWaitingFooter, formatSnapshotHeader, formatSnapshotMetrics, formatSnapshotBlock, CYAN, YELLOW, GREEN, MAGENTA, BLUE, DIM, ORANGE, RESET, colorize, stripAnsi, renderSegments, renderSegmentsToWidth, SEPARATOR_GLYPH, type Segment, type MetricsPair, type ReviewerEntry } from "./formatters";
 
 test.describe("formatCountdown", test => {
     test("returns minutes only when remaining is under one hour", {
@@ -1531,6 +1531,58 @@ test.describe("formatWaitingFooter", test => {
             },
             "colors the surviving prefix in ORANGE with trailing RESET"(result) {
                 Assert.strictEqual(result, ORANGE + "Waiting rate l" + RESET + "…");
+            }
+        }
+    });
+});
+
+test.describe("formatTerminalFooter", test => {
+    test("returns the full ORANGE-wrapped label when the plain text fits within cols", {
+        ARRANGE() {
+            return { label: "All wrapped up, neighbor", cols: 120 };
+        },
+        ACT({ label, cols }) {
+            return formatTerminalFooter(label, cols);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, ORANGE + "All wrapped up, neighbor" + RESET);
+        }
+    });
+
+    test("returns the full untruncated label at exact boundary (plain length === cols)", {
+        ARRANGE() {
+            const label = "All wrapped up, neighbor";
+            return { label, cols: label.length };
+        },
+        ACT({ label, cols }) {
+            return formatTerminalFooter(label, cols);
+        },
+        ASSERTS: {
+            "returns the full ORANGE-wrapped label"(result, { label }) {
+                Assert.strictEqual(result, ORANGE + label + RESET);
+            },
+            "contains no ellipsis"(result) {
+                Assert.ok(!result.includes("…"));
+            }
+        }
+    });
+
+    test("truncates a long terminal variant with a trailing ellipsis when the plain text exceeds cols", {
+        ARRANGE() {
+            return { label: "Hold the phone — interrupted", cols: 12 };
+        },
+        ACT({ label, cols }) {
+            return formatTerminalFooter(label, cols);
+        },
+        ASSERTS: {
+            "exact truncated plain string matches"(result) {
+                Assert.strictEqual(stripAnsi(result), "Hold the ph…");
+            },
+            "plain text length equals cols"(result) {
+                Assert.strictEqual(stripAnsi(result).length, 12);
+            },
+            "colors the surviving prefix in ORANGE with trailing RESET"(result) {
+                Assert.strictEqual(result, ORANGE + "Hold the ph" + RESET + "…");
             }
         }
     });

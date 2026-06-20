@@ -9,11 +9,18 @@ import type { SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { HeaderFields, MetricsFields, TerminalLabel } from "../ui/BottomBlock";
 import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, SEPARATOR_GLYPH, stripAnsi } from "../ui/formatters";
-import { workingPool } from "../voiceVariants";
+import { workingPool, successPool, hardStopPool, interruptionPool, failurePool } from "../voiceVariants";
 
 // The stub random context returns 0, so the rotating working footer label is
 // always workingPool[0] — the deterministic label the live footer renders here.
 const WORKING_LABEL = workingPool[0]!;
+
+// The stub random context returns 0, so each outcome's terminal label at exit is
+// always its pool[0] entry — the deterministic terminal labels these tests observe.
+const DONE_LABEL = successPool[0]!;
+const HARD_STOP_LABEL = hardStopPool[0]!;
+const INTERRUPTED_LABEL = interruptionPool[0]!;
+const FAILED_LABEL = failurePool[0]!;
 
 type FakeProcess = SpawnedProcess & {
     $emitStdout(chunk:string):void;
@@ -853,7 +860,7 @@ test.describe("Implement config loading", test => {
             },
             "footer shows Failed"(_code, { written }) {
                 const stripped = stripAnsi(written.join(""));
-                Assert.ok(stripped.includes("Failed"));
+                Assert.ok(stripped.includes(FAILED_LABEL));
             }
         }
     });
@@ -970,7 +977,7 @@ test.describe("Implement config loading", test => {
             },
             "footer shows Failed"(_code, { written }) {
                 const stripped = stripAnsi(written.join(""));
-                Assert.ok(stripped.includes("Failed"));
+                Assert.ok(stripped.includes(FAILED_LABEL));
             }
         }
     });
@@ -1040,7 +1047,7 @@ test.describe("Implement ambiguous plan selection", test => {
                 Assert.strictEqual(entry, "Re-run with the chosen plan as the [plan] argument.\n");
             },
             "footer shows Failed"(_code, { written }) {
-                Assert.ok(stripAnsi(written.join("")).includes("Failed"));
+                Assert.ok(stripAnsi(written.join("")).includes(FAILED_LABEL));
             }
         }
     });
@@ -3000,7 +3007,7 @@ test.describe("Implement git requirement", test => {
                 Assert.ok(written.join("").includes(GIT_DIAGNOSTIC), "should emit the exact git-requirement diagnostic");
             },
             "finalizes the footer with the Failed terminal label"(_code, { written }) {
-                Assert.ok(written.join("").includes(ORANGE + "Failed" + ANSI_RESET), "footer should show the Failed terminal label");
+                Assert.ok(written.join("").includes(ORANGE + FAILED_LABEL + ANSI_RESET), "footer should show the Failed terminal label");
             },
             "block is mounted before the diagnostic (separator scrolls above it)"(_code, { written }) {
                 const all = written.join("");
@@ -3039,7 +3046,7 @@ test.describe("Implement git requirement", test => {
                 Assert.ok(written.join("").includes(GIT_DIAGNOSTIC), "should emit the exact git-requirement diagnostic");
             },
             "finalizes the footer with the Failed terminal label"(_code, { written }) {
-                Assert.ok(written.join("").includes(ORANGE + "Failed" + ANSI_RESET), "footer should show the Failed terminal label");
+                Assert.ok(written.join("").includes(ORANGE + FAILED_LABEL + ANSI_RESET), "footer should show the Failed terminal label");
             },
             "both git --version and rev-parse are spawned"(_code, { gitSpawns }) {
                 Assert.strictEqual(gitSpawns.length, 2, "git --version and rev-parse are spawned");
@@ -3201,7 +3208,7 @@ test.describe("Implement git preflight", test => {
                 Assert.ok(written.join("").includes("─".repeat(80)));
             },
             "finalizes the block as Failed"(_code, { written }) {
-                Assert.ok(stripAnsi(written.join("")).includes("Failed"));
+                Assert.ok(stripAnsi(written.join("")).includes(FAILED_LABEL));
             },
             "workspace is not set up"(_code, { files }) {
                 Assert.ok(!files.has(WS_ROOT + "/build.sh"));
@@ -4490,7 +4497,7 @@ test.describe("Implement terminal label on exit", test => {
             },
             "footer shows Done label in orange"(_code, { written }) {
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes(ORANGE + "Done" + ANSI_RESET), "footer should show Done terminal label");
+                Assert.ok(allOutput.includes(ORANGE + DONE_LABEL + ANSI_RESET), "footer should show Done terminal label");
             },
             "block remains visible after exit"(_code, { written }) {
                 const allOutput = written.join("");
@@ -4498,7 +4505,7 @@ test.describe("Implement terminal label on exit", test => {
             },
             "cursor is on line below block"(_code, { written }) {
                 const allOutput = written.join("");
-                const labelStr = ORANGE + "Done" + ANSI_RESET;
+                const labelStr = ORANGE + DONE_LABEL + ANSI_RESET;
                 const labelIdx = allOutput.lastIndexOf(labelStr);
                 Assert.ok(labelIdx !== -1, "terminal label should be present");
                 const afterLabel = allOutput.slice(labelIdx + labelStr.length);
@@ -4527,7 +4534,7 @@ test.describe("Implement terminal label on exit", test => {
             },
             "footer shows Done label in orange"(_code, { written }) {
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes(ORANGE + "Done" + ANSI_RESET), "footer should show Done terminal label");
+                Assert.ok(allOutput.includes(ORANGE + DONE_LABEL + ANSI_RESET), "footer should show Done terminal label");
             }
         }
     });
@@ -4548,7 +4555,7 @@ test.describe("Implement terminal label on exit", test => {
             },
             "footer shows Failed label in orange"(_code, { written }) {
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes(ORANGE + "Failed" + ANSI_RESET), "footer should show Failed terminal label");
+                Assert.ok(allOutput.includes(ORANGE + FAILED_LABEL + ANSI_RESET), "footer should show Failed terminal label");
             }
         }
     });
@@ -4569,7 +4576,7 @@ test.describe("Implement terminal label on exit", test => {
             },
             "footer shows Failed label in orange"(_code, { written }) {
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes(ORANGE + "Failed" + ANSI_RESET), "footer should show Failed terminal label");
+                Assert.ok(allOutput.includes(ORANGE + FAILED_LABEL + ANSI_RESET), "footer should show Failed terminal label");
             }
         }
     });
@@ -4593,7 +4600,7 @@ test.describe("Implement terminal label on exit", test => {
             },
             "footer shows Failed label in orange"(_code, { written }) {
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes(ORANGE + "Failed" + ANSI_RESET), "footer should show Failed terminal label");
+                Assert.ok(allOutput.includes(ORANGE + FAILED_LABEL + ANSI_RESET), "footer should show Failed terminal label");
             }
         }
     });
@@ -4616,7 +4623,7 @@ test.describe("Implement terminal label on exit", test => {
             },
             "footer shows Failed label in orange"(_code, { written }) {
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes(ORANGE + "Failed" + ANSI_RESET), "footer should show Failed terminal label");
+                Assert.ok(allOutput.includes(ORANGE + FAILED_LABEL + ANSI_RESET), "footer should show Failed terminal label");
             }
         }
     });
@@ -4642,7 +4649,7 @@ test.describe("Implement terminal label on exit", test => {
             },
             "footer shows Failed label in orange"(_code, { written }) {
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes(ORANGE + "Failed" + ANSI_RESET), "footer should show Failed terminal label");
+                Assert.ok(allOutput.includes(ORANGE + FAILED_LABEL + ANSI_RESET), "footer should show Failed terminal label");
             }
         }
     });
@@ -4672,7 +4679,7 @@ test.describe("Implement terminal label on exit", test => {
             },
             "footer shows Hard stop label in orange"(_code, { written }) {
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes(ORANGE + "Hard stop" + ANSI_RESET), "footer should show Hard stop terminal label");
+                Assert.ok(allOutput.includes(ORANGE + HARD_STOP_LABEL + ANSI_RESET), "footer should show Hard stop terminal label");
             }
         }
     });
@@ -4709,7 +4716,7 @@ test.describe("Implement terminal label on exit", test => {
         ASSERTS: {
             "footer shows Interrupted label in orange"(_result, { written }) {
                 const allOutput = written.join("");
-                Assert.ok(allOutput.includes(ORANGE + "Interrupted" + ANSI_RESET), "footer should show Interrupted terminal label");
+                Assert.ok(allOutput.includes(ORANGE + INTERRUPTED_LABEL + ANSI_RESET), "footer should show Interrupted terminal label");
             }
         }
     });
@@ -4734,7 +4741,7 @@ test.describe("Implement terminal label on exit", test => {
             },
             "cursor is on line below block"(_code, { written }) {
                 const allOutput = written.join("");
-                const labelStr = ORANGE + "Failed" + ANSI_RESET;
+                const labelStr = ORANGE + FAILED_LABEL + ANSI_RESET;
                 const labelIdx = allOutput.lastIndexOf(labelStr);
                 Assert.ok(labelIdx !== -1, "terminal label should be present");
                 const afterLabel = allOutput.slice(labelIdx + labelStr.length);

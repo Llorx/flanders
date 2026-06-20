@@ -278,6 +278,10 @@ export function formatWorkingFooter(frame:string, label:string, cols:number):str
     return fitOrangeFooterLine(`${frame} ${label}`, cols);
 }
 
+export function formatTerminalFooter(label:string, cols:number):string {
+    return fitOrangeFooterLine(label, cols);
+}
+
 export function formatWaitingFooter(heading:string, dateTime:string, countdown:string, cols:number):string {
     return fitOrangeFooterLine(`${heading} — ${dateTime} — ${countdown}`, cols);
 }

@@ -1,6 +1,6 @@
 import type { RandomContext, TimeContext, TimeoutHandle } from "../contexts";
-import { pickVariant, workingPool } from "../voiceVariants";
-import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWaitingFooter, formatWorkingFooter, ORANGE, RESET, SEPARATOR_GLYPH, stripAnsi } from "./formatters";
+import { pickVariant, terminalPools, workingPool } from "../voiceVariants";
+import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatTerminalFooter, formatWaitingFooter, formatWorkingFooter, SEPARATOR_GLYPH, stripAnsi } from "./formatters";
 import type { ReviewerEntry } from "./formatters";
 
 export type { ReviewerEntry, ReviewerState, ReviewerTool } from "./formatters";
@@ -37,7 +37,7 @@ export type FooterState =
     | { kind:"working" }
     | { kind:"waiting"; waitKind:WaitKind; endTime:number }
     | { kind:"reviewing"; reviewers:readonly ReviewerEntry[] }
-    | { kind:"terminal"; label:TerminalLabel };
+    | { kind:"terminal"; text:string };
 
 export type TerminalLabel = "Done" | "Hard stop" | "Interrupted" | "Failed";
 
@@ -134,7 +134,10 @@ export class BottomBlock {
         if (this._finalized) return;
         this._finalized = true;
         this._cancelTimers();
-        this._footer = { kind: "terminal", label };
+        // The terminal label is one variant chosen at random from the outcome's
+        // pool through the injected RandomContext; the chosen string is carried on
+        // the footer state and width-fitted at render time (never precomputed).
+        this._footer = { kind: "terminal", text: pickVariant(terminalPools[label], this._random) };
         if (this._unsubResize) {
             this._unsubResize();
             this._unsubResize = null;
@@ -289,7 +292,7 @@ export class BottomBlock {
             case "reviewing":
                 return formatReviewingFooter(this._footer.reviewers, cols);
             case "terminal":
-                return `${ORANGE}${this._footer.label}${RESET}`;
+                return formatTerminalFooter(this._footer.text, cols);
         }
     }
 }

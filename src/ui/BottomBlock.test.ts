@@ -6,8 +6,8 @@ import { Terminal } from "@xterm/headless";
 import { BottomBlock } from "./BottomBlock";
 import type { BottomBlockIO, ReviewerEntry } from "./BottomBlock";
 import type { RandomContext, TimeoutHandle } from "../contexts";
-import { workingPool } from "../voiceVariants";
-import { CYAN, YELLOW, MAGENTA, GREEN, ORANGE, RESET, SEPARATOR_GLYPH, formatDateTime, stripAnsi } from "./formatters";
+import { workingPool, successPool, hardStopPool, interruptionPool, failurePool } from "../voiceVariants";
+import { CYAN, YELLOW, MAGENTA, GREEN, ORANGE, RESET, SEPARATOR_GLYPH, formatDateTime, formatTerminalFooter, stripAnsi } from "./formatters";
 
 type FakeTimer = { handler:() => void; at:number };
 
@@ -78,6 +78,13 @@ function fakeRandom(value:number = 0):RandomContext {
 }
 
 const DEFAULT_LABEL = workingPool[0]!; // "Workin'-diddly", what fakeRandom(0) selects.
+
+// The terminal-label variants fakeRandom(0) selects from each outcome's pool —
+// the deterministic terminal labels the default-random finalize tests observe.
+const DONE_LABEL = successPool[0]!;
+const HARD_STOP_LABEL = hardStopPool[0]!;
+const INTERRUPTED_LABEL = interruptionPool[0]!;
+const FAILED_LABEL = failurePool[0]!;
 
 // Extracts the working label rendered in a footer line: everything after the
 // single space that follows the one-glyph spinner frame. Lets tests read the
@@ -598,11 +605,11 @@ test.describe("BottomBlock", test => {
             return { afterFinalize, afterSecondFinalize, afterTimerAdvance, pendingCount: time.pendingCount, resizeCount: io.resizeListenerCount };
         },
         ASSERTS: {
-            "footer shows Done in orange"(result) {
-                Assert.ok(result.afterFinalize.includes(ORANGE + "Done" + RESET));
+            "footer shows the success variant in orange"(result) {
+                Assert.ok(result.afterFinalize.includes(ORANGE + DONE_LABEL + RESET));
             },
             "content after the terminal label is exactly the autowrap restore followed by a single newline"(result) {
-                const labelStr = ORANGE + "Done" + RESET;
+                const labelStr = ORANGE + DONE_LABEL + RESET;
                 const labelIdx = result.afterFinalize.lastIndexOf(labelStr);
                 Assert.ok(labelIdx !== -1, "terminal label should be present");
                 Assert.strictEqual(result.afterFinalize.slice(labelIdx + labelStr.length), "\x1b[?7h\n");
@@ -622,7 +629,7 @@ test.describe("BottomBlock", test => {
         }
     });
 
-    test("finalize Hard stop shows correct label", {
+    test("finalize Hard stop shows a hard-stop variant", {
         ARRANGE() {
             const io = stubIO(20);
             const time = fakeTime();
@@ -636,11 +643,11 @@ test.describe("BottomBlock", test => {
             return io.output;
         },
         ASSERT(output) {
-            Assert.ok(output.includes(ORANGE + "Hard stop" + RESET));
+            Assert.ok(output.includes(ORANGE + HARD_STOP_LABEL + RESET));
         }
     });
 
-    test("finalize Interrupted shows correct label", {
+    test("finalize Interrupted shows an interruption variant", {
         ARRANGE() {
             const io = stubIO(20);
             const time = fakeTime();
@@ -654,13 +661,13 @@ test.describe("BottomBlock", test => {
             return io.output;
         },
         ASSERT(output) {
-            Assert.ok(output.includes(ORANGE + "Interrupted" + RESET));
+            Assert.ok(output.includes(ORANGE + INTERRUPTED_LABEL + RESET));
         }
     });
 
-    test("finalize Failed shows correct label", {
+    test("finalize Failed shows a failure variant", {
         ARRANGE() {
-            const io = stubIO(20);
+            const io = stubIO(80);
             const time = fakeTime();
             const block = makeBlock(io, time);
             block.mount();
@@ -672,7 +679,71 @@ test.describe("BottomBlock", test => {
             return io.output;
         },
         ASSERT(output) {
-            Assert.ok(output.includes(ORANGE + "Failed" + RESET));
+            Assert.ok(output.includes(ORANGE + FAILED_LABEL + RESET));
+        }
+    });
+
+    for (const { outcome, pool } of [
+        { outcome: "Done" as const, pool: successPool },
+        { outcome: "Hard stop" as const, pool: hardStopPool },
+        { outcome: "Interrupted" as const, pool: interruptionPool },
+        { outcome: "Failed" as const, pool: failurePool }
+    ]) {
+        test(`finalize ${outcome} renders the ${outcome}-pool entry the injected random context selects`, {
+            ARRANGE() {
+                const io = stubIO(80);
+                const time = fakeTime();
+                // 0.5 * 10 = 5, so pool index 5 is selected — a different entry than the
+                // fakeRandom(0) default, proving the variant is drawn through the injected
+                // random context rather than fixed. At 80 cols every pool entry fits, so the
+                // rendered footer is exactly the chosen variant.
+                const block = makeBlock(io, time, fakeRandom(0.5));
+                block.mount();
+                io.reset();
+                return { io, block, pool };
+            },
+            ACT({ io, block }) {
+                block.finalize(outcome);
+                return stripAnsi(io.output.split("\n").slice(-2)[0] ?? "");
+            },
+            ASSERTS: {
+                "the rendered terminal label is an entry of the outcome's pool"(label, { pool }) {
+                    Assert.ok(pool.includes(label));
+                },
+                "the rendered terminal label is exactly the pool entry the random value indexes"(label, { pool }) {
+                    Assert.strictEqual(label, pool[5]);
+                }
+            }
+        });
+    }
+
+    test("@xterm/headless: a long terminal variant at a narrow width is truncated to a single row with an ellipsis, keeping the block exactly four rows", {
+        ARRANGE() {
+            // 0.5 * 10 = 5 -> interruptionPool[5] === "Hold the phone — interrupted" (28 chars),
+            // wider than the 12-col terminal, so the finalized terminal footer (drawn with
+            // autowrap off) must be truncated to one 12-cell row rather than wrapping into a
+            // second physical row, keeping the block at its fixed four-row height.
+            return { cols: 12, termRows: 24, random: fakeRandom(0.5) };
+        },
+        async ACT({ cols, termRows, random }) {
+            const { term, block, flush } = await mountEmulatorBlock(cols, termRows, undefined, random);
+            block.finalize("Interrupted");
+            await flush();
+            const rows = readEmulatorViewport(term);
+            block.dispose();
+            term.dispose();
+            return rows;
+        },
+        ASSERTS: {
+            "the finalized footer is the long variant truncated to the width with a trailing ellipsis on a single row"(rows) {
+                Assert.ok(rows.includes("Hold the ph…"));
+            },
+            "a separator row spanning exactly the narrow width is present"(rows, { cols }) {
+                Assert.ok(rows.includes(SEPARATOR_GLYPH.repeat(cols)));
+            },
+            "the block occupies exactly four rows — the long label did not wrap into a fifth"(rows) {
+                Assert.strictEqual(rows.filter(r => r !== "").length, 4);
+            }
         }
     });
 
@@ -1084,7 +1155,9 @@ test.describe("BottomBlock", test => {
             "finalize clears, redraws with terminal label, and ends with newline"(result) {
                 Assert.strictEqual(result.afterFinalize[0], CLEAR_SEQ);
                 const blockDraw = result.afterFinalize[1]!;
-                Assert.ok(blockDraw.includes(ORANGE + "Done" + RESET));
+                // At 10 cols the success variant is fitted/truncated through the same
+                // orange-fit path as the working/waiting footers, not emitted raw.
+                Assert.ok(blockDraw.includes(formatTerminalFooter(DONE_LABEL, 10)));
                 Assert.strictEqual(result.afterFinalize[2], "\n");
             }
         }
