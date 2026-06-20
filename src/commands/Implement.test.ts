@@ -8,7 +8,7 @@ import type { FlandersConfig } from "../workspace/FlandersConfig";
 import type { SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { HeaderFields, MetricsFields, TerminalLabel, ReviewerEntry } from "../ui/BottomBlock";
-import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, SEPARATOR_GLYPH, stripAnsi } from "../ui/formatters";
+import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, SEPARATOR_GLYPH, formatDateTime, stripAnsi } from "../ui/formatters";
 
 type FakeProcess = SpawnedProcess & {
     $emitStdout(chunk:string):void;
@@ -1407,6 +1407,12 @@ function controllableTime() {
     };
 }
 
+// Claude stub where spawn number `rateLimitOnSpawn` emits a rate_limit event (driving the runner
+// into a rate-limit wait) and every other spawn replies from `s.claudeQueue`. Spawns named via
+// `hold(...)` have their emission deferred until `release(n)` — so a test can observe the footer at
+// rest after the wait resolves but before the next AI call produces any output (the hold mechanism
+// mirrors gatedClaudeStub; sharing it here avoids a near-duplicate stub per docs/rules/code-deduplication.md).
+// With no spawn held the dispatch is `setImmediate(emit)` for every spawn, identical to the original.
 function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
     const s = stubContexts();
     gitRunQueue(s.gitQueue);
@@ -1414,9 +1420,12 @@ function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
     (s.contexts as any).time = time.ctx;
     s.files.set(PLAN_PATH, PLAN_ONE_TASK);
     let spawnCount = 0;
+    const holdSet = new Set<number>();
+    const releasers = new Map<number, () => void>();
     (s.contexts.claude as any).spawn = (_command:string, args:readonly string[]) => {
         s.claudeSpawnedArgs.push([...args]);
         spawnCount++;
+        const mySpawn = spawnCount;
         const proc = fakeProcess();
         const origStdin = proc.stdin!;
         let capturedPrompt = "";
@@ -1424,32 +1433,42 @@ function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
             write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; s.promptQueue.push(p.message.content); } } catch {} },
             end() { origStdin.end(); }
         };
-        if (spawnCount === rateLimitOnSpawn) {
-            setImmediate(() => {
+        let emit:() => void;
+        if (mySpawn === rateLimitOnSpawn) {
+            emit = () => {
                 proc.$emitStdout(rateLimitEvent(time.ctx.now(), retryAfterSeconds) + "\n");
                 proc.$emit("exit", 0);
-            });
+            };
         } else {
             const response = s.claudeQueue.shift();
-            if (!response) {
-                setImmediate(() => proc.$emit("error", new Error("claude queue exhausted")));
-                return proc;
-            }
-            setImmediate(() => {
+            emit = () => {
+                if (!response) {
+                    proc.$emit("error", new Error("claude queue exhausted"));
+                    return;
+                }
                 if (response.errorLog !== undefined) {
-                    const target = targetErrorLogFromPrompt(capturedPrompt);
-                    s.files.set(target, response.errorLog);
+                    s.files.set(targetErrorLogFromPrompt(capturedPrompt), response.errorLog);
                 }
                 if (response.stderr) {
                     proc.$emitStderr(response.stderr);
                 }
                 proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
                 proc.$emit("exit", 0);
-            });
+            };
+        }
+        if (holdSet.has(mySpawn)) {
+            releasers.set(mySpawn, () => setImmediate(emit));
+        } else {
+            setImmediate(emit);
         }
         return proc;
     };
-    return { s, time };
+    return {
+        s,
+        time,
+        hold(...spawns:number[]) { for (const n of spawns) holdSet.add(n); },
+        release(spawn:number) { const r = releasers.get(spawn); if (r) { releasers.delete(spawn); r(); } }
+    };
 }
 
 async function flush(rounds = 20) {
@@ -1688,6 +1707,64 @@ test.describe("Implement rate-limit footer", test => {
         },
         ASSERT(output) {
             Assert.ok(output.includes("1 hours 30 minutes"), "should format as hours and minutes for >= 1h wait");
+        }
+    });
+
+    test("a rate-limit wait during the build/test detection stage shows the Waiting rate limit footer and returns to Working", {
+        ARRANGE() {
+            // Spawn 1 is the build/test command detection ("validator") agent, which runs through
+            // _detectBuildAndTest -> _runAi -> _defaultRunAiCallbacks before the iteration loop
+            // starts, while _currentTask is still null. Rate-limiting spawn 1 (with a 300s = 5
+            // minute wait) exercises the single-agent waiting footer for the detection stage. The
+            // detect retry (spawn 2) is held so that, once the wait resolves, the run pauses at the
+            // retry and the footer is observably at rest on Working — isolating the wait-resolution
+            // render from the later post-review `setFooter({kind:"working"})`. Releasing spawn 2 lets
+            // the worker (spawn 3) and reviewer (spawn 4) finish the single accepted iteration (exit 0).
+            const r = rateLimitStub(1, 300);
+            r.hold(2);
+            r.s.claudeQueue.push({ text: "ok" });                        // detect retry (spawn 2, held)
+            r.s.claudeQueue.push({ text: "worker" });                    // worker (spawn 3)
+            r.s.claudeQueue.push({ text: "reviewer ok", errorLog: "" }); // reviewer (spawn 4)
+            return r;
+        },
+        async ACT({ s, time, release }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+            await flush();
+            const outputDuringRateLimit = s.written.join("");
+            time.advance(300000);
+            await flush();
+            // The detect retry (spawn 2) is held, so the last render is the post-wait footer.
+            const footerAfterWait = stripAnsi(s.written.join("").split("\n").pop() ?? "");
+            release(2);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, outputDuringRateLimit, footerAfterWait };
+        },
+        ASSERTS: {
+            "exits successfully"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the rate-limit fires before the worker stage — no implementing activity has been shown yet"({ outputDuringRateLimit }) {
+                Assert.ok(
+                    !stripAnsi(outputDuringRateLimit).includes("implementing"),
+                    `the detection-stage wait must precede the worker stage, got: ${JSON.stringify(stripAnsi(outputDuringRateLimit))}`
+                );
+            },
+            "the footer heading during the detection wait is exactly Waiting rate limit"({ outputDuringRateLimit }) {
+                const footer = stripAnsi(outputDuringRateLimit.split("\n").pop() ?? "");
+                Assert.strictEqual(footer.split(" — ")[0], "Waiting rate limit");
+            },
+            "the footer shows the expected end date and time"({ outputDuringRateLimit }) {
+                const footer = stripAnsi(outputDuringRateLimit.split("\n").pop() ?? "");
+                Assert.strictEqual(footer.split(" — ")[1], formatDateTime(new Date(300000)));
+            },
+            "the footer shows the live countdown"({ outputDuringRateLimit }) {
+                const footer = stripAnsi(outputDuringRateLimit.split("\n").pop() ?? "");
+                Assert.strictEqual(footer.split(" — ")[2], "5 minutes");
+            },
+            "the rendered footer returns to Working when the detection-stage wait resolves"({ footerAfterWait }) {
+                Assert.strictEqual(footerAfterWait, "⣋ Working");
+            }
         }
     });
 });
