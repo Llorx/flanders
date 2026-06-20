@@ -6,7 +6,7 @@ A contract or rule authored by `/flanders-spec` describes only the present spec:
 
 ### Who this applies to
 
-- **Subject:** every contract file under a `.spec/contracts` folder and every rule file under a `.spec/rules` folder that `/flanders-spec` writes or updates — including flanders' own spec, which `/flanders-spec` authors because the project self-hosts its spec.
+- **Subject:** every contract file under a `.spec/contracts` folder, every rule file under a `.spec/rules` folder, and every behavior-rule file under a `.spec/flanders` folder that `/flanders-spec` writes or updates — including flanders' own spec, which `/flanders-spec` authors because the project self-hosts its spec.
 - **Subject:** the source content that produces the `/flanders-spec` skill artifact body — the prompt text the `install` command ships — which must carry the active prohibition described under "How to apply".
 - **Not subject:** plan files under `plans/` (`/flanders-plan` output), which sequence work and may reference prior state as task context.
 - **Not subject:** commit messages, pull-request descriptions, and other non-spec documents — these are the correct home for historical, transitional, and migration notes.
@@ -40,7 +40,7 @@ A contract or rule authored by `/flanders-spec` states each obligation as the be
 
 ### Who this applies to
 
-- **Subject:** every contract file under a `.spec/contracts` folder and every rule file under a `.spec/rules` folder that `/flanders-spec` writes or updates — including flanders' own spec, which `/flanders-spec` authors because the project self-hosts its spec.
+- **Subject:** every contract file under a `.spec/contracts` folder, every rule file under a `.spec/rules` folder, and every behavior-rule file under a `.spec/flanders` folder that `/flanders-spec` writes or updates — including flanders' own spec, which `/flanders-spec` authors because the project self-hosts its spec.
 - **Subject:** the source content that produces the `/flanders-spec` skill artifact body — the prompt text the `install` command ships — which must carry this as an active drafting instruction, per "How to apply".
 - **Not subject:** a prohibition that is load-bearing per the test below. Such a prohibition is a legitimate obligation, not a violation — for example [src/commands/.spec/rules/ai/agents.md#autonomous-subagents-never-write-to-git](/src/commands/.spec/rules/ai/agents.md#autonomous-subagents-never-write-to-git) and [src/prompts/.spec/rules/ai/review.md#no-flanders-adversarial-reviewer-runs-the-build-or-test-scripts](/src/prompts/.spec/rules/ai/review.md#no-flanders-adversarial-reviewer-runs-the-build-or-test-scripts), which each forbid a behavior an implementer would otherwise plausibly perform.
 - **Not subject:** plan files under `plans/` (`/flanders-plan` output), which sequence work rather than pin obligations.
@@ -94,7 +94,7 @@ This obligation is additive to [src/prompts/.spec/rules/ai/skills/skills-common.
 
 ## The /flanders-spec validator audits each artifact by its folder against the spec check categories
 
-The `/flanders-spec` skill gates its work behind a final validator hosted as [src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way](/src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way) pins. This rule pins the check categories the validator runs against the persisted or updated file(s). Because `/flanders-spec` can write to a `.spec/contracts` folder, to a `.spec/rules` folder, or to both in a single run, each persisted file is audited by the category set that matches the folder it landed in, plus the shared non-contradiction category that spans the whole corpus. Failure in ANY category is FAIL; the validator must run every applicable check on every invocation and must not stop at the first violation.
+The `/flanders-spec` skill gates its work behind a final validator hosted as [src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way](/src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way) pins. This rule pins the check categories the validator runs against the persisted or updated file(s). Because `/flanders-spec` can write to a `.spec/contracts` folder, a `.spec/rules` folder, a `.spec/flanders` folder, or any combination in a single run, each persisted file is audited by the category set that matches the folder it landed in, plus the shared non-contradiction category that spans the whole corpus. A file that landed in a `.spec/flanders` folder is audited by the non-contradiction category C only; categories A and B audit files in `.spec/contracts` and `.spec/rules` folders respectively. Failure in ANY category is FAIL; the validator must run every applicable check on every invocation and must not stop at the first violation.
 
 ### Who this applies to
 

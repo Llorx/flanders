@@ -13,3 +13,6 @@ A `.spec/flanders` folder scopes the directory that contains its `.spec` folder:
 
 ## Reading and honoring
 When a Flanders command or skill is about to perform work, it reads every behavior rule whose scope encloses that work's target and honors all of them while performing the work. A behavior rule in scope is binding on the work it governs: Flanders carries out that work in conformance with the rule, not at its own discretion.
+
+## Authoring
+Behavior rules are created, modified, and deleted only via the `/flanders-spec` skill (see [.spec/contracts/ai-skills/spec-skill.md](/.spec/contracts/ai-skills/spec-skill.md)), the single entry point for authoring the project's specs. The full write-authority obligation that applies to `.spec/flanders` folders is pinned in [.spec/contracts/shared/spec-folder-write-authority.md](/.spec/contracts/shared/spec-folder-write-authority.md).

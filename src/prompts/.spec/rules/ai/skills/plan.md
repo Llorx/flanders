@@ -188,7 +188,7 @@ Tasks appear top-to-bottom in implementation order. The audit is semantic, not n
 
 #### 3. Spec-folder write boundary
 
-No task — leaf or parent — describes work that creates, modifies, deletes, or renames any file inside any `.spec/contracts` folder, any `.spec/rules` folder, or the `plans/` folder. There is no exception for flipping checkboxes or rewriting metrics: those mutations are performed programmatically by the `implement` command and are never described by a task.
+No task — leaf or parent — describes work that creates, modifies, deletes, or renames any file inside any `.spec/contracts` folder, any `.spec/rules` folder, any `.spec/flanders` folder, or the `plans/` folder. There is no exception for flipping checkboxes or rewriting metrics: those mutations are performed programmatically by the `implement` command and are never described by a task.
 
 #### 4. Plan content rules (verbatim from [.spec/contracts/ai-skills/plan-skill.md](/.spec/contracts/ai-skills/plan-skill.md))
 
@@ -215,7 +215,7 @@ Additionally, for every contract or rule in the canonical listings the validator
 
 ### Failure signals
 
-- The validator reports PASS on a plan whose tasks describe writing to any `.spec/contracts` folder, any `.spec/rules` folder, or the `plans/` folder (including checkbox flips or metrics rewrites).
+- The validator reports PASS on a plan whose tasks describe writing to any `.spec/contracts` folder, any `.spec/rules` folder, any `.spec/flanders` folder, or the `plans/` folder (including checkbox flips or metrics rewrites).
 - The validator reports PASS on a plan in which a task depends on work performed by a later task, on the grounds that the numbering looks correct.
 - The validator reports PASS on a plan that contains hedge phrasing or unresolved implementation choices, on the grounds that "the worker will figure it out".
 - The validator reports PASS on a plan with a leaf task missing its acceptance criteria, its contract link, or its rule link.

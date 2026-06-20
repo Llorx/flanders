@@ -23,4 +23,4 @@ Once the temporary folder exists and before the iteration loop starts, the comma
 
 The same two paths are passed downstream to every other AI invocation that may need to read or modify the build or test scripts (for example, the worker agent in the iteration loop when a task changes how the project builds or tests). The orchestrator is the single source of truth for these paths; no other component decides them.
 
-The detect agent must not write to any file outside the two named build/test script paths. In particular, it may not write to any `.spec/contracts` folder, any `.spec/rules` folder, or the `plans/` folder per [.spec/contracts/shared/spec-folder-write-authority.md](/.spec/contracts/shared/spec-folder-write-authority.md).
+The detect agent must not write to any file outside the two named build/test script paths. In particular, it may not write to any `.spec/contracts` folder, any `.spec/rules` folder, any `.spec/flanders` folder, or the `plans/` folder per [.spec/contracts/shared/spec-folder-write-authority.md](/.spec/contracts/shared/spec-folder-write-authority.md).
