@@ -16,7 +16,7 @@ const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9
 const SKILL_VOICE_HEAD =
 `## Voice
 
-Season the messages you address to the user — your questions, summaries, warnings, recommendations, and every other text you print in the conversation — with an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-". Keep it light — never on every message and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the resolved interaction language you are already addressing the user in, using that language's established Ned Flanders localization; for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages, or `;
+Season the messages you address to the user — your questions, summaries, warnings, recommendations, and every other text you print in the conversation — with an occasional, soft Ned-Flanders touch: a gentle note of the character's warm, folksy, good-natured manner. Keep it light — never on every message and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the resolved interaction language you are already addressing the user in, using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner. Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, fall back to the most widely recognized localization of that language when the user's region cannot be determined, and carry the character's original-language manner across in spirit only when the language has no established localization of the character at all. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages, or `;
 
 const SKILL_VOICE_TAIL = " — all of which stay exact and as actionable as before.";
 
@@ -254,6 +254,15 @@ Every message you address to the user during the run — your clarifying questio
         ASSERTS: {
             "contains the user-facing tone instruction verbatim with the plan-file exclusion"(body, { voice }) {
                 Assert.ok(body.includes(voice), "planSkillBody must contain the user-facing Flanders-voice section verbatim, excluding the plan file it authors");
+            },
+            "names no sample greeting exemplar anywhere in the body"(body) {
+                Assert.strictEqual(body.includes(`"neighbor"`), false);
+            },
+            "names no sample interjection exemplar anywhere in the body"(body) {
+                Assert.strictEqual(body.includes(`"okely-dokely"`), false);
+            },
+            "names no sample suffix exemplar anywhere in the body"(body) {
+                Assert.strictEqual(body.includes(`"-diddly-"`), false);
             },
             "the tone instruction excludes machine-read tokens"(body) {
                 Assert.ok(userFacingVoiceSection(body).includes("any token another part of the tool reads programmatically"), "the tone instruction must keep the flavor out of machine-read tokens");
@@ -1455,6 +1464,15 @@ Every message you address to the user during the run — your clarifying questio
             "contains the user-facing tone instruction verbatim with the contract-and-rule-files exclusion"(body, { voice }) {
                 Assert.ok(body.includes(voice), "specSkillBody must contain the user-facing Flanders-voice section verbatim, excluding the contract and rule files it authors");
             },
+            "names no sample greeting exemplar anywhere in the body"(body) {
+                Assert.strictEqual(body.includes(`"neighbor"`), false);
+            },
+            "names no sample interjection exemplar anywhere in the body"(body) {
+                Assert.strictEqual(body.includes(`"okely-dokely"`), false);
+            },
+            "names no sample suffix exemplar anywhere in the body"(body) {
+                Assert.strictEqual(body.includes(`"-diddly-"`), false);
+            },
             "the tone instruction excludes machine-read tokens"(body) {
                 Assert.ok(userFacingVoiceSection(body).includes("any token another part of the tool reads programmatically"), "the tone instruction must keep the flavor out of machine-read tokens");
             },
@@ -2030,6 +2048,15 @@ test.describe("skills – workSkillBody", test => {
         ASSERTS: {
             "contains the user-facing tone instruction verbatim with the code exclusion"(body, { voice }) {
                 Assert.ok(body.includes(voice), "workSkillBody must contain the user-facing Flanders-voice section verbatim, excluding the code it writes");
+            },
+            "names no sample greeting exemplar anywhere in the body"(body) {
+                Assert.strictEqual(body.includes(`"neighbor"`), false);
+            },
+            "names no sample interjection exemplar anywhere in the body"(body) {
+                Assert.strictEqual(body.includes(`"okely-dokely"`), false);
+            },
+            "names no sample suffix exemplar anywhere in the body"(body) {
+                Assert.strictEqual(body.includes(`"-diddly-"`), false);
             },
             "the tone instruction excludes machine-read tokens"(body) {
                 Assert.ok(userFacingVoiceSection(body).includes("any token another part of the tool reads programmatically"), "the tone instruction must keep the flavor out of machine-read tokens");

@@ -232,15 +232,15 @@ export const reviewerMethodologyCore = `${citationFreeReviewerMethodology.change
 
 ${citationFreeReviewerMethodology.audit}`;
 
-// The shared Flanders-voice prose. The soft-touch exemplars, the localization fallback, the
-// exclusion list, and the closing live here as the single authoritative source, so a tone fix
-// cannot drift between the agent prompts and the skill bodies. Every surface that carries the voice
-// composes its section from `buildFlandersVoiceSection`: the implement worker and reviewer prompts
-// (via `flandersToneInstruction` below) and the three skill bodies plus the /flanders-work reviewer
-// prompt assembled in skills.ts. See .spec/contracts/shared/flanders-voice.md and
+// The shared Flanders-voice prose. The abstract soft-touch description, the regional-localization
+// directive, the exclusion list, and the closing live here as the single authoritative source, so a
+// tone fix cannot drift between the agent prompts and the skill bodies. Every surface that carries the
+// voice composes its section from `buildFlandersVoiceSection`: the implement worker and reviewer
+// prompts (via `flandersToneInstruction` below) and the three skill bodies plus the /flanders-work
+// reviewer prompt assembled in skills.ts. See .spec/contracts/shared/flanders-voice.md and
 // src/prompts/.spec/rules/ai/flanders-tone.md.
 const voiceLocalization =
-    "using that language's established Ned Flanders localization; for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms.";
+    "using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner. Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, fall back to the most widely recognized localization of that language when the user's region cannot be determined, and carry the character's original-language manner across in spirit only when the language has no established localization of the character at all.";
 // The exclusion list, ending at the items every surface shares — machine-read tokens and git commit
 // messages — so the full exclusion set the Flanders-voice rule requires is inlined on every surface.
 // The surface-specific carve-outs (a reviewer's violation entries, a skill's authored artifacts) are
@@ -267,7 +267,7 @@ export interface FlandersVoiceParts {
 export function buildFlandersVoiceSection(parts: FlandersVoiceParts): string {
     return `## Voice
 
-Season ${parts.subject} — with an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-". Keep it light — never on every ${parts.cadenceUnit} and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor ${parts.languageFraming}, ${voiceLocalization} ${voiceExclusionLead}${parts.finalExclusion}${voiceTail}${parts.trailer}`;
+Season ${parts.subject} — with an occasional, soft Ned-Flanders touch: a gentle note of the character's warm, folksy, good-natured manner. Keep it light — never on every ${parts.cadenceUnit} and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor ${parts.languageFraming}, ${voiceLocalization} ${voiceExclusionLead}${parts.finalExclusion}${voiceTail}${parts.trailer}`;
 }
 
 // The implement worker and reviewer prompts' tone instruction. The agents season their streamed

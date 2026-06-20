@@ -45,7 +45,7 @@ const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entr
 const EXPECTED_TONE_PROSE_HEAD =
 `## Voice
 
-Season your user-facing narration — the prose you stream as you work — with an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-". Keep it light — never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the same language you are already narrating in, using that language's established Ned Flanders localization; for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages`;
+Season your user-facing narration — the prose you stream as you work — with an occasional, soft Ned-Flanders touch: a gentle note of the character's warm, folksy, good-natured manner. Keep it light — never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the same language you are already narrating in, using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner. Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, fall back to the most widely recognized localization of that language when the user's region cannot be determined, and carry the character's original-language manner across in spirit only when the language has no established localization of the character at all. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages`;
 
 const EXPECTED_TONE_TAIL = " — all of which stay exact and as actionable as before.";
 
@@ -1596,17 +1596,29 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "carries the worker tone-instruction block verbatim"(template) {
                 Assert.ok(template.includes(EXPECTED_WORKER_TONE));
             },
-            "instructs the occasional, soft Ned-Flanders touch with the three exemplars"(template) {
-                Assert.ok(template.includes(`an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-"`));
+            "instructs the occasional, soft Ned-Flanders touch described only in the abstract"(template) {
+                Assert.ok(template.includes("an occasional, soft Ned-Flanders touch: a gentle note of the character's warm, folksy, good-natured manner."));
+            },
+            "names no sample greeting exemplar"(template) {
+                Assert.strictEqual(template.includes(`"neighbor"`), false);
+            },
+            "names no sample interjection exemplar"(template) {
+                Assert.strictEqual(template.includes(`"okely-dokely"`), false);
+            },
+            "names no sample suffix exemplar"(template) {
+                Assert.strictEqual(template.includes(`"-diddly-"`), false);
             },
             "keeps the flavor light — never on every line and never exaggerated"(template) {
                 Assert.ok(template.includes("never on every line and never exaggerated"));
             },
-            "renders the flavor in the language already in use via that language's localization"(template) {
-                Assert.ok(template.includes("Render the flavor in the same language you are already narrating in, using that language's established Ned Flanders localization"));
+            "directs the genuine regional established localization rather than a word-for-word translation"(template) {
+                Assert.ok(template.includes("Render the flavor in the same language you are already narrating in, using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner."));
             },
-            "falls back to English-origin Flanders-isms when no localization exists"(template) {
-                Assert.ok(template.includes("for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms"));
+            "detects and matches the regional idiom, falls back to the most widely recognized localization, and carries the manner in spirit only when none exists"(template) {
+                Assert.ok(template.includes("Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, fall back to the most widely recognized localization of that language when the user's region cannot be determined, and carry the character's original-language manner across in spirit only when the language has no established localization of the character at all."));
+            },
+            "drops the old word-for-word English-origin fallback wording"(template) {
+                Assert.strictEqual(template.includes("use the English-origin Flanders-isms"), false);
             },
             "excludes code, file paths, command lines, and flag tokens"(template) {
                 Assert.ok(template.includes("it never appears in code, file paths, directory names, command lines, flag or option tokens"));
@@ -1643,14 +1655,26 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "carries the reviewer tone-instruction block verbatim"(template) {
                 Assert.ok(template.includes(EXPECTED_REVIEWER_TONE));
             },
-            "instructs the occasional, soft Ned-Flanders touch with the three exemplars"(template) {
-                Assert.ok(template.includes(`an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-"`));
+            "instructs the occasional, soft Ned-Flanders touch described only in the abstract"(template) {
+                Assert.ok(template.includes("an occasional, soft Ned-Flanders touch: a gentle note of the character's warm, folksy, good-natured manner."));
             },
-            "renders the flavor in the language already in use via that language's localization"(template) {
-                Assert.ok(template.includes("Render the flavor in the same language you are already narrating in, using that language's established Ned Flanders localization"));
+            "names no sample greeting exemplar"(template) {
+                Assert.strictEqual(template.includes(`"neighbor"`), false);
             },
-            "falls back to English-origin Flanders-isms when no localization exists"(template) {
-                Assert.ok(template.includes("for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms"));
+            "names no sample interjection exemplar"(template) {
+                Assert.strictEqual(template.includes(`"okely-dokely"`), false);
+            },
+            "names no sample suffix exemplar"(template) {
+                Assert.strictEqual(template.includes(`"-diddly-"`), false);
+            },
+            "directs the genuine regional established localization rather than a word-for-word translation"(template) {
+                Assert.ok(template.includes("Render the flavor in the same language you are already narrating in, using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner."));
+            },
+            "detects and matches the regional idiom, falls back to the most widely recognized localization, and carries the manner in spirit only when none exists"(template) {
+                Assert.ok(template.includes("Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, fall back to the most widely recognized localization of that language when the user's region cannot be determined, and carry the character's original-language manner across in spirit only when the language has no established localization of the character at all."));
+            },
+            "drops the old word-for-word English-origin fallback wording"(template) {
+                Assert.strictEqual(template.includes("use the English-origin Flanders-isms"), false);
             },
             "excludes code, file paths, command lines, and flag tokens"(template) {
                 Assert.ok(template.includes("it never appears in code, file paths, directory names, command lines, flag or option tokens"));
