@@ -1255,10 +1255,10 @@ test.describe("BottomBlock", test => {
             "footer line plain text equals the formatted reviewing line"(output) {
                 const lines = output.split("\n");
                 const footerPlain = stripAnsi(lines[lines.length - 1] ?? "");
-                Assert.strictEqual(footerPlain, "review: ⣋ claude (default): running");
+                Assert.strictEqual(footerPlain, "⣋ review: claude (default): running");
             },
             "footer prefix and indicator are wrapped in ORANGE"(output) {
-                Assert.ok(output.includes(ORANGE + "review: ⣋ " + RESET));
+                Assert.ok(output.includes(ORANGE + "⣋ review: " + RESET));
             },
             "the running entry is wrapped in ORANGE"(output) {
                 Assert.ok(output.includes(ORANGE + "claude (default): running" + RESET));
@@ -1354,12 +1354,12 @@ test.describe("BottomBlock", test => {
             "narrow draw shows the compact form without the descriptor"(result) {
                 const lastDraw = result.narrowDraw.split(CLEAR_SEQ).pop() ?? "";
                 const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
-                Assert.strictEqual(footerPlain, "review: ⣋ claude: running, claude: running");
+                Assert.strictEqual(footerPlain, "⣋ review: claude: running, claude: running");
             },
             "wide draw after resize shows the full form with the descriptor"(result) {
                 const lastDraw = result.wideDraw.split(CLEAR_SEQ).pop() ?? "";
                 const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
-                Assert.strictEqual(footerPlain, "review: ⣋ claude (default): running, claude (default): running");
+                Assert.strictEqual(footerPlain, "⣋ review: claude (default): running, claude (default): running");
             }
         }
     });
@@ -1456,7 +1456,7 @@ test.describe("BottomBlock", test => {
             },
             "the redrawn footer line is the formatted reviewing line"(output) {
                 const footerPlain = stripAnsi(output.split("\n").pop() ?? "");
-                Assert.strictEqual(footerPlain, "review: ⣋ codex (gpt-5 high): pass");
+                Assert.strictEqual(footerPlain, "⣋ review: codex (gpt-5 high): pass");
             }
         }
     });
@@ -1863,7 +1863,7 @@ test.describe("BottomBlock", test => {
             "the first-window footer shows the reviewer countdown at 2m"(result) {
                 const lastDraw = result.firstTick.split(CLEAR_SEQ).pop() ?? "";
                 const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
-                Assert.ok(footerPlain.startsWith("review: "), `expected a review prefix, got: ${footerPlain}`);
+                Assert.ok(footerPlain.includes("review: "), `expected a review prefix, got: ${footerPlain}`);
                 Assert.ok(footerPlain.endsWith("claude (default): waiting 2m"), `expected the 2m countdown, got: ${footerPlain}`);
             },
             "the later footer shows the countdown decreased to 1m"(result) {
@@ -1997,7 +1997,7 @@ test.describe("BottomBlock", test => {
         },
         ASSERT(output) {
             const footerPlain = stripAnsi(output.split("\n").pop() ?? "");
-            Assert.strictEqual(footerPlain, "review: ⣋ claude (default): waiting 2h14m, codex (gpt-5 high): waiting 14m");
+            Assert.strictEqual(footerPlain, "⣋ review: claude (default): waiting 2h14m, codex (gpt-5 high): waiting 14m");
         }
     });
 
@@ -2020,7 +2020,7 @@ test.describe("BottomBlock", test => {
         },
         ASSERTS: {
             "the footer row shows the reviewing line with the indicator and the compact countdown"(result) {
-                Assert.strictEqual(result.rows[result.termRows - 1], "review: ⣋ claude (default): waiting 2h14m, codex (gpt-5 high): running");
+                Assert.strictEqual(result.rows[result.termRows - 1], "⣋ review: claude (default): waiting 2h14m, codex (gpt-5 high): running");
             },
             "the separator row spans the full width with only ─ glyphs"(result) {
                 Assert.strictEqual(result.rows[result.termRows - 4], SEPARATOR_GLYPH.repeat(120));
@@ -2043,12 +2043,12 @@ test.describe("BottomBlock", test => {
             return { io, time };
         },
         ACT({ io, time }) {
-            // The indicator is the single glyph between the `review: ` prefix and the
-            // space that precedes the first reviewer entry; read it off the rendered
-            // footer rather than any private field.
+            // The indicator is the single glyph at the start of the line, before the
+            // `review: ` prefix; read it off the rendered footer rather than any
+            // private field.
             const indicatorOf = (output:string) => {
                 const footerPlain = stripAnsi(output.split(CLEAR_SEQ).pop()!.split("\n").pop() ?? "");
-                return footerPlain.slice("review: ".length, footerPlain.indexOf(" claude"));
+                return footerPlain.slice(0, footerPlain.indexOf(" review:"));
             };
             time.advance(200);
             const afterOne = indicatorOf(io.output);
@@ -2058,7 +2058,7 @@ test.describe("BottomBlock", test => {
             return { afterOne, afterTwo };
         },
         ASSERTS: {
-            "the indicator is a single glyph that follows the prefix"(result) {
+            "the indicator is a single glyph that leads the prefix"(result) {
                 Assert.strictEqual(result.afterOne.length, 1);
             },
             "the indicator glyph changes between consecutive ticks"(result) {

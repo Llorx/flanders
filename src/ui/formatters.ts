@@ -293,15 +293,15 @@ function reviewerEntryColor(state:ReviewerState):string {
     return ORANGE;
 }
 
-// Builds the reviewing line as colored segments. The `review: ` prefix and the
-// single animated indicator that follows it form one leading orange segment;
+// Builds the reviewing line as colored segments. The single animated indicator
+// and the `review: ` prefix that follows it form one leading orange segment;
 // each `, ` separator stays orange; and every reviewer entry carries its own
 // verdict color (orange while running/waiting, green on pass, red on fail). The
 // compact tier drops each entry's `(<model> <effort>)` descriptor while leaving
-// the prefix and indicator intact; truncation cuts from the end, so the prefix
-// and indicator at the start always survive.
+// the indicator and prefix intact; truncation cuts from the end, so the indicator
+// and prefix at the start always survive.
 function buildReviewingSegments(frame:string, reviewers:readonly ReviewerEntry[], nowMs:number, compact:boolean):Segment[] {
-    const segments:Segment[] = [{ text: `review: ${frame} `, color: ORANGE }];
+    const segments:Segment[] = [{ text: `${frame} review: `, color: ORANGE }];
     for (let i = 0; i < reviewers.length; i++) {
         const r = reviewers[i]!;
         if (i > 0) segments.push({ text: ", ", color: ORANGE });

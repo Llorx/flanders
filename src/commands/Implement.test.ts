@@ -7615,8 +7615,8 @@ test.describe("Implement multiple parallel reviewers", test => {
                 // (not the verbose "1 minutes"). Asserting this reviewer's reviewing-footer
                 // entry ties the countdown to it; a regression that dropped the endTime would
                 // render the bare "waiting" without the " 1m" suffix and fail. The leading
-                // animated indicator sits between the `review: ` prefix and the entry, so the
-                // assertion matches the entry itself rather than the whole line.
+                // animated indicator sits at the start of the line, before the `review: `
+                // prefix, so the assertion matches the entry itself rather than the whole line.
                 const rendered = stripAnsi(s.written.join(""));
                 Assert.ok(
                     rendered.includes("claude (claude-opus-4-1 high): waiting 1m"),
