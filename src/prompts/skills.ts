@@ -234,10 +234,10 @@ If no \`.spec/contracts\` folder contains any file, warn the user in chat and pr
 
 export const specSkillBody =
 `---
-description: Translate a free-form request into one or more spec markdown files inside the project's .spec/contracts and .spec/rules folders.
+description: Translate a free-form request into one or more spec markdown files inside the project's .spec/contracts, .spec/rules, and .spec/flanders folders.
 ---
 
-You are the /flanders-spec skill. Your sole deliverable is one or more markdown files inside the project's \`.spec/contracts\` and \`.spec/rules\` folders. You must not write, modify, or delete any source code or any file outside the project's \`.spec/contracts\` and \`.spec/rules\` folders.
+You are the /flanders-spec skill. Your sole deliverable is one or more markdown files inside the project's \`.spec/contracts\`, \`.spec/rules\`, and \`.spec/flanders\` folders. You must not write, modify, or delete any source code or any file outside the project's \`.spec/contracts\`, \`.spec/rules\`, and \`.spec/flanders\` folders.
 
 ## Input resolution
 
@@ -263,9 +263,15 @@ The namespace of a rule is its path relative to the project root. The namespace 
 
 Rules are immovable once written unless the user explicitly asks for a change.
 
-## Contract vs rule: how the skill classifies and places
+## What a behavior rule is
 
-For every obligation in the request, the skill decides whether it is a contract or a rule and which \`.spec\` folder it belongs to: public behavior across a scope's boundary is a contract, internal implementation guidance is a rule, and the spec lands in the \`.spec\` folder of the lowest directory that encloses all the code its obligation governs — an obligation governing one directory goes in that directory's \`.spec\` folder, an obligation spanning sibling directories goes in their nearest common ancestor's \`.spec\` folder, and an obligation about project-boundary behavior goes in the project-root \`.spec\` folder. A spec is a contract because code outside its scope depends on it, not because the end user observes it directly; only at the project root do those coincide. A single request may carry both kinds and may span several scopes; the skill writes each spec to its proper \`.spec\` folder in the same invocation. The classification and placement are the skill's own decisions, not questions put to the user — the user reviews and approves them in the drafting phase before anything is persisted.
+A behavior rule is a markdown document that governs how Flanders' own commands and skills behave when they work in the project — how they name, place, organize, or otherwise produce the files and changes they author — as distinct from contracts and rules, which describe the host project's own code. Behavior rules live in \`.spec/flanders\` folders and are read and honored by every Flanders command and skill whose work their scope encloses.
+
+Behavior rules are immovable once written unless the user explicitly asks for a change.
+
+## Contract, rule, or behavior rule: how the skill classifies and places
+
+For every obligation in the request, the skill decides whether it is a contract, a rule, or a behavior rule and which \`.spec\` folder it belongs to: public behavior across a scope's boundary is a contract, internal implementation guidance is a rule, guidance that governs how Flanders' own commands and skills behave within a scope is a behavior rule, and the spec lands in the \`.spec\` folder of the lowest directory that encloses all the code its obligation governs — an obligation governing one directory goes in that directory's \`.spec\` folder, an obligation spanning sibling directories goes in their nearest common ancestor's \`.spec\` folder, and an obligation about project-boundary behavior goes in the project-root \`.spec\` folder. A contract is written to the chosen scope's \`.spec/contracts\` folder, a rule to its \`.spec/rules\` folder, and a behavior rule to its \`.spec/flanders\` folder. A spec is a contract because code outside its scope depends on it, not because the end user observes it directly; only at the project root do those coincide. A single request may carry more than one kind and may span several scopes; the skill writes each spec to its proper \`.spec\` folder in the same invocation. The classification and placement are the skill's own decisions, not questions put to the user — the user reviews and approves them in the drafting phase before anything is persisted.
 
 ## Procedure
 
@@ -320,7 +326,7 @@ The validator reads the file(s) in full, plus any contract or rule from the list
 
 ### Validator checks
 
-Three categories, all mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively. The category set is selected by the folder each file landed in: category A applies to each file that landed in a \`.spec/contracts\` folder; category B applies to each file that landed in a \`.spec/rules\` folder; category C applies to every file written or updated in the run.
+Three categories, all mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively. The category set is selected by the folder each file landed in: category A applies to each file that landed in a \`.spec/contracts\` folder; category B applies to each file that landed in a \`.spec/rules\` folder; category C applies to every file written or updated in the run. A file that landed in a \`.spec/flanders\` folder is audited by the non-contradiction category C only; categories A and B audit files in \`.spec/contracts\` and \`.spec/rules\` folders respectively.
 
 **A. Contract artifacts (each file written or updated under a \`.spec/contracts\` folder)**
 
@@ -402,7 +408,7 @@ ${skillVoiceSection("the contract and rule files you author")}
 
 ## Idempotency and overwrites
 
-Existing files in the project's \`.spec/contracts\` and \`.spec/rules\` folders are not protected. Because you receive the current state of both folders and update related files in place, re-running with related input will modify those files rather than create parallel duplicates. Preserving prior versions is the user's responsibility (typically through version control).`;
+Existing files in the project's \`.spec/contracts\`, \`.spec/rules\`, and \`.spec/flanders\` folders are not protected. Because you receive the current state of those folders and update related files in place, re-running with related input will modify those files rather than create parallel duplicates. Preserving prior versions is the user's responsibility (typically through version control).`;
 
 export const workSkillBody =
 `---

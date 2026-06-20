@@ -1156,10 +1156,61 @@ test.describe("skills – specSkillBody", test => {
                 Assert.ok(body.includes("## What a rule is"), "must have What a rule is section");
             },
             "has classification-and-placement section"(body) {
-                Assert.ok(body.includes("## Contract vs rule: how the skill classifies and places"), "must have Contract vs rule classification-and-placement section");
+                Assert.ok(body.includes("## Contract, rule, or behavior rule: how the skill classifies and places"), "must have Contract, rule, or behavior rule classification-and-placement section");
             },
             "classification and placement are the skill's own decisions"(body) {
                 Assert.ok(body.includes("The classification and placement are the skill's own decisions"), "classification and placement must be the skill's own decisions");
+            }
+        }
+    });
+
+    test("frontmatter description and opening sole-deliverable sentence name the three writable folders", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "frontmatter description names .spec/contracts, .spec/rules, and .spec/flanders"(body) {
+                Assert.ok(body.includes("description: Translate a free-form request into one or more spec markdown files inside the project's .spec/contracts, .spec/rules, and .spec/flanders folders."), "the frontmatter description must name .spec/contracts, .spec/rules, and .spec/flanders as the writable folders");
+            },
+            "opening sole-deliverable sentence names .spec/contracts, .spec/rules, and .spec/flanders"(body) {
+                Assert.ok(body.includes("Your sole deliverable is one or more markdown files inside the project's \`.spec/contracts\`, \`.spec/rules\`, and \`.spec/flanders\` folders."), "the opening sole-deliverable sentence must name .spec/contracts, .spec/rules, and .spec/flanders as the writable folders");
+            }
+        }
+    });
+
+    test("defines what a behavior rule is", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "has a What a behavior rule is section"(body) {
+                Assert.ok(body.includes("## What a behavior rule is"), "must have a What a behavior rule is section");
+            },
+            "defines a behavior rule as guidance governing how Flanders' own commands and skills behave"(body) {
+                Assert.ok(body.includes("A behavior rule is a markdown document that governs how Flanders' own commands and skills behave when they work in the project"), "must define a behavior rule as guidance governing how Flanders' own commands and skills behave");
+            },
+            "distinguishes a behavior rule from contracts and rules that describe the host project's code"(body) {
+                Assert.ok(body.includes("as distinct from contracts and rules, which describe the host project's own code"), "must distinguish a behavior rule from contracts and rules describing the host project's code");
+            },
+            "states a behavior rule lives in .spec/flanders folders"(body) {
+                Assert.ok(body.includes("Behavior rules live in \`.spec/flanders\` folders"), "must state a behavior rule lives in .spec/flanders folders");
+            },
+            "states a behavior rule is immovable once written unless the user asks"(body) {
+                Assert.ok(body.includes("Behavior rules are immovable once written unless the user explicitly asks for a change."), "must state a behavior rule is immovable once written unless the user asks");
+            }
+        }
+    });
+
+    test("classification section presents three kinds and routes a behavior rule to .spec/flanders", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "decides whether each obligation is a contract, a rule, or a behavior rule"(body) {
+                Assert.ok(body.includes("the skill decides whether it is a contract, a rule, or a behavior rule"), "classification must decide among a contract, a rule, and a behavior rule");
+            },
+            "classifies guidance governing Flanders' own command behavior as a behavior rule"(body) {
+                Assert.ok(body.includes("guidance that governs how Flanders' own commands and skills behave within a scope is a behavior rule"), "must classify guidance governing Flanders' own command behavior as a behavior rule");
+            },
+            "routes each kind to its folder including a behavior rule to .spec/flanders"(body) {
+                Assert.ok(body.includes("A contract is written to the chosen scope's \`.spec/contracts\` folder, a rule to its \`.spec/rules\` folder, and a behavior rule to its \`.spec/flanders\` folder."), "must route a contract to .spec/contracts, a rule to .spec/rules, and a behavior rule to .spec/flanders");
             }
         }
     });
@@ -1383,11 +1434,11 @@ test.describe("skills – specSkillBody", test => {
         }
     });
 
-    test("restricts writes to .spec/contracts and .spec/rules folders only", {
+    test("restricts writes to .spec/contracts, .spec/rules, and .spec/flanders folders only", {
         ARRANGE() {},
         ACT() { return specSkillBody; },
         ASSERT(body) {
-            Assert.ok(body.includes("must not write, modify, or delete any source code or any file outside the project's \`.spec/contracts\` and \`.spec/rules\` folders"), "must restrict writes to the project's .spec/contracts and .spec/rules folders");
+            Assert.ok(body.includes("You must not write, modify, or delete any source code or any file outside the project's \`.spec/contracts\`, \`.spec/rules\`, and \`.spec/flanders\` folders."), "must restrict writes to the project's .spec/contracts, .spec/rules, and .spec/flanders folders");
         }
     });
 
@@ -1495,6 +1546,9 @@ Every message you address to the user during the run — your clarifying questio
             },
             "describes in-place updates"(body) {
                 Assert.ok(body.includes("update related files in place"), "must describe in-place updates");
+            },
+            "names .spec/contracts, .spec/rules, and .spec/flanders as the unprotected folders"(body) {
+                Assert.ok(body.includes("Existing files in the project's \`.spec/contracts\`, \`.spec/rules\`, and \`.spec/flanders\` folders are not protected."), "idempotency must name .spec/contracts, .spec/rules, and .spec/flanders as the unprotected folders");
             }
         }
     });
@@ -1540,6 +1594,14 @@ Every message you address to the user during the run — your clarifying questio
             "surfaces the last FAIL report on exhaustion"(body) {
                 Assert.ok(body.includes("surface the last FAIL report"), "must surface the last FAIL report on exhaustion");
             }
+        }
+    });
+
+    test("Final validation audits a .spec/flanders file by the non-contradiction category only", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERT(body) {
+            Assert.ok(body.includes("A file that landed in a \`.spec/flanders\` folder is audited by the non-contradiction category C only; categories A and B audit files in \`.spec/contracts\` and \`.spec/rules\` folders respectively."), "Validator checks must state a .spec/flanders file is audited by category C only, with categories A and B auditing .spec/contracts and .spec/rules files respectively");
         }
     });
 
