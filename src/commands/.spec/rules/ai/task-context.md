@@ -2,7 +2,7 @@
 
 ## The worker's first iteration receives the task and reference content by deterministic script injection
 
-When the orchestrator launches the worker for iteration 1 on a task, it delivers the task's material by deterministic script-side injection: the orchestrator itself reads the files and places their content in the prompt. The worker is not expected to open the plan file to read the task, nor to open the referenced contract and rule files — they arrive already inlined. This is what spares the worker the token cost of reading them.
+When the orchestrator launches the worker for iteration 1 on a task, it delivers the task's material by deterministic script-side provisioning: the orchestrator itself reads the plan and the referenced files, injects the task text into the prompt, and consolidates the referenced contract and rule content into a single `spec.md` file in the worker's temporary folder that the prompt directs the worker to read in full. The worker is not expected to open the plan file to read the task, nor to locate and open the referenced contract and rule files one by one — the task arrives in the prompt and the reference content arrives consolidated in `spec.md`. This is what spares the worker the token cost of locating and opening each file separately while its context grows with every read.
 
 ### Who this applies to
 
@@ -11,11 +11,11 @@ When the orchestrator launches the worker for iteration 1 on a task, it delivers
 
 ### Behavior
 
-The orchestrator invokes the worker through the AI runner as a **fresh** invocation: no session is resumed. The worker prompt is the standard worker prompt defined by [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md), and the orchestrator injects into it, deterministically and without any AI call:
+The orchestrator invokes the worker through the AI runner as a **fresh** invocation: no session is resumed. The worker prompt is the standard worker prompt defined by [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md), and the orchestrator provisions the worker's material, deterministically and without any AI call, as follows:
 
-1. **The full task text** — the verbatim region of the plan file that holds the task: its task line plus its body (description, acceptance criteria, and the contract and rule reference links), from the task line down to, but not including, the next task line or the end of the file. The boundary is detected per [.spec/contracts/shared/plan-file-format.md](/.spec/contracts/shared/plan-file-format.md) and [src/plan/.spec/rules/plan-parsing/task-body-extraction.md](/src/plan/.spec/rules/plan-parsing/task-body-extraction.md). The region is injected verbatim, with no summarization or rewriting.
-2. **The full content of every contract and rule file the task references** — the orchestrator resolves the markdown links in the task body that point at a file under a `.spec/contracts` or `.spec/rules` folder (per [.spec/contracts/shared/cross-file-reference-links.md](/.spec/contracts/shared/cross-file-reference-links.md)), reads each distinct file once, and injects its full content verbatim. A link that targets a specific section or line range still contributes its whole file; the section anchor does not narrow what is injected.
-3. **The global listing** of every contract and rule path in the project (each by its project-root-relative namespace), so the worker may consult any additional file at its discretion. The global listing is passed as paths only; the orchestrator does not inject the content of files the task does not reference.
+1. **The full task text, injected into the prompt** — the verbatim region of the plan file that holds the task: its task line plus its body (description, acceptance criteria, and the contract and rule reference links), from the task line down to, but not including, the next task line or the end of the file. The boundary is detected per [.spec/contracts/shared/plan-file-format.md](/.spec/contracts/shared/plan-file-format.md) and [src/plan/.spec/rules/plan-parsing/task-body-extraction.md](/src/plan/.spec/rules/plan-parsing/task-body-extraction.md). The region is injected into the prompt verbatim, with no summarization or rewriting.
+2. **The referenced contract and rule content, consolidated into a single `spec.md` file in the worker's temporary folder** — the orchestrator resolves the markdown links in the task body that point at a file under a `.spec/contracts` or `.spec/rules` folder (per [.spec/contracts/shared/cross-file-reference-links.md](/.spec/contracts/shared/cross-file-reference-links.md)) and writes the referenced content, verbatim, into one `spec.md` file inside the main temporary folder (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)); this content is not placed in the prompt. When a link's target carries a section (heading) anchor, only that section is written — from its heading line down to, but not including, the next heading at the same or higher level, or the end of the file. When a link carries no anchor, or an anchor that resolves to no heading in the file, the whole file is written. Each distinct file or section is written once: when any reference to a file targets the whole file, that whole file is written once and its separately-anchored sections are not duplicated; otherwise each distinct referenced section is written once. The worker prompt directs the worker to read `spec.md` in full, from beginning to end, in as few passes as possible — ideally a single read.
+3. **The global listing, injected into the prompt** — every contract and rule path in the project (each by its project-root-relative namespace), so the worker may consult any additional file at its discretion. The global listing is passed as paths only, in the prompt; the orchestrator writes neither the content of files the task does not reference into `spec.md` nor that content into the prompt.
 
 ### Session capture
 
@@ -23,14 +23,17 @@ The orchestrator captures the worker's `session_id` from the runner's event stre
 
 ### Why this delivery
 
-Reading the plan and the referenced files is deterministic work the orchestrator can do in code, at no token cost. Doing it once and inlining the result means the worker arrives at iteration 1 with the task and its obligations already present, instead of spending its own turns — and tokens — opening files. The global listing is kept as paths because it is cheap and lets the worker reach any file the task did not reference without inflating the prompt with content nothing asked for.
+Reading the plan and the referenced files is deterministic work the orchestrator can do in code, at no token cost. Consolidating the referenced obligations into a single `spec.md` the worker reads once — rather than inlining them into the prompt — keeps the prompt itself small while still sparing the worker from locating and opening each referenced file separately, a sequence of reads whose cost grows with every file as the worker's context accumulates. Narrowing by section anchor keeps `spec.md` to the obligations the task actually points at, rather than whole files when only a section applies. The task text stays in the prompt because the worker needs it immediately to know what to build, and the global listing is kept as paths because it is cheap and lets the worker reach any file the task did not reference without bloating either the prompt or `spec.md` with content nothing asked for.
 
 ### Failure signals
 
 - The orchestrator launches iteration 1 by resuming a session instead of as a fresh invocation.
-- The orchestrator passes the worker only the task line number and title and expects it to open the plan file, instead of injecting the full task text.
-- The orchestrator injects only the paths of the referenced contracts and rules instead of their full content.
-- The orchestrator injects the full content of every contract and rule in the global listing, instead of only the files the task references.
+- The orchestrator passes the worker only the task line number and title and expects it to open the plan file, instead of injecting the full task text into the prompt.
+- The orchestrator inlines the referenced contract and rule content into the prompt instead of consolidating it into the `spec.md` file the worker reads.
+- The orchestrator writes only the referenced file paths into `spec.md`, or omits `spec.md` entirely, leaving the worker to locate and open each referenced file itself.
+- The orchestrator writes the whole of a referenced file into `spec.md` when the task's link to it carries a section anchor, instead of narrowing to that section.
+- The orchestrator writes the content of every contract and rule in the global listing into `spec.md`, instead of only the files or sections the task references.
+- The worker prompt does not direct the worker to read `spec.md` in full.
 - The orchestrator omits the global path listing, leaving the worker unable to consult files the task did not reference.
 
 ## The worker resumes its captured session_id across iterations of the same task
@@ -55,7 +58,7 @@ For each iteration n>1 of a task:
 
 When the worker's previous iteration did not yield a capturable `session_id` (the runner did not surface one in the event stream, or the call was interrupted before any session id was emitted), iteration n>1 is launched as a **fresh** invocation — no resume.
 
-In that fresh-invocation branch, the orchestrator does NOT re-inject the task text or the contents of referenced contracts/rules into the worker prompt either. The worker is told what to implement, given the global listing of contract/rule paths, and given the previous-iteration briefing pointing at `error.log`. The worker re-reads whatever files it needs from disk. The cost of re-reading is real but bounded; replaying the full task text and the full contract/rule content on every iteration would burn far more tokens for a marginal gain on the iteration's first turn.
+In that fresh-invocation branch, the orchestrator does NOT re-inject the task text into the worker prompt, nor regenerate the consolidated `spec.md`. The worker is told what to implement, given the global listing of contract/rule paths, and given the previous-iteration briefing pointing at `error.log`. The worker re-reads whatever it needs from disk — the consolidated `spec.md` from the task's iteration 1 is still present in the main temporary folder, so it can reread that single file instead of reopening each referenced project file. The cost of re-reading is real but bounded; replaying the full task text and the full reference content on every iteration would burn far more tokens for a marginal gain on the iteration's first turn.
 
 ### Discard
 
@@ -77,7 +80,7 @@ The previous-iteration briefing alone is enough to direct the worker to the late
 ### Failure signals
 
 - The orchestrator launches iteration n>1 without passing the captured `session_id` when one is available.
-- The orchestrator re-injects the task text or the contents of referenced contracts/rules into the iteration n>1 prompt, replaying material the worker already has access to (either via session resume or via the working-tree files).
+- The orchestrator re-injects the task text or the referenced contract/rule content into the iteration n>1 prompt, replaying material the worker already has access to (via session resume, via the consolidated `spec.md` still in the temporary folder, or via the working-tree files).
 - The orchestrator keeps the worker's `session_id` across a task change, across a hard stop, or after a successful task closure.
 - The orchestrator updates the stored `session_id` from a reviewer's response — only the worker's response can update the worker session id.
 
@@ -92,13 +95,13 @@ Each configured adversarial reviewer is launched fresh on every call, and the or
 
 ### Behavior
 
-For every reviewer invocation, across every iteration of every task, the orchestrator invokes the reviewer through the AI runner as a **fresh** invocation: no session resumed, and no reviewer session is ever reused. The reviewer prompt is the standard reviewer prompt defined by [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md), into which the orchestrator injects the same material it injects for the worker's first iteration:
+For every reviewer invocation, across every iteration of every task, the orchestrator invokes the reviewer through the AI runner as a **fresh** invocation: no session resumed, and no reviewer session is ever reused. The reviewer prompt is the standard reviewer prompt defined by [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md), and the orchestrator provisions the reviewer's material the same way it does for the worker's first iteration:
 
-1. The full task text (the verbatim region per [.spec/contracts/shared/plan-file-format.md](/.spec/contracts/shared/plan-file-format.md) and [src/plan/.spec/rules/plan-parsing/task-body-extraction.md](/src/plan/.spec/rules/plan-parsing/task-body-extraction.md)).
-2. The full content of every contract and rule file the task references, each distinct file injected once, in full (resolved from the task body's markdown links per [.spec/contracts/shared/cross-file-reference-links.md](/.spec/contracts/shared/cross-file-reference-links.md)).
-3. The global listing of every contract and rule path, as paths only, so the reviewer can consult any additional file at its discretion — which is what lets the reviewer flag a contract or rule that should have applied but was not referenced by the task.
+1. The full task text, injected into the prompt (the verbatim region per [.spec/contracts/shared/plan-file-format.md](/.spec/contracts/shared/plan-file-format.md) and [src/plan/.spec/rules/plan-parsing/task-body-extraction.md](/src/plan/.spec/rules/plan-parsing/task-body-extraction.md)).
+2. The referenced contract and rule content, consolidated into a `spec.md` file inside that reviewer's own temporary folder — the per-reviewer folder that also holds its `error.log` (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)) — resolved from the task body's markdown links per [.spec/contracts/shared/cross-file-reference-links.md](/.spec/contracts/shared/cross-file-reference-links.md), with the same section-anchor narrowing the worker's `spec.md` uses: the linked section when the reference carries a heading anchor, the whole file when it does not, each distinct file or section written once. This content is not placed in the prompt. The reviewer prompt directs the reviewer to read its `spec.md` in full, from beginning to end, in as few passes as possible. Each reviewer's `spec.md` lives in that reviewer's own temporary folder, never one shared with another reviewer.
+3. The global listing of every contract and rule path, as paths only in the prompt, so the reviewer can consult any additional file at its discretion — which is what lets the reviewer flag a contract or rule that should have applied but was not referenced by the task.
 
-The orchestrator does NOT capture any reviewer's `session_id` for any later use. A second invocation of any reviewer on the same task is a brand-new call, repeating this same injection against the same task state.
+The orchestrator does NOT capture any reviewer's `session_id` for any later use. A second invocation of any reviewer on the same task is a brand-new call, repeating this same provisioning against the same task state.
 
 ### Why fresh on every call
 
@@ -106,7 +109,7 @@ The reviewer's value depends on independent judgment: it must evaluate the worke
 
 ### Why inject rather than have the reviewer read
 
-The reviewer is launched fresh on every iteration with the same single-call lifetime as the worker it reviews. Injecting the task text and the referenced content once per call gives the reviewer access to the obligations it must check without forcing each reviewer to open and read every referenced file at the start of its work, the same token saving the worker's first iteration gets. The global listing's contents are not injected; only paths, just like the worker prompt.
+The reviewer is launched fresh on every iteration with the same single-call lifetime as the worker it reviews. Giving the reviewer the task text in its prompt and the referenced obligations consolidated in a single `spec.md` it reads once gives the reviewer access to the obligations it must check without forcing each reviewer to locate and open every referenced file at the start of its work — the same saving the worker's first iteration gets, and without inflating the reviewer prompt with the full reference content. The global listing's content is not consolidated; only paths are passed, in the prompt, just like the worker prompt.
 
 ### Relationship with neighbouring rules
 
@@ -117,6 +120,10 @@ The reviewer is launched fresh on every iteration with the same single-call life
 
 - The orchestrator stores a reviewer's `session_id` and passes it to the next reviewer call on the same task.
 - The orchestrator resumes any session for a reviewer instead of launching it fresh.
-- A reviewer prompt is given only the paths of the referenced contracts and rules instead of their full content, leaving the reviewer to FAIL the worker on obligations it has no way to consult without opening files.
+- The orchestrator inlines the referenced contract and rule content into the reviewer prompt instead of consolidating it into the reviewer's `spec.md`.
+- The orchestrator writes only the referenced file paths into the reviewer's `spec.md`, or omits it, leaving the reviewer to locate and open each referenced file itself.
+- The orchestrator writes the whole of a referenced file into the reviewer's `spec.md` when the task's link to it carries a section anchor, instead of narrowing to that section.
+- The reviewer prompt does not direct the reviewer to read its `spec.md` in full.
+- A reviewer's `spec.md` is placed in a folder shared with another reviewer instead of that reviewer's own temporary folder.
 - A reviewer prompt omits the full task text, leaving the reviewer to locate the task in the plan file itself.
-- The orchestrator injects the full content of every contract and rule in the global listing into a reviewer prompt, instead of only the files the task references.
+- The orchestrator writes the content of every contract and rule in the global listing into the reviewer's `spec.md`, instead of only the files or sections the task references.
