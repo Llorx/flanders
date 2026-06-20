@@ -826,6 +826,106 @@ test.describe("Workspace setup allocates one independent folder per reviewer", t
     });
 });
 
+test.describe("Workspace spec.md paths", test => {
+    test("specFile resolves to spec.md inside the main root", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            return await ws.setup(3);
+        },
+        ASSERTS: {
+            "specFile equals the main root joined with spec.md"(paths) {
+                Assert.strictEqual(paths.specFile, paths.root + "/spec.md");
+            },
+            "specFile is a subpath of the main root"(paths) {
+                Assert.ok(paths.specFile.startsWith(paths.root + "/"));
+            }
+        }
+    });
+
+    test("reviewerSpecFile(i) returns spec.md inside the i-th reviewer's own folder beside its error.log", {
+        ARRANGE() {
+            const fs = stubFs();
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { fs, ws };
+        },
+        async ACT({ ws }) {
+            return await ws.setup(3);
+        },
+        ASSERTS: {
+            "reviewer 1 spec.md lives inside the 2nd allocated folder"(paths, { fs }) {
+                Assert.strictEqual(paths.reviewerSpecFile(1), fs.mkdtempDirs[1] + "/spec.md");
+            },
+            "reviewer 2 spec.md lives inside the 3rd allocated folder"(paths, { fs }) {
+                Assert.strictEqual(paths.reviewerSpecFile(2), fs.mkdtempDirs[2] + "/spec.md");
+            },
+            "reviewer 3 spec.md lives inside the 4th allocated folder"(paths, { fs }) {
+                Assert.strictEqual(paths.reviewerSpecFile(3), fs.mkdtempDirs[3] + "/spec.md");
+            },
+            "reviewer 1 spec.md sits in the same folder as reviewer 1's error.log"(paths) {
+                const specDir = paths.reviewerSpecFile(1).slice(0, -"/spec.md".length);
+                const errDir = paths.reviewerErrorLog(1).slice(0, -"/error.log".length);
+                Assert.strictEqual(specDir, errDir);
+            },
+            "reviewer 2 spec.md sits in the same folder as reviewer 2's error.log"(paths) {
+                const specDir = paths.reviewerSpecFile(2).slice(0, -"/spec.md".length);
+                const errDir = paths.reviewerErrorLog(2).slice(0, -"/error.log".length);
+                Assert.strictEqual(specDir, errDir);
+            },
+            "reviewer 3 spec.md sits in the same folder as reviewer 3's error.log"(paths) {
+                const specDir = paths.reviewerSpecFile(3).slice(0, -"/spec.md".length);
+                const errDir = paths.reviewerErrorLog(3).slice(0, -"/error.log".length);
+                Assert.strictEqual(specDir, errDir);
+            },
+            "reviewer 1 spec.md is NOT a subpath of the main root"(paths) {
+                Assert.ok(!paths.reviewerSpecFile(1).startsWith(paths.root + "/"));
+            },
+            "reviewer 2 spec.md is NOT a subpath of the main root"(paths) {
+                Assert.ok(!paths.reviewerSpecFile(2).startsWith(paths.root + "/"));
+            },
+            "reviewer 3 spec.md is NOT a subpath of the main root"(paths) {
+                Assert.ok(!paths.reviewerSpecFile(3).startsWith(paths.root + "/"));
+            },
+            "different reviewer indices produce distinct spec.md paths"(paths) {
+                const set = new Set([
+                    paths.reviewerSpecFile(1),
+                    paths.reviewerSpecFile(2),
+                    paths.reviewerSpecFile(3)
+                ]);
+                Assert.strictEqual(set.size, 3);
+            },
+            "no two reviewers share a spec.md folder"(paths) {
+                const stripTail = (p:string) => p.slice(0, -"/spec.md".length);
+                const dir1 = stripTail(paths.reviewerSpecFile(1));
+                const dir2 = stripTail(paths.reviewerSpecFile(2));
+                const dir3 = stripTail(paths.reviewerSpecFile(3));
+                Assert.strictEqual(new Set([dir1, dir2, dir3]).size, 3);
+            }
+        }
+    });
+
+    test("paths() also exposes specFile and reviewerSpecFile after a multi-reviewer setup", {
+        ARRANGE() {
+            const fs = stubFs();
+            const ws = new Workspace(fs, stubPlatform(false));
+            return { fs, ws };
+        },
+        async ACT({ ws }) {
+            await ws.setup(3);
+            return ws.paths();
+        },
+        ASSERTS: {
+            "specFile from paths() equals the main root joined with spec.md"(paths) {
+                Assert.strictEqual(paths.specFile, paths.root + "/spec.md");
+            },
+            "reviewerSpecFile from paths() matches the third reviewer's own folder"(paths, { fs }) {
+                Assert.strictEqual(paths.reviewerSpecFile(3), fs.mkdtempDirs[3] + "/spec.md");
+            }
+        }
+    });
+});
+
 test.describe("Workspace.reviewerErrorLogExists", test => {
     test("returns true when the per-reviewer error.log exists", {
         ARRANGE() {

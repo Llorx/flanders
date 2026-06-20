@@ -6,6 +6,7 @@ export type WorkspacePaths = Readonly<{
     buildScript:string;
     testScript:string;
     errorLog:string;
+    specFile:string;
     prepLog(taskIndex:number):string;
     workerLog(iter:number):string;
     buildLog(iter:number):string;
@@ -13,6 +14,7 @@ export type WorkspacePaths = Readonly<{
     reviewerLog(iter:number):string;
     reviewerOutputLog(iter:number, reviewerIndex:number):string;
     reviewerErrorLog(reviewerIndex:number):string;
+    reviewerSpecFile(reviewerIndex:number):string;
 }>;
 
 export interface PlatformContext {
@@ -62,13 +64,15 @@ export class Workspace {
             buildScript: joinPath(root, isWindows ? "build.bat" : "build.sh"),
             testScript: joinPath(root, isWindows ? "test.bat" : "test.sh"),
             errorLog: joinPath(root, "error.log"),
+            specFile: joinPath(root, "spec.md"),
             prepLog(taskIndex:number) { return joinPath(root, `prep.${taskIndex}.log`); },
             workerLog(iter:number) { return joinPath(root, `worker.${iter}.log`); },
             buildLog(iter:number) { return joinPath(root, `build.${iter}.log`); },
             testLog(iter:number) { return joinPath(root, `test.${iter}.log`); },
             reviewerLog(iter:number) { return joinPath(root, `reviewer.${iter}.log`); },
             reviewerOutputLog(iter:number, reviewerIndex:number) { return joinPath(root, `reviewer.${iter}.${reviewerIndex}.log`); },
-            reviewerErrorLog(reviewerIndex:number) { return joinPath(reviewerRoots[reviewerIndex - 1]!, "error.log"); }
+            reviewerErrorLog(reviewerIndex:number) { return joinPath(reviewerRoots[reviewerIndex - 1]!, "error.log"); },
+            reviewerSpecFile(reviewerIndex:number) { return joinPath(reviewerRoots[reviewerIndex - 1]!, "spec.md"); }
         };
     }
     async errorLogExists():Promise<boolean> {
