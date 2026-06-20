@@ -9,7 +9,7 @@ import type { SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { HeaderFields, MetricsFields, TerminalLabel } from "../ui/BottomBlock";
 import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, SEPARATOR_GLYPH, stripAnsi } from "../ui/formatters";
-import { workingPool, successPool, hardStopPool, interruptionPool, failurePool } from "../voiceVariants";
+import { workingPool, successPool, hardStopPool, interruptionPool, failurePool, tasksCompletedPool, allTasksCompletedPool } from "../voiceVariants";
 
 // The stub random context returns 0, so the rotating working footer label is
 // always workingPool[0] — the deterministic label the live footer renders here.
@@ -1156,6 +1156,67 @@ test.describe("Implement intermediate header and metrics states", test => {
             "footer shows the working label in output"(_result, { s }) {
                 const allOutput = s.written.join("");
                 Assert.ok(allOutput.includes(WORKING_LABEL), "footer should show the working-pool label");
+            }
+        }
+    });
+});
+
+test.describe("Implement completion-message variants", test => {
+    test("noop tasks-completed path prints the tasks-completed pool entry the random context selects", {
+        ARRANGE() {
+            const s = stubContexts();
+            const allDonePlan = '# Plan\n\n- [x]{"it":100,"ot":50,"t":5} Already done\n';
+            s.files.set(PLAN_PATH, allDonePlan);
+            // random() = 0.45 → pickVariant index Math.floor(0.45 * 10) = 4: a non-zero
+            // entry, so a regression hardcoding a fixed index (e.g. pool[0]) is caught and
+            // the selection is shown to route through the injected RandomContext.
+            const contexts:ImplementContexts = { ...s.contexts, random: { random: () => 0.45 } };
+            return { contexts, written: s.written };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "prints exactly the random-selected tasks-completed pool entry followed by a newline"(_code, { written }) {
+                const plain = stripAnsi(written.join(""));
+                Assert.ok(plain.includes(tasksCompletedPool[4]! + "\n"), "should print tasksCompletedPool[4] followed by a newline");
+            }
+        }
+    });
+
+    test("end-of-run path prints the all-tasks-completed pool entry the random context selects", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });                        // detect build/test
+            s.claudeQueue.push({ text: "worker" });                    // worker stage
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" }); // reviewer stage
+            // random() = 0.45 → pickVariant index Math.floor(0.45 * 10) = 4: a non-zero
+            // entry, so a regression hardcoding a fixed index (e.g. pool[0]) is caught and
+            // the selection is shown to route through the injected RandomContext.
+            const contexts:ImplementContexts = { ...s.contexts, random: { random: () => 0.45 } };
+            return { contexts, written: s.written };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "prints exactly the random-selected all-tasks-completed pool entry followed by a newline"(_code, { written }) {
+                const plain = stripAnsi(written.join(""));
+                Assert.ok(plain.includes(allTasksCompletedPool[4]! + "\n"), "should print allTasksCompletedPool[4] followed by a newline");
             }
         }
     });
@@ -2750,9 +2811,10 @@ test.describe("Implement per-task completion snapshot", test => {
             const allOutput = written.join("");
             const plain = stripAnsi(allOutput);
             const lastDone = plain.lastIndexOf("done");
-            const completedIdx = plain.indexOf("all tasks completed");
-            Assert.ok(completedIdx !== -1, "should contain all tasks completed");
-            Assert.ok(completedIdx > lastDone, "all tasks completed should appear after the last snapshot");
+            // The stub random returns 0, so pickVariant selects allTasksCompletedPool[0].
+            const completedIdx = plain.indexOf(allTasksCompletedPool[0]!);
+            Assert.ok(completedIdx !== -1, "should contain the all-tasks-completed pool entry");
+            Assert.ok(completedIdx > lastDone, "the all-tasks-completed message should appear after the last snapshot");
         }
     });
 
@@ -2774,9 +2836,10 @@ test.describe("Implement per-task completion snapshot", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "prints tasks completed"(_code, { written }) {
+            "prints the random-selected tasks-completed pool entry followed by a newline"(_code, { written }) {
+                // The stub random returns 0, so pickVariant selects tasksCompletedPool[0].
                 const plain = stripAnsi(written.join(""));
-                Assert.ok(plain.includes("tasks completed"), "should print tasks completed");
+                Assert.ok(plain.includes(tasksCompletedPool[0]! + "\n"), "should print the tasks-completed pool entry followed by a newline");
             },
             "does not emit done snapshot"(_code, { written }) {
                 const plain = stripAnsi(written.join(""));
@@ -3614,7 +3677,7 @@ test.describe("Implement end-to-end git flow", test => {
             Assert.strictEqual(postPreflight[5]!.args[0], "commit");
             Assert.strictEqual(postPreflight[5]!.args[3], "2 Add validation");
             const plain = stripAnsi(written.join(""));
-            Assert.ok(plain.includes("all tasks completed"), "should print all tasks completed");
+            Assert.ok(plain.includes(allTasksCompletedPool[0]! + "\n"), "should print the all-tasks-completed pool entry followed by a newline");
         }
     });
 
@@ -3758,7 +3821,7 @@ test.describe("Implement end-to-end git flow", test => {
             const plain = stripAnsi(written.join(""));
             Assert.ok(plain.includes("iter 2"), "snapshot should show iter 2");
             Assert.ok(plain.includes("done"), "snapshot should contain done header");
-            Assert.ok(plain.includes("all tasks completed"), "should print all tasks completed");
+            Assert.ok(plain.includes(allTasksCompletedPool[0]! + "\n"), "should print the all-tasks-completed pool entry followed by a newline");
         }
     });
 });

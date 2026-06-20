@@ -14,6 +14,7 @@ import { ScriptRunner } from "../system/ScriptRunner";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { Activity, ReviewerEntry, ReviewerState, TerminalLabel } from "../ui/BottomBlock";
 import { formatSnapshotBlock } from "../ui/formatters";
+import { allTasksCompletedPool, pickVariant, tasksCompletedPool } from "../voiceVariants";
 import { PlatformContext, Workspace, WorkspacePaths } from "../workspace/Workspace";
 
 export type { Activity };
@@ -181,7 +182,7 @@ export class Implement {
             if (initialParse.tasks.every(t => t.done)) {
                 this._block!.setHeader({ indexLabel: `${totalTasks}/${totalTasks}` });
                 this._block!.setMetrics({ plan: { tokens: planTotals.it + planTotals.ot, seconds: planTotals.t } });
-                this._buffered.write("tasks completed\n");
+                this._buffered.write(`${pickVariant(tasksCompletedPool, this._contexts.random)}\n`);
                 this._finalizeBlock("Done");
                 return 0;
             }
@@ -235,7 +236,7 @@ export class Implement {
                     return 1;
                 }
             }
-            this._buffered.write("all tasks completed\n");
+            this._buffered.write(`${pickVariant(allTasksCompletedPool, this._contexts.random)}\n`);
             this._finalizeBlock("Done");
             return 0;
         } catch (e) {
