@@ -56,6 +56,14 @@ ${workerToolchainRerunStep}`;
 const foregroundBoundary =
 `Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. You must not start any command in the background and must not end your turn while a command you spawned is still running. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example \`run_in_background: true\`), shell-level detachment (a trailing \`&\`, \`nohup\`, \`setsid\`, \`disown\`, \`start\`, \`Start-Process\`, \`Start-Job\`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.`;
 
+// The spec-folder write boundary shared by the detect, worker, and reviewer prompts: the single
+// source of truth for the sentence that bars an implement-spawned agent from writing to any of the
+// governed spec folders. The folder enumeration matches the authority pinned in
+// shared/spec-folder-write-authority.md — `.spec/contracts`, `.spec/rules`, `.spec/flanders`, then
+// `plans/` — so a change to that contract has one place to land in the prompts.
+const specFolderWriteBoundary =
+`Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, any \`.spec/flanders\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.`;
+
 // Citation-free variant of the classification core: the same text as `claimClassificationCore`
 // with the only flanders-internal citation it carries removed, so the surface-agnostic
 // reviewer-methodology core stays citation-free. Both reviewer surfaces use the core without
@@ -311,7 +319,7 @@ ${Placeholders.RULE_LIST}
 
 Git boundary: you must not execute any git command that modifies repository state. Read-only git commands (\`git status\`, \`git log\`, \`git show\`, \`git diff\`, \`git blame\`, \`git ls-files\`) are allowed if they help you understand the project; commits, staging, branches, tags, stashes, resets, restores, merges, rebases, edits under \`.git/\`, and any remote git operation are forbidden. See rules/ai/agents/no-git-writes.md for the full obligation.
 
-Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
+${specFolderWriteBoundary}
 
 ${foregroundBoundary}`,
 
@@ -368,7 +376,7 @@ Do not flip the task's checkbox in the plan file. Flanders flips the checkbox it
 
 Git boundary: you must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, \`git rebase\`, \`git merge\`, \`git cherry-pick\`, no edits under \`.git/\`, and no remote git operations (\`fetch\`, \`pull\`, \`push\`). Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed when you need to inspect the repo. Leave your implementation as a dirty working tree — Flanders performs the commit itself once your changes pass build, test, and review. If your task seems to require a git write, stop and explain it in your final message instead of doing it. The full obligation lives in rules/ai/agents/no-git-writes.md.
 
-Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
+${specFolderWriteBoundary}
 
 ${foregroundBoundary}
 
@@ -433,7 +441,7 @@ ${flandersToneInstruction(true)}
 
 Git boundary: you are an inspection-only agent. You must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, no edits under \`.git/\`, and no remote git operations. Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed and are how you should inspect the worker's changes. The full obligation lives in rules/ai/agents/no-git-writes.md.
 
-Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.
+${specFolderWriteBoundary}
 
 ${foregroundBoundary}`,
 

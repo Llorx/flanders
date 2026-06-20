@@ -7,6 +7,12 @@ import { REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENT
 
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
 
+// The spec-folder write boundary the detect, worker, and reviewer prompts share, byte-exact.
+// Independent literal — pinned here so a regression in the prompt's enumeration (a dropped or
+// reordered folder, or a missing `.spec/flanders` clause) trips these assertions. It names the
+// four governed folders in order: `.spec/contracts`, `.spec/rules`, `.spec/flanders`, `plans/`.
+const EXPECTED_SPEC_FOLDER_WRITE_BOUNDARY = "Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any `.spec/contracts` folder, any `.spec/rules` folder, any `.spec/flanders` folder, or the `plans/` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.";
+
 const EXPECTED_CLAIM_CLASSIFICATION_CORE =
 `Classify every claim by ONE question: what kind of signal would soundly observe a plausible regression of the claim? Place the claim in exactly one of these three branches, and name the concrete observer the branch requires — an automated failure, an asserting test, or reviewer inspection.
 
@@ -97,6 +103,9 @@ test.describe("prompts – detectBuildAndTest", test => {
             "names .spec/rules folders"(template) {
                 Assert.ok(template.includes(".spec/rules"));
             },
+            "names .spec/flanders folders"(template) {
+                Assert.ok(template.includes(".spec/flanders"));
+            },
             "references plans/"(template) {
                 Assert.ok(template.includes("plans/"));
             },
@@ -106,6 +115,17 @@ test.describe("prompts – detectBuildAndTest", test => {
             "references shared/spec-folder-write-authority.md"(template) {
                 Assert.ok(template.includes("shared/spec-folder-write-authority.md"));
             }
+        }
+    });
+
+    test("spec-folder write boundary block is byte-equal to the four-folder wording", {
+        ARRANGE() {},
+        ACT() { return prompts.detectBuildAndTest; },
+        ASSERT(template) {
+            const start = template.indexOf("Spec-folder write boundary:");
+            const end = template.indexOf("\n\n", start);
+            const specBoundary = template.substring(start, end === -1 ? undefined : end);
+            Assert.strictEqual(specBoundary, EXPECTED_SPEC_FOLDER_WRITE_BOUNDARY);
         }
     });
 
@@ -149,6 +169,9 @@ test.describe("prompts – worker", test => {
             },
             "names .spec/rules folders"(template) {
                 Assert.ok(template.includes(".spec/rules"));
+            },
+            "names .spec/flanders folders"(template) {
+                Assert.ok(template.includes(".spec/flanders"));
             },
             "references plans/"(template) {
                 Assert.ok(template.includes("plans/"));
@@ -615,14 +638,14 @@ test.describe("prompts – worker – three-section Evidence Report", test => {
         }
     });
 
-    test("spec-folder write boundary block is byte-equal to the previous version", {
+    test("spec-folder write boundary block is byte-equal to the four-folder wording", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERT(template) {
             const start = template.indexOf("Spec-folder write boundary:");
             const end = template.indexOf("\n\n", start);
             const specBoundary = template.substring(start, end);
-            Assert.strictEqual(specBoundary, "Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any `.spec/contracts` folder, any `.spec/rules` folder, or the `plans/` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.");
+            Assert.strictEqual(specBoundary, EXPECTED_SPEC_FOLDER_WRITE_BOUNDARY);
         }
     });
 
@@ -679,6 +702,9 @@ test.describe("prompts – reviewer", test => {
             },
             "names .spec/rules folders"(template) {
                 Assert.ok(template.includes(".spec/rules"));
+            },
+            "names .spec/flanders folders"(template) {
+                Assert.ok(template.includes(".spec/flanders"));
             },
             "references plans/"(template) {
                 Assert.ok(template.includes("plans/"));
@@ -1065,14 +1091,14 @@ test.describe("prompts – reviewer – three-section claim checklist", test => 
         }
     });
 
-    test("spec-folder write boundary block is byte-equal to the previous version", {
+    test("spec-folder write boundary block is byte-equal to the four-folder wording", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERT(template) {
             const start = template.indexOf("Spec-folder write boundary:");
             const end = template.indexOf("\n\n", start);
             const specBoundary = template.substring(start, end === -1 ? undefined : end);
-            Assert.strictEqual(specBoundary, "Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any `.spec/contracts` folder, any `.spec/rules` folder, or the `plans/` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.");
+            Assert.strictEqual(specBoundary, EXPECTED_SPEC_FOLDER_WRITE_BOUNDARY);
         }
     });
 });
