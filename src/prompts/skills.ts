@@ -48,7 +48,7 @@ The user invokes you as: /flanders-plan [<data>]
    - **Cross-cutting convention** — the answer would apply to all future code of the same kind in the project and belongs in a \`.spec/rules\` folder. Surface the gap to the user and recommend creating the rule via /flanders-spec before the plan is drafted, instead of silently baking the decision into the plan. The user may explicitly elect to treat the decision as plan-local for this run; in that case it follows the plan-local outcome below.
    - **Plan-local implementation choice** — the answer is specific to the requested work and does not generalize. The chosen answer is embedded in the relevant task's description and acceptance criteria, and is never promoted to a rule.
 
-   The skill itself never writes to any \`.spec/rules\` or \`.spec/contracts\` folder. Rule creation, when the user elects it, happens through /flanders-spec as a separate, user-initiated act.
+   The skill itself never writes to any \`.spec/rules\`, \`.spec/contracts\`, or \`.spec/flanders\` folder. Rule creation, when the user elects it, happens through /flanders-spec as a separate, user-initiated act.
 4. **Drafting phase.** Once the clarification phase is complete, persist the plan file directly without presenting a layout summary, a section-by-section draft, or any other pre-write approval step. The user reviews the written plan file after the fact.
 5. Persist exactly one markdown file inside the project's plans/ folder. The filename must be descriptive of the plan's subject.
 6. Upon successful completion, print the summary described in the Summary section below. If the plan cannot be made compliant with the Plan content rules, do not declare complete: surface the issue along with the plan file path to the user in chat.
@@ -118,7 +118,7 @@ Tasks are written in the order they must be implemented, accounting for dependen
 - For every leaf task, link the relevant rule file or files the same way — a markdown link whose text is the file's listed namespace (its path relative to the project root, with no leading slash) and whose target is that namespace prefixed with a single leading slash. The planner MUST read every rule file it determines is relevant to the request before drafting the plan; reading the relevant rules is not optional. When a rule's enforcement is bound to a specific scope, reference that scope alongside the file path.
 - Rule selection per task is scope-driven, not topic-driven. Before listing the rule links for a leaf task, walk the rules listing and ask: which rule namespaces are in scope for the work this task actually performs? Use the namespace as the scope hint. Heuristics: a task that modifies or adds tests must link every applicable rule under a \`testing/\` subfolder; a task that creates or modifies anything with timers, listeners, controllers, child processes, or other async lifecycle must link every applicable rule under a \`disposables/\` subfolder; a task that changes terminal UI or live-region output must link every applicable rule under a \`ui/\` subfolder. Walk every namespace whose scope could plausibly apply, and pick every file whose obligation could be triggered by the task. Under-linking is costly: the downstream implementor is FAILed by the adversarial reviewer for any global rule that should have applied but was not applied, so when in doubt, link rather than omit.
 - Tasks are numbered hierarchically (1, 1.1, 1.2, 2, 2.1, ...) per the Plan file format section above.
-- No task may describe work that creates, modifies, deletes, or renames files inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder (the bounded checkbox/metrics update that the implement command holds is not available to tasks).
+- No task may describe work that creates, modifies, deletes, or renames files inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, any \`.spec/flanders\` folder, or the \`plans/\` folder (the bounded checkbox/metrics update that the implement command holds is not available to tasks).
 - Never produce a plan that violates any contract or rule on the canonical lists.
 
 ## Post-write verification
@@ -166,7 +166,7 @@ Five categories, all mandatory; failure in any one is a FAIL. Each category is a
 
 2. Semantic dependency order. Tasks appear top-to-bottom in implementation order. The audit is semantic, not numeric: read each task's description and acceptance criteria and confirm that no task depends on work performed by a task that appears later in the document. A plan whose numbering is well-formed but whose dependencies flow upward is FAIL.
 
-3. Spec-folder write boundary. No task (leaf or parent) describes work that creates, modifies, deletes, or renames any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder. There is no exception for flipping checkboxes or rewriting metrics: those mutations are performed programmatically by the implement command and are never described by a task.
+3. Spec-folder write boundary. No task (leaf or parent) describes work that creates, modifies, deletes, or renames any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, any \`.spec/flanders\` folder, or the \`plans/\` folder. There is no exception for flipping checkboxes or rewriting metrics: those mutations are performed programmatically by the implement command and are never described by a task.
 
 4. Plan content rules. Verify the plan satisfies EACH of the following independently:
    - Free of placeholders. No \`<TBD>\` or analogous task markers, no template-style blanks, no parenthetical "(to be decided)" deferrals.
@@ -448,7 +448,7 @@ Proceed to the review only once the build and test gates have both passed; a gat
 
 ## Spec-folder write boundary
 
-Neither the work you perform nor the reviewer subagent creates, modifies, deletes, or renames any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder. Those folders are the project's source of truth, governed by their own dedicated skills; consult them freely but never write to them.
+Neither the work you perform nor the reviewer subagent creates, modifies, deletes, or renames any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, any \`.spec/flanders\` folder, or the \`plans/\` folder. Those folders are the project's source of truth, governed by their own dedicated skills; consult them freely but never write to them.
 
 ## The reviewer
 

@@ -424,6 +424,9 @@ Every message you address to the user during the run — your clarifying questio
             "prohibits task content from touching .spec/rules folders"(body) {
                 Assert.ok(body.includes("any \`.spec/rules\` folder"), "must prohibit tasks from touching .spec/rules folders");
             },
+            "prohibits task content from touching .spec/flanders folders"(body) {
+                Assert.ok(body.includes("any \`.spec/flanders\` folder"), "must prohibit tasks from touching .spec/flanders folders");
+            },
             "prohibits task content from touching the plans/ folder"(body) {
                 Assert.ok(body.includes("or the \`plans/\` folder"), "must prohibit tasks from touching the plans/ folder");
             },
@@ -530,7 +533,7 @@ Every message you address to the user during the run — your clarifying questio
             },
             "category 3 names the .spec spec folders and plans/"(body) {
                 const category3 = body.slice(body.indexOf("3. Spec-folder write boundary"), body.indexOf("4. Plan content rules"));
-                Assert.ok(category3.includes("renames any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder"), "validator category 3 must name the .spec/contracts, .spec/rules, and plans/ folders");
+                Assert.ok(category3.includes("renames any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, any \`.spec/flanders\` folder, or the \`plans/\` folder"), "validator category 3 must name the .spec/contracts, .spec/rules, .spec/flanders, and plans/ folders");
             },
             "lists Plan content rules check"(body) {
                 Assert.ok(body.includes("4. Plan content rules"), "must list Plan content rules check");
@@ -702,7 +705,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(body.includes("does NOT carry its own checkbox"), "must inline the leaf/parent distinction");
             },
             "inlines the spec-folder write boundary for tasks"(body) {
-                Assert.ok(body.includes("No task may describe work that creates, modifies, deletes, or renames files inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder"), "must inline the spec-folder write boundary");
+                Assert.ok(body.includes("No task may describe work that creates, modifies, deletes, or renames files inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, any \`.spec/flanders\` folder, or the \`plans/\` folder"), "must inline the spec-folder write boundary");
             },
             "On FAIL triage step"(body) {
                 Assert.ok(body.includes("Triage each issue"), "must describe the triage step");
@@ -744,8 +747,8 @@ Every message you address to the user during the run — your clarifying questio
             "describes plan-local outcome"(body) {
                 Assert.ok(body.includes("Plan-local implementation choice"), "must describe plan-local outcome");
             },
-            "prohibits writing to .spec/rules or .spec/contracts folders"(body) {
-                Assert.ok(body.includes("never writes to any \`.spec/rules\` or \`.spec/contracts\` folder"), "must prohibit writing to .spec/rules or .spec/contracts folders");
+            "prohibits writing to .spec/rules, .spec/contracts, or .spec/flanders folders"(body) {
+                Assert.ok(body.includes("never writes to any \`.spec/rules\`, \`.spec/contracts\`, or \`.spec/flanders\` folder"), "must prohibit writing to .spec/rules, .spec/contracts, or .spec/flanders folders");
             }
         }
     });
@@ -2261,7 +2264,7 @@ test.describe("skills – workSkillBody", test => {
         ACT() { return workSkillBody; },
         ASSERTS: {
             "binds both the work and the reviewer subagent"(body) {
-                Assert.ok(body.includes("Neither the work you perform nor the reviewer subagent creates, modifies, deletes, or renames any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, or the \`plans/\` folder."), "must forbid the work and the reviewer from writing inside .spec/contracts, .spec/rules, or plans/");
+                Assert.ok(body.includes("Neither the work you perform nor the reviewer subagent creates, modifies, deletes, or renames any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, any \`.spec/flanders\` folder, or the \`plans/\` folder."), "must forbid the work and the reviewer from writing inside .spec/contracts, .spec/rules, .spec/flanders, or plans/");
             },
             "allows reading the spec corpus but never writing to it"(body) {
                 Assert.ok(body.includes("consult them freely but never write to them"), "must allow consulting the spec corpus but never writing to it");
