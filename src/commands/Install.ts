@@ -618,7 +618,7 @@ export class Install {
                 }
                 const option = await promptChoice(contexts.ask, {
                     header: "Skills tool",
-                    question: "Which AI tool(s) should the skills be installed for?",
+                    question: "Which AI tool(s) should the skills be installed for, neighbor?",
                     options: [
                         { label: "claude", description: "Install skills for Claude Code" },
                         { label: "codex", description: "Install skills for Codex CLI" },
@@ -678,7 +678,7 @@ export class Install {
                     return 1;
                 }
                 const option = await promptChoice(contexts.ask, {
-                    header: "Worker tool",
+                    header: "Worker tool, neighborino",
                     question: "Which AI tool should the worker use?",
                     options: [
                         { label: "claude", description: "Use Claude Code" },
@@ -725,7 +725,7 @@ export class Install {
                     }
                     const more = await promptChoice(contexts.ask, {
                         header: "Configure another reviewer?",
-                        question: "Configure another reviewer?",
+                        question: "Okely-dokely — care to configure another reviewer?",
                         options: [
                             { label: "no", description: "Stop adding reviewers" },
                             { label: "yes", description: "Configure another reviewer in the ordered list" }
@@ -795,7 +795,7 @@ export class Install {
                             if (/^\d+$/.test(trimmed) && parsed >= 1 && parsed <= reviewerCount) {
                                 chosen = parsed;
                             } else {
-                                contexts.output.write(`Enter an integer between 1 and ${reviewerCount}, or leave empty for ${reviewerCount}.\n`);
+                                contexts.output.write(`Whoopsie — enter an integer between 1 and ${reviewerCount}, or leave empty for ${reviewerCount}.\n`);
                             }
                         }
                     }

@@ -1252,7 +1252,7 @@ test.describe("Install prompt order", test => {
                 Assert.strictEqual(code, 0);
             },
             "headers are in canonical order"(_code, { askedHeaders }) {
-                Assert.deepStrictEqual(askedHeaders, ["Skills tool", "Install destination", "Worker tool", "Worker model", "Worker effort", "Reviewer tool", "Reviewer model", "Reviewer effort", "Configure another reviewer?"]);
+                Assert.deepStrictEqual(askedHeaders, ["Skills tool", "Install destination", "Worker tool, neighborino", "Worker model", "Worker effort", "Reviewer tool", "Reviewer model", "Reviewer effort", "Configure another reviewer?"]);
             }
         }
     });
@@ -1276,6 +1276,114 @@ test.describe("Install prompt order", test => {
             },
             "headers are exactly skills tool then scope"(_code, { askedHeaders }) {
                 Assert.deepStrictEqual(askedHeaders, ["Skills tool", "Install destination"]);
+            }
+        }
+    });
+});
+
+test.describe("Install Flanders voice", test => {
+    test("an occasional, varied soft Flanders touch seasons the interactive prompts", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // skills tool
+            s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the skills tool question carries a soft touch"(_code, { askedQuestions }) {
+                Assert.ok(askedQuestions.includes("Which AI tool(s) should the skills be installed for, neighbor?"));
+            },
+            "the worker tool header carries a soft touch"(_code, { askedHeaders }) {
+                Assert.ok(askedHeaders.includes("Worker tool, neighborino"));
+            },
+            "the configure-another-reviewer question carries a soft touch"(_code, { askedQuestions }) {
+                Assert.ok(askedQuestions.includes("Okely-dokely — care to configure another reviewer?"));
+            },
+            "the touch stays occasional: the worker model question is plain"(_code, { askedQuestions }) {
+                Assert.ok(askedQuestions.includes("Which model should the worker use?"));
+            },
+            "the touch stays occasional: the worker effort question is plain"(_code, { askedQuestions }) {
+                Assert.ok(askedQuestions.includes("What effort level should the worker use?"));
+            }
+        }
+    });
+
+    test("the invalid-minimum re-prompt status carries a soft touch while the minimum question stays plain", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // skills tool
+            s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 1 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 1 effort
+            s.askResponses.push([{ picked: [{ label: "yes" }] }]); // Configure another?
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 2 tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 2 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 2 effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // Configure another? -> two reviewers
+            s.askTextResponses.push("0"); // invalid -> re-prompt with the flavored status notice
+            s.askTextResponses.push("2"); // valid (== T) -> every reviewer required, no optional prompts
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the invalid-entry re-prompt status carries a soft touch"(_code, { written }) {
+                Assert.ok(written.includes("Whoopsie — enter an integer between 1 and 2, or leave empty for 2.\n"));
+            },
+            "the touch stays occasional: the minimum-reviews question is plain"(_code, { askedTextPrompts }) {
+                Assert.ok(askedTextPrompts.includes("Minimum reviewers that must run to a verdict in each review round (1-2, empty for 2): "));
+            }
+        }
+    });
+
+    test("printed file-path lines are exactly the paths, untouched by the voice", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "stdout is exactly the four path lines, each a bare path with no added prose"(_code, { written }) {
+                Assert.deepStrictEqual(written, [
+                    "/proj/.claude/skills/flanders-spec/SKILL.md\n",
+                    "/proj/.claude/skills/flanders-plan/SKILL.md\n",
+                    "/proj/.claude/skills/flanders-work/SKILL.md\n",
+                    "/proj/.flanders/config.json\n"
+                ]);
             }
         }
     });
@@ -4788,7 +4896,7 @@ test.describe("Install weighted-review collection (2.2)", test => {
                 Assert.strictEqual(askedTextPrompts.filter(p => p.includes("Minimum reviewers that must run to a verdict")).length, 3);
             },
             "a range notice is written for each invalid entry"(_result, { written }) {
-                Assert.strictEqual(written.filter(w => w === "Enter an integer between 1 and 2, or leave empty for 2.\n").length, 2);
+                Assert.strictEqual(written.filter(w => w === "Whoopsie — enter an integer between 1 and 2, or leave empty for 2.\n").length, 2);
             }
         }
     });
