@@ -1,4 +1,5 @@
-import type { TimeContext, TimeoutHandle } from "../contexts";
+import type { RandomContext, TimeContext, TimeoutHandle } from "../contexts";
+import { pickVariant, workingPool } from "../voiceVariants";
 import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatWaitingFooter, formatWorkingFooter, ORANGE, RESET, SEPARATOR_GLYPH, stripAnsi } from "./formatters";
 import type { ReviewerEntry } from "./formatters";
 
@@ -42,6 +43,7 @@ export type TerminalLabel = "Done" | "Hard stop" | "Interrupted" | "Failed";
 
 const FRAMES = ["⣋", "⣙", "⣹", "⣸", "⣼", "⣴", "⣦", "⣧", "⣇", "⣏"];
 const FRAME_MS = 200;
+const LABEL_MS = 5000;
 const AUTOWRAP_OFF = "\x1b[?7l";
 const AUTOWRAP_ON = "\x1b[?7h";
 const CR = "\r";
@@ -55,17 +57,22 @@ export class BottomBlock {
     private _metrics:MetricsFields = {};
     private _footer:FooterState = { kind: "working" };
     private _animFrame = 0;
+    private _workingLabel = "";
     private _animTimer:TimeoutHandle|null = null;
+    private _labelTimer:TimeoutHandle|null = null;
     private _countdownTimer:TimeoutHandle|null = null;
     private _unsubResize:(() => void)|null = null;
     private _prevLineWidths:readonly number[]|null = null;
 
-    constructor(private _io:BottomBlockIO, private _time:TimeContext) {}
+    constructor(private _io:BottomBlockIO, private _time:TimeContext, private _random:RandomContext) {}
 
     mount():void {
         if (this._disposed) return;
         if (this._mounted) return;
         this._mounted = true;
+        if (this._footer.kind === "working") {
+            this._workingLabel = pickVariant(workingPool, this._random);
+        }
         this._unsubResize = this._io.onResize(() => {
             this._clearBlock();
             this._drawBlock();
@@ -102,6 +109,7 @@ export class BottomBlock {
         this._footer = state;
         if (state.kind === "working") {
             this._animFrame = 0;
+            this._workingLabel = pickVariant(workingPool, this._random);
         }
         if (this._mounted) {
             this._clearBlock();
@@ -153,6 +161,10 @@ export class BottomBlock {
             this._animTimer.cancel();
             this._animTimer = null;
         }
+        if (this._labelTimer) {
+            this._labelTimer.cancel();
+            this._labelTimer = null;
+        }
         if (this._countdownTimer) {
             this._countdownTimer.cancel();
             this._countdownTimer = null;
@@ -162,6 +174,7 @@ export class BottomBlock {
     private _startFooterTimer():void {
         if (this._footer.kind === "working") {
             this._scheduleAnimTick();
+            this._scheduleLabelTick();
         } else if (this._footer.kind === "waiting") {
             this._scheduleCountdownTick();
         }
@@ -177,6 +190,20 @@ export class BottomBlock {
             this._drawBlock();
             this._scheduleAnimTick();
         }, FRAME_MS);
+    }
+
+    private _scheduleLabelTick():void {
+        // The working label rotates on its own 5 s cadence, independent of the 200 ms spinner
+        // animation; each rotation picks a pool entry different from the one currently shown.
+        this._labelTimer = this._time.setTimeout(() => {
+            this._labelTimer = null;
+            /* coverage ignore next */ // — Defensive: _cancelTimers prevents this callback from firing after dispose/finalize/footer-change.
+            if (this._disposed || this._finalized || this._footer.kind !== "working") return;
+            this._workingLabel = pickVariant(workingPool, this._random, this._workingLabel);
+            this._clearBlock();
+            this._drawBlock();
+            this._scheduleLabelTick();
+        }, LABEL_MS);
     }
 
     private _scheduleCountdownTick():void {
@@ -252,7 +279,7 @@ export class BottomBlock {
             case "blank":
                 return "";
             case "working":
-                return formatWorkingFooter(FRAMES[this._animFrame]!, cols);
+                return formatWorkingFooter(FRAMES[this._animFrame]!, this._workingLabel, cols);
             case "waiting": {
                 const remaining = Math.max(0, this._footer.endTime - this._time.now());
                 const dateStr = formatDateTime(new Date(this._footer.endTime));

@@ -126,7 +126,7 @@ export class Implement {
             write: text => this._contexts.output.write(text),
             columns: () => this._contexts.output.columns(),
             onResize: listener => this._contexts.output.onResize(listener)
-        }, this._contexts.time);
+        }, this._contexts.time, this._contexts.random);
         this._block = block;
         block.mount();
         this._buffered = new LineBufferedBlock(block);

@@ -274,8 +274,8 @@ function fitOrangeFooterLine(text:string, cols:number):string {
     return renderSegmentsToWidth([{ text, color: ORANGE }], cols);
 }
 
-export function formatWorkingFooter(frame:string, cols:number):string {
-    return fitOrangeFooterLine(`${frame} Working`, cols);
+export function formatWorkingFooter(frame:string, label:string, cols:number):string {
+    return fitOrangeFooterLine(`${frame} ${label}`, cols);
 }
 
 export function formatWaitingFooter(heading:string, dateTime:string, countdown:string, cols:number):string {

@@ -9,6 +9,11 @@ import type { SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { HeaderFields, MetricsFields, TerminalLabel } from "../ui/BottomBlock";
 import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, SEPARATOR_GLYPH, stripAnsi } from "../ui/formatters";
+import { workingPool } from "../voiceVariants";
+
+// The stub random context returns 0, so the rotating working footer label is
+// always workingPool[0] — the deterministic label the live footer renders here.
+const WORKING_LABEL = workingPool[0]!;
 
 type FakeProcess = SpawnedProcess & {
     $emitStdout(chunk:string):void;
@@ -1141,9 +1146,9 @@ test.describe("Implement intermediate header and metrics states", test => {
                 Assert.ok(metricsCalls.length >= 1, "need at least 1 metrics call");
                 Assert.deepStrictEqual(metricsCalls[0]!.plan, { tokens: 0, seconds: 0 });
             },
-            "footer shows Working in output"(_result, { s }) {
+            "footer shows the working label in output"(_result, { s }) {
                 const allOutput = s.written.join("");
-                Assert.ok(allOutput.includes("Working"), "footer should show Working label");
+                Assert.ok(allOutput.includes(WORKING_LABEL), "footer should show the working-pool label");
             }
         }
     });
@@ -1354,7 +1359,7 @@ test.describe("Implement footer animation", test => {
             Assert.strictEqual(code, 0);
             const allOutput = written.join("");
             Assert.ok(allOutput.includes(ORANGE), "footer should contain orange escape");
-            Assert.ok(allOutput.includes("Working"), "footer should contain Working label");
+            Assert.ok(allOutput.includes(WORKING_LABEL), "footer should contain the working-pool label");
             Assert.ok(allOutput.includes(ANSI_RESET), "footer should contain reset escape");
         }
     });
@@ -1612,7 +1617,7 @@ test.describe("Implement rate-limit footer", test => {
             },
             "animation resumes after wait ends"({ duringRateLimit, afterRateLimit }) {
                 const afterPortion = afterRateLimit.slice(duringRateLimit.length);
-                Assert.ok(afterPortion.includes("Working"));
+                Assert.ok(afterPortion.includes(WORKING_LABEL));
             }
         }
     });
@@ -1744,9 +1749,9 @@ test.describe("Implement no preparing stage", test => {
             "no footer state is set before the worker stage — the footer stays the initial Working render"({ footerKindsAtWorker }) {
                 Assert.deepStrictEqual(footerKindsAtWorker, []);
             },
-            "while the worker call is in flight the live footer line shows the Working label"({ outputDuringWorker }) {
+            "while the worker call is in flight the live footer line shows the working label"({ outputDuringWorker }) {
                 const footerLine = stripAnsi(outputDuringWorker.split("\n").pop() ?? "");
-                Assert.ok(footerLine.endsWith("Working"), `live footer at worker start should end with 'Working', got: ${JSON.stringify(footerLine)}`);
+                Assert.ok(footerLine.endsWith(WORKING_LABEL), `live footer at worker start should end with the working label, got: ${JSON.stringify(footerLine)}`);
             }
         }
     });

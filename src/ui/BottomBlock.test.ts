@@ -5,7 +5,8 @@ import { Terminal } from "@xterm/headless";
 
 import { BottomBlock } from "./BottomBlock";
 import type { BottomBlockIO, ReviewerEntry } from "./BottomBlock";
-import type { TimeoutHandle } from "../contexts";
+import type { RandomContext, TimeoutHandle } from "../contexts";
+import { workingPool } from "../voiceVariants";
 import { CYAN, YELLOW, MAGENTA, GREEN, ORANGE, RESET, SEPARATOR_GLYPH, formatDateTime, stripAnsi } from "./formatters";
 
 type FakeTimer = { handler:() => void; at:number };
@@ -69,8 +70,25 @@ const SEP = SEPARATOR_GLYPH;
 const CLEAR_SEQ = "\x1b[3A\r\x1b[J";
 const ALT_SCREEN_ON = "\x1b[?1049h";
 
-function makeBlock(io:BottomBlockIO, time:ReturnType<typeof fakeTime>) {
-    return new BottomBlock(io, time);
+// A stub RandomContext returning a fixed float. The default 0 maps pickVariant to
+// workingPool[0] === "Workin'-diddly", the deterministic working label every test
+// that does not override it observes.
+function fakeRandom(value:number = 0):RandomContext {
+    return { random() { return value; } };
+}
+
+const DEFAULT_LABEL = workingPool[0]!; // "Workin'-diddly", what fakeRandom(0) selects.
+
+// Extracts the working label rendered in a footer line: everything after the
+// single space that follows the one-glyph spinner frame. Lets tests read the
+// rotating label off the rendered footer rather than any private field.
+function workingLabelOf(output:string):string {
+    const footerPlain = stripAnsi(output.split("\n").pop() ?? "");
+    return footerPlain.slice(footerPlain.indexOf(" ") + 1);
+}
+
+function makeBlock(io:BottomBlockIO, time:ReturnType<typeof fakeTime>, random:RandomContext = fakeRandom(0)) {
+    return new BottomBlock(io, time, random);
 }
 
 // Reads each visible viewport row of an @xterm/headless Terminal as a plain
@@ -107,7 +125,7 @@ function readEmulatorViewport(term:Terminal):string[] {
 // lands pinned to the bottom. With no `aboveContent` (the default) the region
 // above the block is the original blank filler, leaving the existing emulator
 // tests unaffected.
-async function mountEmulatorBlock(cols:number, termRows:number, aboveContent?:readonly string[]) {
+async function mountEmulatorBlock(cols:number, termRows:number, aboveContent?:readonly string[], random:RandomContext = fakeRandom(0)) {
     // convertEol mirrors how the OS layer translates LF to CRLF when stdout is a real TTY.
     const term = new Terminal({ cols, rows: termRows, convertEol: true, allowProposedApi: true });
     const resizeListeners = new Set<() => void>();
@@ -141,7 +159,7 @@ async function mountEmulatorBlock(cols:number, termRows:number, aboveContent?:re
     } else {
         await new Promise<void>(resolve => { term.write("\n".repeat(termRows - 4), resolve); });
     }
-    const block = new BottomBlock(io, time);
+    const block = new BottomBlock(io, time, random);
     block.mount();
     block.setHeader({ indexLabel: "5/12", iteration: 2, activity: "implementing", taskNumber: "7.3", title: "Task title" });
     block.setMetrics({ task: { tokens: 100, seconds: 5 }, plan: { tokens: 200, seconds: 10 } });
@@ -196,8 +214,11 @@ test.describe("BottomBlock", test => {
             "contains orange color"(output) {
                 Assert.ok(output.includes(ORANGE));
             },
-            "contains Working label"(output) {
-                Assert.ok(output.includes("Working"));
+            "renders a working-pool label after the frame"(output) {
+                Assert.ok(workingPool.includes(workingLabelOf(output)));
+            },
+            "renders the pool entry the stub random selected"(output) {
+                Assert.strictEqual(workingLabelOf(output), DEFAULT_LABEL);
             },
             "contains first animation frame"(output) {
                 Assert.ok(output.includes("⣋"));
@@ -371,9 +392,9 @@ test.describe("BottomBlock", test => {
             "footer includes countdown in minutes"(result) {
                 Assert.ok(result.afterSet.includes("1 minutes"));
             },
-            "no Working label after switching to rate-limit"(result) {
+            "no working label after switching to rate-limit"(result) {
                 const afterSetFooter = result.afterSet.split(CLEAR_SEQ).pop() ?? "";
-                Assert.ok(!afterSetFooter.includes("Working"));
+                Assert.ok(!afterSetFooter.includes(DEFAULT_LABEL));
             },
             "countdown tick heading is exactly Waiting rate limit"(result) {
                 const footer = stripAnsi(result.afterTick.split("\n").pop() ?? "");
@@ -407,14 +428,14 @@ test.describe("BottomBlock", test => {
             return { afterSwitch, afterAnimTick };
         },
         ASSERTS: {
-            "shows Working after switching back"(result) {
-                Assert.ok(result.afterSwitch.includes("Working"));
+            "shows the working label after switching back"(result) {
+                Assert.ok(result.afterSwitch.includes(DEFAULT_LABEL));
             },
             "no countdown label after switching"(result) {
                 Assert.ok(!result.afterSwitch.includes("Waiting rate limit"));
             },
             "animation ticks after 200ms"(result) {
-                Assert.ok(result.afterAnimTick.includes("Working"));
+                Assert.ok(result.afterAnimTick.includes(DEFAULT_LABEL));
             }
         }
     });
@@ -443,8 +464,8 @@ test.describe("BottomBlock", test => {
             "shows second animation frame"(output) {
                 Assert.ok(output.includes("⣙"));
             },
-            "contains Working label"(output) {
-                Assert.ok(output.includes("Working"));
+            "contains the working label"(output) {
+                Assert.ok(output.includes(DEFAULT_LABEL));
             }
         }
     });
@@ -848,7 +869,7 @@ test.describe("BottomBlock", test => {
         }
     });
 
-    test("all animation frames include orange and Working", {
+    test("all animation frames include orange and the working label", {
         ARRANGE() {
             const io = stubIO(40);
             const time = fakeTime();
@@ -872,15 +893,143 @@ test.describe("BottomBlock", test => {
                     Assert.ok(frame.includes(ORANGE), "should contain orange");
                 }
             },
-            "all animation frames include Working"(frames) {
+            "all animation frames include the working label"(frames) {
                 for (const frame of frames) {
-                    Assert.ok(frame.includes("Working"), "should contain Working");
+                    Assert.ok(frame.includes(DEFAULT_LABEL), "should contain the working label");
                 }
             },
             "all animation frames include reset"(frames) {
                 for (const frame of frames) {
                     Assert.ok(frame.includes(RESET), "should contain reset");
                 }
+            }
+        }
+    });
+
+    test("the working label at mount is the pool entry chosen through the injected random context", {
+        ARRANGE() {
+            const io = stubIO(80);
+            const time = fakeTime();
+            // 0.5 * 50 = 25, so workingPool[25] is selected — a different entry than the
+            // fakeRandom(0) default, proving the selection routes through the random context.
+            const block = makeBlock(io, time, fakeRandom(0.5));
+            return { io, block };
+        },
+        ACT({ io, block }) {
+            block.mount();
+            return workingLabelOf(io.output);
+        },
+        ASSERTS: {
+            "the label is a working-pool entry"(label) {
+                Assert.ok(workingPool.includes(label));
+            },
+            "the label is exactly the entry the random value indexes"(label) {
+                Assert.strictEqual(label, workingPool[25]);
+            }
+        }
+    });
+
+    test("mounting in the working state schedules both the animation and the label timers", {
+        ARRANGE() {
+            const io = stubIO(80);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            return { time, block };
+        },
+        ACT({ time, block }) {
+            block.mount();
+            return time.pendingCount;
+        },
+        ASSERT(pendingCount) {
+            Assert.strictEqual(pendingCount, 2);
+        }
+    });
+
+    test("advancing 5 seconds rotates the working label to a different pool entry", {
+        ARRANGE() {
+            const io = stubIO(80);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.mount();
+            const before = workingLabelOf(io.output);
+            io.reset();
+            return { io, time, before };
+        },
+        ACT({ io, time, before }) {
+            time.advance(5000);
+            return { before, after: workingLabelOf(io.output) };
+        },
+        ASSERTS: {
+            "the label shown before rotation is a pool entry"(result) {
+                Assert.ok(workingPool.includes(result.before));
+            },
+            "the label shown after 5 seconds is a pool entry"(result) {
+                Assert.ok(workingPool.includes(result.after));
+            },
+            "the label after 5 seconds differs from the one shown before"(result) {
+                Assert.notStrictEqual(result.after, result.before);
+            }
+        }
+    });
+
+    test("the spinner animation and the working-label rotation advance on independent cadences", {
+        ARRANGE() {
+            const io = stubIO(80);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.mount();
+            const initialLabel = workingLabelOf(io.output);
+            const initialFrame = stripAnsi(io.output.split("\n").pop() ?? "")[0];
+            io.reset();
+            return { io, time, initialLabel, initialFrame };
+        },
+        ACT({ io, time, initialLabel, initialFrame }) {
+            time.advance(200);
+            const afterAnim = io.output;
+            const labelAfterAnim = workingLabelOf(afterAnim);
+            const frameAfterAnim = stripAnsi(afterAnim.split("\n").pop() ?? "")[0];
+            io.reset();
+            time.advance(4800);
+            const labelAfterLabelTick = workingLabelOf(io.output);
+            return { initialLabel, initialFrame, labelAfterAnim, frameAfterAnim, labelAfterLabelTick };
+        },
+        ASSERTS: {
+            "the spinner frame advances after a single 200 ms tick"(result) {
+                Assert.notStrictEqual(result.frameAfterAnim, result.initialFrame);
+            },
+            "the working label is unchanged after the 200 ms spinner tick"(result) {
+                Assert.strictEqual(result.labelAfterAnim, result.initialLabel);
+            },
+            "the working label rotates only once the full 5 seconds have elapsed"(result) {
+                Assert.notStrictEqual(result.labelAfterLabelTick, result.initialLabel);
+            }
+        }
+    });
+
+    test("switching from working to reviewing tears down both footer timers — no writes past the 5-second label cadence", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            const pendingAfterSwitch = time.pendingCount;
+            io.reset();
+            time.advance(6000);
+            return { pendingAfterSwitch, writesAfterAdvance: io.writes.length };
+        },
+        ASSERTS: {
+            "no footer timer remains pending after leaving the working state"(result) {
+                Assert.strictEqual(result.pendingAfterSwitch, 0);
+            },
+            "advancing past the 5-second label cadence produces no writes"(result) {
+                Assert.strictEqual(result.writesAfterAdvance, 0);
             }
         }
     });
@@ -1035,9 +1184,9 @@ test.describe("BottomBlock", test => {
             "footer line is wrapped in ORANGE"(output) {
                 Assert.ok(output.includes(ORANGE + "review: claude (default): running" + RESET));
             },
-            "no Working label rendered while reviewing"(output) {
+            "no working label rendered while reviewing"(output) {
                 const lastDraw = output.split(CLEAR_SEQ).pop() ?? "";
-                Assert.ok(!lastDraw.includes("Working"));
+                Assert.ok(!lastDraw.includes(DEFAULT_LABEL));
             }
         }
     });
@@ -1156,11 +1305,11 @@ test.describe("BottomBlock", test => {
             return { pendingAfterSwitch, afterTick };
         },
         ASSERTS: {
-            "a timer is pending after switching to working"(result) {
-                Assert.strictEqual(result.pendingAfterSwitch, 1);
+            "both the animation and label timers are pending after switching to working"(result) {
+                Assert.strictEqual(result.pendingAfterSwitch, 2);
             },
             "the animation tick redraws the block"(result) {
-                Assert.ok(result.afterTick.includes("Working"));
+                Assert.ok(result.afterTick.includes(DEFAULT_LABEL));
             }
         }
     });
@@ -1254,10 +1403,10 @@ test.describe("BottomBlock", test => {
                 const footerPlain = stripAnsi(result.narrowDraw.split("\n").pop() ?? "");
                 Assert.strictEqual(footerPlain, "⣋ Wo…");
             },
-            "wide draw after resize shows the full Working label without ellipsis"(result) {
+            "wide draw after resize shows the full working label without ellipsis"(result) {
                 const lastDraw = result.wideDraw.split(CLEAR_SEQ).pop() ?? "";
                 const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
-                Assert.strictEqual(footerPlain, "⣋ Working");
+                Assert.strictEqual(footerPlain, `⣋ ${DEFAULT_LABEL}`);
             }
         }
     });
@@ -1336,12 +1485,13 @@ test.describe("BottomBlock", test => {
     test("clearBlock emits the complete reflow-aware clear (cursor-up over the post-reflow height, erase, re-anchor) after a shrink resize", {
         ARRANGE() {
             // Mounted at 80 cols with a blank header and metrics; the footer is
-            // the working frame "⣋ Working" (9 visible chars). Recorded line
-            // widths are therefore [80, 0, 0, 9]. After a shrink to 5 cols each
-            // previously-drawn line reflows to ceil(width/5) rows:
-            //   separator ceil(80/5)=16, header max(1,0)=1, metrics 1, footer ceil(9/5)=2
-            // => 20 physical rows. The clear moves up 20-1=19 to the top of that
-            // footprint, erases to end of screen, then drops back down 20-4=16 so
+            // the working frame "⣋ Workin'-diddly" (16 visible chars, the label
+            // fakeRandom(0) selects). Recorded line widths are therefore
+            // [80, 0, 0, 16]. After a shrink to 5 cols each previously-drawn line
+            // reflows to ceil(width/5) rows:
+            //   separator ceil(80/5)=16, header max(1,0)=1, metrics 1, footer ceil(16/5)=4
+            // => 22 physical rows. The clear moves up 22-1=21 to the top of that
+            // footprint, erases to end of screen, then drops back down 22-4=18 so
             // the freshly drawn four rows re-anchor at the bottom.
             const io = stubIO(80);
             const time = fakeTime();
@@ -1357,7 +1507,7 @@ test.describe("BottomBlock", test => {
         },
         ASSERTS: {
             "the entire clear is emitted as a single write equal to the reflow-aware cursor-up/erase/re-anchor sequence"(writes) {
-                Assert.strictEqual(writes[0], "\x1b[19A\r\x1b[J\x1b[16B");
+                Assert.strictEqual(writes[0], "\x1b[21A\r\x1b[J\x1b[18B");
             },
             "the write immediately after the clear is the block redraw, proving nothing else belongs to the clear"(writes) {
                 Assert.ok(writes[1]!.startsWith("\x1b[?7l"), "redraw begins with autowrap-off");
@@ -1440,8 +1590,8 @@ test.describe("BottomBlock", test => {
             "metrics row at the row-above-bottom position carries the metrics fields"(rows, { termRows }) {
                 Assert.strictEqual(rows[termRows - 2], "task 100 5s  │  plan 200 10s");
             },
-            "footer row at the bottom carries the Working label with the first animation frame"(rows, { termRows }) {
-                Assert.strictEqual(rows[termRows - 1], "⣋ Working");
+            "footer row at the bottom carries the working label with the first animation frame"(rows, { termRows }) {
+                Assert.strictEqual(rows[termRows - 1], `⣋ ${DEFAULT_LABEL}`);
             },
             "row immediately above the block is not a stale all-─ separator"(rows, { newCols, termRows }) {
                 Assert.notStrictEqual(rows[termRows - 5], SEPARATOR_GLYPH.repeat(newCols));
@@ -1471,8 +1621,8 @@ test.describe("BottomBlock", test => {
                 "the separator row at the third-from-bottom position spans the new width with only ─ glyphs"(rows, { newCols, termRows }) {
                     Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(newCols));
                 },
-                "the footer row at the bottom carries the Working label, proving the block re-anchored to the bottom"(rows, { termRows }) {
-                    Assert.strictEqual(rows[termRows - 1], "⣋ Working");
+                "the footer row at the bottom carries the working label, proving the block re-anchored to the bottom"(rows, { termRows }) {
+                    Assert.strictEqual(rows[termRows - 1], `⣋ ${DEFAULT_LABEL}`);
                 },
                 "the row immediately above the block is not a stale all-─ separator chunk left by the reflow"(rows, { newCols, termRows }) {
                     Assert.notStrictEqual(rows[termRows - 5], SEPARATOR_GLYPH.repeat(newCols));
@@ -1525,8 +1675,8 @@ test.describe("BottomBlock", test => {
                 "the metrics row renders its full form at the new width"(result, { termRows }) {
                     Assert.strictEqual(result.wide[termRows - 2], "task 100 5s  │  plan 200 10s");
                 },
-                "the footer row carries the Working label at the bottom of the terminal"(result, { termRows }) {
-                    Assert.strictEqual(result.wide[termRows - 1], "⣋ Working");
+                "the footer row carries the working label at the bottom of the terminal"(result, { termRows }) {
+                    Assert.strictEqual(result.wide[termRows - 1], `⣋ ${DEFAULT_LABEL}`);
                 },
                 "every row above the four-row block is empty after the widen — no stale narrow separator or pre-widen content"(result, { termRows }) {
                     Assert.deepStrictEqual(result.wide.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
@@ -1567,13 +1717,42 @@ test.describe("BottomBlock", test => {
                 Assert.strictEqual(rows[termRows - 2], "task 100 5s  │  plan 200 10s");
             },
             "the footer row is the bottom row, proving the block re-anchored to the bottom"(rows, { termRows }) {
-                Assert.strictEqual(rows[termRows - 1], "⣋ Working");
+                Assert.strictEqual(rows[termRows - 1], `⣋ ${DEFAULT_LABEL}`);
             },
             "no row above the block is a stale separator chunk left by the reflow"(rows, { termRows }) {
                 Assert.ok(rows.slice(0, termRows - 4).every(r => !/^─+$/.test(r)), "no row above the block may be an all-separator row");
             },
             "the reflowed wrapped output region is preserved above the block"(rows, { termRows }) {
                 Assert.ok(rows.slice(0, termRows - 4).some(r => r.includes("OUT")), "the seeded output must remain visible above the block");
+            }
+        }
+    });
+
+    test("@xterm/headless: a long working variant at a narrow width is truncated to a single row with an ellipsis, keeping the block exactly four rows", {
+        ARRANGE() {
+            // 0.47 * 50 = 23 -> workingPool[23] === "Diddly-developin'" (17 chars).
+            // "⣋ Diddly-developin'" is 19 visible cells, wider than the 12-col terminal,
+            // so the block (drawn with autowrap off) must truncate it to one 12-cell row
+            // rather than letting it wrap into a second physical row.
+            return { cols: 12, termRows: 24, random: fakeRandom(0.47) };
+        },
+        async ACT({ cols, termRows, random }) {
+            const { term, block, flush } = await mountEmulatorBlock(cols, termRows, undefined, random);
+            await flush();
+            const rows = readEmulatorViewport(term);
+            block.dispose();
+            term.dispose();
+            return rows;
+        },
+        ASSERTS: {
+            "the footer row is the long variant truncated to the width with a trailing ellipsis"(rows, { termRows }) {
+                Assert.strictEqual(rows[termRows - 1], "⣋ Diddly-de…");
+            },
+            "the separator row spans exactly the narrow width with only ─ glyphs"(rows, { cols, termRows }) {
+                Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(cols));
+            },
+            "the block occupies exactly four rows — every row above the bottom four is empty, so the long label did not wrap"(rows, { termRows }) {
+                Assert.deepStrictEqual(rows.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
             }
         }
     });

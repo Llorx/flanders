@@ -1395,24 +1395,37 @@ test.describe("formatReviewingFooter", test => {
 test.describe("formatWorkingFooter", test => {
     test("returns the full ORANGE-wrapped string when the plain text fits within cols", {
         ARRANGE() {
-            return { frame: "⣋", cols: 120 };
+            return { frame: "⣋", label: "Workin'-diddly", cols: 120 };
         },
-        ACT({ frame, cols }) {
-            return formatWorkingFooter(frame, cols);
+        ACT({ frame, label, cols }) {
+            return formatWorkingFooter(frame, label, cols);
         },
         ASSERT(result) {
-            Assert.strictEqual(result, ORANGE + "⣋ Working" + RESET);
+            Assert.strictEqual(result, ORANGE + "⣋ Workin'-diddly" + RESET);
+        }
+    });
+
+    test("interpolates the frame and the label as `${frame} ${label}`", {
+        ARRANGE() {
+            return { frame: "⣙", label: "Toilin' away", cols: 120 };
+        },
+        ACT({ frame, label, cols }) {
+            return formatWorkingFooter(frame, label, cols);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, ORANGE + "⣙ Toilin' away" + RESET);
         }
     });
 
     test("returns the full untruncated string at exact boundary (plain length === cols)", {
         ARRANGE() {
             const frame = "⣋";
-            const plain = `${frame} Working`;
-            return { frame, cols: plain.length, plain };
+            const label = "Workin'-diddly";
+            const plain = `${frame} ${label}`;
+            return { frame, label, cols: plain.length, plain };
         },
-        ACT({ frame, cols }) {
-            return formatWorkingFooter(frame, cols);
+        ACT({ frame, label, cols }) {
+            return formatWorkingFooter(frame, label, cols);
         },
         ASSERTS: {
             "returns the full ORANGE-wrapped string"(result, { plain }) {
@@ -1426,10 +1439,10 @@ test.describe("formatWorkingFooter", test => {
 
     test("truncates with a trailing ellipsis when the plain text exceeds cols", {
         ARRANGE() {
-            return { frame: "⣋", cols: 5 };
+            return { frame: "⣋", label: "Workin'-diddly", cols: 5 };
         },
-        ACT({ frame, cols }) {
-            return formatWorkingFooter(frame, cols);
+        ACT({ frame, label, cols }) {
+            return formatWorkingFooter(frame, label, cols);
         },
         ASSERTS: {
             "exact truncated plain string matches"(result) {
@@ -1443,6 +1456,23 @@ test.describe("formatWorkingFooter", test => {
             },
             "colors the surviving prefix in ORANGE with trailing RESET"(result) {
                 Assert.strictEqual(result, ORANGE + "⣋ Wo" + RESET + "…");
+            }
+        }
+    });
+
+    test("truncates a long working variant rather than letting it overflow", {
+        ARRANGE() {
+            return { frame: "⣋", label: "Diddly-developin'", cols: 12 };
+        },
+        ACT({ frame, label, cols }) {
+            return formatWorkingFooter(frame, label, cols);
+        },
+        ASSERTS: {
+            "exact truncated plain string matches"(result) {
+                Assert.strictEqual(stripAnsi(result), "⣋ Diddly-de…");
+            },
+            "plain text length equals cols"(result) {
+                Assert.strictEqual(stripAnsi(result).length, 12);
             }
         }
     });
