@@ -7,7 +7,7 @@ import type { ImplementContexts } from "./Implement";
 import type { FlandersConfig } from "../workspace/FlandersConfig";
 import type { SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 import { BottomBlock } from "../ui/BottomBlock";
-import type { HeaderFields, MetricsFields, TerminalLabel } from "../ui/BottomBlock";
+import type { HeaderFields, MetricsFields, TerminalLabel, ReviewerEntry } from "../ui/BottomBlock";
 import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, SEPARATOR_GLYPH, stripAnsi } from "../ui/formatters";
 
 type FakeProcess = SpawnedProcess & {
@@ -7262,6 +7262,105 @@ test.describe("Implement multiple parallel reviewers", test => {
                     if (compressed[compressed.length - 1] !== st) compressed.push(st);
                 }
                 Assert.deepStrictEqual(compressed, ["running", "waiting", "running", "ok"]);
+            }
+        }
+    });
+
+    test("a rate-limited reviewer carries its endTime into the reviewing footer entry", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            const time = controllableTime();
+            (s.contexts as any).time = time.ctx;
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "claude-opus-4-1", effort: "high", optional: false }
+                ],
+                minimumReviews: 1
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            // Capture the full ReviewerEntry of every reviewing snapshot (preserving
+            // endTime) so the test can assert the end time the production path carries
+            // into BottomBlock. Rendering of that endTime as a compact countdown is
+            // covered by the formatter and BottomBlock captured-output tests.
+            type FooterSnapshot = { kind:string; reviewers?:ReviewerEntry[] };
+            const footerCalls:FooterSnapshot[] = [];
+            const origSetFooter = BottomBlock.prototype.setFooter;
+            BottomBlock.prototype.setFooter = function(state) {
+                if (state.kind === "reviewing") {
+                    footerCalls.push({ kind: state.kind, reviewers: state.reviewers.map(r => ({ ...r })) });
+                } else {
+                    footerCalls.push({ kind: state.kind });
+                }
+                origSetFooter.call(this, state);
+            };
+            let spawnCount = 0;
+            (s.contexts.claude as any).spawn = () => {
+                spawnCount++;
+                const proc = fakeProcess();
+                const origStdin = proc.stdin!;
+                let capturedPrompt = "";
+                (proc as any).stdin = {
+                    write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; s.promptQueue.push(p.message.content); } } catch {} },
+                    end() { origStdin.end(); }
+                };
+                if (spawnCount === 3) {
+                    // First reviewer call (after detect + worker): rate-limit. now=3000 at
+                    // emission, retryAfter 5s → resetsAt 8 → waitUntilMs (endTime) 8000.
+                    time.advance(1000);
+                    setImmediate(() => {
+                        proc.$emitStdout(rateLimitEvent(time.ctx.now(), 5) + "\n");
+                        proc.$emit("exit", 0);
+                    });
+                } else {
+                    time.advance(1000);
+                    const response = s.claudeQueue.shift()!;
+                    setImmediate(() => {
+                        if (response.errorLog !== undefined) {
+                            const target = targetErrorLogFromPrompt(capturedPrompt);
+                            s.files.set(target, response.errorLog);
+                        }
+                        proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
+                        proc.$emit("exit", 0);
+                    });
+                }
+                return proc;
+            };
+            s.claudeQueue.push({ text: "ok", inputTokens: 5, outputTokens: 5 });
+            s.claudeQueue.push({ text: "worker", inputTokens: 50, outputTokens: 25 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25, errorLog: "" });
+            return { s, time, footerCalls, origSetFooter };
+        },
+        async ACT({ s, time, origSetFooter }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+                await flush();
+                time.advance(5000);
+                await flush();
+                const code = await cmd.result();
+                await cmd.dispose();
+                return code;
+            } finally {
+                BottomBlock.prototype.setFooter = origSetFooter;
+            }
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the waiting reviewing snapshot carries the reviewer's rate-limit endTime"(_code, { footerCalls }) {
+                const waiting = footerCalls.filter(c => c.kind === "reviewing").find(c => c.reviewers![0]!.state === "waiting");
+                Assert.ok(waiting, "expected a waiting reviewing snapshot");
+                Assert.strictEqual(waiting!.reviewers![0]!.endTime, 8000);
+            },
+            "non-waiting reviewing snapshots carry no endTime"(_code, { footerCalls }) {
+                const nonWaiting = footerCalls.filter(c => c.kind === "reviewing").filter(c => c.reviewers![0]!.state !== "waiting");
+                Assert.ok(nonWaiting.length > 0, "expected non-waiting reviewing snapshots");
+                for (const snap of nonWaiting) {
+                    Assert.strictEqual(snap.reviewers![0]!.endTime, undefined);
+                }
             }
         }
     });
