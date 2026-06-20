@@ -66,6 +66,15 @@ type ScriptResponse = { code:number; stdout:string; stderr:string };
 const PLAN_PATH = "/project/plans/test.md";
 const WS_ROOT = "/tmp/flanders-ws123";
 const CONFIG_PATH = "/project/.flanders/config.json";
+function reviewerRoot(n:number):string { return `/tmp/flanders-rev${n}`; }
+// The reviewer's verdict file lives in its own per-reviewer folder (ws.reviewerErrorLog(n) =
+// reviewerRoot(n)/error.log). The stub must write a reviewer's errorLog response to the same path
+// the orchestrator reads, so it recovers that reviewer's root from the prompt; a prompt that names
+// no reviewer root (e.g. a worker-stage write) falls back to the main folder's error.log.
+function targetErrorLogFromPrompt(capturedPrompt:string):string {
+    const m = capturedPrompt.match(/(\/tmp\/flanders-rev\d+)\/error\.log/);
+    return m ? `${m[1]}/error.log` : `${WS_ROOT}/error.log`;
+}
 
 function planWithLinkedFiles(contractLinks:string, ruleLinks:string):string {
     return [
@@ -98,6 +107,7 @@ function readdirForPaths(files:Map<string, string>) {
 function stubContexts(config:FlandersConfig) {
     const files = new Map<string, string>();
     files.set(CONFIG_PATH, JSON.stringify(config));
+    const mkdtempState = { count: 0 };
 
     const claudeQueue:ClaudeResponse[] = [];
     const codexQueue:CodexResponse[] = [];
@@ -128,9 +138,7 @@ function stubContexts(config:FlandersConfig) {
                         proc.$emit("error", new Error("spawn error"));
                     } else {
                         if (response.errorLog !== undefined) {
-                            const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                            const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
-                            files.set(target, response.errorLog);
+                            files.set(targetErrorLogFromPrompt(capturedPrompt), response.errorLog);
                         }
                         if (response.stderr) {
                             proc.$emitStderr(response.stderr);
@@ -163,9 +171,7 @@ function stubContexts(config:FlandersConfig) {
                             proc.$emit("error", new Error("spawn error"));
                         } else {
                             if (response.errorLog !== undefined) {
-                                const m = capturedPrompt.match(/error\.(\d+)\.log/);
-                                const target = m ? WS_ROOT + `/error.${m[1]}.log` : WS_ROOT + "/error.log";
-                                files.set(target, response.errorLog);
+                                files.set(targetErrorLogFromPrompt(capturedPrompt), response.errorLog);
                             }
                             proc.$emitStdout(codexResultEvents(response.text, response.sessionId));
                             proc.$emit("exit", 0);
@@ -198,7 +204,14 @@ function stubContexts(config:FlandersConfig) {
             },
             exists(p) { return Promise.resolve(files.has(p)); },
             mkdir() { return Promise.resolve(); },
-            mkdtemp(prefix) { return Promise.resolve(prefix + "ws123"); },
+            mkdtemp(prefix) {
+                // The first allocation is the main workspace root; each subsequent allocation is a
+                // distinct per-reviewer root, so reviewer spec.md/error.log never collide with the
+                // main folder or with one another.
+                mkdtempState.count++;
+                if (mkdtempState.count === 1) return Promise.resolve(prefix + "ws123");
+                return Promise.resolve(prefix + `rev${mkdtempState.count - 1}`);
+            },
             rm(p:string) { files.delete(p); return Promise.resolve(); }
         },
         time: {
@@ -262,10 +275,11 @@ type E2eResult = {
     claudeSpawnedArgs:string[][];
     codexSpawnedArgs:string[][];
     promptQueue:string[];
+    files:Map<string, string>;
 };
 
 test.describe("Implement e2e: deterministic injection across tools and configs", test => {
-    test("shape 1: claude/claude same triple — no prep, worker and reviewer are fresh and inline linked content", {
+    test("shape 1: claude/claude same triple — no prep, worker and reviewer are fresh and deliver linked content via spec.md", {
         ARRANGE() {
             const config:FlandersConfig = { worker: { tool: "claude", model: "m1", effort: "high" }, reviewers: [{ tool: "claude", model: "m1", effort: "high", optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
@@ -285,7 +299,7 @@ test.describe("Implement e2e: deterministic injection across tools and configs",
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return { code, claudeSpawnedArgs: s.claudeSpawnedArgs, codexSpawnedArgs: s.codexSpawnedArgs, promptQueue: s.promptQueue };
+            return { code, claudeSpawnedArgs: s.claudeSpawnedArgs, codexSpawnedArgs: s.codexSpawnedArgs, promptQueue: s.promptQueue, files: s.files };
         },
         ASSERTS: {
             "exits 0"({ code }) {
@@ -305,24 +319,37 @@ test.describe("Implement e2e: deterministic injection across tools and configs",
                 Assert.ok(!reviewerArgs.includes("--resume"));
                 Assert.ok(!reviewerArgs.includes("--fork-session"));
             },
-            "worker prompt inlines all linked content"({ promptQueue }) {
+            "worker prompt directs reading the main-folder spec.md and does not inline content"({ promptQueue }) {
                 const workerPrompt = promptQueue[1]!;
-                Assert.ok(workerPrompt.includes(CONTRACT_SNIPPET_1), "contract 1 must be inlined");
-                Assert.ok(workerPrompt.includes(CONTRACT_SNIPPET_2), "contract 2 must be inlined");
-                Assert.ok(workerPrompt.includes(RULE_SNIPPET_1), "rule 1 must be inlined");
-                Assert.ok(workerPrompt.includes(RULE_SNIPPET_2), "rule 2 must be inlined");
+                Assert.ok(workerPrompt.includes(WS_ROOT + "/spec.md"), "worker prompt must name the main-folder spec.md");
+                Assert.strictEqual(workerPrompt.includes(CONTRACT_SNIPPET_1), false, "linked content must not be inlined in the worker prompt");
             },
-            "reviewer prompt inlines all linked content"({ promptQueue }) {
+            "the worker's main-folder spec.md holds all linked content"({ files }) {
+                const spec = files.get(WS_ROOT + "/spec.md")!;
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_1), "contract 1 must be consolidated");
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_2), "contract 2 must be consolidated");
+                Assert.ok(spec.includes(RULE_SNIPPET_1), "rule 1 must be consolidated");
+                Assert.ok(spec.includes(RULE_SNIPPET_2), "rule 2 must be consolidated");
+            },
+            "reviewer prompt directs reading its own per-reviewer spec.md and does not inline content"({ promptQueue }) {
                 const reviewerPrompt = promptQueue[2]!;
-                Assert.ok(reviewerPrompt.includes(CONTRACT_SNIPPET_1));
-                Assert.ok(reviewerPrompt.includes(CONTRACT_SNIPPET_2));
-                Assert.ok(reviewerPrompt.includes(RULE_SNIPPET_1));
-                Assert.ok(reviewerPrompt.includes(RULE_SNIPPET_2));
+                Assert.ok(reviewerPrompt.includes(reviewerRoot(1) + "/spec.md"), "reviewer prompt must name its own per-reviewer spec.md");
+                Assert.strictEqual(reviewerPrompt.includes(CONTRACT_SNIPPET_1), false, "linked content must not be inlined in the reviewer prompt");
+            },
+            "the reviewer's own spec.md holds all linked content in its own per-reviewer folder"({ files }) {
+                const spec = files.get(reviewerRoot(1) + "/spec.md")!;
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_1), "contract 1 must be consolidated for the reviewer");
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_2), "contract 2 must be consolidated for the reviewer");
+                Assert.ok(spec.includes(RULE_SNIPPET_1), "rule 1 must be consolidated for the reviewer");
+                Assert.ok(spec.includes(RULE_SNIPPET_2), "rule 2 must be consolidated for the reviewer");
+            },
+            "the reviewer's spec.md is in its own folder, not the shared main folder"({ promptQueue }) {
+                Assert.strictEqual(promptQueue[2]!.includes(WS_ROOT + "/spec.md"), false, "reviewer prompt must not point at the main-folder spec.md");
             }
         }
     });
 
-    test("shape 2: codex/codex same triple — no prep, all spawns use codex and inline linked content", {
+    test("shape 2: codex/codex same triple — no prep, all spawns use codex and deliver linked content via spec.md", {
         ARRANGE() {
             const config:FlandersConfig = { worker: { tool: "codex", model: "m2", effort: "low" }, reviewers: [{ tool: "codex", model: "m2", effort: "low", optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
@@ -342,7 +369,7 @@ test.describe("Implement e2e: deterministic injection across tools and configs",
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return { code, claudeSpawnedArgs: s.claudeSpawnedArgs, codexSpawnedArgs: s.codexSpawnedArgs, promptQueue: s.promptQueue };
+            return { code, claudeSpawnedArgs: s.claudeSpawnedArgs, codexSpawnedArgs: s.codexSpawnedArgs, promptQueue: s.promptQueue, files: s.files };
         },
         ASSERTS: {
             "exits 0"({ code }) {
@@ -362,24 +389,37 @@ test.describe("Implement e2e: deterministic injection across tools and configs",
                 Assert.ok(!reviewerArgs.includes("fork"));
                 Assert.ok(!reviewerArgs.includes("resume"));
             },
-            "worker prompt inlines all linked content"({ promptQueue }) {
+            "worker prompt directs reading the main-folder spec.md and does not inline content"({ promptQueue }) {
                 const workerPrompt = promptQueue[1]!;
-                Assert.ok(workerPrompt.includes(CONTRACT_SNIPPET_1));
-                Assert.ok(workerPrompt.includes(CONTRACT_SNIPPET_2));
-                Assert.ok(workerPrompt.includes(RULE_SNIPPET_1));
-                Assert.ok(workerPrompt.includes(RULE_SNIPPET_2));
+                Assert.ok(workerPrompt.includes(WS_ROOT + "/spec.md"), "worker prompt must name the main-folder spec.md");
+                Assert.strictEqual(workerPrompt.includes(CONTRACT_SNIPPET_1), false, "linked content must not be inlined in the worker prompt");
             },
-            "reviewer prompt inlines all linked content"({ promptQueue }) {
+            "the worker's main-folder spec.md holds all linked content"({ files }) {
+                const spec = files.get(WS_ROOT + "/spec.md")!;
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_1), "contract 1 must be consolidated");
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_2), "contract 2 must be consolidated");
+                Assert.ok(spec.includes(RULE_SNIPPET_1), "rule 1 must be consolidated");
+                Assert.ok(spec.includes(RULE_SNIPPET_2), "rule 2 must be consolidated");
+            },
+            "reviewer prompt directs reading its own per-reviewer spec.md and does not inline content"({ promptQueue }) {
                 const reviewerPrompt = promptQueue[2]!;
-                Assert.ok(reviewerPrompt.includes(CONTRACT_SNIPPET_1));
-                Assert.ok(reviewerPrompt.includes(CONTRACT_SNIPPET_2));
-                Assert.ok(reviewerPrompt.includes(RULE_SNIPPET_1));
-                Assert.ok(reviewerPrompt.includes(RULE_SNIPPET_2));
+                Assert.ok(reviewerPrompt.includes(reviewerRoot(1) + "/spec.md"), "reviewer prompt must name its own per-reviewer spec.md");
+                Assert.strictEqual(reviewerPrompt.includes(CONTRACT_SNIPPET_1), false, "linked content must not be inlined in the reviewer prompt");
+            },
+            "the reviewer's own spec.md holds all linked content in its own per-reviewer folder"({ files }) {
+                const spec = files.get(reviewerRoot(1) + "/spec.md")!;
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_1), "contract 1 must be consolidated for the reviewer");
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_2), "contract 2 must be consolidated for the reviewer");
+                Assert.ok(spec.includes(RULE_SNIPPET_1), "rule 1 must be consolidated for the reviewer");
+                Assert.ok(spec.includes(RULE_SNIPPET_2), "rule 2 must be consolidated for the reviewer");
+            },
+            "the reviewer's spec.md is in its own folder, not the shared main folder"({ promptQueue }) {
+                Assert.strictEqual(promptQueue[2]!.includes(WS_ROOT + "/spec.md"), false, "reviewer prompt must not point at the main-folder spec.md");
             }
         }
     });
 
-    test("shape 3: claude/codex — worker and reviewer are fresh and inline linked content", {
+    test("shape 3: claude/codex — worker and reviewer are fresh and deliver linked content via spec.md", {
         ARRANGE() {
             const config:FlandersConfig = { worker: { tool: "claude", model: "m3", effort: "mid" }, reviewers: [{ tool: "codex", model: "m3", effort: "mid", optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
@@ -399,7 +439,7 @@ test.describe("Implement e2e: deterministic injection across tools and configs",
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return { code, claudeSpawnedArgs: s.claudeSpawnedArgs, codexSpawnedArgs: s.codexSpawnedArgs, promptQueue: s.promptQueue };
+            return { code, claudeSpawnedArgs: s.claudeSpawnedArgs, codexSpawnedArgs: s.codexSpawnedArgs, promptQueue: s.promptQueue, files: s.files };
         },
         ASSERTS: {
             "exits 0"({ code }) {
@@ -419,24 +459,37 @@ test.describe("Implement e2e: deterministic injection across tools and configs",
                 Assert.ok(!reviewerArgs.includes("fork"), "reviewer must not use fork");
                 Assert.ok(!reviewerArgs.includes("resume"), "reviewer must not use resume");
             },
-            "worker prompt inlines all linked content"({ promptQueue }) {
+            "worker prompt directs reading the main-folder spec.md and does not inline content"({ promptQueue }) {
                 const workerPrompt = promptQueue[1]!;
-                Assert.ok(workerPrompt.includes(CONTRACT_SNIPPET_1), "contract 1 must be inlined");
-                Assert.ok(workerPrompt.includes(CONTRACT_SNIPPET_2), "contract 2 must be inlined");
-                Assert.ok(workerPrompt.includes(RULE_SNIPPET_1), "rule 1 must be inlined");
-                Assert.ok(workerPrompt.includes(RULE_SNIPPET_2), "rule 2 must be inlined");
+                Assert.ok(workerPrompt.includes(WS_ROOT + "/spec.md"), "worker prompt must name the main-folder spec.md");
+                Assert.strictEqual(workerPrompt.includes(CONTRACT_SNIPPET_1), false, "linked content must not be inlined in the worker prompt");
             },
-            "reviewer prompt inlines all linked content"({ promptQueue }) {
+            "the worker's main-folder spec.md holds all linked content"({ files }) {
+                const spec = files.get(WS_ROOT + "/spec.md")!;
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_1), "contract 1 must be consolidated");
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_2), "contract 2 must be consolidated");
+                Assert.ok(spec.includes(RULE_SNIPPET_1), "rule 1 must be consolidated");
+                Assert.ok(spec.includes(RULE_SNIPPET_2), "rule 2 must be consolidated");
+            },
+            "reviewer prompt directs reading its own per-reviewer spec.md and does not inline content"({ promptQueue }) {
                 const reviewerPrompt = promptQueue[2]!;
-                Assert.ok(reviewerPrompt.includes(CONTRACT_SNIPPET_1), "contract 1 must be inlined in reviewer");
-                Assert.ok(reviewerPrompt.includes(CONTRACT_SNIPPET_2), "contract 2 must be inlined in reviewer");
-                Assert.ok(reviewerPrompt.includes(RULE_SNIPPET_1), "rule 1 must be inlined in reviewer");
-                Assert.ok(reviewerPrompt.includes(RULE_SNIPPET_2), "rule 2 must be inlined in reviewer");
+                Assert.ok(reviewerPrompt.includes(reviewerRoot(1) + "/spec.md"), "reviewer prompt must name its own per-reviewer spec.md");
+                Assert.strictEqual(reviewerPrompt.includes(CONTRACT_SNIPPET_1), false, "linked content must not be inlined in the reviewer prompt");
+            },
+            "the reviewer's own spec.md holds all linked content in its own per-reviewer folder"({ files }) {
+                const spec = files.get(reviewerRoot(1) + "/spec.md")!;
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_1), "contract 1 must be consolidated for the reviewer");
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_2), "contract 2 must be consolidated for the reviewer");
+                Assert.ok(spec.includes(RULE_SNIPPET_1), "rule 1 must be consolidated for the reviewer");
+                Assert.ok(spec.includes(RULE_SNIPPET_2), "rule 2 must be consolidated for the reviewer");
+            },
+            "the reviewer's spec.md is in its own folder, not the shared main folder"({ promptQueue }) {
+                Assert.strictEqual(promptQueue[2]!.includes(WS_ROOT + "/spec.md"), false, "reviewer prompt must not point at the main-folder spec.md");
             }
         }
     });
 
-    test("shape 4: claude/claude with different effort — fresh worker and reviewer inline linked content", {
+    test("shape 4: claude/claude with different effort — fresh worker and reviewer deliver linked content via spec.md", {
         ARRANGE() {
             const config:FlandersConfig = { worker: { tool: "claude", model: "m4", effort: "high" }, reviewers: [{ tool: "claude", model: "m4", effort: "low", optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
@@ -456,7 +509,7 @@ test.describe("Implement e2e: deterministic injection across tools and configs",
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return { code, claudeSpawnedArgs: s.claudeSpawnedArgs, codexSpawnedArgs: s.codexSpawnedArgs, promptQueue: s.promptQueue };
+            return { code, claudeSpawnedArgs: s.claudeSpawnedArgs, codexSpawnedArgs: s.codexSpawnedArgs, promptQueue: s.promptQueue, files: s.files };
         },
         ASSERTS: {
             "exits 0"({ code }) {
@@ -476,19 +529,32 @@ test.describe("Implement e2e: deterministic injection across tools and configs",
                 Assert.ok(!reviewerArgs.includes("--resume"), "reviewer must not have --resume");
                 Assert.ok(!reviewerArgs.includes("--fork-session"), "reviewer must not have --fork-session");
             },
-            "worker prompt inlines all linked content"({ promptQueue }) {
+            "worker prompt directs reading the main-folder spec.md and does not inline content"({ promptQueue }) {
                 const workerPrompt = promptQueue[1]!;
-                Assert.ok(workerPrompt.includes(CONTRACT_SNIPPET_1), "contract 1 must be inlined");
-                Assert.ok(workerPrompt.includes(CONTRACT_SNIPPET_2), "contract 2 must be inlined");
-                Assert.ok(workerPrompt.includes(RULE_SNIPPET_1), "rule 1 must be inlined");
-                Assert.ok(workerPrompt.includes(RULE_SNIPPET_2), "rule 2 must be inlined");
+                Assert.ok(workerPrompt.includes(WS_ROOT + "/spec.md"), "worker prompt must name the main-folder spec.md");
+                Assert.strictEqual(workerPrompt.includes(CONTRACT_SNIPPET_1), false, "linked content must not be inlined in the worker prompt");
             },
-            "reviewer prompt inlines all linked content"({ promptQueue }) {
+            "the worker's main-folder spec.md holds all linked content"({ files }) {
+                const spec = files.get(WS_ROOT + "/spec.md")!;
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_1), "contract 1 must be consolidated");
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_2), "contract 2 must be consolidated");
+                Assert.ok(spec.includes(RULE_SNIPPET_1), "rule 1 must be consolidated");
+                Assert.ok(spec.includes(RULE_SNIPPET_2), "rule 2 must be consolidated");
+            },
+            "reviewer prompt directs reading its own per-reviewer spec.md and does not inline content"({ promptQueue }) {
                 const reviewerPrompt = promptQueue[2]!;
-                Assert.ok(reviewerPrompt.includes(CONTRACT_SNIPPET_1), "contract 1 must be inlined in reviewer");
-                Assert.ok(reviewerPrompt.includes(CONTRACT_SNIPPET_2), "contract 2 must be inlined in reviewer");
-                Assert.ok(reviewerPrompt.includes(RULE_SNIPPET_1), "rule 1 must be inlined in reviewer");
-                Assert.ok(reviewerPrompt.includes(RULE_SNIPPET_2), "rule 2 must be inlined in reviewer");
+                Assert.ok(reviewerPrompt.includes(reviewerRoot(1) + "/spec.md"), "reviewer prompt must name its own per-reviewer spec.md");
+                Assert.strictEqual(reviewerPrompt.includes(CONTRACT_SNIPPET_1), false, "linked content must not be inlined in the reviewer prompt");
+            },
+            "the reviewer's own spec.md holds all linked content in its own per-reviewer folder"({ files }) {
+                const spec = files.get(reviewerRoot(1) + "/spec.md")!;
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_1), "contract 1 must be consolidated for the reviewer");
+                Assert.ok(spec.includes(CONTRACT_SNIPPET_2), "contract 2 must be consolidated for the reviewer");
+                Assert.ok(spec.includes(RULE_SNIPPET_1), "rule 1 must be consolidated for the reviewer");
+                Assert.ok(spec.includes(RULE_SNIPPET_2), "rule 2 must be consolidated for the reviewer");
+            },
+            "the reviewer's spec.md is in its own folder, not the shared main folder"({ promptQueue }) {
+                Assert.strictEqual(promptQueue[2]!.includes(WS_ROOT + "/spec.md"), false, "reviewer prompt must not point at the main-folder spec.md");
             }
         }
     });

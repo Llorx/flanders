@@ -6220,7 +6220,7 @@ function readdirForPaths(files:Map<string, string>) {
 }
 
 test.describe("Implement worker iter 1 deterministic injection", test => {
-    test("worker iteration 1 is a fresh invocation whose prompt carries the full task text and the inline-injected linked content", {
+    test("worker iteration 1 is a fresh invocation whose prompt carries the full task text and consolidates the linked content into spec.md", {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
@@ -6240,11 +6240,11 @@ test.describe("Implement worker iter 1 deterministic injection", test => {
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
-        async ACT({ contexts, claudeSpawnedArgs, promptQueue }) {
+        async ACT({ contexts, claudeSpawnedArgs, promptQueue, files }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return { code, claudeSpawnedArgs, promptQueue };
+            return { code, claudeSpawnedArgs, promptQueue, files };
         },
         ASSERTS: {
             "exits with code 0"({ code }) {
@@ -6264,14 +6264,27 @@ test.describe("Implement worker iter 1 deterministic injection", test => {
             "worker prompt carries the task body verbatim"({ promptQueue }) {
                 Assert.ok(promptQueue[1]!.includes("Description."), "worker prompt must carry the full task text (body)");
             },
-            "worker prompt inlines the linked contract body"({ promptQueue }) {
-                Assert.ok(promptQueue[1]!.includes("UNIQUE_CONTRACT_SNIPPET_BETA"), "linked contract content must be inlined");
+            "worker prompt directs reading the consolidated spec.md by path"({ promptQueue }) {
+                Assert.ok(promptQueue[1]!.includes(WS_ROOT + "/spec.md"), "worker prompt must name the consolidated spec.md path");
             },
-            "worker prompt inlines the linked rule body"({ promptQueue }) {
-                Assert.ok(promptQueue[1]!.includes("UNIQUE_RULE_SNIPPET_BETA"), "linked rule content must be inlined");
+            "the consolidated spec.md holds the linked contract body"({ files }) {
+                Assert.ok(files.get(WS_ROOT + "/spec.md")!.includes("UNIQUE_CONTRACT_SNIPPET_BETA"), "linked contract content must be in spec.md");
             },
-            "worker prompt does NOT contain unlinked global file content"({ promptQueue }) {
-                Assert.ok(!promptQueue[1]!.includes("UNLINKED_GLOBAL_SNIPPET"), "unlinked file content must NOT be inlined");
+            "the consolidated spec.md holds the linked rule body"({ files }) {
+                Assert.ok(files.get(WS_ROOT + "/spec.md")!.includes("UNIQUE_RULE_SNIPPET_BETA"), "linked rule content must be in spec.md");
+            },
+            "the worker prompt does NOT inline the linked contract body"({ promptQueue }) {
+                Assert.strictEqual(promptQueue[1]!.includes("UNIQUE_CONTRACT_SNIPPET_BETA"), false, "linked contract content must NOT be inlined in the prompt");
+            },
+            "the worker prompt does NOT inline the linked rule body"({ promptQueue }) {
+                Assert.strictEqual(promptQueue[1]!.includes("UNIQUE_RULE_SNIPPET_BETA"), false, "linked rule content must NOT be inlined in the prompt");
+            },
+            "the consolidated spec.md does NOT contain unlinked global file content"({ files }) {
+                Assert.strictEqual(files.get(WS_ROOT + "/spec.md")!.includes("UNLINKED_GLOBAL_SNIPPET"), false, "unlinked file content must NOT be consolidated");
+            },
+            "the consolidated spec.md excludes the task text"({ files }) {
+                const spec = files.get(WS_ROOT + "/spec.md")!;
+                Assert.ok(!spec.includes("1.1 Task with links") && !spec.includes("Description."), "the task line and body must NOT be consolidated into spec.md");
             }
         }
     });
@@ -6294,23 +6307,22 @@ test.describe("Implement worker iter 1 deterministic injection", test => {
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
-        async ACT({ contexts, promptQueue }) {
+        async ACT({ contexts, files }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return { code, promptQueue };
+            return { code, files };
         },
         ASSERTS: {
             "exits with code 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "the doubly-linked contract content is injected exactly once"({ promptQueue }) {
-                // promptQueue: [0]=detect, [1]=worker
-                const occurrences = (promptQueue[1]!.match(/DUP_WORKER_CONTRACT_SNIPPET/g) ?? []).length;
+            "the doubly-linked contract content is consolidated exactly once"({ files }) {
+                const occurrences = (files.get(WS_ROOT + "/spec.md")!.match(/DUP_WORKER_CONTRACT_SNIPPET/g) ?? []).length;
                 Assert.strictEqual(occurrences, 1);
             },
-            "the doubly-linked rule content is injected exactly once"({ promptQueue }) {
-                const occurrences = (promptQueue[1]!.match(/DUP_WORKER_RULE_SNIPPET/g) ?? []).length;
+            "the doubly-linked rule content is consolidated exactly once"({ files }) {
+                const occurrences = (files.get(WS_ROOT + "/spec.md")!.match(/DUP_WORKER_RULE_SNIPPET/g) ?? []).length;
                 Assert.strictEqual(occurrences, 1);
             }
         }
@@ -6457,7 +6469,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
         }
     });
 
-    test("iter 2 prompt does NOT re-inject the linked contract or rule body inlined on iteration 1", {
+    test("iter 2 prompt does NOT re-inject the linked contract or rule body consolidated on iteration 1", {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
@@ -6482,11 +6494,11 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
-        async ACT({ contexts, promptQueue }) {
+        async ACT({ contexts, promptQueue, files }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return { code, promptQueue };
+            return { code, promptQueue, files };
         },
         ASSERTS: {
             "exits with code 0"({ code }) {
@@ -6496,11 +6508,17 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
                 // promptQueue: [0]=detect, [1]=worker iter 1
                 Assert.ok(promptQueue[1]!.includes("Task with links"), "iter 1 must carry the full task text");
             },
-            "iter 1 prompt contains linked contract body"({ promptQueue }) {
-                Assert.ok(promptQueue[1]!.includes("UNIQUE_CONTRACT_ITER2_NOREPLAY"));
+            "iter 1 consolidates the linked contract body into spec.md"({ files }) {
+                Assert.ok(files.get(WS_ROOT + "/spec.md")!.includes("UNIQUE_CONTRACT_ITER2_NOREPLAY"));
             },
-            "iter 1 prompt contains linked rule body"({ promptQueue }) {
-                Assert.ok(promptQueue[1]!.includes("UNIQUE_RULE_ITER2_NOREPLAY"));
+            "iter 1 consolidates the linked rule body into spec.md"({ files }) {
+                Assert.ok(files.get(WS_ROOT + "/spec.md")!.includes("UNIQUE_RULE_ITER2_NOREPLAY"));
+            },
+            "iter 1 prompt directs reading the consolidated spec.md by path"({ promptQueue }) {
+                Assert.ok(promptQueue[1]!.includes(WS_ROOT + "/spec.md"), "iter 1 worker prompt must name the consolidated spec.md path");
+            },
+            "iter 1 prompt does NOT inline the linked contract body"({ promptQueue }) {
+                Assert.strictEqual(promptQueue[1]!.includes("UNIQUE_CONTRACT_ITER2_NOREPLAY"), false, "linked contract content must NOT be inlined in the prompt");
             },
             "iter 2 prompt does NOT re-inject the full task text"({ promptQueue }) {
                 // promptQueue: [0]=detect, [1]=worker iter 1, [2]=reviewer iter 1, [3]=worker iter 2
@@ -6512,11 +6530,11 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             "iter 2 prompt does NOT contain linked rule body"({ promptQueue }) {
                 Assert.ok(!promptQueue[3]!.includes("UNIQUE_RULE_ITER2_NOREPLAY"), "linked rule content must NOT be inlined in iter 2");
             },
-            "iter 1 prompt states the referenced content is available inline"({ promptQueue }) {
-                Assert.ok(promptQueue[1]!.includes("you do not need to open these files"), "iter 1 (which injects the content) tells the worker the references are inline");
+            "iter 1 prompt carries the consolidated spec.md directive"({ promptQueue }) {
+                Assert.ok(promptQueue[1]!.includes("## Linked reference content"), "iter 1 (which writes spec.md) directs the worker to read it");
             },
-            "iter 2 prompt does NOT claim the referenced content is available inline"({ promptQueue }) {
-                Assert.ok(!promptQueue[3]!.includes("you do not need to open these files"), "iter 2 does not inject the content, so it must not claim it is inline");
+            "iter 2 prompt does NOT carry the consolidated spec.md directive"({ promptQueue }) {
+                Assert.ok(!promptQueue[3]!.includes("## Linked reference content"), "iter 2 resumes the session, so it must not re-append the directive");
             },
             "iter 2 prompt does NOT make the unconditional 'full task is provided in this prompt' claim"({ promptQueue }) {
                 Assert.ok(!promptQueue[3]!.includes("the full task is provided in this prompt"), "iter 2 must not claim the full task is inlined");
@@ -6581,11 +6599,11 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
-        async ACT({ contexts, promptQueue, claudeSpawnedArgs }) {
+        async ACT({ contexts, promptQueue, claudeSpawnedArgs, files }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return { code, promptQueue, claudeSpawnedArgs };
+            return { code, promptQueue, claudeSpawnedArgs, files };
         },
         ASSERTS: {
             "exits with code 0"({ code }) {
@@ -6601,11 +6619,15 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             "iter 1 worker prompt carries the full task body"({ promptQueue }) {
                 Assert.ok(promptQueue[1]!.includes("Description."), "iter 1 must inject the full task text");
             },
-            "iter 1 worker prompt inlines the referenced contract and rule content"({ promptQueue }) {
-                Assert.ok(promptQueue[1]!.includes("FALLBACK_CONTRACT_SNIPPET") && promptQueue[1]!.includes("FALLBACK_RULE_SNIPPET"), "iter 1 must inject the referenced content");
+            "iter 1 consolidates the referenced contract and rule content into spec.md"({ files }) {
+                const spec = files.get(WS_ROOT + "/spec.md")!;
+                Assert.ok(spec.includes("FALLBACK_CONTRACT_SNIPPET") && spec.includes("FALLBACK_RULE_SNIPPET"), "iter 1 must consolidate the referenced content into spec.md");
             },
             "iter 2 fresh-fallback prompt identifies the task to implement"({ promptQueue }) {
                 Assert.ok(promptQueue[3]!.includes("Task with links"), "the fresh-fallback worker must be told which task to implement");
+            },
+            "iter 2 fresh-fallback prompt points the worker at the consolidated spec.md by path"({ promptQueue }) {
+                Assert.ok(promptQueue[3]!.includes(WS_ROOT + "/spec.md"), "the fresh fallback must direct the worker to reread the consolidated spec.md");
             },
             "iter 2 fresh-fallback prompt does NOT re-inject the full task body"({ promptQueue }) {
                 Assert.ok(!promptQueue[3]!.includes("Description."), "the fresh fallback must not replay the full task text");
@@ -6618,6 +6640,54 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             },
             "iter 2 fresh-fallback prompt does NOT falsely claim session continuity"({ promptQueue }) {
                 Assert.ok(!promptQueue[3]!.includes("through session continuity"), "the fresh fallback has no session, so it must not claim continuity");
+            }
+        }
+    });
+
+    test("the worker's spec.md is written on iteration 1 and not regenerated on iterations n>1", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            const plan = planWithLinkedFiles(
+                "[.spec/contracts/regen-c.md](/.spec/contracts/regen-c.md)",
+                "[.spec/rules/regen-r.md](/.spec/rules/regen-r.md)"
+            );
+            s.files.set(PLAN_PATH, plan);
+            s.files.set("/project/.spec/contracts/regen-c.md", "REGEN_CONTRACT_SNIPPET");
+            s.files.set("/project/.spec/rules/regen-r.md", "REGEN_RULE_SNIPPET");
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            // Capture every write to the worker's spec.md path across the run.
+            const specWrites:string[] = [];
+            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
+            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
+                if (p === WS_ROOT + "/spec.md") specWrites.push(c);
+                return origWriteFile(p, c);
+            };
+            s.claudeQueue.push({ text: "ok" });
+            // iter 1: worker captures session, reviewer FAIL
+            s.claudeQueue.push({ text: "w1", sessionId: "w-regen" });
+            s.claudeQueue.push({ text: "found issues", errorLog: "fix it" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
+            // iter 2: worker resumes, reviewer PASS
+            s.claudeQueue.push({ text: "w2" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return { ...s, specWrites };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker's spec.md is written exactly once across both iterations"(_code, { specWrites }) {
+                Assert.strictEqual(specWrites.length, 1);
+            },
+            "the single worker spec.md write holds the consolidated referenced content"(_code, { specWrites }) {
+                Assert.ok(specWrites[0]!.includes("REGEN_CONTRACT_SNIPPET") && specWrites[0]!.includes("REGEN_RULE_SNIPPET"));
             }
         }
     });
@@ -6755,7 +6825,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
 });
 
 test.describe("Implement reviewer deterministic injection", test => {
-    test("a reviewer invocation is fresh and its prompt carries the full task text and the inline-injected linked content", {
+    test("a reviewer invocation is fresh and its prompt carries the full task text and consolidates the linked content into its spec.md", {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
@@ -6775,11 +6845,11 @@ test.describe("Implement reviewer deterministic injection", test => {
             s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
-        async ACT({ contexts, codexSpawnedArgs, promptQueue }) {
+        async ACT({ contexts, codexSpawnedArgs, promptQueue, files }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return { code, codexSpawnedArgs, promptQueue };
+            return { code, codexSpawnedArgs, promptQueue, files };
         },
         ASSERTS: {
             "exits with code 0"({ code }) {
@@ -6798,19 +6868,28 @@ test.describe("Implement reviewer deterministic injection", test => {
             "reviewer prompt carries the task body verbatim"({ promptQueue }) {
                 Assert.ok(promptQueue[2]!.includes("Description."), "reviewer prompt must carry the full task body, not just the task line");
             },
-            "reviewer prompt contains linked contract body"({ promptQueue }) {
-                Assert.ok(promptQueue[2]!.includes("UNIQUE_REVIEWER_CONTRACT_BETA"), "linked contract content must be inlined in the reviewer prompt");
+            "reviewer prompt directs reading its own spec.md by path"({ promptQueue }) {
+                Assert.ok(promptQueue[2]!.includes(reviewerRoot(1) + "/spec.md"), "reviewer prompt must name its own per-reviewer spec.md");
             },
-            "reviewer prompt contains linked rule body"({ promptQueue }) {
-                Assert.ok(promptQueue[2]!.includes("UNIQUE_REVIEWER_RULE_BETA"), "linked rule content must be inlined in the reviewer prompt");
+            "the reviewer's spec.md holds the linked contract body"({ files }) {
+                Assert.ok(files.get(reviewerRoot(1) + "/spec.md")!.includes("UNIQUE_REVIEWER_CONTRACT_BETA"), "linked contract content must be in the reviewer's spec.md");
             },
-            "reviewer prompt does NOT contain unlinked global file content"({ promptQueue }) {
-                Assert.ok(!promptQueue[2]!.includes("UNLINKED_REVIEWER_GLOBAL_SNIPPET"), "unlinked file content must NOT be inlined in reviewer");
+            "the reviewer's spec.md holds the linked rule body"({ files }) {
+                Assert.ok(files.get(reviewerRoot(1) + "/spec.md")!.includes("UNIQUE_REVIEWER_RULE_BETA"), "linked rule content must be in the reviewer's spec.md");
+            },
+            "reviewer prompt does NOT inline the linked contract body"({ promptQueue }) {
+                Assert.strictEqual(promptQueue[2]!.includes("UNIQUE_REVIEWER_CONTRACT_BETA"), false, "linked contract content must NOT be inlined in the reviewer prompt");
+            },
+            "reviewer prompt does NOT inline the linked rule body"({ promptQueue }) {
+                Assert.strictEqual(promptQueue[2]!.includes("UNIQUE_REVIEWER_RULE_BETA"), false, "linked rule content must NOT be inlined in the reviewer prompt");
+            },
+            "the reviewer's spec.md does NOT contain unlinked global file content"({ files }) {
+                Assert.strictEqual(files.get(reviewerRoot(1) + "/spec.md")!.includes("UNLINKED_REVIEWER_GLOBAL_SNIPPET"), false, "unlinked file content must NOT be consolidated for the reviewer");
             }
         }
     });
 
-    test("across two iterations, every reviewer call is fresh and re-injects the linked content", {
+    test("across two iterations, every reviewer call is fresh and re-consolidates the linked content into its spec.md", {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
@@ -6822,13 +6901,21 @@ test.describe("Implement reviewer deterministic injection", test => {
             s.files.set("/project/.spec/contracts/linked-c.md", "ALPHA_2ITER_CONTRACT");
             s.files.set("/project/.spec/rules/linked-r.md", "ALPHA_2ITER_RULE");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            // Capture every write to the reviewer's per-reviewer spec.md so each iteration's
+            // re-provisioning is observable even though both writes target the same path.
+            const reviewerSpecWrites:string[] = [];
+            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
+            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
+                if (p === reviewerRoot(1) + "/spec.md") reviewerSpecWrites.push(c);
+                return origWriteFile(p, c);
+            };
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "w1", sessionId: "worker-rev-2iter" });
             s.claudeQueue.push({ text: "found issues", errorLog: "fix it" });
             extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            return s;
+            return { ...s, reviewerSpecWrites };
         },
         async ACT({ contexts, claudeSpawnedArgs, promptQueue }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
@@ -6856,20 +6943,20 @@ test.describe("Implement reviewer deterministic injection", test => {
             "reviewer iter 1 prompt carries the full task text"({ promptQueue }) {
                 Assert.ok(promptQueue[2]!.includes("1.1 Task with links") && promptQueue[2]!.includes("Description."), "reviewer iter 1 must carry the task line and body");
             },
-            "reviewer iter 1 prompt inlines linked contract body"({ promptQueue }) {
-                Assert.ok(promptQueue[2]!.includes("ALPHA_2ITER_CONTRACT"), "reviewer iter 1 must inline contract content");
-            },
-            "reviewer iter 1 prompt inlines linked rule body"({ promptQueue }) {
-                Assert.ok(promptQueue[2]!.includes("ALPHA_2ITER_RULE"), "reviewer iter 1 must inline rule content");
+            "reviewer iter 1 prompt directs reading its own spec.md and does not inline content"({ promptQueue }) {
+                Assert.ok(promptQueue[2]!.includes(reviewerRoot(1) + "/spec.md") && !promptQueue[2]!.includes("ALPHA_2ITER_CONTRACT"), "reviewer iter 1 must reference its spec.md and not inline content");
             },
             "reviewer iter 2 prompt carries the full task text"({ promptQueue }) {
                 Assert.ok(promptQueue[4]!.includes("1.1 Task with links") && promptQueue[4]!.includes("Description."), "reviewer iter 2 must carry the task line and body");
             },
-            "reviewer iter 2 prompt inlines linked contract body"({ promptQueue }) {
-                Assert.ok(promptQueue[4]!.includes("ALPHA_2ITER_CONTRACT"), "reviewer iter 2 must inline contract content");
+            "reviewer iter 2 prompt directs reading its own spec.md and does not inline content"({ promptQueue }) {
+                Assert.ok(promptQueue[4]!.includes(reviewerRoot(1) + "/spec.md") && !promptQueue[4]!.includes("ALPHA_2ITER_RULE"), "reviewer iter 2 must reference its spec.md and not inline content");
             },
-            "reviewer iter 2 prompt inlines linked rule body"({ promptQueue }) {
-                Assert.ok(promptQueue[4]!.includes("ALPHA_2ITER_RULE"), "reviewer iter 2 must inline rule content");
+            "each reviewer iteration re-consolidates its spec.md with the linked content"(_r, { reviewerSpecWrites }) {
+                Assert.strictEqual(reviewerSpecWrites.length, 2);
+            },
+            "every reviewer spec.md write holds the linked contract and rule content"(_r, { reviewerSpecWrites }) {
+                Assert.ok(reviewerSpecWrites.every(c => c.includes("ALPHA_2ITER_CONTRACT") && c.includes("ALPHA_2ITER_RULE")));
             }
         }
     });
@@ -6894,23 +6981,22 @@ test.describe("Implement reviewer deterministic injection", test => {
             s.codexQueue.push({ text: "reviewer ok", errorLog: "" });
             return s;
         },
-        async ACT({ contexts, promptQueue }) {
+        async ACT({ contexts, files }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return { code, promptQueue };
+            return { code, files };
         },
         ASSERTS: {
             "exits with code 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "the doubly-linked contract content is injected exactly once"({ promptQueue }) {
-                // promptQueue: [0]=detect, [1]=worker, [2]=reviewer
-                const occurrences = (promptQueue[2]!.match(/DUP_REVIEWER_CONTRACT_SNIPPET/g) ?? []).length;
+            "the doubly-linked contract content is consolidated exactly once"({ files }) {
+                const occurrences = (files.get(reviewerRoot(1) + "/spec.md")!.match(/DUP_REVIEWER_CONTRACT_SNIPPET/g) ?? []).length;
                 Assert.strictEqual(occurrences, 1);
             },
-            "the doubly-linked rule content is injected exactly once"({ promptQueue }) {
-                const occurrences = (promptQueue[2]!.match(/DUP_REVIEWER_RULE_SNIPPET/g) ?? []).length;
+            "the doubly-linked rule content is consolidated exactly once"({ files }) {
+                const occurrences = (files.get(reviewerRoot(1) + "/spec.md")!.match(/DUP_REVIEWER_RULE_SNIPPET/g) ?? []).length;
                 Assert.strictEqual(occurrences, 1);
             }
         }
@@ -6918,7 +7004,7 @@ test.describe("Implement reviewer deterministic injection", test => {
 });
 
 test.describe("Implement multiple parallel reviewers", test => {
-    test("two reviewers, mixed tools — both are fresh and both receive the inline-injected linked content", {
+    test("two reviewers, mixed tools — both are fresh and each receives the linked content via its own spec.md", {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
@@ -6948,11 +7034,11 @@ test.describe("Implement multiple parallel reviewers", test => {
             s.codexQueue.push({ text: "reviewer 2 ok", errorLog: "" });
             return s;
         },
-        async ACT({ contexts, promptQueue, claudeSpawnedArgs, codexSpawnedArgs }) {
+        async ACT({ contexts, promptQueue, claudeSpawnedArgs, codexSpawnedArgs, files }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return { code, promptQueue, claudeSpawnedArgs, codexSpawnedArgs };
+            return { code, promptQueue, claudeSpawnedArgs, codexSpawnedArgs, files };
         },
         ASSERTS: {
             "exits 0"({ code }) {
@@ -6978,17 +7064,25 @@ test.describe("Implement multiple parallel reviewers", test => {
             "codex reviewer does NOT use the resume subcommand"({ codexSpawnedArgs }) {
                 Assert.ok(!codexSpawnedArgs[0]!.includes("resume"));
             },
-            "claude reviewer prompt inlines the linked contract body"({ promptQueue }) {
-                Assert.ok(promptQueue[2]!.includes("MIXED_CONTRACT_SNIPPET"), "reviewer must inline linked contract content");
+            "reviewer 1's own spec.md holds the linked content"({ files }) {
+                const spec = files.get(reviewerRoot(1) + "/spec.md")!;
+                Assert.ok(spec.includes("MIXED_CONTRACT_SNIPPET") && spec.includes("MIXED_RULE_SNIPPET"), "reviewer 1's spec.md must hold the linked content");
             },
-            "claude reviewer prompt inlines the linked rule body"({ promptQueue }) {
-                Assert.ok(promptQueue[2]!.includes("MIXED_RULE_SNIPPET"), "reviewer must inline linked rule content");
+            "reviewer 2's own spec.md holds the linked content"({ files }) {
+                const spec = files.get(reviewerRoot(2) + "/spec.md")!;
+                Assert.ok(spec.includes("MIXED_CONTRACT_SNIPPET") && spec.includes("MIXED_RULE_SNIPPET"), "reviewer 2's spec.md must hold the linked content");
             },
-            "codex reviewer prompt inlines the linked contract body"({ promptQueue }) {
-                Assert.ok(promptQueue[3]!.includes("MIXED_CONTRACT_SNIPPET"), "reviewer must inline linked contract content");
+            "reviewer 1 prompt directs reading its own spec.md (in its own folder) and does not inline content"({ promptQueue }) {
+                Assert.ok(promptQueue[2]!.includes(reviewerRoot(1) + "/spec.md") && !promptQueue[2]!.includes("MIXED_CONTRACT_SNIPPET"), "reviewer 1 must reference its own spec.md and not inline content");
             },
-            "codex reviewer prompt inlines the linked rule body"({ promptQueue }) {
-                Assert.ok(promptQueue[3]!.includes("MIXED_RULE_SNIPPET"), "reviewer must inline linked rule content");
+            "reviewer 2 prompt directs reading its own spec.md (in its own folder) and does not inline content"({ promptQueue }) {
+                Assert.ok(promptQueue[3]!.includes(reviewerRoot(2) + "/spec.md") && !promptQueue[3]!.includes("MIXED_RULE_SNIPPET"), "reviewer 2 must reference its own spec.md and not inline content");
+            },
+            "reviewer 1's spec.md is in a folder not shared with reviewer 2"({ promptQueue }) {
+                Assert.strictEqual(promptQueue[2]!.includes(reviewerRoot(2) + "/spec.md"), false, "reviewer 1 must not point at reviewer 2's spec.md");
+            },
+            "reviewer 2's spec.md is in a folder not shared with reviewer 1"({ promptQueue }) {
+                Assert.strictEqual(promptQueue[3]!.includes(reviewerRoot(1) + "/spec.md"), false, "reviewer 2 must not point at reviewer 1's spec.md");
             }
         }
     });

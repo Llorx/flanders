@@ -8,8 +8,8 @@ import { read as readConfig } from "../workspace/FlandersConfig";
 import { isNonEmptyFile, joinPath, listFilesRecursive } from "../system/fsUtils";
 import { isGitAvailable, isInsideWorkTree, countUnstagedChangesExcept, addAll, commit } from "../system/Git";
 import { discoverSpecs } from "../workspace/SpecDiscovery";
-import { PlanFile, PlanTask } from "../plan/PlanFile";
-import { Placeholders, prompts } from "../prompts/prompts";
+import { PlanFile, PlanTask, buildSpecFileContent } from "../plan/PlanFile";
+import { Placeholders, linkedReferenceDirective, prompts } from "../prompts/prompts";
 import { ScriptRunner } from "../system/ScriptRunner";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { Activity, ReviewerEntry, ReviewerState, TerminalLabel } from "../ui/BottomBlock";
@@ -424,19 +424,21 @@ export class Implement {
     }
     private async _workerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number):Promise<boolean> {
         // Iteration 1 is a fresh invocation: the orchestrator injects the full task text and (via
-        // _appendLinkedContent) the full content of every referenced contract and rule. Iterations
-        // n>1 do NOT re-inject the task text or the referenced content (per
+        // _buildSpecContent) consolidates the full content of every referenced contract and rule
+        // into the worker's `spec.md`, then directs the worker to read it. Iterations n>1 do NOT
+        // re-inject the task text or the referenced content (per
         // src/commands/.spec/rules/ai/task-context.md):
         //   - when the worker's session was captured, it resumes and a continuity note stands in;
         //   - when no session is available, the iteration is a fresh fallback, so the worker is told
-        //     which task to implement and directed to re-read it and its references from disk.
+        //     which task to implement and directed to reread the consolidated `spec.md` iteration 1
+        //     left in the temporary folder rather than reopening each referenced file.
         let taskText:string;
         if (iteration === 1) {
             taskText = plan.fullTaskText(task);
         } else if (this._currentWorkerSessionId !== null) {
             taskText = "(The full task text and the contracts and rules it references were provided when this session began and remain available to you through session continuity; they are not repeated here.)";
         } else {
-            taskText = `(Your previous session for this task could not be resumed, so this is a fresh invocation. You are continuing work on the task at line ${task.line} of the plan file, titled "${task.title}". Re-read that task and the contracts and rules it references directly from the files on disk — they are not re-injected here — and address the previous-iteration briefing below.)`;
+            taskText = `(Your previous session for this task could not be resumed, so this is a fresh invocation. You are continuing work on the task at line ${task.line} of the plan file, titled "${task.title}". The task text and its referenced content are not re-injected here: re-read that task from the plan file, and for the contracts and rules it references reread the consolidated spec.md the orchestrator left in the temporary folder at ${ws.specFile} — read that single file rather than reopening each referenced file — then address the previous-iteration briefing below.)`;
         }
         let prompt = prompts.worker
             .split(Placeholders.PLAN_PATH).join(plan.path)
@@ -453,12 +455,16 @@ export class Implement {
             prompt = `${prompt}\n\n${briefing}`;
         }
         try {
-            // Iteration 1 injects the referenced content here, inside the try, so a failure to read a
-            // referenced file surfaces as a worker-stage failure (briefing written to error.log, the
-            // inner loop restarted) rather than escaping the stage. The only hard-stop exit remains
-            // exceeding the per-task iteration cap (see iteration-loop.md).
+            // Iteration 1 consolidates the referenced content into the worker's `spec.md` here,
+            // inside the try, so a failure to read a referenced file surfaces as a worker-stage
+            // failure (briefing written to error.log, the inner loop restarted) rather than escaping
+            // the stage. The only hard-stop exit remains exceeding the per-task iteration cap (see
+            // iteration-loop.md). The task text stays in the prompt; the referenced content goes to
+            // `spec.md`, which the appended directive points the worker at. Iterations n>1 do not
+            // regenerate `spec.md` — the one written here is left in the temporary folder.
             if (iteration === 1) {
-                prompt = await this._appendLinkedContent(plan, task, prompt);
+                await this._contexts.fs.writeFile(ws.specFile, await this._buildSpecContent(plan, task));
+                prompt = `${prompt}\n\n${linkedReferenceDirective(ws.specFile)}`;
             }
             const { result, capturedOutput } = iteration === 1
                 ? await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt)
@@ -479,26 +485,23 @@ export class Implement {
             return false;
         }
     }
-    private async _appendLinkedContent(plan:PlanFile, task:PlanTask, prompt:string):Promise<string> {
-        const linked = plan.linkedPaths(task);
-        const allPaths = [...linked.contracts, ...linked.rules];
-        if (allPaths.length === 0) {
-            return prompt;
+    // Builds the consolidated `spec.md` content for a task: it resolves the task's references,
+    // reads each distinct referenced file once, and delegates to buildSpecFileContent, which
+    // narrows a heading-anchored reference to its section and keeps an unanchored or line-anchored
+    // reference whole. This single source feeds both the worker's `spec.md` (iteration 1) and every
+    // reviewer's own `spec.md`. The contract requires consolidating the FULL referenced content
+    // (see .spec/contracts/cli-commands/implement/iteration-loop.md); a read failure is not papered
+    // over with a placeholder — the readFile rejection propagates to the caller, which treats it as
+    // a stage failure rather than launching the agent without the obligation it is bound to.
+    private async _buildSpecContent(plan:PlanFile, task:PlanTask):Promise<string> {
+        const references = plan.linkedReferences(task);
+        const fileContents = new Map<string, string>();
+        for (const { path } of references) {
+            if (!fileContents.has(path)) {
+                fileContents.set(path, await this._contexts.fs.readFile(joinPath(this._options.projectRoot, path)));
+            }
         }
-        // The contract requires injecting the FULL content of every referenced contract and rule
-        // (see .spec/contracts/cli-commands/implement/iteration-loop.md). A read failure must not be
-        // papered over with a placeholder — that would launch the agent without the obligation it is
-        // bound to. The readFile rejection propagates to the caller, which is responsible for treating
-        // it as a stage failure. The inline-availability framing lives here, not in the static prompt
-        // template, because this content is appended only on the injecting iteration; a later
-        // iteration's prompt must not claim the references are inline when they are not.
-        const sections:string[] = [];
-        for (const relPath of allPaths) {
-            const absPath = joinPath(this._options.projectRoot, relPath);
-            const content = await this._contexts.fs.readFile(absPath);
-            sections.push(`## ${relPath}\n\n${content}`);
-        }
-        return `${prompt}\n\n## Linked reference content\n\nThe full content of every contract and rule this task references is included below, so you do not need to open these files for this iteration:\n\n${sections.join("\n\n")}`;
+        return buildSpecFileContent(references, fileContents);
     }
     private async _buildStage(plan:PlanFile, taskLine:number, ws:WorkspacePaths, iteration:number):Promise<boolean> {
         if (!(await isNonEmptyFile(this._contexts.fs, ws.buildScript))) {
@@ -649,16 +652,19 @@ export class Implement {
     private async _runOneReviewerToVerdict(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, reviewer:FlandersRole, idx:number):Promise<"verdict"|"cancelled"> {
         const reviewerNum = idx + 1;
         // Every reviewer invocation is fresh and receives the same deterministic injection the
-        // worker's iteration 1 receives: the full task text plus the full content of every
-        // referenced contract and rule (appended by _appendLinkedContent).
+        // worker's iteration 1 receives: the full task text in the prompt, and the full content of
+        // every referenced contract and rule consolidated into this reviewer's own `spec.md` (its
+        // SPEC_PATH placeholder resolves to that file in this reviewer's temporary folder). A read
+        // failure from _buildSpecContent propagates so the reviewer stage treats it as a failure.
         let prompt = prompts.reviewer
             .split(Placeholders.PLAN_PATH).join(plan.path)
             .split(Placeholders.TASK_TEXT).join(plan.fullTaskText(task))
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
             .split(Placeholders.BEHAVIOR_RULE_LIST).join(this._formatPathList(this._behaviorRuleList))
-            .split(Placeholders.ERROR_LOG_PATH).join(ws.reviewerErrorLog(reviewerNum));
-        prompt = await this._appendLinkedContent(plan, task, prompt);
+            .split(Placeholders.ERROR_LOG_PATH).join(ws.reviewerErrorLog(reviewerNum))
+            .split(Placeholders.SPEC_PATH).join(ws.reviewerSpecFile(reviewerNum));
+        await this._contexts.fs.writeFile(ws.reviewerSpecFile(reviewerNum), await this._buildSpecContent(plan, task));
         // Per-reviewer cancellation handle owned by the orchestrator: aborting it disposes whichever
         // invocation is in flight (wired below), which aborts a usage-limit wait per the
         // AiSession/AiRunner cancellation behavior. Set before the reviewer is awaited; removed in

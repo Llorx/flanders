@@ -11,11 +11,6 @@ export type PlanTask = Readonly<{
     metrics:TaskMetrics;
 }>;
 
-export type TaskLinkedPaths = Readonly<{
-    contracts:readonly string[];
-    rules:readonly string[];
-}>;
-
 // A single markdown-link reference a task body makes into a `.spec/contracts` or `.spec/rules`
 // file: `path` is the project-root-relative target (leading `/` and any `#…` fragment removed),
 // `anchor` is the substring after the first `#` of the target, or `null` when it carries no `#`.
@@ -158,7 +153,8 @@ export function extractFullTaskText(content:string, taskLineNumber:number):strin
 // from the target to form `path`; `anchor` is the substring after the first `#`, or `null` when
 // the target carries no `#`. Every qualifying occurrence is preserved in first-appearance order
 // — the array is NOT de-duplicated, so the same file may appear more than once with different
-// anchors. This is the single place markdown links are scanned; parseLinkedPaths derives from it.
+// anchors. This is the single place markdown links are scanned; the orchestrator's `spec.md`
+// builder consumes it through PlanFile.linkedReferences.
 export function parseLinkedReferences(content:string, taskLineNumber:number):LinkedReference[] {
     const body = taskBodyLines(content, taskLineNumber);
     const references:LinkedReference[] = [];
@@ -176,25 +172,6 @@ export function parseLinkedReferences(content:string, taskLineNumber:number):Lin
         }
     }
     return references;
-}
-
-// Resolves the distinct contract and rule files a task references, projecting the ordered
-// references from parseLinkedReferences into the de-duplicated `{ contracts, rules }` shape,
-// classified by the `.spec/contracts/`/`.spec/rules/` segment. Order of first appearance is
-// preserved within each list.
-export function parseLinkedPaths(content:string, taskLineNumber:number):TaskLinkedPaths {
-    const contracts:string[] = [];
-    const rules:string[] = [];
-    for (const { path } of parseLinkedReferences(content, taskLineNumber)) {
-        if (path.includes(CONTRACTS_SEGMENT)) {
-            if (!contracts.includes(path)) {
-                contracts.push(path);
-            }
-        } else if (!rules.includes(path)) {
-            rules.push(path);
-        }
-    }
-    return { contracts, rules };
 }
 
 // Computes the GitHub-style heading anchor slug for a heading's text: trim surrounding
@@ -316,8 +293,8 @@ export class PlanFile {
     async markOpen(lineNumber:number, metrics:TaskMetrics):Promise<void> {
         return this._rewriteTaskLine(lineNumber, metrics, "open");
     }
-    linkedPaths(task:PlanTask):TaskLinkedPaths {
-        return parseLinkedPaths(this._content, task.line);
+    linkedReferences(task:PlanTask):LinkedReference[] {
+        return parseLinkedReferences(this._content, task.line);
     }
     fullTaskText(task:PlanTask):string {
         return extractFullTaskText(this._content, task.line);

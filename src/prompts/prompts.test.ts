@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { prompts, reviewerMethodologyCore } from "./prompts";
+import { prompts, reviewerMethodologyCore, linkedReferenceDirective } from "./prompts";
 
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
 
@@ -251,8 +251,65 @@ test.describe("prompts – deterministic task-text injection", test => {
             "no longer points the reviewer at the plan line to locate the task"(template) {
                 Assert.strictEqual(template.includes("The current task is on line"), false);
             },
-            "states the referenced contracts and rules are injected inline"(template) {
-                Assert.ok(template.includes("injected inline at the end of this prompt"));
+            "no longer states the referenced contracts and rules are injected inline"(template) {
+                Assert.strictEqual(template.includes("injected inline at the end of this prompt"), false);
+            },
+            "directs the reviewer to read its consolidated spec.md instead"(template) {
+                Assert.ok(template.includes("has been consolidated into a spec.md that you must read in full"));
+            }
+        }
+    });
+});
+
+test.describe("prompts – reviewer – consolidated spec.md directive", test => {
+    test("carries the Linked reference content directive naming the SPEC_PATH placeholder", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "contains the <SPEC_PATH> placeholder"(template) {
+                Assert.ok(template.includes("<SPEC_PATH>"));
+            },
+            "carries the Linked reference content heading"(template) {
+                Assert.ok(template.includes("## Linked reference content"));
+            },
+            "states the references are consolidated into the file at the spec path"(template) {
+                Assert.ok(template.includes("has been consolidated into the file at <SPEC_PATH>"));
+            },
+            "directs a full beginning-to-end read in as few passes as possible"(template) {
+                Assert.ok(template.includes("Read that file in full, from beginning to end, in as few passes as possible — ideally a single read — before you start."));
+            },
+            "no longer claims the references are injected inline"(template) {
+                Assert.strictEqual(template.includes("injected inline at the end of this prompt"), false);
+            }
+        }
+    });
+
+    test("the worker template carries no <SPEC_PATH> placeholder — the worker directive is appended at runtime with the literal path", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERT(template) {
+            Assert.strictEqual(template.includes("<SPEC_PATH>"), false);
+        }
+    });
+});
+
+test.describe("prompts – linkedReferenceDirective", test => {
+    test("renders the consolidated-reference directive naming the given path", {
+        ARRANGE() {
+            return "/tmp/flanders-ws/spec.md";
+        },
+        ACT(specPath) {
+            return linkedReferenceDirective(specPath);
+        },
+        ASSERTS: {
+            "opens with the Linked reference content heading"(out) {
+                Assert.ok(out.startsWith("## Linked reference content"));
+            },
+            "states the references are consolidated into the file at the given path"(out, specPath) {
+                Assert.ok(out.includes(`has been consolidated into the file at ${specPath}.`));
+            },
+            "directs a full, beginning-to-end read in as few passes as possible"(out) {
+                Assert.ok(out.includes("Read that file in full, from beginning to end, in as few passes as possible — ideally a single read — before you start."));
             }
         }
     });

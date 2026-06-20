@@ -7,7 +7,22 @@ export const enum Placeholders {
     ITERATION = "<ITERATION>",
     CONTRACT_LIST = "<CONTRACT_LIST>",
     RULE_LIST = "<RULE_LIST>",
-    BEHAVIOR_RULE_LIST = "<BEHAVIOR_RULE_LIST>"
+    BEHAVIOR_RULE_LIST = "<BEHAVIOR_RULE_LIST>",
+    SPEC_PATH = "<SPEC_PATH>"
+}
+
+// The consolidated-reference directive shared by the worker and reviewer prompts. Given the path
+// of the `spec.md` the orchestrator wrote, it renders the `## Linked reference content` section
+// that states the full content of every contract and rule the task references has been
+// consolidated into that file and directs the agent to read it in full, from beginning to end, in
+// as few passes as possible, before starting. The worker prompt appends it built with the literal
+// `spec.md` path in the worker's temporary folder; the reviewer template embeds it with
+// `Placeholders.SPEC_PATH`, which the orchestrator replaces with that reviewer's own `spec.md`
+// path. See src/commands/.spec/rules/ai/task-context.md.
+export function linkedReferenceDirective(specPath:string):string {
+    return `## Linked reference content
+
+The full content of every contract and rule this task references has been consolidated into the file at ${specPath}. Read that file in full, from beginning to end, in as few passes as possible — ideally a single read — before you start.`;
 }
 
 // The classification core handed to every Flanders subagent that grades a claim. It is the
@@ -386,7 +401,9 @@ The plan file is at ${Placeholders.PLAN_PATH}; you may open it for broader conte
 
 ${Placeholders.TASK_TEXT}
 
-The task's full description, its acceptance criteria, and the full content of every contract and rule it references are provided to you directly — the referenced contracts and rules are injected inline at the end of this prompt (under "Linked reference content"). Inspect the working-tree changes that the worker just produced.
+The task's full description and its acceptance criteria are provided to you directly, and the full content of every contract and rule it references has been consolidated into a spec.md that you must read in full — see "Linked reference content" below. Inspect the working-tree changes that the worker just produced.
+
+${linkedReferenceDirective(Placeholders.SPEC_PATH)}
 
 ## Determining the worker's change set
 

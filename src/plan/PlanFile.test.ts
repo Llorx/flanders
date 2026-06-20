@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { parsePlan, parseLinkedPaths, parseLinkedReferences, headingAnchor, extractHeadingSection, buildSpecFileContent, extractFullTaskText, PlanFile } from "./PlanFile";
+import { parsePlan, parseLinkedReferences, headingAnchor, extractHeadingSection, buildSpecFileContent, extractFullTaskText, PlanFile } from "./PlanFile";
 import type { FsContext } from "../contexts";
 
 function mockFs(initialContent:string):{ fs:FsContext; content():string } {
@@ -970,160 +970,36 @@ test.describe("PlanFile.planTotals", test => {
     });
 });
 
-test.describe("parseLinkedPaths", test => {
-    test("partitions contract and rule paths from the task body's markdown links", {
+test.describe("PlanFile.linkedReferences", test => {
+    test("delegates to parseLinkedReferences, yielding every qualifying occurrence with anchors", {
         ARRANGE() {
-            return [
-                '- [ ]{"it":0,"ot":0,"t":0} 1.1 Some task',
+            const content = [
+                '- [ ]{"it":0,"ot":0,"t":0} 1.1 Task',
                 '',
-                '  Description text.',
-                '',
-                '  Contracts:',
-                '  - [.spec/contracts/foo.md](/.spec/contracts/foo.md)',
-                '  - [.spec/contracts/bar.md](/.spec/contracts/bar.md)',
-                '',
-                '  Rules:',
-                '  - [.spec/rules/a.md](/.spec/rules/a.md)',
-                '  - [.spec/rules/b.md](/.spec/rules/b.md)',
+                '  - [.spec/contracts/x.md#sec-a](/.spec/contracts/x.md#sec-a)',
+                '  - [.spec/contracts/x.md#sec-b](/.spec/contracts/x.md#sec-b)',
+                '  - [.spec/rules/y.md](/.spec/rules/y.md)',
                 ''
             ].join("\n");
+            return mockFs(content);
         },
-        ACT(content) {
-            return parseLinkedPaths(content, 1);
+        async ACT({ fs }) {
+            const plan = await PlanFile.load("plan.md", fs);
+            const task = plan.nextOpenTask()!;
+            return plan.linkedReferences(task);
         },
-        ASSERTS: {
-            "contracts array holds the contract-targeted links in order"(result) {
-                Assert.deepStrictEqual(result.contracts, [".spec/contracts/foo.md", ".spec/contracts/bar.md"]);
-            },
-            "rules array holds the rule-targeted links in order"(result) {
-                Assert.deepStrictEqual(result.rules, [".spec/rules/a.md", ".spec/rules/b.md"]);
-            }
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [
+                { path: ".spec/contracts/x.md", anchor: "sec-a" },
+                { path: ".spec/contracts/x.md", anchor: "sec-b" },
+                { path: ".spec/rules/y.md", anchor: null }
+            ]);
         }
     });
 
-    test("a link carrying a section anchor resolves to the whole file (leading slash and fragment dropped)", {
+    test("scopes the references to the accessed task, stopping at the next task line", {
         ARRANGE() {
-            return [
-                '- [ ]{"it":0,"ot":0,"t":0} 2.1 Task with anchors',
-                '',
-                '  Contracts:',
-                '  - [.spec/contracts/cli-commands/implement/iteration-loop.md#worker-stage](/.spec/contracts/cli-commands/implement/iteration-loop.md#worker-stage)',
-                '',
-                '  Rules:',
-                '  - [src/plan/.spec/rules/plan-parsing/task-body-extraction.md](/src/plan/.spec/rules/plan-parsing/task-body-extraction.md)',
-                ''
-            ].join("\n");
-        },
-        ACT(content) {
-            return parseLinkedPaths(content, 1);
-        },
-        ASSERTS: {
-            "anchored contract link resolves to the whole file"(result) {
-                Assert.deepStrictEqual(result.contracts, [".spec/contracts/cli-commands/implement/iteration-loop.md"]);
-            },
-            "nested-namespace rule link resolves with the leading slash dropped"(result) {
-                Assert.deepStrictEqual(result.rules, ["src/plan/.spec/rules/plan-parsing/task-body-extraction.md"]);
-            }
-        }
-    });
-
-    test("the same file referenced more than once via different anchors yields a single path", {
-        ARRANGE() {
-            return [
-                '- [ ]{"it":0,"ot":0,"t":0} 3.1 Task with duplicate references',
-                '',
-                '  - [.spec/contracts/dup.md#section-one](/.spec/contracts/dup.md#section-one)',
-                '  - [.spec/contracts/dup.md#section-two](/.spec/contracts/dup.md#section-two)',
-                '  - [.spec/rules/dup-rule.md#a](/.spec/rules/dup-rule.md#a)',
-                '  - [.spec/rules/dup-rule.md#b](/.spec/rules/dup-rule.md#b)',
-                ''
-            ].join("\n");
-        },
-        ACT(content) {
-            return parseLinkedPaths(content, 1);
-        },
-        ASSERTS: {
-            "the duplicated contract collapses to one path"(result) {
-                Assert.deepStrictEqual(result.contracts, [".spec/contracts/dup.md"]);
-            },
-            "the duplicated rule collapses to one path"(result) {
-                Assert.deepStrictEqual(result.rules, [".spec/rules/dup-rule.md"]);
-            }
-        }
-    });
-
-    test("a markdown link whose target is neither a contract nor a rule is ignored", {
-        ARRANGE() {
-            return [
-                '- [ ]{"it":0,"ot":0,"t":0} 4.1 Task with extra links',
-                '',
-                '  See [.spec/overview.md](/.spec/overview.md) and [external](https://example.com).',
-                '  - [.spec/contracts/kept.md](/.spec/contracts/kept.md)',
-                ''
-            ].join("\n");
-        },
-        ACT(content) {
-            return parseLinkedPaths(content, 1);
-        },
-        ASSERTS: {
-            "only the contract-targeted link is kept"(result) {
-                Assert.deepStrictEqual(result.contracts, [".spec/contracts/kept.md"]);
-            },
-            "no rule is resolved from the non-spec links"(result) {
-                Assert.deepStrictEqual(result.rules, []);
-            }
-        }
-    });
-
-    test("returns empty arrays when the task body carries no markdown links", {
-        ARRANGE() {
-            return [
-                '- [ ]{"it":0,"ot":0,"t":0} 5.1 No links',
-                '',
-                '  Just a description.',
-                ''
-            ].join("\n");
-        },
-        ACT(content) {
-            return parseLinkedPaths(content, 1);
-        },
-        ASSERTS: {
-            "contracts array is empty"(result) {
-                Assert.deepStrictEqual(result.contracts, []);
-            },
-            "rules array is empty"(result) {
-                Assert.deepStrictEqual(result.rules, []);
-            }
-        }
-    });
-
-    test("an old-style backtick reference (no markdown link) resolves to nothing", {
-        ARRANGE() {
-            return [
-                '- [ ]{"it":0,"ot":0,"t":0} 6.1 Backtick-only references',
-                '',
-                '  Linked contracts: `.spec/contracts/foo.md`.',
-                '',
-                '  Linked rules: `.spec/rules/bar.md`.',
-                ''
-            ].join("\n");
-        },
-        ACT(content) {
-            return parseLinkedPaths(content, 1);
-        },
-        ASSERTS: {
-            "no contract is resolved from a backtick path"(result) {
-                Assert.deepStrictEqual(result.contracts, []);
-            },
-            "no rule is resolved from a backtick path"(result) {
-                Assert.deepStrictEqual(result.rules, []);
-            }
-        }
-    });
-
-    test("stops at the next task line", {
-        ARRANGE() {
-            return [
+            const content = [
                 '- [ ]{"it":0,"ot":0,"t":0} 1.1 First task',
                 '',
                 '  - [.spec/contracts/first.md](/.spec/contracts/first.md)',
@@ -1133,43 +1009,15 @@ test.describe("parseLinkedPaths", test => {
                 '  - [.spec/contracts/second.md](/.spec/contracts/second.md)',
                 ''
             ].join("\n");
-        },
-        ACT(content) {
-            return parseLinkedPaths(content, 1);
-        },
-        ASSERTS: {
-            "only first task contracts"(result) {
-                Assert.deepStrictEqual(result.contracts, [".spec/contracts/first.md"]);
-            },
-            "rules array is empty"(result) {
-                Assert.deepStrictEqual(result.rules, []);
-            }
-        }
-    });
-
-    test("PlanFile.linkedPaths delegates to parseLinkedPaths", {
-        ARRANGE() {
-            const content = [
-                '- [ ]{"it":0,"ot":0,"t":0} 1.1 Task',
-                '',
-                '  - [.spec/contracts/x.md](/.spec/contracts/x.md)',
-                '  - [.spec/rules/y.md](/.spec/rules/y.md)',
-                ''
-            ].join("\n");
             return mockFs(content);
         },
         async ACT({ fs }) {
             const plan = await PlanFile.load("plan.md", fs);
             const task = plan.nextOpenTask()!;
-            return plan.linkedPaths(task);
+            return plan.linkedReferences(task);
         },
-        ASSERTS: {
-            "contracts match"(result) {
-                Assert.deepStrictEqual(result.contracts, [".spec/contracts/x.md"]);
-            },
-            "rules match"(result) {
-                Assert.deepStrictEqual(result.rules, [".spec/rules/y.md"]);
-            }
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ path: ".spec/contracts/first.md", anchor: null }]);
         }
     });
 });
