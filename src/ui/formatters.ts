@@ -2,6 +2,7 @@ export const CYAN = "\x1b[36m";
 export const YELLOW = "\x1b[33m";
 export const MAGENTA = "\x1b[35m";
 export const GREEN = "\x1b[32m";
+export const RED = "\x1b[31m";
 export const BLUE = "\x1b[34m";
 export const DIM = "\x1b[2m";
 export const ORANGE = "\x1b[38;5;208m";
@@ -34,10 +35,14 @@ export function renderSegments(segments:Segment[]):string {
     return result;
 }
 
+export function segmentsWidth(segments:readonly Segment[]):number {
+    let width = 0;
+    for (const seg of segments) width += seg.text.length;
+    return width;
+}
+
 export function renderSegmentsToWidth(segments:Segment[], cols:number):string {
-    let plainLen = 0;
-    for (const seg of segments) plainLen += seg.text.length;
-    if (plainLen <= cols) return renderSegments(segments);
+    if (segmentsWidth(segments) <= cols) return renderSegments(segments);
 
     let result = "";
     let remaining = Math.max(0, cols - 1);
@@ -212,18 +217,14 @@ export function formatMetricsLine(task:MetricsPair|undefined, plan:MetricsPair|u
     if (task && plan) fullSegments.push({ text: "  " }, { text: "│", color: DIM }, { text: "  " });
     if (plan) fullSegments.push(...buildPairFullSegments("plan", pTok!, pTime!));
 
-    let fullPlainLen = 0;
-    for (const seg of fullSegments) fullPlainLen += seg.text.length;
-    if (fullPlainLen <= cols) return renderSegments(fullSegments);
+    if (segmentsWidth(fullSegments) <= cols) return renderSegments(fullSegments);
 
     const compactSegments:Segment[] = [];
     if (task) compactSegments.push(...buildPairCompactSegments("t:", tTok!, tTime!));
     if (task && plan) compactSegments.push({ text: "│", color: DIM });
     if (plan) compactSegments.push(...buildPairCompactSegments("p:", pTok!, pTime!));
 
-    let compactPlainLen = 0;
-    for (const seg of compactSegments) compactPlainLen += seg.text.length;
-    if (compactPlainLen <= cols) return renderSegments(compactSegments);
+    if (segmentsWidth(compactSegments) <= cols) return renderSegments(compactSegments);
 
     return renderSegmentsToWidth(compactSegments, cols);
 }
@@ -248,7 +249,7 @@ export function formatSnapshotBlock(indexLabel:string, iteration:number, taskNum
 }
 
 export type ReviewerTool = "claude" | "codex";
-export type ReviewerState = "running" | "waiting" | "ok" | "fail";
+export type ReviewerState = "running" | "waiting" | "pass" | "fail";
 
 export type ReviewerEntry = {
     tool:ReviewerTool;
@@ -283,36 +284,43 @@ function reviewerStateText(r:ReviewerEntry, nowMs:number):string {
     return r.state;
 }
 
-function buildReviewingFullText(reviewers:readonly ReviewerEntry[], nowMs:number):string {
-    let line = "review: ";
-    for (let i = 0; i < reviewers.length; i++) {
-        const r = reviewers[i]!;
-        if (i > 0) line += ", ";
-        line += `${r.tool} ${reviewerEntryDescriptor(r.model, r.effort)}: ${reviewerStateText(r, nowMs)}`;
-    }
-    return line;
+// The verdict color that tints a reviewer's whole entry: green once it has
+// passed, red once it has failed. A reviewer still running or in a rate-limit
+// wait keeps the footer's orange, so only a reached verdict recolors its entry.
+function reviewerEntryColor(state:ReviewerState):string {
+    if (state === "pass") return GREEN;
+    if (state === "fail") return RED;
+    return ORANGE;
 }
 
-function buildReviewingCompactText(reviewers:readonly ReviewerEntry[], nowMs:number):string {
-    let line = "review: ";
+// Builds the reviewing line as colored segments. The `review: ` prefix and the
+// single animated indicator that follows it form one leading orange segment;
+// each `, ` separator stays orange; and every reviewer entry carries its own
+// verdict color (orange while running/waiting, green on pass, red on fail). The
+// compact tier drops each entry's `(<model> <effort>)` descriptor while leaving
+// the prefix and indicator intact; truncation cuts from the end, so the prefix
+// and indicator at the start always survive.
+function buildReviewingSegments(frame:string, reviewers:readonly ReviewerEntry[], nowMs:number, compact:boolean):Segment[] {
+    const segments:Segment[] = [{ text: `review: ${frame} `, color: ORANGE }];
     for (let i = 0; i < reviewers.length; i++) {
         const r = reviewers[i]!;
-        if (i > 0) line += ", ";
-        line += `${r.tool}: ${reviewerStateText(r, nowMs)}`;
+        if (i > 0) segments.push({ text: ", ", color: ORANGE });
+        const descriptor = compact ? "" : ` ${reviewerEntryDescriptor(r.model, r.effort)}`;
+        segments.push({ text: `${r.tool}${descriptor}: ${reviewerStateText(r, nowMs)}`, color: reviewerEntryColor(r.state) });
     }
-    return line;
+    return segments;
 }
 
-export function formatReviewingFooter(reviewers:readonly ReviewerEntry[], cols:number, nowMs:number):string {
-    const fullText = buildReviewingFullText(reviewers, nowMs);
-    if (fullText.length <= cols) {
-        return renderSegments([{ text: fullText, color: ORANGE }]);
+export function formatReviewingFooter(frame:string, reviewers:readonly ReviewerEntry[], cols:number, nowMs:number):string {
+    const full = buildReviewingSegments(frame, reviewers, nowMs, false);
+    if (segmentsWidth(full) <= cols) {
+        return renderSegments(full);
     }
-    const compactText = buildReviewingCompactText(reviewers, nowMs);
-    if (compactText.length <= cols) {
-        return renderSegments([{ text: compactText, color: ORANGE }]);
+    const compact = buildReviewingSegments(frame, reviewers, nowMs, true);
+    if (segmentsWidth(compact) <= cols) {
+        return renderSegments(compact);
     }
-    return renderSegmentsToWidth([{ text: compactText, color: ORANGE }], cols);
+    return renderSegmentsToWidth(compact, cols);
 }
 
 function fitOrangeFooterLine(text:string, cols:number):string {

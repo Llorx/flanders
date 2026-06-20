@@ -72,7 +72,7 @@ type RunningSession = { session:AiSession };
 type RunningScript = { script:ScriptRunner };
 
 // The orchestrator's per-reviewer logical status for the round-completion decision. It is distinct
-// from the UI reviewer state (`running`/`waiting`/`ok`/`fail`): a `done` reviewer renders as `ok` or
+// from the UI reviewer state (`running`/`waiting`/`pass`/`fail`): a `done` reviewer renders as `pass` or
 // `fail`, and a reviewer in a short transient-error backoff stays `running`, never `waiting`.
 type ReviewerLogicalStatus = "running" | "waiting" | "done";
 
@@ -735,10 +735,10 @@ export class Implement {
                     continue;
                 }
                 const trimmed = (await this._workspace!.readReviewerErrorLog(reviewerNum)).trim();
-                // Flip per-reviewer footer state to ok/fail the instant this reviewer's own verdict
+                // Flip per-reviewer footer state to pass/fail the instant this reviewer's own verdict
                 // file is present — before writing the per-reviewer log — so the UI advances per
                 // reviewer rather than waiting for the slowest reviewer in the round.
-                this._setReviewerState(idx, trimmed.length === 0 ? "ok" : "fail");
+                this._setReviewerState(idx, trimmed.length === 0 ? "pass" : "fail");
                 this._setReviewerLogicalStatus(idx, "done");
                 const verdictLine = trimmed.length === 0
                     ? "Verdict: PASS"

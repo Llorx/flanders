@@ -1077,7 +1077,7 @@ test.describe("BottomBlock", test => {
         }
     });
 
-    test("switching from working to reviewing tears down both footer timers — no writes past the 9-second label cadence", {
+    test("switching from working to reviewing tears down the working timers and runs only the single spinner tick", {
         ARRANGE() {
             const io = stubIO(120);
             const time = fakeTime();
@@ -1093,14 +1093,17 @@ test.describe("BottomBlock", test => {
             const pendingAfterSwitch = time.pendingCount;
             io.reset();
             time.advance(10000);
-            return { pendingAfterSwitch, writesAfterAdvance: io.writes.length };
+            return { pendingAfterSwitch, output: io.output };
         },
         ASSERTS: {
-            "no footer timer remains pending after leaving the working state"(result) {
-                Assert.strictEqual(result.pendingAfterSwitch, 0);
+            "exactly one timer — the spinner tick — is pending after leaving the working state"(result) {
+                Assert.strictEqual(result.pendingAfterSwitch, 1);
             },
-            "advancing past the 9-second label cadence produces no writes"(result) {
-                Assert.strictEqual(result.writesAfterAdvance, 0);
+            "the working label never rotates in while reviewing"(result) {
+                Assert.ok(!result.output.includes(DEFAULT_LABEL));
+            },
+            "the spinner keeps redrawing the reviewing line"(result) {
+                Assert.ok(result.output.includes("review: "));
             }
         }
     });
@@ -1252,10 +1255,13 @@ test.describe("BottomBlock", test => {
             "footer line plain text equals the formatted reviewing line"(output) {
                 const lines = output.split("\n");
                 const footerPlain = stripAnsi(lines[lines.length - 1] ?? "");
-                Assert.strictEqual(footerPlain, "review: claude (default): running");
+                Assert.strictEqual(footerPlain, "review: ⣋ claude (default): running");
             },
-            "footer line is wrapped in ORANGE"(output) {
-                Assert.ok(output.includes(ORANGE + "review: claude (default): running" + RESET));
+            "footer prefix and indicator are wrapped in ORANGE"(output) {
+                Assert.ok(output.includes(ORANGE + "review: ⣋ " + RESET));
+            },
+            "the running entry is wrapped in ORANGE"(output) {
+                Assert.ok(output.includes(ORANGE + "claude (default): running" + RESET));
             },
             "no working label rendered while reviewing"(output) {
                 const lastDraw = output.split(CLEAR_SEQ).pop() ?? "";
@@ -1264,7 +1270,7 @@ test.describe("BottomBlock", test => {
         }
     });
 
-    test("setFooter reviewing from working cancels animation timer and schedules no new timer", {
+    test("setFooter reviewing from working cancels the working timers and schedules the single spinner tick", {
         ARRANGE() {
             const io = stubIO(120);
             const time = fakeTime();
@@ -1284,16 +1290,16 @@ test.describe("BottomBlock", test => {
             return { pendingAfterSet, writesAfterAdvance };
         },
         ASSERTS: {
-            "no timer pending after entering reviewing"(result) {
-                Assert.strictEqual(result.pendingAfterSet, 0);
+            "one spinner timer pending after entering reviewing"(result) {
+                Assert.strictEqual(result.pendingAfterSet, 1);
             },
-            "no writes occur while time passes in the reviewing state"(result) {
-                Assert.strictEqual(result.writesAfterAdvance, 0);
+            "the spinner tick redraws while reviewing"(result) {
+                Assert.ok(result.writesAfterAdvance > 0);
             }
         }
     });
 
-    test("setFooter reviewing from rate-limit cancels countdown timer and schedules no new timer", {
+    test("setFooter reviewing from rate-limit cancels the countdown timer and schedules the single spinner tick", {
         ARRANGE() {
             const io = stubIO(120);
             const time = fakeTime();
@@ -1313,11 +1319,11 @@ test.describe("BottomBlock", test => {
             return { pendingAfterSet, writesAfterAdvance };
         },
         ASSERTS: {
-            "no timer pending after entering reviewing"(result) {
-                Assert.strictEqual(result.pendingAfterSet, 0);
+            "one spinner timer pending after entering reviewing"(result) {
+                Assert.strictEqual(result.pendingAfterSet, 1);
             },
-            "countdown does not tick while reviewing"(result) {
-                Assert.strictEqual(result.writesAfterAdvance, 0);
+            "the spinner tick redraws while reviewing"(result) {
+                Assert.ok(result.writesAfterAdvance > 0);
             }
         }
     });
@@ -1348,12 +1354,12 @@ test.describe("BottomBlock", test => {
             "narrow draw shows the compact form without the descriptor"(result) {
                 const lastDraw = result.narrowDraw.split(CLEAR_SEQ).pop() ?? "";
                 const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
-                Assert.strictEqual(footerPlain, "review: claude: running, claude: running");
+                Assert.strictEqual(footerPlain, "review: ⣋ claude: running, claude: running");
             },
             "wide draw after resize shows the full form with the descriptor"(result) {
                 const lastDraw = result.wideDraw.split(CLEAR_SEQ).pop() ?? "";
                 const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
-                Assert.strictEqual(footerPlain, "review: claude (default): running, claude (default): running");
+                Assert.strictEqual(footerPlain, "review: ⣋ claude (default): running, claude (default): running");
             }
         }
     });
@@ -1432,7 +1438,7 @@ test.describe("BottomBlock", test => {
             const io = stubIO(120);
             const time = fakeTime();
             const block = makeBlock(io, time);
-            const reviewers:ReviewerEntry[] = [{ tool: "codex", model: "gpt-5", effort: "high", state: "ok" }];
+            const reviewers:ReviewerEntry[] = [{ tool: "codex", model: "gpt-5", effort: "high", state: "pass" }];
             block.setFooter({ kind: "reviewing", reviewers });
             block.mount();
             io.reset();
@@ -1450,7 +1456,7 @@ test.describe("BottomBlock", test => {
             },
             "the redrawn footer line is the formatted reviewing line"(output) {
                 const footerPlain = stripAnsi(output.split("\n").pop() ?? "");
-                Assert.strictEqual(footerPlain, "review: codex (gpt-5 high): ok");
+                Assert.strictEqual(footerPlain, "review: ⣋ codex (gpt-5 high): pass");
             }
         }
     });
@@ -1830,7 +1836,7 @@ test.describe("BottomBlock", test => {
         }
     });
 
-    test("reviewing footer with a waiting reviewer recomputes its countdown from time.now() and ticks it down each second", {
+    test("reviewing footer with a waiting reviewer recomputes its countdown from time.now() on the spinner redraws and ticks it down", {
         ARRANGE() {
             const io = stubIO(120);
             const time = fakeTime();
@@ -1851,26 +1857,27 @@ test.describe("BottomBlock", test => {
             return { firstTick, secondTick, pendingCount: time.pendingCount };
         },
         ASSERTS: {
-            "the one-second tick clears and redraws the block"(result) {
+            "the spinner tick clears and redraws the block"(result) {
                 Assert.ok(result.firstTick.includes(CLEAR_SEQ));
             },
-            "the first tick footer shows the reviewer countdown at 2m"(result) {
+            "the first-window footer shows the reviewer countdown at 2m"(result) {
                 const lastDraw = result.firstTick.split(CLEAR_SEQ).pop() ?? "";
                 const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
-                Assert.strictEqual(footerPlain, "review: claude (default): waiting 2m");
+                Assert.ok(footerPlain.startsWith("review: "), `expected a review prefix, got: ${footerPlain}`);
+                Assert.ok(footerPlain.endsWith("claude (default): waiting 2m"), `expected the 2m countdown, got: ${footerPlain}`);
             },
-            "the later tick footer shows the countdown decreased to 1m"(result) {
+            "the later footer shows the countdown decreased to 1m"(result) {
                 const lastDraw = result.secondTick.split(CLEAR_SEQ).pop() ?? "";
                 const footerPlain = stripAnsi(lastDraw.split("\n").pop() ?? "");
-                Assert.strictEqual(footerPlain, "review: claude (default): waiting 1m");
+                Assert.ok(footerPlain.endsWith("claude (default): waiting 1m"), `expected the 1m countdown, got: ${footerPlain}`);
             },
-            "exactly one countdown timer remains pending — no spinner animation tick is scheduled"(result) {
+            "exactly one timer — the spinner tick — drives the live reviewing footer"(result) {
                 Assert.strictEqual(result.pendingCount, 1);
             }
         }
     });
 
-    test("reviewing footer with a waiting reviewer schedules a countdown tick that finalize cancels through _cancelTimers", {
+    test("reviewing footer schedules a spinner tick that finalize cancels through _cancelTimers", {
         ARRANGE() {
             const io = stubIO(120);
             const time = fakeTime();
@@ -1891,19 +1898,19 @@ test.describe("BottomBlock", test => {
             return { pendingWhileReviewing, pendingAfterFinalize, writesAfterAdvance };
         },
         ASSERTS: {
-            "a countdown timer is pending while reviewing with a waiting reviewer"(result) {
+            "a spinner timer is pending while reviewing"(result) {
                 Assert.strictEqual(result.pendingWhileReviewing, 1);
             },
-            "finalize cancels the countdown timer"(result) {
+            "finalize cancels the spinner timer"(result) {
                 Assert.strictEqual(result.pendingAfterFinalize, 0);
             },
-            "no countdown tick fires after finalize"(result) {
+            "no spinner tick fires after finalize"(result) {
                 Assert.strictEqual(result.writesAfterAdvance, 0);
             }
         }
     });
 
-    test("reviewing footer countdown tick is cancelled when setFooter switches to a reviewing footer with no waiting reviewer", {
+    test("switching between reviewing footers keeps the single spinner tick scheduled and redrawing", {
         ARRANGE() {
             const io = stubIO(120);
             const time = fakeTime();
@@ -1925,19 +1932,19 @@ test.describe("BottomBlock", test => {
             return { pendingWhileWaiting, pendingAfterSwitch, writesAfterAdvance };
         },
         ASSERTS: {
-            "a countdown timer was pending with the waiting reviewer"(result) {
+            "a spinner timer was pending with the waiting reviewer"(result) {
                 Assert.strictEqual(result.pendingWhileWaiting, 1);
             },
-            "no timer remains after switching to a reviewing footer with no waiting reviewer"(result) {
-                Assert.strictEqual(result.pendingAfterSwitch, 0);
+            "one spinner timer remains after switching to a running-only reviewing footer"(result) {
+                Assert.strictEqual(result.pendingAfterSwitch, 1);
             },
-            "no tick fires after the switch"(result) {
-                Assert.strictEqual(result.writesAfterAdvance, 0);
+            "the spinner keeps redrawing after the switch"(result) {
+                Assert.ok(result.writesAfterAdvance > 0);
             }
         }
     });
 
-    test("reviewing footer countdown tick is cancelled on dispose through _cancelTimers", {
+    test("reviewing footer spinner tick is cancelled on dispose through _cancelTimers", {
         ARRANGE() {
             const io = stubIO(120);
             const time = fakeTime();
@@ -1956,7 +1963,7 @@ test.describe("BottomBlock", test => {
             return { pendingAfterDispose, writesAfterAdvance };
         },
         ASSERTS: {
-            "dispose cancels the countdown timer"(result) {
+            "dispose cancels the spinner timer"(result) {
                 Assert.strictEqual(result.pendingAfterDispose, 0);
             },
             "no tick fires after dispose"(result) {
@@ -1990,7 +1997,7 @@ test.describe("BottomBlock", test => {
         },
         ASSERT(output) {
             const footerPlain = stripAnsi(output.split("\n").pop() ?? "");
-            Assert.strictEqual(footerPlain, "review: claude (default): waiting 2h14m, codex (gpt-5 high): waiting 14m");
+            Assert.strictEqual(footerPlain, "review: ⣋ claude (default): waiting 2h14m, codex (gpt-5 high): waiting 14m");
         }
     });
 
@@ -2012,14 +2019,50 @@ test.describe("BottomBlock", test => {
             return { rows, termRows };
         },
         ASSERTS: {
-            "the footer row shows the reviewing line with the compact countdown"(result) {
-                Assert.strictEqual(result.rows[result.termRows - 1], "review: claude (default): waiting 2h14m, codex (gpt-5 high): running");
+            "the footer row shows the reviewing line with the indicator and the compact countdown"(result) {
+                Assert.strictEqual(result.rows[result.termRows - 1], "review: ⣋ claude (default): waiting 2h14m, codex (gpt-5 high): running");
             },
             "the separator row spans the full width with only ─ glyphs"(result) {
                 Assert.strictEqual(result.rows[result.termRows - 4], SEPARATOR_GLYPH.repeat(120));
             },
             "the block occupies exactly four terminal rows — every row above the bottom four is empty"(result) {
                 Assert.deepStrictEqual(result.rows.slice(0, result.termRows - 4), new Array(result.termRows - 4).fill(""));
+            }
+        }
+    });
+
+    test("the reviewing line's animated indicator advances on each spinner tick", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            block.mount();
+            io.reset();
+            return { io, time };
+        },
+        ACT({ io, time }) {
+            // The indicator is the single glyph between the `review: ` prefix and the
+            // space that precedes the first reviewer entry; read it off the rendered
+            // footer rather than any private field.
+            const indicatorOf = (output:string) => {
+                const footerPlain = stripAnsi(output.split(CLEAR_SEQ).pop()!.split("\n").pop() ?? "");
+                return footerPlain.slice("review: ".length, footerPlain.indexOf(" claude"));
+            };
+            time.advance(200);
+            const afterOne = indicatorOf(io.output);
+            io.reset();
+            time.advance(200);
+            const afterTwo = indicatorOf(io.output);
+            return { afterOne, afterTwo };
+        },
+        ASSERTS: {
+            "the indicator is a single glyph that follows the prefix"(result) {
+                Assert.strictEqual(result.afterOne.length, 1);
+            },
+            "the indicator glyph changes between consecutive ticks"(result) {
+                Assert.notStrictEqual(result.afterTwo, result.afterOne);
             }
         }
     });

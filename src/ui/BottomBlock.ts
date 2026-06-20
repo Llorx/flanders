@@ -110,6 +110,8 @@ export class BottomBlock {
         if (state.kind === "working") {
             this._animFrame = 0;
             this._workingLabel = pickVariant(workingPool, this._random);
+        } else if (state.kind === "reviewing") {
+            this._animFrame = 0;
         }
         if (this._mounted) {
             this._clearBlock();
@@ -175,27 +177,25 @@ export class BottomBlock {
     }
 
     private _startFooterTimer():void {
-        if (this._footer.kind === "working") {
-            this._scheduleAnimTick();
-            this._scheduleLabelTick();
-        } else if (this._hasLiveCountdown()) {
-            this._scheduleCountdownTick();
-        }
-    }
-
-    // True when the footer owns a per-second live countdown that must keep
-    // ticking: the single-agent `waiting` state, or the `reviewing` state while
-    // at least one reviewer is itself waiting on a rate limit. The spinner stays
-    // suspended during `reviewing`, so only the countdown tick is scheduled.
-    private _hasLiveCountdown():boolean {
         switch (this._footer.kind) {
-            case "waiting":
-                return true;
+            case "working":
+                this._scheduleAnimTick();
+                this._scheduleLabelTick();
+                break;
+            // The reviewing line carries a single animated indicator that runs for
+            // the whole review stage, so the spinner tick is scheduled here too. Its
+            // 200 ms redraws also recompute every reviewer's live countdown from the
+            // clock, so no separate countdown timer is needed while reviewing.
             case "reviewing":
-                return this._footer.reviewers.some(r => r.state === "waiting");
-            /* coverage ignore next 2 */ // — Defensive: _startFooterTimer only consults this for non-working footers it schedules (waiting/reviewing); the reschedule guard is cancelled before any other footer kind can reach here.
-            default:
-                return false;
+                this._scheduleAnimTick();
+                break;
+            case "waiting":
+                this._scheduleCountdownTick();
+                break;
+            /* coverage ignore next 3 */ // — Defensive: mount()/setFooter only reach _startFooterTimer with working/reviewing/waiting; the terminal footer is set only by finalize (which schedules no timer) and the blank footer is never set.
+            case "blank":
+            case "terminal":
+                break;
         }
     }
 
@@ -203,7 +203,7 @@ export class BottomBlock {
         this._animTimer = this._time.setTimeout(() => {
             this._animTimer = null;
             /* coverage ignore next */ // — Defensive: _cancelTimers prevents this callback from firing after dispose/finalize/footer-change.
-            if (this._disposed || this._finalized || this._footer.kind !== "working") return;
+            if (this._disposed || this._finalized || (this._footer.kind !== "working" && this._footer.kind !== "reviewing")) return;
             this._animFrame = (this._animFrame + 1) % FRAMES.length;
             this._clearBlock();
             this._drawBlock();
@@ -229,7 +229,7 @@ export class BottomBlock {
         this._countdownTimer = this._time.setTimeout(() => {
             this._countdownTimer = null;
             /* coverage ignore next */ // — Defensive: _cancelTimers prevents this callback from firing after dispose/finalize/footer-change.
-            if (this._disposed || this._finalized || !this._hasLiveCountdown()) return;
+            if (this._disposed || this._finalized || this._footer.kind !== "waiting") return;
             this._clearBlock();
             this._drawBlock();
             this._scheduleCountdownTick();
@@ -306,7 +306,7 @@ export class BottomBlock {
                 return formatWaitingFooter(WAIT_HEADINGS[this._footer.waitKind], dateStr, countdown, cols);
             }
             case "reviewing":
-                return formatReviewingFooter(this._footer.reviewers, cols, this._time.now());
+                return formatReviewingFooter(FRAMES[this._animFrame]!, this._footer.reviewers, cols, this._time.now());
             case "terminal":
                 return formatTerminalFooter(this._footer.text, cols);
         }

@@ -7499,7 +7499,7 @@ test.describe("Implement multiple parallel reviewers", test => {
             "the FINAL reviewing snapshot has reviewer state = ok (verdict)"({}, { footerCalls }) {
                 const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
                 const last = reviewingSnapshots[reviewingSnapshots.length - 1]!;
-                Assert.strictEqual(last.reviewers![0]!.state, "ok");
+                Assert.strictEqual(last.reviewers![0]!.state, "pass");
             },
             "state transition order: running → waiting → running → ok"({}, { footerCalls }) {
                 const states = footerCalls.filter(c => c.kind === "reviewing").map(s => s.reviewers![0]!.state);
@@ -7507,7 +7507,7 @@ test.describe("Implement multiple parallel reviewers", test => {
                 for (const st of states) {
                     if (compressed[compressed.length - 1] !== st) compressed.push(st);
                 }
-                Assert.deepStrictEqual(compressed, ["running", "waiting", "running", "ok"]);
+                Assert.deepStrictEqual(compressed, ["running", "waiting", "running", "pass"]);
             }
         }
     });
@@ -7612,12 +7612,14 @@ test.describe("Implement multiple parallel reviewers", test => {
             "the rendered reviewing footer shows this reviewer's compact countdown"(_code, { s }) {
                 // onLongWaitStart fires at now=3000 with endTime=8000, so the live footer
                 // renders remaining=5000ms as formatCompactCountdown → the compact "1m"
-                // (not the verbose "1 minutes"). Asserting the whole reviewing-footer line
-                // ties the countdown to this reviewer's entry; a regression that dropped the
-                // endTime would render the bare "waiting" without the " 1m" suffix and fail.
+                // (not the verbose "1 minutes"). Asserting this reviewer's reviewing-footer
+                // entry ties the countdown to it; a regression that dropped the endTime would
+                // render the bare "waiting" without the " 1m" suffix and fail. The leading
+                // animated indicator sits between the `review: ` prefix and the entry, so the
+                // assertion matches the entry itself rather than the whole line.
                 const rendered = stripAnsi(s.written.join(""));
                 Assert.ok(
-                    rendered.includes("review: claude (claude-opus-4-1 high): waiting 1m"),
+                    rendered.includes("claude (claude-opus-4-1 high): waiting 1m"),
                     `expected the rendered footer to show this reviewer's compact countdown, got: ${rendered}`
                 );
             }
@@ -7677,7 +7679,7 @@ test.describe("Implement multiple parallel reviewers", test => {
             "the iter-2 final reviewing snapshot is 'ok' (the iter-2 verdict)"(_code, { footerCalls }) {
                 const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
                 const last = reviewingSnapshots[reviewingSnapshots.length - 1]!;
-                Assert.strictEqual(last.reviewers![0]!.state, "ok");
+                Assert.strictEqual(last.reviewers![0]!.state, "pass");
             }
         }
     });
@@ -7774,7 +7776,7 @@ test.describe("Implement multiple parallel reviewers", test => {
             "the final reviewing snapshot is ok (after the transient retry succeeded)"({}, { footerCalls }) {
                 const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
                 const last = reviewingSnapshots[reviewingSnapshots.length - 1]!;
-                Assert.strictEqual(last.reviewers![0]!.state, "ok");
+                Assert.strictEqual(last.reviewers![0]!.state, "pass");
             }
         }
     });
@@ -7857,7 +7859,7 @@ test.describe("Implement multiple parallel reviewers", test => {
                     await new Promise(r => setImmediate(r));
                     const lastReviewing = [...footerCalls].reverse().find(c => c.kind === "reviewing");
                     if (lastReviewing
-                        && lastReviewing.reviewers![0]!.state === "ok"
+                        && lastReviewing.reviewers![0]!.state === "pass"
                         && lastReviewing.reviewers![1]!.state === "running") {
                         snapshotWhileR2InFlight = lastReviewing.reviewers!;
                         break;
@@ -7878,12 +7880,12 @@ test.describe("Implement multiple parallel reviewers", test => {
             },
             "reviewer 1 flipped to ok while reviewer 2 was still running"({ snapshotWhileR2InFlight }) {
                 Assert.notStrictEqual(snapshotWhileR2InFlight, null);
-                Assert.deepStrictEqual(snapshotWhileR2InFlight, [{ state: "ok" }, { state: "running" }]);
+                Assert.deepStrictEqual(snapshotWhileR2InFlight, [{ state: "pass" }, { state: "running" }]);
             },
             "final reviewing snapshot is ['ok','ok'] after reviewer 2 completes"({}, { footerCalls }) {
                 const reviewingSnapshots = footerCalls.filter(c => c.kind === "reviewing");
                 const last = reviewingSnapshots[reviewingSnapshots.length - 1]!;
-                Assert.deepStrictEqual(last.reviewers, [{ state: "ok" }, { state: "ok" }]);
+                Assert.deepStrictEqual(last.reviewers, [{ state: "pass" }, { state: "pass" }]);
             }
         }
     });

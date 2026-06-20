@@ -81,9 +81,9 @@ When the wait ends and normal AI work resumes, the footer line transitions back 
 The waiting state described here covers every stage in which a single AI agent runs at a time: the worker stage and the build and test command detection that runs at startup before the iteration loop (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)). In each of these stages a rate-limit wait transitions the footer into this waiting state with the same label content. It does not apply during the adversarial review stage, where several reviewers run at once; a reviewer's rate-limit wait is surfaced instead as that reviewer's `waiting` status with its own countdown inside the reviewing footer line (see `Footer line — reviewing state`).
 
 ## Footer line — reviewing state
-While the adversarial review stage is running — the same phase during which the header activity field shows `reviewing` — the footer line replaces the working label and its animation with a per-reviewer status line that reports every configured reviewer and its current state on a single line. The working animation is suspended for the duration of the review stage.
+While the adversarial review stage is running — the same phase during which the header activity field shows `reviewing` — the footer line replaces the working label and its animation with a per-reviewer status line that reports every configured reviewer and its current state on a single line. In place of the working label's own animation, this line carries a single animated indicator — placed immediately after the `review: ` prefix and described below — that runs for the whole duration of the review stage as the stage's alive cue.
 
-The line begins with the literal prefix `review: ` followed by one entry per configured reviewer, in the order the reviewers were configured, separated by `, `. Each entry has the shape:
+The line begins with the literal prefix `review: `, followed immediately by a single animated indicator, followed by one entry per configured reviewer, in the order the reviewers were configured, separated by `, `. The animated indicator is a continuous motion — for example, a spinner cycling through a sequence of glyphs — that gives the user a clear visual cue that the review stage is alive and progressing; it is a single indicator for the whole line rather than one per reviewer, and it runs at the same 5 frames per second cadence as the normal working indicator defined in `Footer line — normal state`. Each entry has the shape:
 
     <tool> (<model> <effort>): <state>
 
@@ -92,7 +92,7 @@ The line begins with the literal prefix `review: ` followed by one entry per con
 - **`<state>`** — one of:
   - `running` — the reviewer's invocation is in progress.
   - `waiting <countdown>` — the reviewer's invocation is in a rate-limit wait, followed by a compact live countdown of that reviewer's own remaining wait. Each rate-limited reviewer shows its own countdown, recomputed independently of the others. A short transient-error backoff does not move a reviewer into `waiting`; it stays `running` (consistent with [src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-state-appears-only-for-long-retry-waits](/src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-state-appears-only-for-long-retry-waits)).
-  - `ok` — the reviewer finished and recorded no violations.
+  - `pass` — the reviewer finished and recorded no violations.
   - `fail` — the reviewer finished and recorded one or more violations.
 
 The `<countdown>` shown after `waiting` is that reviewer's remaining wait in a compact duration form, with no zero-padding of the numeric components, switching format at the same boundaries as the worker waiting countdown (see [src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-label-shows-a-heading-an-expected-end-and-a-countdown](/src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-label-shows-a-heading-an-expected-end-and-a-countdown)):
@@ -102,15 +102,15 @@ The `<countdown>` shown after `waiting` is that reviewer's remaining wait in a c
 
 The countdown recomputes on every redraw from the current clock and that reviewer's target end time, and is never stored as a precomputed string between redraws (see [src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state](/src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state)).
 
-The line is rendered in the same orange as the rest of the footer line.
+The `review: ` prefix, the animated indicator, and any reviewer entry still in its `running` or `waiting` state are rendered in the same orange as the rest of the footer line. Once a reviewer entry reaches a verdict, its whole entry — the `<tool>`, the `(<model> <effort>)` descriptor, and the `<state>` word together — is recolored by that verdict: green for `pass` and red for `fail`.
 
 ### Compaction
 The reviewing footer line is compacted to fit the terminal width. The compaction decision is recomputed on every redraw against the current state and the current terminal width, never frozen at the width of the last state change (see [src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state](/src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state)). The tiers, applied in order, are:
 1. **Full form** — every entry shown as `<tool> (<model> <effort>): <state>`.
-2. **Compact form** — when the full form does not fit, the `(<model> <effort>)` descriptor is dropped from every entry, leaving `review: <tool>: <state>, …`.
+2. **Compact form** — when the full form does not fit, the `(<model> <effort>)` descriptor is dropped from every entry, leaving `review: <indicator> <tool>: <state>, …`.
 3. **Truncation** — when the compact form also does not fit, the line is truncated with an ellipsis at the end.
 
-A reviewer's `waiting <countdown>` keeps its countdown in both the full and the compact form: the compact tier drops only the `(<model> <effort>)` descriptor, never the `<state>` or the countdown that follows it. The countdown is cut only when the line reaches the truncation tier.
+A reviewer's `waiting <countdown>` keeps its countdown in both the full and the compact form: the compact tier drops only the `(<model> <effort>)` descriptor, never the `<state>` or the countdown that follows it. The countdown is cut only when the line reaches the truncation tier. The leading `review: ` prefix and the animated indicator that follows it are kept in every tier — the compact tier drops only the per-entry `(<model> <effort>)` descriptor, and truncation removes characters from the end of the line, so the prefix and indicator at the start always remain.
 
 ## Per-task completion snapshot
 Whenever a task is accepted at the commit/check stage (see [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md)) and its checkbox is flipped to `[x]`, Flanders emits a snapshot of that task into the output region before work on the next task begins. The snapshot is emitted for every accepted task, including the last task in the plan; the run's final all-tasks-completed (or tasks-completed) message is printed after the last snapshot.
@@ -141,7 +141,7 @@ Metrics line fields:
 - The time figure of each pair — blue.
 - The `│` separator between the two pairs — dim.
 
-The footer line keeps the orange rendering defined in `Footer line — normal state`, including while it shows the reviewing-state line defined in `Footer line — reviewing state`; the horizontal separators (both the one inside the bottom-fixed block and the ones framing each per-task completion snapshot) use the terminal default color.
+The footer line keeps the orange rendering defined in `Footer line — normal state`. While it shows the reviewing-state line defined in `Footer line — reviewing state`, the orange holds for the `review: ` prefix, the animated indicator, and every reviewer entry still in `running` or `waiting`, while a reviewer entry that has reached a verdict is recolored by that verdict — green for `pass`, red for `fail` — as defined there. The horizontal separators (both the one inside the bottom-fixed block and the ones framing each per-task completion snapshot) use the terminal default color.
 
 ### AI agent message colors (output region)
 Each AI agent message surfaced in the output region (defined in `Output region content`) is shown with a leading label that names the message kind, colored by kind:
