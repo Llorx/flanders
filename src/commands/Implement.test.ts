@@ -7283,8 +7283,9 @@ test.describe("Implement multiple parallel reviewers", test => {
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             // Capture the full ReviewerEntry of every reviewing snapshot (preserving
             // endTime) so the test can assert the end time the production path carries
-            // into BottomBlock. Rendering of that endTime as a compact countdown is
-            // covered by the formatter and BottomBlock captured-output tests.
+            // into BottomBlock. The rendered terminal output (s.written) is asserted
+            // below too, so the test pins both the structured endTime and that it
+            // renders as this reviewer's compact countdown in the live reviewing footer.
             type FooterSnapshot = { kind:string; reviewers?:ReviewerEntry[] };
             const footerCalls:FooterSnapshot[] = [];
             const origSetFooter = BottomBlock.prototype.setFooter;
@@ -7361,6 +7362,18 @@ test.describe("Implement multiple parallel reviewers", test => {
                 for (const snap of nonWaiting) {
                     Assert.strictEqual(snap.reviewers![0]!.endTime, undefined);
                 }
+            },
+            "the rendered reviewing footer shows this reviewer's compact countdown"(_code, { s }) {
+                // onLongWaitStart fires at now=3000 with endTime=8000, so the live footer
+                // renders remaining=5000ms as formatCompactCountdown → the compact "1m"
+                // (not the verbose "1 minutes"). Asserting the whole reviewing-footer line
+                // ties the countdown to this reviewer's entry; a regression that dropped the
+                // endTime would render the bare "waiting" without the " 1m" suffix and fail.
+                const rendered = stripAnsi(s.written.join(""));
+                Assert.ok(
+                    rendered.includes("review: claude (claude-opus-4-1 high): waiting 1m"),
+                    `expected the rendered footer to show this reviewer's compact countdown, got: ${rendered}`
+                );
             }
         }
     });
