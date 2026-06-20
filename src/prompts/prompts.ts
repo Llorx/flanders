@@ -217,6 +217,25 @@ export const reviewerMethodologyCore = `${citationFreeReviewerMethodology.change
 
 ${citationFreeReviewerMethodology.audit}`;
 
+// The soft Flanders-voice tone instruction the implement worker and reviewer prompts carry, so
+// each agent seasons its streamed user-facing narration with the voice while every technical
+// surface it produces stays exact. Built once and shared by both prompts: the only difference is
+// that the reviewer carries two extra carve-outs — the violation entries it records stay exact,
+// and the voice never touches its verdict mechanics. The flavor stays out of code, paths,
+// commands, flag tokens, diagnostics, and machine-read tokens on both surfaces. See
+// .spec/contracts/shared/flanders-voice.md and src/prompts/.spec/rules/ai/flanders-tone.md.
+function flandersToneInstruction(reviewer: boolean): string {
+    const violationExclusion = reviewer
+        ? ", or the violation entries you record in your error-log file"
+        : "";
+    const verdictReminder = reviewer
+        ? " The flavor never changes how you record your verdict: you still append every violation to your error-log file, an empty file still means a clean pass, and your verdict is never carried by your streamed output or your exit code."
+        : "";
+    return `## Voice
+
+Season your user-facing narration — the prose you stream as you work — with an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-". Keep it light — never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the same language you are already narrating in, using that language's established Ned Flanders localization; for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically${violationExclusion} — all of which stay exact and as actionable as before.${verdictReminder}`;
+}
+
 export const prompts = {
     detectBuildAndTest:
 `You are the build/test detection agent for the Flanders implement command.
@@ -301,6 +320,8 @@ Spec-folder write boundary: you must not create, modify, delete, or rename any f
 
 ${foregroundBoundary}
 
+${flandersToneInstruction(false)}
+
 ## Available contracts
 
 Each path below is the contract's namespace. Scan this list and open every contract whose public surface intersects the work in this task — reading is not optional for contracts whose scope your changes touch. The reviewer FAILS for any global-list contract that should have applied but was not honored, regardless of whether the task linked it.
@@ -353,6 +374,8 @@ Each path below is a behavior rule's namespace. A behavior rule governs how the 
 ${Placeholders.BEHAVIOR_RULE_LIST}
 
 ${implementReviewerMethodology.audit}
+
+${flandersToneInstruction(true)}
 
 Git boundary: you are an inspection-only agent. You must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, no edits under \`.git/\`, and no remote git operations. Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed and are how you should inspect the worker's changes. The full obligation lives in rules/ai/agents/no-git-writes.md.
 

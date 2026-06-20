@@ -38,6 +38,21 @@ const EXPECTED_REVIEWER_BUILD_TEST_PROHIBITION = "You do not run the build comma
 
 const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per `rules/ai/agents/evidence/scope-driven-self-audit.md`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (its path relative to the project root), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape are classified by observability: a test-observable absence needs a search-based or recorded-call assertion that confirms zero matches over the observable surface, while a source-text structural absence or semantic-judgment absence is review-adjudicated and must not be guarded by a test that reads source as text. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per `rules/ai/agents/evidence/enumerated-claim-coverage.md`.";
 
+// The Flanders-voice tone instruction the worker and reviewer prompts carry. Composed exactly
+// as the production helper composes it: a shared prose head, a shared tail, and — for the
+// reviewer only — the violation-entry exclusion spliced in before the tail and the verdict
+// reminder appended after it.
+const EXPECTED_TONE_PROSE_HEAD =
+`## Voice
+
+Season your user-facing narration — the prose you stream as you work — with an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-". Keep it light — never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the same language you are already narrating in, using that language's established Ned Flanders localization; for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically`;
+
+const EXPECTED_TONE_TAIL = " — all of which stay exact and as actionable as before.";
+
+const EXPECTED_WORKER_TONE = `${EXPECTED_TONE_PROSE_HEAD}${EXPECTED_TONE_TAIL}`;
+
+const EXPECTED_REVIEWER_TONE = `${EXPECTED_TONE_PROSE_HEAD}, or the violation entries you record in your error-log file${EXPECTED_TONE_TAIL} The flavor never changes how you record your verdict: you still append every violation to your error-log file, an empty file still means a clean pass, and your verdict is never carried by your streamed output or your exit code.`;
+
 function claimClassificationBlock(template: string, endMarker: string) {
     const start = template.indexOf("Classify every claim by ONE question:");
     const end = template.indexOf(endMarker, start);
@@ -1511,6 +1526,118 @@ test.describe("prompts – reviewer does not run build or test", test => {
             },
             "core retains the spec-verification protocol heading"({ core }) {
                 Assert.ok(core.includes("Spec-verification protocol"));
+            }
+        }
+    });
+});
+
+test.describe("prompts – Flanders voice tone instruction", test => {
+    test("the worker prompt carries the soft, language-matched Flanders tone instruction", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERTS: {
+            "carries the worker tone-instruction block verbatim"(template) {
+                Assert.ok(template.includes(EXPECTED_WORKER_TONE));
+            },
+            "instructs the occasional, soft Ned-Flanders touch with the three exemplars"(template) {
+                Assert.ok(template.includes(`an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-"`));
+            },
+            "keeps the flavor light — never on every line and never exaggerated"(template) {
+                Assert.ok(template.includes("never on every line and never exaggerated"));
+            },
+            "renders the flavor in the language already in use via that language's localization"(template) {
+                Assert.ok(template.includes("Render the flavor in the same language you are already narrating in, using that language's established Ned Flanders localization"));
+            },
+            "falls back to English-origin Flanders-isms when no localization exists"(template) {
+                Assert.ok(template.includes("for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms"));
+            },
+            "excludes code, file paths, command lines, and flag tokens"(template) {
+                Assert.ok(template.includes("it never appears in code, file paths, directory names, command lines, flag or option tokens"));
+            },
+            "excludes the factual content of a diagnostic"(template) {
+                Assert.ok(template.includes("the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it)"));
+            },
+            "excludes machine-read tokens"(template) {
+                Assert.ok(template.includes("any token another part of the tool reads programmatically"));
+            }
+        }
+    });
+
+    test("the worker tone instruction omits the reviewer-only carve-outs", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERTS: {
+            "does not exclude the reviewer's recorded violation entries"(template) {
+                Assert.strictEqual(template.includes("the violation entries you record in your error-log file"), false);
+            },
+            "does not carry the reviewer-only verdict reminder"(template) {
+                Assert.strictEqual(template.includes("The flavor never changes how you record your verdict"), false);
+            }
+        }
+    });
+
+    test("the reviewer prompt carries the soft, language-matched Flanders tone instruction with the violation-entry carve-out", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "carries the reviewer tone-instruction block verbatim"(template) {
+                Assert.ok(template.includes(EXPECTED_REVIEWER_TONE));
+            },
+            "instructs the occasional, soft Ned-Flanders touch with the three exemplars"(template) {
+                Assert.ok(template.includes(`an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-"`));
+            },
+            "renders the flavor in the language already in use via that language's localization"(template) {
+                Assert.ok(template.includes("Render the flavor in the same language you are already narrating in, using that language's established Ned Flanders localization"));
+            },
+            "falls back to English-origin Flanders-isms when no localization exists"(template) {
+                Assert.ok(template.includes("for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms"));
+            },
+            "excludes code, file paths, command lines, and flag tokens"(template) {
+                Assert.ok(template.includes("it never appears in code, file paths, directory names, command lines, flag or option tokens"));
+            },
+            "excludes the factual content of a diagnostic"(template) {
+                Assert.ok(template.includes("the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it)"));
+            },
+            "excludes the violation entries it records in its error-log file"(template) {
+                Assert.ok(template.includes(", or the violation entries you record in your error-log file"));
+            }
+        }
+    });
+
+    test("the reviewer tone instruction leaves the error-log verdict mechanics intact and uncontradicted", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "the tone instruction reaffirms append-every-violation to the error-log file"(template) {
+                Assert.ok(template.includes("you still append every violation to your error-log file"));
+            },
+            "the tone instruction reaffirms an empty file means a clean pass"(template) {
+                Assert.ok(template.includes("an empty file still means a clean pass"));
+            },
+            "the tone instruction reaffirms the verdict is never carried by streamed output or exit code"(template) {
+                Assert.ok(template.includes("your verdict is never carried by your streamed output or your exit code"));
+            },
+            "the canonical create-empty-file verdict paragraph still survives unchanged"(template) {
+                const start = template.indexOf("When your audit finds no violation");
+                const end = template.indexOf("\n\n", start);
+                const paragraph = template.substring(start, end);
+                Assert.strictEqual(paragraph, "When your audit finds no violation across every verification, you must still create `<ERROR_LOG_PATH>` as an empty file as your final act, so the file always exists once you have reached a verdict. Do not write a pass confirmation or any non-violation content into that file; any content there is read as a failure.");
+            },
+            "the canonical output-not-parsed verdict sentence still survives"(template) {
+                Assert.ok(template.includes("The orchestrator does not parse your output for a verdict token."));
+            }
+        }
+    });
+
+    test("the tone instruction does not displace the shared reviewer methodology core", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERTS: {
+            "the citation-free core does not carry the Voice heading"(core) {
+                Assert.strictEqual(core.includes("## Voice"), false);
+            },
+            "the citation-free core does not carry the tone-instruction prose"(core) {
+                Assert.strictEqual(core.includes("soft Ned-Flanders touch"), false);
             }
         }
     });
