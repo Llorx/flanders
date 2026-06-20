@@ -252,15 +252,14 @@ const voiceExclusionLead =
 const voiceTail = " — all of which stay exact and as actionable as before.";
 
 // The per-surface parts of the voice section — the only things that legitimately differ between
-// surfaces; the prose above is shared. `subject` is what the flavor is applied to; `cadenceUnit` is
-// the noun in "never on every X"; `languageFraming` is how the language the flavor renders in is
-// named; `finalExclusion` is the surface-specific carve-out appended to the shared exclusion list
+// surfaces; the prose above is shared. `subject` is what the flavor is applied to; `languageFraming`
+// is how the language the flavor renders in is named; `finalExclusion` is the surface-specific
+// carve-out appended to the shared exclusion list
 // (where the reviewer's violation-entry carve-out and a skill's authored-artifact carve-out go), each
 // introduced with its own ", or …" connector, or "" when the surface adds none; `trailer` is an
 // optional sentence appended after the tail (where the reviewer's verdict reminder goes).
 export interface FlandersVoiceParts {
     subject: string;
-    cadenceUnit: string;
     languageFraming: string;
     finalExclusion: string;
     trailer: string;
@@ -269,7 +268,7 @@ export interface FlandersVoiceParts {
 export function buildFlandersVoiceSection(parts: FlandersVoiceParts): string {
     return `## Voice
 
-Season ${parts.subject} — with an occasional, soft Ned-Flanders touch: a gentle note of the character's warm, folksy, good-natured manner. Keep it light — never on every ${parts.cadenceUnit} and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor ${parts.languageFraming}, ${voiceLocalization} ${voiceExclusionLead}${parts.finalExclusion}${voiceTail}${parts.trailer}`;
+Season ${parts.subject} — with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner, so the voice is a steady, recognizable presence across the whole run rather than a rare flourish. Keep it light — typically a single touch per message, never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor ${parts.languageFraming}, ${voiceLocalization} ${voiceExclusionLead}${parts.finalExclusion}${voiceTail}${parts.trailer}`;
 }
 
 // The implement worker and reviewer prompts' tone instruction. The agents season their streamed
@@ -279,7 +278,6 @@ Season ${parts.subject} — with an occasional, soft Ned-Flanders touch: a gentl
 export function flandersToneInstruction(reviewer: boolean): string {
     return buildFlandersVoiceSection({
         subject: "your user-facing narration — the prose you stream as you work",
-        cadenceUnit: "line",
         languageFraming: "in the same language you are already narrating in",
         finalExclusion: reviewer
             ? ", or the violation entries you record in your error-log file"

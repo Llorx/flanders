@@ -46,7 +46,7 @@ const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entr
 const EXPECTED_TONE_PROSE_HEAD =
 `## Voice
 
-Season your user-facing narration — the prose you stream as you work — with an occasional, soft Ned-Flanders touch: a gentle note of the character's warm, folksy, good-natured manner. Keep it light — never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the same language you are already narrating in, using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner. Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, fall back to the most widely recognized localization of that language when the user's region cannot be determined, and carry the character's original-language manner across in spirit only when the language has no established localization of the character at all. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages`;
+Season your user-facing narration — the prose you stream as you work — with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner, so the voice is a steady, recognizable presence across the whole run rather than a rare flourish. Keep it light — typically a single touch per message, never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the same language you are already narrating in, using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner. Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, fall back to the most widely recognized localization of that language when the user's region cannot be determined, and carry the character's original-language manner across in spirit only when the language has no established localization of the character at all. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages`;
 
 const EXPECTED_TONE_TAIL = " — all of which stay exact and as actionable as before.";
 
@@ -1771,8 +1771,14 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "carries the worker tone-instruction block verbatim"(template) {
                 Assert.ok(template.includes(EXPECTED_WORKER_TONE));
             },
-            "instructs the occasional, soft Ned-Flanders touch described only in the abstract"(template) {
-                Assert.ok(template.includes("an occasional, soft Ned-Flanders touch: a gentle note of the character's warm, folksy, good-natured manner."));
+            "instructs a soft Ned-Flanders touch in every message, described only in the abstract"(template) {
+                Assert.ok(template.includes("with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner"));
+            },
+            "limits the flavor to a single touch per message"(template) {
+                Assert.ok(template.includes("typically a single touch per message"));
+            },
+            "no longer carries the old occasional cadence"(template) {
+                Assert.strictEqual(template.includes("an occasional, soft Ned-Flanders touch"), false);
             },
             "names no sample greeting exemplar"(template) {
                 Assert.strictEqual(template.includes(`"neighbor"`), false);
@@ -1830,8 +1836,14 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "carries the reviewer tone-instruction block verbatim"(template) {
                 Assert.ok(template.includes(EXPECTED_REVIEWER_TONE));
             },
-            "instructs the occasional, soft Ned-Flanders touch described only in the abstract"(template) {
-                Assert.ok(template.includes("an occasional, soft Ned-Flanders touch: a gentle note of the character's warm, folksy, good-natured manner."));
+            "instructs a soft Ned-Flanders touch in every message, described only in the abstract"(template) {
+                Assert.ok(template.includes("with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner"));
+            },
+            "limits the flavor to a single touch per message"(template) {
+                Assert.ok(template.includes("typically a single touch per message"));
+            },
+            "no longer carries the old occasional cadence"(template) {
+                Assert.strictEqual(template.includes("an occasional, soft Ned-Flanders touch"), false);
             },
             "names no sample greeting exemplar"(template) {
                 Assert.strictEqual(template.includes(`"neighbor"`), false);

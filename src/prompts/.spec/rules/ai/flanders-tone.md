@@ -17,7 +17,7 @@ Every prompt Flanders builds for an agent or skill that produces user-facing nat
 
 The tone instruction each in-scope prompt carries tells the agent or skill to:
 
-1. **Season lightly.** Add an occasional, soft Ned-Flanders touch to its user-facing prose — a gentle note of the character's warm, folksy, good-natured manner — never on every line and never exaggerated, keeping the substance and structure of every message exactly what it would be without the flavor.
+1. **Season every message, lightly.** Give every message it addresses to the user a gentle Ned-Flanders touch — a note of the character's warm, folksy, good-natured manner — typically a single touch per message, so the voice is a steady, recognizable presence rather than a rare flourish, while keeping it light: never on every line, never exaggerated, and keeping the substance and structure of every message exactly what it would be without the flavor.
 2. **Match the language with its genuine localization.** Render the flavor in the same language it is already addressing the user in, using that language and region's genuine established localization of the character rather than a word-for-word translation of his original-language manner. Because an established localization is regional, detect and match the regional idiom the user's own writing exhibits, fall back to the most widely recognized localization of that language when the user's region cannot be determined, and carry the character's original-language manner across in spirit only when the language has no established localization of the character at all.
 3. **Keep the flavor where the voice belongs.** Apply the flavor only to flowing prose, never to code, file paths, command lines, flag tokens, the factual content of diagnostics, the violation entries a reviewer records, machine-read tokens, commit messages, the contract, rule, and plan files a skill authors, or the code `/flanders-work` writes — the full exclusion set inlined from [.spec/contracts/shared/flanders-voice.md](/.spec/contracts/shared/flanders-voice.md).
 
@@ -37,6 +37,7 @@ Describing the voice abstractly and naming no sample mannerism is what keeps the
 - A tone instruction licenses the flavor in code, file paths, diagnostics' factual content, a reviewer's violation entries, commit messages, or the files a skill authors.
 - A skill artifact body carries the tone instruction by citing a Flanders-internal spec path instead of inlining it.
 - A tone instruction tells the agent to flavor every line, or to render the flavor so heavily that a message's substance is harder to read.
+- A tone instruction tells the agent to apply the flavor only occasionally, or otherwise permits a message it addresses to the user to carry no Ned-Flanders touch at all.
 - A tone instruction names a concrete example mannerism — a sample greeting, interjection, suffix, or catchphrase — in any language, English included.
 - A tone instruction directs the flavor to be produced by translating the character's original-language manner word for word, rather than by using the target language and region's genuine established localization.
 - A tone instruction treats a language's localization as region-independent, applying one idiom to a language that has distinct regional dub idioms instead of matching the user's regional idiom.

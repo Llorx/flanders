@@ -15,7 +15,6 @@ import { buildFlandersVoiceSection, flandersToneInstruction, reviewerMethodology
 function skillVoiceSection(authoredArtifactExclusion: string): string {
     return buildFlandersVoiceSection({
         subject: "the messages you address to the user — your questions, summaries, warnings, recommendations, and every other text you print in the conversation",
-        cadenceUnit: "message",
         languageFraming: "in the resolved interaction language you are already addressing the user in",
         finalExclusion: `, or ${authoredArtifactExclusion}`,
         trailer: ""
