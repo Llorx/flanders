@@ -4,6 +4,7 @@ import test from "arrange-act-assert";
 
 import { TASK_LINE } from "../plan/PlanFile";
 import { flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
+import { REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
 import { planSkillBody, specSkillBody, workSkillBody } from "./skills";
 
 // A citation of a flanders-internal spec file: a path under contracts/, rules/, or plans/ that names a specific .md file. Skill bodies ship into arbitrary user projects where those files do not exist, so such a citation must never appear. Shared by the plan-skill and spec-skill self-containedness guards so the pattern has one source of truth.
@@ -1956,6 +1957,71 @@ test.describe("skills – workSkillBody", test => {
             },
             "core creates the error-log file empty when there is no violation"(body) {
                 Assert.ok(body.includes("you must still create the error-log file as an empty file as your final act"), "embedded core must create the error-log file empty when there is no violation");
+            }
+        }
+    });
+
+    test("the embedded citation-free reviewer core carries the referenced-obligation enumeration paragraph", {
+        ARRANGE() {},
+        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "workSkillBody carries the referenced-obligation paragraph verbatim"({ body }) {
+                Assert.ok(body.includes(REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH), "workSkillBody must carry the citation-free referenced-obligation enumeration paragraph verbatim");
+            },
+            "reviewerMethodologyCore carries the same referenced-obligation paragraph verbatim"({ core }) {
+                Assert.ok(core.includes(REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH), "reviewerMethodologyCore must carry the referenced-obligation enumeration paragraph verbatim");
+            },
+            "the paragraph forbids satisfying a multi-obligation contract or rule in general"({ body }) {
+                Assert.ok(body.includes("is never satisfied by confirming the contract or rule \"in general\": each enumerated obligation is its own item with its own confirmation"), "the referenced-obligation paragraph must forbid satisfying a multi-obligation contract or rule in general");
+            },
+            "the paragraph treats an unapplied or never-enumerated obligation as a violation"({ body }) {
+                Assert.ok(body.includes("an obligation the changes leave unapplied, or that you never enumerated, is a violation"), "the referenced-obligation paragraph must treat an unapplied or never-enumerated obligation as a violation");
+            },
+            "the paragraph expands an N-obligation reference into N items"({ body }) {
+                Assert.ok(body.includes("A reference whose obligations enumerate N discrete facts expands into N items."), "the referenced-obligation paragraph must expand an N-obligation reference into N items");
+            }
+        }
+    });
+
+    test("the embedded citation-free reviewer core carries the test-guarded coverage requirement", {
+        ARRANGE() {},
+        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "workSkillBody carries the test-guarded coverage sentence verbatim"({ body }) {
+                Assert.ok(body.includes(TEST_GUARDED_COVERAGE_SENTENCE), "workSkillBody must carry the citation-free test-guarded coverage sentence verbatim");
+            },
+            "reviewerMethodologyCore carries the same test-guarded coverage sentence verbatim"({ core }) {
+                Assert.ok(core.includes(TEST_GUARDED_COVERAGE_SENTENCE), "reviewerMethodologyCore must carry the test-guarded coverage sentence verbatim");
+            },
+            "the sentence states the existence of a test is not enough"({ body }) {
+                Assert.ok(body.includes("the existence of a test for the element is not enough"), "the test-guarded coverage sentence must state the existence of a test is not enough");
+            },
+            "the sentence treats a left-unguarded required case as a violation never waved through by inspection"({ body }) {
+                Assert.ok(body.includes("while leaving a required case unguarded does not satisfy it — the uncovered case is a violation, never waved through as holding \"by inspection\"."), "the test-guarded coverage sentence must treat a left-unguarded required case as a violation never waved through by inspection");
+            }
+        }
+    });
+
+    test("both citation-free reviewer-core additions stay citation-free", {
+        ARRANGE() {
+            return {
+                referenced: REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH,
+                coverage: TEST_GUARDED_COVERAGE_SENTENCE
+            };
+        },
+        ACT(additions) { return additions; },
+        ASSERTS: {
+            "the referenced-obligation paragraph names no flanders-internal spec path"({ referenced }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(referenced), false);
+            },
+            "the referenced-obligation paragraph contains no .md path at all"({ referenced }) {
+                Assert.strictEqual(referenced.includes(".md"), false);
+            },
+            "the test-guarded coverage sentence names no flanders-internal spec path"({ coverage }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(coverage), false);
+            },
+            "the test-guarded coverage sentence contains no .md path at all"({ coverage }) {
+                Assert.strictEqual(coverage.includes(".md"), false);
             }
         }
     });

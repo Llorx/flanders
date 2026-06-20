@@ -3,6 +3,7 @@ import * as Assert from "assert";
 import test from "arrange-act-assert";
 
 import { prompts, reviewerMethodologyCore, linkedReferenceDirective } from "./prompts";
+import { REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
 
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
 
@@ -1486,6 +1487,180 @@ test.describe("reviewerMethodologyCore", test => {
             },
             "both carry the verdict-recording obligation"({ core, reviewer }) {
                 Assert.ok(core.includes("does not parse your output for a verdict token") && reviewer.includes("does not parse your output for a verdict token"));
+            }
+        }
+    });
+});
+
+test.describe("prompts – reviewer – referenced-obligation enumeration", test => {
+    test("the implement reviewer carries the referenced-obligation enumeration paragraph verbatim", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERT(reviewer) {
+            Assert.ok(reviewer.includes(REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH));
+        }
+    });
+
+    test("the citation-free core carries the same referenced-obligation enumeration paragraph verbatim", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERT(core) {
+            Assert.ok(core.includes(REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH));
+        }
+    });
+
+    test("the implement reviewer enumerates each discrete obligation fact", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "requires enumerating discrete obligations before deciding conditions 2-5"(reviewer) {
+                Assert.ok(reviewer.includes("Before deciding conditions 2, 3, 4, and 5 are met, enumerate the discrete obligations of each contract and rule in scope"));
+            },
+            "covers referenced contracts and rules plus corpus ones the reviewer judges should apply"(reviewer) {
+                Assert.ok(reviewer.includes("every contract and rule the work references, plus every corpus contract, rule, or behavior rule you judge should have applied — as separate items, and confirm each obligation is actively applied in the changes"));
+            },
+            "forbids satisfying a multi-obligation contract or rule in general"(reviewer) {
+                Assert.ok(reviewer.includes("is never satisfied by confirming the contract or rule \"in general\": each enumerated obligation is its own item with its own confirmation"));
+            },
+            "treats an unapplied or never-enumerated obligation as a violation"(reviewer) {
+                Assert.ok(reviewer.includes("an obligation the changes leave unapplied, or that you never enumerated, is a violation"));
+            },
+            "expands an N-obligation reference into N items"(reviewer) {
+                Assert.ok(reviewer.includes("A reference whose obligations enumerate N discrete facts expands into N items."));
+            }
+        }
+    });
+
+    test("the referenced-obligation paragraph sits with the exhaustiveness and pattern paragraphs, before the verification protocol", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "appears after the pattern-occurrence paragraph"(reviewer) {
+                Assert.ok(reviewer.indexOf("Referenced-obligation enumeration.") > reviewer.indexOf("Pattern-based violations require occurrence enumeration"));
+            },
+            "appears before the acceptance-criteria verification protocol heading"(reviewer) {
+                Assert.ok(reviewer.indexOf("Referenced-obligation enumeration.") < reviewer.indexOf("Acceptance-criteria verification protocol (mandatory before deciding PASS on condition 1):"));
+            }
+        }
+    });
+
+    test("the worker prompt does not carry the reviewer-only referenced-obligation paragraph", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERT(worker) {
+            Assert.strictEqual(worker.includes("Referenced-obligation enumeration."), false);
+        }
+    });
+});
+
+test.describe("prompts – reviewer – test-guarded coverage requirement", test => {
+    test("the implement reviewer carries the test-guarded coverage sentence verbatim", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERT(reviewer) {
+            Assert.ok(reviewer.includes(TEST_GUARDED_COVERAGE_SENTENCE));
+        }
+    });
+
+    test("the citation-free core carries the same test-guarded coverage sentence verbatim", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERT(core) {
+            Assert.ok(core.includes(TEST_GUARDED_COVERAGE_SENTENCE));
+        }
+    });
+
+    test("the implement reviewer enumerates each discrete test-guarded coverage fact", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "requires the named test's assertions to cover every case and every fact"(reviewer) {
+                Assert.ok(reviewer.includes("classified test-guarded is confirmed satisfied only when the named test's assertions cover every case and every fact the element requires"));
+            },
+            "states the existence of a test is not enough"(reviewer) {
+                Assert.ok(reviewer.includes("the existence of a test for the element is not enough"));
+            },
+            "treats a left-unguarded required case as a violation never waved through by inspection"(reviewer) {
+                Assert.ok(reviewer.includes("while leaving a required case unguarded does not satisfy it — the uncovered case is a violation, never waved through as holding \"by inspection\"."));
+            }
+        }
+    });
+
+    test("the test-guarded coverage sentence sits inside the verification protocol, before the classification taxonomy", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "appears after the acceptance-criteria verification protocol heading"(reviewer) {
+                Assert.ok(reviewer.indexOf("A spec element classified test-guarded is confirmed satisfied only when") > reviewer.indexOf("Acceptance-criteria verification protocol (mandatory before deciding PASS on condition 1):"));
+            },
+            "appears before the classification taxonomy"(reviewer) {
+                Assert.ok(reviewer.indexOf("A spec element classified test-guarded is confirmed satisfied only when") < reviewer.indexOf("Classify every claim by ONE question:"));
+            }
+        }
+    });
+
+    test("the worker prompt does not carry the reviewer-only test-guarded coverage sentence", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERT(worker) {
+            Assert.strictEqual(worker.includes("classified test-guarded is confirmed satisfied only when the named test's assertions"), false);
+        }
+    });
+});
+
+test.describe("prompts – reviewer – both additions appear identically across surfaces and stay citation-free", test => {
+    test("the referenced-obligation paragraph is surface-neutral — the same literal appears in both reviewer surfaces", {
+        ARRANGE() {},
+        ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "the implement reviewer carries the exact fixture literal"({ reviewer }) {
+                Assert.strictEqual(reviewer.includes(REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH), true);
+            },
+            "the citation-free core carries the exact same fixture literal"({ core }) {
+                Assert.strictEqual(core.includes(REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH), true);
+            },
+            "neither surface carries a divergent surface-specific phrasing of the reference clause"({ reviewer, core }) {
+                Assert.strictEqual(reviewer.includes("every contract and rule the task references") || reviewer.includes("every contract and rule the spec under review references") || core.includes("every contract and rule the task references") || core.includes("every contract and rule the spec under review references"), false);
+            }
+        }
+    });
+
+    test("the test-guarded coverage sentence is surface-neutral — the same literal appears in both reviewer surfaces", {
+        ARRANGE() {},
+        ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "the implement reviewer carries the exact fixture literal"({ reviewer }) {
+                Assert.strictEqual(reviewer.includes(TEST_GUARDED_COVERAGE_SENTENCE), true);
+            },
+            "the citation-free core carries the exact same fixture literal"({ core }) {
+                Assert.strictEqual(core.includes(TEST_GUARDED_COVERAGE_SENTENCE), true);
+            },
+            "neither surface carries a divergent surface-specific phrasing of the coverage clause"({ reviewer, core }) {
+                Assert.strictEqual(reviewer.includes("the criterion requires") || core.includes("the criterion requires"), false);
+            }
+        }
+    });
+
+    test("both additions carry no flanders-internal spec-path citation", {
+        ARRANGE() {
+            return {
+                referenced: REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH,
+                coverage: TEST_GUARDED_COVERAGE_SENTENCE
+            };
+        },
+        ACT(additions) { return additions; },
+        ASSERTS: {
+            "the referenced-obligation paragraph matches no internal spec-path citation"({ referenced }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(referenced), false);
+            },
+            "the referenced-obligation paragraph contains no .md path at all"({ referenced }) {
+                Assert.strictEqual(referenced.includes(".md"), false);
+            },
+            "the test-guarded coverage sentence matches no internal spec-path citation"({ coverage }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(coverage), false);
+            },
+            "the test-guarded coverage sentence contains no .md path at all"({ coverage }) {
+                Assert.strictEqual(coverage.includes(".md"), false);
             }
         }
     });

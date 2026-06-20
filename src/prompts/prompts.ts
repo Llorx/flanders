@@ -126,11 +126,13 @@ Exhaustiveness: do not stop at the first violation. Run every verification you a
 
 Pattern-based violations require occurrence enumeration. When a violation you find is an instance of a pattern (e.g., "this catch block silently swallows the error", "this function lacks the input validation other similar functions perform", "this code path writes directly to stdout instead of using the injected logger", "this constant is duplicated across files"), do not stop at the first cited location. Grep the affected file — and every other file in the same module or test suite where the same pattern could plausibly recur — for every occurrence of the same violation. Enumerate ALL of them in the FAIL message, each as its own independently-actionable entry with its file:line. A FAIL message that cites only a subset of a pattern's occurrences forces the next iteration to rediscover the rest, which directly violates the exhaustiveness contract above.
 
+Referenced-obligation enumeration. Before deciding conditions 2, 3, 4, and 5 are met, enumerate the discrete obligations of each contract and rule in scope — every contract and rule the work references, plus every corpus contract, rule, or behavior rule you judge should have applied — as separate items, and confirm each obligation is actively applied in the changes. A contract or rule that pins more than one discrete obligation — for example a required-exclusion list, a set of required surfaces, or several conditions stated in one section — is never satisfied by confirming the contract or rule "in general": each enumerated obligation is its own item with its own confirmation, and an obligation the changes leave unapplied, or that you never enumerated, is a violation. A reference whose obligations enumerate N discrete facts expands into N items.
+
 ${s.critProtocolHeading} (mandatory before deciding PASS on condition 1):
 
 a. Enumerate every ${s.critRef} in ${s.specRef} as a separate numbered item. Do this enumeration explicitly in your reasoning — do not skip it even if the code "looks right".
 
-b. For each enumerated ${s.critRefShort}, classify it by the regression-signal question and confirm ${s.ownerChangesEvidence} carry evidence of the type that classification requires. A ${s.critRefShort} lacking that evidence is FAIL.
+b. For each enumerated ${s.critRefShort}, classify it by the regression-signal question and confirm ${s.ownerChangesEvidence} carry evidence of the type that classification requires. A ${s.critRefShort} lacking that evidence is FAIL. A spec element classified test-guarded is confirmed satisfied only when the named test's assertions cover every case and every fact the element requires: the existence of a test for the element is not enough, and a test that asserts some of the element's cases while leaving a required case unguarded does not satisfy it — the uncovered case is a violation, never waved through as holding "by inspection".
 
 ${s.taxonomy}
 
