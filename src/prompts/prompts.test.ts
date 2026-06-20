@@ -45,7 +45,7 @@ const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entr
 const EXPECTED_TONE_PROSE_HEAD =
 `## Voice
 
-Season your user-facing narration — the prose you stream as you work — with an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-". Keep it light — never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the same language you are already narrating in, using that language's established Ned Flanders localization; for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically`;
+Season your user-facing narration — the prose you stream as you work — with an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-". Keep it light — never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the same language you are already narrating in, using that language's established Ned Flanders localization; for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages`;
 
 const EXPECTED_TONE_TAIL = " — all of which stay exact and as actionable as before.";
 
@@ -1559,6 +1559,9 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             },
             "excludes machine-read tokens"(template) {
                 Assert.ok(template.includes("any token another part of the tool reads programmatically"));
+            },
+            "excludes git commit messages"(template) {
+                Assert.ok(template.includes("git commit messages"));
             }
         }
     });
@@ -1600,6 +1603,9 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             },
             "excludes the violation entries it records in its error-log file"(template) {
                 Assert.ok(template.includes(", or the violation entries you record in your error-log file"));
+            },
+            "excludes git commit messages"(template) {
+                Assert.ok(template.includes("git commit messages"));
             }
         }
     });

@@ -1,5 +1,26 @@
 import { TASK_LINE } from "../plan/PlanFile";
-import { reviewerMethodologyCore } from "./prompts";
+import { buildFlandersVoiceSection, flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
+
+// The user-facing Flanders-voice section each installed skill body carries, so the skill seasons the
+// messages it addresses to the user with the voice on top of the resolved interaction language while
+// every technical surface and every artifact it authors stays exact. It composes from the shared
+// voice builder in prompts.ts, so the soft-touch wording, the localization fallback, and the
+// exclusion list have a single authoritative source rather than a copy that could drift from the
+// agent prompts; only the parts that legitimately differ for a skill are supplied here. The only
+// per-skill difference is the authored-artifact exclusion the caller passes: /flanders-plan authors
+// the plan file, /flanders-spec authors the contract and rule files, and /flanders-work writes the
+// code. The section is inlined and self-contained — it names no spec file — so it ships intact into
+// an arbitrary user project. See .spec/contracts/shared/flanders-voice.md,
+// .spec/contracts/ai-skills/interaction-language.md, and src/prompts/.spec/rules/ai/flanders-tone.md.
+function skillVoiceSection(authoredArtifactExclusion: string): string {
+    return buildFlandersVoiceSection({
+        subject: "the messages you address to the user — your questions, summaries, warnings, recommendations, and every other text you print in the conversation",
+        cadenceUnit: "message",
+        languageFraming: "in the resolved interaction language you are already addressing the user in",
+        finalExclusion: `, or ${authoredArtifactExclusion}`,
+        trailer: ""
+    });
+}
 
 export const planSkillBody =
 `---
@@ -206,6 +227,8 @@ Write the plan file in the same natural language as the input request, unless th
 
 Every message you address to the user during the run — your clarifying questions, the recommendation to create a rule via /flanders-spec, the warnings printed when the project has no contracts or no rules, the end-of-run summary, and any other text you print in chat — is written in the natural language of the user's most recent message in the conversation. When the user switches the language they write in partway through the interaction, every subsequent message you address to the user follows the language of their latest message. This is resolved independently of the Output language above: it governs only what you say to the user in the conversation, never the language of the plan file you write.
 
+${skillVoiceSection("the plan file you author")}
+
 ## Missing contracts or rules
 
 If no \`.spec/contracts\` folder contains any file, warn the user in chat and produce a plan that includes whatever contracts the request implicitly requires before any implementation work. If no \`.spec/rules\` folder contains any file, warn the user in chat and proceed without rule references on the resulting tasks.`;
@@ -376,6 +399,8 @@ Do not translate already-written content; the resolved language governs only the
 
 Every message you address to the user during the run — your clarifying questions, the approach trade-off summaries, the drafting-phase layout summary, and any other text you print in chat — is written in the natural language of the user's most recent message in the conversation. When the user switches the language they write in partway through the interaction, every subsequent message you address to the user follows the language of their latest message. This is resolved independently of the Output language above: it governs only what you say to the user in the conversation, never the language of the spec files you write.
 
+${skillVoiceSection("the contract and rule files you author")}
+
 ## Idempotency and overwrites
 
 Existing files in the project's \`.spec/contracts\` and \`.spec/rules\` folders are not protected. Because you receive the current state of both folders and update related files in place, re-running with related input will modify those files rather than create parallel duplicates. Preserving prior versions is the user's responsibility (typically through version control).`;
@@ -434,16 +459,19 @@ You may fall back to running the review inline in this same session only when th
 
 ### The reviewer's prompt
 
-Assemble the reviewer subagent's prompt as four parts, in order:
+Assemble the reviewer subagent's prompt as five parts, in order:
 
 1. A framing that states the spec under review is the user's request that you implemented, quoting or summarizing that request so the reviewer can measure the work against it.
 2. The available contracts, the available rules, and the available behavior rules as lists of their namespaces (each namespace is a path relative to the project root), discovered across the project's \`.spec\` folders, placed above the methodology so the methodology's references to "the global lists above" and "the behavior-rule list above" resolve.
 3. The absolute path of the error-log file you provisioned for this round — this is the "error-log file" the methodology refers to — with the instruction to record its verdict there.
 4. The methodology below, verbatim.
+5. The narration-only tone instruction below, verbatim.
 
-The methodology is self-contained: keep it that way and add no citation to any file inside the project's spec folders.
+The methodology and the tone instruction are both self-contained: keep them that way and add no citation to any file inside the project's spec folders.
 
 ${reviewerMethodologyCore}
+
+${flandersToneInstruction(true)}
 
 The reviewer is inspection-only. Its prompt also states the boundaries every Flanders subagent honors:
 
@@ -476,4 +504,6 @@ Then report completion to the user in chat.
 
 ## Interaction language
 
-Every message you address to the user during the run — your progress messages, the summary you print when the work is done or when you surface a review that keeps failing, and any other text you print in chat — is written in the natural language of the user's most recent message in the conversation. When the user switches the language they write in partway through the interaction, every subsequent message you address to the user follows the language of their latest message. This is resolved independently of the code you write: it governs only what you say to the user in the conversation, never the language or content of the code you produce.`;
+Every message you address to the user during the run — your progress messages, the summary you print when the work is done or when you surface a review that keeps failing, and any other text you print in chat — is written in the natural language of the user's most recent message in the conversation. When the user switches the language they write in partway through the interaction, every subsequent message you address to the user follows the language of their latest message. This is resolved independently of the code you write: it governs only what you say to the user in the conversation, never the language or content of the code you produce.
+
+${skillVoiceSection("the code you write")}`;

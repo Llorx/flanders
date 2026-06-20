@@ -3,11 +3,37 @@ import * as Assert from "assert";
 import test from "arrange-act-assert";
 
 import { TASK_LINE } from "../plan/PlanFile";
-import { reviewerMethodologyCore } from "./prompts";
+import { flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
 import { planSkillBody, specSkillBody, workSkillBody } from "./skills";
 
 // A citation of a flanders-internal spec file: a path under contracts/, rules/, or plans/ that names a specific .md file. Skill bodies ship into arbitrary user projects where those files do not exist, so such a citation must never appear. Shared by the plan-skill and spec-skill self-containedness guards so the pattern has one source of truth.
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
+
+// The soft Flanders-voice section each skill body addresses to the user. Reproduced here as a
+// literal — independently of the production helper — so any drift in the shipped wording is caught
+// by an exact-match. The only per-skill difference is the authored-artifact exclusion spliced in
+// before the shared tail.
+const SKILL_VOICE_HEAD =
+`## Voice
+
+Season the messages you address to the user — your questions, summaries, warnings, recommendations, and every other text you print in the conversation — with an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-". Keep it light — never on every message and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the resolved interaction language you are already addressing the user in, using that language's established Ned Flanders localization; for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages, or `;
+
+const SKILL_VOICE_TAIL = " — all of which stay exact and as actionable as before.";
+
+// The user-facing Flanders-voice section a skill body must carry, with the authored-artifact
+// exclusion the skill is responsible for keeping the flavor out of.
+function expectedSkillVoice(authoredArtifactExclusion: string): string {
+    return `${SKILL_VOICE_HEAD}${authoredArtifactExclusion}${SKILL_VOICE_TAIL}`;
+}
+
+// Slice out the user-facing voice section a skill body carries — anchored on the section opener that
+// is unique to the user-facing voice (the work reviewer's narration tone opens with a different
+// sentence) — so its self-containment can be checked against the body as actually built.
+function userFacingVoiceSection(body: string): string {
+    const start = body.indexOf("## Voice\n\nSeason the messages you address to the user");
+    const end = body.indexOf(SKILL_VOICE_TAIL, start) + SKILL_VOICE_TAIL.length;
+    return body.slice(start, end);
+}
 
 test.describe("skills – planSkillBody", test => {
     test("is a non-empty string", {
@@ -216,6 +242,27 @@ Every message you address to the user during the run — your clarifying questio
             },
             "section appears before the Missing contracts or rules section"(body) {
                 Assert.ok(body.indexOf("## Interaction language") < body.indexOf("## Missing contracts or rules"), "the Interaction language section must appear before the Missing contracts or rules section");
+            }
+        }
+    });
+
+    test("addresses the user in the soft Flanders voice excluding the plan file it authors", {
+        ARRANGE() {
+            return { voice: expectedSkillVoice("the plan file you author") };
+        },
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "contains the user-facing tone instruction verbatim with the plan-file exclusion"(body, { voice }) {
+                Assert.ok(body.includes(voice), "planSkillBody must contain the user-facing Flanders-voice section verbatim, excluding the plan file it authors");
+            },
+            "the tone instruction excludes machine-read tokens"(body) {
+                Assert.ok(userFacingVoiceSection(body).includes("any token another part of the tool reads programmatically"), "the tone instruction must keep the flavor out of machine-read tokens");
+            },
+            "the tone instruction excludes git commit messages"(body) {
+                Assert.ok(userFacingVoiceSection(body).includes("git commit messages"), "the tone instruction must keep the flavor out of git commit messages");
+            },
+            "the tone instruction cites no flanders-internal spec path"(body) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(userFacingVoiceSection(body)), false);
             }
         }
     });
@@ -1399,6 +1446,27 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("addresses the user in the soft Flanders voice excluding the contract and rule files it authors", {
+        ARRANGE() {
+            return { voice: expectedSkillVoice("the contract and rule files you author") };
+        },
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "contains the user-facing tone instruction verbatim with the contract-and-rule-files exclusion"(body, { voice }) {
+                Assert.ok(body.includes(voice), "specSkillBody must contain the user-facing Flanders-voice section verbatim, excluding the contract and rule files it authors");
+            },
+            "the tone instruction excludes machine-read tokens"(body) {
+                Assert.ok(userFacingVoiceSection(body).includes("any token another part of the tool reads programmatically"), "the tone instruction must keep the flavor out of machine-read tokens");
+            },
+            "the tone instruction excludes git commit messages"(body) {
+                Assert.ok(userFacingVoiceSection(body).includes("git commit messages"), "the tone instruction must keep the flavor out of git commit messages");
+            },
+            "the tone instruction cites no flanders-internal spec path"(body) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(userFacingVoiceSection(body)), false);
+            }
+        }
+    });
+
     test("covers idempotency and overwrites", {
         ARRANGE() {},
         ACT() { return specSkillBody; },
@@ -1950,6 +2018,51 @@ test.describe("skills – workSkillBody", test => {
             },
             "never governs the language or content of the code produced"(body) {
                 Assert.ok(body.includes("never the language or content of the code you produce"), "must state it never governs the language or content of the code produced");
+            }
+        }
+    });
+
+    test("addresses the user in the soft Flanders voice excluding the code it writes", {
+        ARRANGE() {
+            return { voice: expectedSkillVoice("the code you write") };
+        },
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "contains the user-facing tone instruction verbatim with the code exclusion"(body, { voice }) {
+                Assert.ok(body.includes(voice), "workSkillBody must contain the user-facing Flanders-voice section verbatim, excluding the code it writes");
+            },
+            "the tone instruction excludes machine-read tokens"(body) {
+                Assert.ok(userFacingVoiceSection(body).includes("any token another part of the tool reads programmatically"), "the tone instruction must keep the flavor out of machine-read tokens");
+            },
+            "the tone instruction excludes git commit messages"(body) {
+                Assert.ok(userFacingVoiceSection(body).includes("git commit messages"), "the tone instruction must keep the flavor out of git commit messages");
+            },
+            "the tone instruction cites no flanders-internal spec path"(body) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(userFacingVoiceSection(body)), false);
+            }
+        }
+    });
+
+    test("the reviewer-prompt assembly carries the narration-only tone instruction with exact verdict mechanics", {
+        ARRANGE() {
+            return { reviewerTone: flandersToneInstruction(true) };
+        },
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "lists the tone instruction as the fifth assembly part"(body) {
+                Assert.ok(body.includes("5. The narration-only tone instruction below, verbatim."), "the reviewer-prompt assembly must list the tone instruction as its fifth part");
+            },
+            "embeds the narration-only reviewer tone instruction verbatim"(body, { reviewerTone }) {
+                Assert.ok(body.includes(reviewerTone), "the reviewer-prompt assembly must embed the narration-only tone instruction verbatim");
+            },
+            "carves the flavor out of machine-read tokens, git commit messages, and the recorded violation entries"(body) {
+                Assert.ok(body.includes("any token another part of the tool reads programmatically, git commit messages, or the violation entries you record in your error-log file"), "the reviewer tone instruction must keep the flavor out of machine-read tokens, git commit messages, and the recorded violation entries");
+            },
+            "carves the flavor out of the recorded violation entries"(body) {
+                Assert.ok(body.includes("or the violation entries you record in your error-log file — all of which stay exact and as actionable as before."), "the reviewer tone instruction must keep the recorded violation entries exact");
+            },
+            "keeps the verdict-file mechanics exact"(body) {
+                Assert.ok(body.includes("The flavor never changes how you record your verdict: you still append every violation to your error-log file, an empty file still means a clean pass, and your verdict is never carried by your streamed output or your exit code."), "the reviewer tone instruction must keep the verdict-file mechanics exact");
             }
         }
     });

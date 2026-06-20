@@ -217,23 +217,60 @@ export const reviewerMethodologyCore = `${citationFreeReviewerMethodology.change
 
 ${citationFreeReviewerMethodology.audit}`;
 
-// The soft Flanders-voice tone instruction the implement worker and reviewer prompts carry, so
-// each agent seasons its streamed user-facing narration with the voice while every technical
-// surface it produces stays exact. Built once and shared by both prompts: the only difference is
-// that the reviewer carries two extra carve-outs — the violation entries it records stay exact,
-// and the voice never touches its verdict mechanics. The flavor stays out of code, paths,
-// commands, flag tokens, diagnostics, and machine-read tokens on both surfaces. See
-// .spec/contracts/shared/flanders-voice.md and src/prompts/.spec/rules/ai/flanders-tone.md.
-function flandersToneInstruction(reviewer: boolean): string {
-    const violationExclusion = reviewer
-        ? ", or the violation entries you record in your error-log file"
-        : "";
-    const verdictReminder = reviewer
-        ? " The flavor never changes how you record your verdict: you still append every violation to your error-log file, an empty file still means a clean pass, and your verdict is never carried by your streamed output or your exit code."
-        : "";
+// The shared Flanders-voice prose. The soft-touch exemplars, the localization fallback, the
+// exclusion list, and the closing live here as the single authoritative source, so a tone fix
+// cannot drift between the agent prompts and the skill bodies. Every surface that carries the voice
+// composes its section from `buildFlandersVoiceSection`: the implement worker and reviewer prompts
+// (via `flandersToneInstruction` below) and the three skill bodies plus the /flanders-work reviewer
+// prompt assembled in skills.ts. See .spec/contracts/shared/flanders-voice.md and
+// src/prompts/.spec/rules/ai/flanders-tone.md.
+const voiceLocalization =
+    "using that language's established Ned Flanders localization; for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms.";
+// The exclusion list, ending at the items every surface shares — machine-read tokens and git commit
+// messages — so the full exclusion set the Flanders-voice rule requires is inlined on every surface.
+// The surface-specific carve-outs (a reviewer's violation entries, a skill's authored artifacts) are
+// appended after this lead through `finalExclusion`.
+const voiceExclusionLead =
+    "The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages";
+const voiceTail = " — all of which stay exact and as actionable as before.";
+
+// The per-surface parts of the voice section — the only things that legitimately differ between
+// surfaces; the prose above is shared. `subject` is what the flavor is applied to; `cadenceUnit` is
+// the noun in "never on every X"; `languageFraming` is how the language the flavor renders in is
+// named; `finalExclusion` is the surface-specific carve-out appended to the shared exclusion list
+// (where the reviewer's violation-entry carve-out and a skill's authored-artifact carve-out go), each
+// introduced with its own ", or …" connector, or "" when the surface adds none; `trailer` is an
+// optional sentence appended after the tail (where the reviewer's verdict reminder goes).
+export interface FlandersVoiceParts {
+    subject: string;
+    cadenceUnit: string;
+    languageFraming: string;
+    finalExclusion: string;
+    trailer: string;
+}
+
+export function buildFlandersVoiceSection(parts: FlandersVoiceParts): string {
     return `## Voice
 
-Season your user-facing narration — the prose you stream as you work — with an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-". Keep it light — never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor in the same language you are already narrating in, using that language's established Ned Flanders localization; for a language that has no established Ned Flanders localization, use the English-origin Flanders-isms. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically${violationExclusion} — all of which stay exact and as actionable as before.${verdictReminder}`;
+Season ${parts.subject} — with an occasional, soft Ned-Flanders touch: a "neighbor", an "okely-dokely", a gentle "-diddly-". Keep it light — never on every ${parts.cadenceUnit} and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Render the flavor ${parts.languageFraming}, ${voiceLocalization} ${voiceExclusionLead}${parts.finalExclusion}${voiceTail}${parts.trailer}`;
+}
+
+// The implement worker and reviewer prompts' tone instruction. The agents season their streamed
+// narration with the voice while every technical surface stays exact; the reviewer carries two extra
+// carve-outs — the violation entries it records stay exact, and the voice never touches its verdict
+// mechanics.
+export function flandersToneInstruction(reviewer: boolean): string {
+    return buildFlandersVoiceSection({
+        subject: "your user-facing narration — the prose you stream as you work",
+        cadenceUnit: "line",
+        languageFraming: "in the same language you are already narrating in",
+        finalExclusion: reviewer
+            ? ", or the violation entries you record in your error-log file"
+            : "",
+        trailer: reviewer
+            ? " The flavor never changes how you record your verdict: you still append every violation to your error-log file, an empty file still means a clean pass, and your verdict is never carried by your streamed output or your exit code."
+            : ""
+    });
 }
 
 export const prompts = {
