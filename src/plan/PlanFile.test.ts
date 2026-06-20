@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { parsePlan, parseLinkedPaths, extractFullTaskText, PlanFile } from "./PlanFile";
+import { parsePlan, parseLinkedPaths, parseLinkedReferences, headingAnchor, extractHeadingSection, buildSpecFileContent, extractFullTaskText, PlanFile } from "./PlanFile";
 import type { FsContext } from "../contexts";
 
 function mockFs(initialContent:string):{ fs:FsContext; content():string } {
@@ -1261,6 +1261,393 @@ test.describe("extractFullTaskText", test => {
             const plan = await PlanFile.load("plan.md", mock.fs);
             const task = plan.nextOpenTask()!;
             return plan.fullTaskText(task);
+        },
+        ASSERT(result, { expected }) {
+            Assert.strictEqual(result, expected);
+        }
+    });
+});
+
+test.describe("parseLinkedReferences", test => {
+    test("yields every qualifying occurrence in document order, with anchors captured and duplicates kept", {
+        ARRANGE() {
+            return [
+                '- [ ]{"it":0,"ot":0,"t":0} 1.1 Task with mixed references',
+                '',
+                '  - [.spec/contracts/a.md#sec-one](/.spec/contracts/a.md#sec-one)',
+                '  - [.spec/contracts/a.md#sec-two](/.spec/contracts/a.md#sec-two)',
+                '  - [.spec/rules/b.md](/.spec/rules/b.md)',
+                '  - [external](https://example.com)',
+                '  - [.spec/contracts/a.md#sec-one](/.spec/contracts/a.md#sec-one)',
+                ''
+            ].join("\n");
+        },
+        ACT(content) {
+            return parseLinkedReferences(content, 1);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [
+                { path: ".spec/contracts/a.md", anchor: "sec-one" },
+                { path: ".spec/contracts/a.md", anchor: "sec-two" },
+                { path: ".spec/rules/b.md", anchor: null },
+                { path: ".spec/contracts/a.md", anchor: "sec-one" }
+            ]);
+        }
+    });
+
+    test("stops at the next task line", {
+        ARRANGE() {
+            return [
+                '- [ ]{"it":0,"ot":0,"t":0} 1.1 First task',
+                '',
+                '  - [.spec/contracts/first.md](/.spec/contracts/first.md)',
+                '',
+                '- [ ]{"it":0,"ot":0,"t":0} 1.2 Second task',
+                '',
+                '  - [.spec/contracts/second.md](/.spec/contracts/second.md)',
+                ''
+            ].join("\n");
+        },
+        ACT(content) {
+            return parseLinkedReferences(content, 1);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ path: ".spec/contracts/first.md", anchor: null }]);
+        }
+    });
+});
+
+test.describe("headingAnchor", test => {
+    test("drops an apostrophe while slugging the heading text", {
+        ARRANGE() {
+            return "The worker's first iteration";
+        },
+        ACT(text) {
+            return headingAnchor(text);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "the-workers-first-iteration");
+        }
+    });
+
+    test("collapses a spaced em-dash to a double hyphen", {
+        ARRANGE() {
+            return "A review round completes — cancelling reviewers";
+        },
+        ACT(text) {
+            return headingAnchor(text);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "a-review-round-completes--cancelling-reviewers");
+        }
+    });
+
+    test("retains underscores and digits", {
+        ARRANGE() {
+            return "Task_2 covers step3";
+        },
+        ACT(text) {
+            return headingAnchor(text);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "task_2-covers-step3");
+        }
+    });
+});
+
+test.describe("extractHeadingSection", test => {
+    test("returns the section bounded by the next same-or-higher-level heading", {
+        ARRANGE() {
+            const content = [
+                "# Top",
+                "intro line",
+                "## Target Heading",
+                "target body line",
+                "### Nested subsection",
+                "nested body",
+                "## Next Section",
+                "next body"
+            ].join("\n");
+            const expected = [
+                "## Target Heading",
+                "target body line",
+                "### Nested subsection",
+                "nested body"
+            ].join("\n");
+            return { content, expected };
+        },
+        ACT({ content }) {
+            return extractHeadingSection(content, "target-heading");
+        },
+        ASSERT(result, { expected }) {
+            Assert.strictEqual(result, expected);
+        }
+    });
+
+    test("returns the section through the end of the file when no later heading follows", {
+        ARRANGE() {
+            const content = [
+                "## Only Section",
+                "body a",
+                "body b"
+            ].join("\n");
+            return { content };
+        },
+        ACT({ content }) {
+            return extractHeadingSection(content, "only-section");
+        },
+        ASSERT(result, { content }) {
+            Assert.strictEqual(result, content);
+        }
+    });
+
+    test("returns null when no heading's anchor matches", {
+        ARRANGE() {
+            return [
+                "# Heading One",
+                "body",
+                "## Heading Two",
+                "more body"
+            ].join("\n");
+        },
+        ACT(content) {
+            return extractHeadingSection(content, "no-such-anchor");
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, null);
+        }
+    });
+});
+
+test.describe("buildSpecFileContent", test => {
+    test("renders a whole-file reference with a namespace heading and the lead sentence", {
+        ARRANGE() {
+            const references = [{ path: ".spec/contracts/a.md", anchor: null }];
+            const fileContents = new Map([[".spec/contracts/a.md", "Alpha file body."]]);
+            const expected = [
+                "The following is the consolidated content of every contract and rule this task references.",
+                "",
+                "## .spec/contracts/a.md",
+                "",
+                "Alpha file body."
+            ].join("\n");
+            return { references, fileContents, expected };
+        },
+        ACT({ references, fileContents }) {
+            return buildSpecFileContent(references, fileContents);
+        },
+        ASSERT(result, { expected }) {
+            Assert.strictEqual(result, expected);
+        }
+    });
+
+    test("renders a heading-anchored reference as the narrowed section under an anchored heading", {
+        ARRANGE() {
+            const fileBody = [
+                "# Title",
+                "intro",
+                "## Section One",
+                "section one body",
+                "## Section Two",
+                "section two body"
+            ].join("\n");
+            const references = [{ path: ".spec/rules/r.md", anchor: "section-one" }];
+            const fileContents = new Map([[".spec/rules/r.md", fileBody]]);
+            const expected = [
+                "The following is the consolidated content of every contract and rule this task references.",
+                "",
+                "## .spec/rules/r.md#section-one",
+                "",
+                "## Section One",
+                "section one body"
+            ].join("\n");
+            return { references, fileContents, expected };
+        },
+        ACT({ references, fileContents }) {
+            return buildSpecFileContent(references, fileContents);
+        },
+        ASSERT(result, { expected }) {
+            Assert.strictEqual(result, expected);
+        }
+    });
+
+    test("a #L<n> line fragment falls back to the whole file", {
+        ARRANGE() {
+            const fileBody = [
+                "## Heading",
+                "body"
+            ].join("\n");
+            const references = [{ path: ".spec/contracts/c.md", anchor: "L10" }];
+            const fileContents = new Map([[".spec/contracts/c.md", fileBody]]);
+            const expected = [
+                "The following is the consolidated content of every contract and rule this task references.",
+                "",
+                "## .spec/contracts/c.md",
+                "",
+                "## Heading",
+                "body"
+            ].join("\n");
+            return { references, fileContents, expected };
+        },
+        ACT({ references, fileContents }) {
+            return buildSpecFileContent(references, fileContents);
+        },
+        ASSERT(result, { expected }) {
+            Assert.strictEqual(result, expected);
+        }
+    });
+
+    test("a #L<n>-L<m> line-range fragment falls back to the whole file", {
+        ARRANGE() {
+            const fileBody = [
+                "## Heading",
+                "body"
+            ].join("\n");
+            const references = [{ path: ".spec/contracts/range.md", anchor: "L10-L20" }];
+            const fileContents = new Map([[".spec/contracts/range.md", fileBody]]);
+            const expected = [
+                "The following is the consolidated content of every contract and rule this task references.",
+                "",
+                "## .spec/contracts/range.md",
+                "",
+                "## Heading",
+                "body"
+            ].join("\n");
+            return { references, fileContents, expected };
+        },
+        ACT({ references, fileContents }) {
+            return buildSpecFileContent(references, fileContents);
+        },
+        ASSERT(result, { expected }) {
+            Assert.strictEqual(result, expected);
+        }
+    });
+
+    test("a file referenced both wholly and by section is emitted once as a whole file", {
+        ARRANGE() {
+            const fileBody = [
+                "## Section A",
+                "a body",
+                "## Section B",
+                "b body"
+            ].join("\n");
+            const references = [
+                { path: ".spec/contracts/d.md", anchor: "section-a" },
+                { path: ".spec/contracts/d.md", anchor: null }
+            ];
+            const fileContents = new Map([[".spec/contracts/d.md", fileBody]]);
+            const expected = [
+                "The following is the consolidated content of every contract and rule this task references.",
+                "",
+                "## .spec/contracts/d.md",
+                "",
+                "## Section A",
+                "a body",
+                "## Section B",
+                "b body"
+            ].join("\n");
+            return { references, fileContents, expected };
+        },
+        ACT({ references, fileContents }) {
+            return buildSpecFileContent(references, fileContents);
+        },
+        ASSERT(result, { expected }) {
+            Assert.strictEqual(result, expected);
+        }
+    });
+
+    test("emits each distinct section of a non-whole file once, in first-appearance order", {
+        ARRANGE() {
+            const fileBody = [
+                "## First",
+                "first body",
+                "## Second",
+                "second body",
+                "## Third",
+                "third body"
+            ].join("\n");
+            const references = [
+                { path: ".spec/rules/multi.md", anchor: "second" },
+                { path: ".spec/rules/multi.md", anchor: "first" }
+            ];
+            const fileContents = new Map([[".spec/rules/multi.md", fileBody]]);
+            const expected = [
+                "The following is the consolidated content of every contract and rule this task references.",
+                "",
+                "## .spec/rules/multi.md#second",
+                "",
+                "## Second",
+                "second body",
+                "",
+                "## .spec/rules/multi.md#first",
+                "",
+                "## First",
+                "first body"
+            ].join("\n");
+            return { references, fileContents, expected };
+        },
+        ACT({ references, fileContents }) {
+            return buildSpecFileContent(references, fileContents);
+        },
+        ASSERT(result, { expected }) {
+            Assert.strictEqual(result, expected);
+        }
+    });
+
+    test("a section referenced twice is emitted once", {
+        ARRANGE() {
+            const fileBody = [
+                "## Only",
+                "only body"
+            ].join("\n");
+            const references = [
+                { path: ".spec/rules/dup.md", anchor: "only" },
+                { path: ".spec/rules/dup.md", anchor: "only" }
+            ];
+            const fileContents = new Map([[".spec/rules/dup.md", fileBody]]);
+            const expected = [
+                "The following is the consolidated content of every contract and rule this task references.",
+                "",
+                "## .spec/rules/dup.md#only",
+                "",
+                "## Only",
+                "only body"
+            ].join("\n");
+            return { references, fileContents, expected };
+        },
+        ACT({ references, fileContents }) {
+            return buildSpecFileContent(references, fileContents);
+        },
+        ASSERT(result, { expected }) {
+            Assert.strictEqual(result, expected);
+        }
+    });
+
+    test("emits distinct files in first-appearance order", {
+        ARRANGE() {
+            const references = [
+                { path: ".spec/rules/second-file.md", anchor: null },
+                { path: ".spec/contracts/first-file.md", anchor: null }
+            ];
+            const fileContents = new Map([
+                [".spec/rules/second-file.md", "second file body"],
+                [".spec/contracts/first-file.md", "first file body"]
+            ]);
+            const expected = [
+                "The following is the consolidated content of every contract and rule this task references.",
+                "",
+                "## .spec/rules/second-file.md",
+                "",
+                "second file body",
+                "",
+                "## .spec/contracts/first-file.md",
+                "",
+                "first file body"
+            ].join("\n");
+            return { references, fileContents, expected };
+        },
+        ACT({ references, fileContents }) {
+            return buildSpecFileContent(references, fileContents);
         },
         ASSERT(result, { expected }) {
             Assert.strictEqual(result, expected);
