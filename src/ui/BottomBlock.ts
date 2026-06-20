@@ -43,7 +43,7 @@ export type TerminalLabel = "Done" | "Hard stop" | "Interrupted" | "Failed";
 
 const FRAMES = ["⣋", "⣙", "⣹", "⣸", "⣼", "⣴", "⣦", "⣧", "⣇", "⣏"];
 const FRAME_MS = 200;
-const LABEL_MS = 5000;
+const LABEL_MS = 9000;
 const AUTOWRAP_OFF = "\x1b[?7l";
 const AUTOWRAP_ON = "\x1b[?7h";
 const CR = "\r";
@@ -212,7 +212,7 @@ export class BottomBlock {
     }
 
     private _scheduleLabelTick():void {
-        // The working label rotates on its own 5 s cadence, independent of the 200 ms spinner
+        // The working label rotates on its own 9 s cadence, independent of the 200 ms spinner
         // animation; each rotation picks a pool entry different from the one currently shown.
         this._labelTimer = this._time.setTimeout(() => {
             this._labelTimer = null;

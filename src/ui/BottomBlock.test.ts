@@ -1016,7 +1016,7 @@ test.describe("BottomBlock", test => {
         }
     });
 
-    test("advancing 5 seconds rotates the working label to a different pool entry", {
+    test("advancing 9 seconds rotates the working label to a different pool entry", {
         ARRANGE() {
             const io = stubIO(80);
             const time = fakeTime();
@@ -1027,17 +1027,17 @@ test.describe("BottomBlock", test => {
             return { io, time, before };
         },
         ACT({ io, time, before }) {
-            time.advance(5000);
+            time.advance(9000);
             return { before, after: workingLabelOf(io.output) };
         },
         ASSERTS: {
             "the label shown before rotation is a pool entry"(result) {
                 Assert.ok(workingPool.includes(result.before));
             },
-            "the label shown after 5 seconds is a pool entry"(result) {
+            "the label shown after 9 seconds is a pool entry"(result) {
                 Assert.ok(workingPool.includes(result.after));
             },
-            "the label after 5 seconds differs from the one shown before"(result) {
+            "the label after 9 seconds differs from the one shown before"(result) {
                 Assert.notStrictEqual(result.after, result.before);
             }
         }
@@ -1060,7 +1060,7 @@ test.describe("BottomBlock", test => {
             const labelAfterAnim = workingLabelOf(afterAnim);
             const frameAfterAnim = stripAnsi(afterAnim.split("\n").pop() ?? "")[0];
             io.reset();
-            time.advance(4800);
+            time.advance(8800);
             const labelAfterLabelTick = workingLabelOf(io.output);
             return { initialLabel, initialFrame, labelAfterAnim, frameAfterAnim, labelAfterLabelTick };
         },
@@ -1071,13 +1071,13 @@ test.describe("BottomBlock", test => {
             "the working label is unchanged after the 200 ms spinner tick"(result) {
                 Assert.strictEqual(result.labelAfterAnim, result.initialLabel);
             },
-            "the working label rotates only once the full 5 seconds have elapsed"(result) {
+            "the working label rotates only once the full 9 seconds have elapsed"(result) {
                 Assert.notStrictEqual(result.labelAfterLabelTick, result.initialLabel);
             }
         }
     });
 
-    test("switching from working to reviewing tears down both footer timers — no writes past the 5-second label cadence", {
+    test("switching from working to reviewing tears down both footer timers — no writes past the 9-second label cadence", {
         ARRANGE() {
             const io = stubIO(120);
             const time = fakeTime();
@@ -1092,14 +1092,14 @@ test.describe("BottomBlock", test => {
             block.setFooter({ kind: "reviewing", reviewers });
             const pendingAfterSwitch = time.pendingCount;
             io.reset();
-            time.advance(6000);
+            time.advance(10000);
             return { pendingAfterSwitch, writesAfterAdvance: io.writes.length };
         },
         ASSERTS: {
             "no footer timer remains pending after leaving the working state"(result) {
                 Assert.strictEqual(result.pendingAfterSwitch, 0);
             },
-            "advancing past the 5-second label cadence produces no writes"(result) {
+            "advancing past the 9-second label cadence produces no writes"(result) {
                 Assert.strictEqual(result.writesAfterAdvance, 0);
             }
         }
