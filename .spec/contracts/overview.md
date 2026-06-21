@@ -8,6 +8,7 @@ Flanders ships two user-facing surfaces:
 
 - A **CLI**, invoked via `npx flanders <command> [arguments...]`. Each command owns its own contract under `.spec/contracts/cli-commands/`:
   - `install` — see [.spec/contracts/cli-commands/install.md](/.spec/contracts/cli-commands/install.md).
+  - `update` — see [.spec/contracts/cli-commands/update.md](/.spec/contracts/cli-commands/update.md).
   - `implement [plan]` — see [.spec/contracts/cli-commands/implement/overview.md](/.spec/contracts/cli-commands/implement/overview.md).
 - Three **AI-tool skills**, invoked from inside an AI-coding-tool session. Each skill owns its own contract under `.spec/contracts/ai-skills/`:
   - `/flanders-spec` — authors contracts, rules, and behavior rules; see [.spec/contracts/ai-skills/spec-skill.md](/.spec/contracts/ai-skills/spec-skill.md).

@@ -1,7 +1,7 @@
 # Flanders Configuration Folder Contract
 
 ## Purpose
-Define the persistent Flanders configuration surface — the `.flanders/` folder — that the `install` command writes (see [.spec/contracts/cli-commands/install.md](/.spec/contracts/cli-commands/install.md)) and that other Flanders commands (currently `implement`) read.
+Define the persistent Flanders configuration surface — the `.flanders/` folder — that the `install` command writes (see [.spec/contracts/cli-commands/install.md](/.spec/contracts/cli-commands/install.md)), that other Flanders commands (currently `implement`) read to run, and that `install` itself reads at the chosen scope to pre-select its interactive defaults.
 
 ## Location per scope
 Flanders persists its configuration at a fixed location per scope:
@@ -31,6 +31,8 @@ When a Flanders command reads the configuration, it resolves it as follows:
 3. Otherwise, the command treats the configuration as missing. Commands that require configuration (such as `implement`) fail with a diagnostic pointing the user at `npx flanders install` — see the per-command contracts for the exact failure mode.
 
 There is no field-by-field merge between scopes.
+
+This precedence governs a command that reads the configuration to run (today, `implement`). The `install` command also reads a `.flanders/config.json` — the one at the scope it is about to write — to pre-select its interactive defaults (see [.spec/contracts/cli-commands/install.md#pre-selection-from-an-existing-configuration](/.spec/contracts/cli-commands/install.md#pre-selection-from-an-existing-configuration)); that read targets the chosen scope's file directly, does not apply this precedence, and treats an absent or malformed file leniently — falling back to fresh defaults — rather than as a hard error.
 
 ## Overwrite
 The folder is overwritten silently by every successful `install` run at the same scope. Preserving prior contents is the user's responsibility, typically through version control.

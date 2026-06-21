@@ -13,8 +13,8 @@ Every interactive question `install` asks the user — skills tool, scope, worke
 
 The helper is a single module exporting at minimum:
 
-- A **single-select** function that takes an array of selectable entries and renders them as a numbered or arrow-navigable list, returning the chosen entry.
-- A **free-text** function that takes an optional placeholder string and returns the user's typed answer (empty string when the user just presses Enter).
+- A **single-select** function that takes an array of selectable entries and renders them as a numbered or arrow-navigable list, returning the chosen entry. It accepts an optional default entry — the entry pre-highlighted as the initial selection — which is the entry returned when the user accepts the list without moving off it.
+- A **free-text** function that takes an optional placeholder string and returns the user's typed answer (empty string when the user just presses Enter). It accepts an optional default value: when one is supplied, pressing Enter on an unedited input returns that default instead of the empty string.
 
 Both functions accept the question text as input and render it consistently across commands: same prefix style, same color (if any), same handling of Ctrl+C (abort the command with a non-zero exit and a short diagnostic).
 
@@ -335,3 +335,42 @@ The defaults reproduce a build with no weighted reviews: `minimumReviews` equal 
 - `install` renders the interactive minimum question as a single-select list instead of a free-text entry defaulting to `T`, or does not re-prompt an interactive minimum entry that is non-numeric, below `1`, or above `T`.
 - `install` persists a reviewer as optional while `minimumReviews` equals the number of configured reviewers.
 - `install` writes a `.flanders/config.json` whose `minimumReviews` field or any per-reviewer `optional` field is absent (see [src/workspace/.spec/rules/flanders-config/file-format.md](/src/workspace/.spec/rules/flanders-config/file-format.md)).
+
+## install pre-selects each interactive default from the chosen scope's existing config
+
+After the scope is chosen, `install` reads the `.flanders/config.json` at that scope (its format is pinned in [src/workspace/.spec/rules/flanders-config/file-format.md](/src/workspace/.spec/rules/flanders-config/file-format.md)) and seeds the interactive defaults of the questions asked afterward from its stored answers, so that accepting every default reproduces the stored configuration. The user-facing promise is pinned in [.spec/contracts/cli-commands/install.md#pre-selection-from-an-existing-configuration](/.spec/contracts/cli-commands/install.md#pre-selection-from-an-existing-configuration); this rule pins how the seeding is realized.
+
+### Who this applies to
+
+- **Subject:** the `install` command, after the scope question is answered and before it asks the worker and reviewer questions.
+- **Not subject:** the skills-tool and scope questions, whose answers `.flanders/config.json` does not store and which are therefore never pre-selected from it; every other command, which does not pre-select; and any flag-answered question, which is skipped entirely and takes its flag value regardless of the stored configuration.
+
+### The pre-selection read is lenient
+
+The read targets the chosen scope's `.flanders/config.json` directly — it does not apply the consume-to-run precedence of [.spec/contracts/shared/flanders-config.md](/.spec/contracts/shared/flanders-config.md). When the file is absent, unreadable, or does not parse and validate against [src/workspace/.spec/rules/flanders-config/file-format.md](/src/workspace/.spec/rules/flanders-config/file-format.md), `install` pre-selects nothing and uses its fresh-install defaults; it does not abort. This is the one reader that tolerates a malformed file, precisely so that re-running `install` repairs a corrupted configuration by overwriting it.
+
+### How each stored answer seeds its question
+
+Each question is seeded through the shared prompt helper's default support (see [src/commands/.spec/rules/install.md#interactive-prompts-go-through-the-shared-prompt-helper](/src/commands/.spec/rules/install.md#interactive-prompts-go-through-the-shared-prompt-helper)):
+
+- **Worker tool, each reviewer tool** — the single-select's default entry is the stored `tool`. Both `claude` and `codex` are always offered, so the stored tool is always pre-selectable.
+- **Worker effort, each reviewer effort** — the default entry is the entry whose persisted value equals the stored `effort` (the synthetic `default configured effort` entry when the stored effort is `""`). For `claude`, an effort that is not among the curated suggestions defaults to the custom entry, whose free-text default is set to the stored value. For `codex`, the stored effort is always a member of the closed documented set or `""`, so it is always among the offered entries.
+- **Worker model, each reviewer model** — the default entry is the entry whose persisted value equals the stored `model` (the synthetic `default configured model` entry when the stored model is `""`). For `claude`, the two-tier menu pre-selects along the path to the stored model: when the stored model belongs to a family submenu, the family entry is the default at the top level and the matching model entry is the default inside that submenu; when it is the cross-family alias or the default entry, that top-level entry is the default; and when it matches none of the catalogued values, the custom entry is the default with its free-text default set to the stored model. For `codex`, the default entry is the probe-returned entry equal to the stored model, or the `default configured model` entry when the stored model is `""`; a stored `codex` model the current probe no longer returns is not among the offered entries and is not forced onto any entry — that question is then answered actively, while every other question still reproduces its stored answer. When the `codex` model question falls back to free-text (empty or failed probe), its free-text default is the stored model.
+- **Reviewer-list length** — the `Configure another reviewer?` single-select is seeded to rebuild a list of the stored length `T`: it defaults to `yes` after each of the first `T − 1` reviewers and to `no` after reviewer `T`, so accepting every default configures exactly `T` reviewers. When at least one reviewer flag is present, the list length is fixed by the flags and this question is not shown at all, per [src/commands/.spec/rules/install.md#reviewer-flags-fix-the-reviewer-list-length-and-skip-the-configure-another-reviewer-prompt](/src/commands/.spec/rules/install.md#reviewer-flags-fix-the-reviewer-list-length-and-skip-the-configure-another-reviewer-prompt).
+- **Each reviewer's `optional`** — when the per-reviewer optional questions are asked (the chosen minimum is below `T`), each defaults to the stored `optional` of the reviewer at that position.
+- **`minimumReviews`** — the free-text numeric entry's default is the stored `minimumReviews` rather than `T`. The validation pinned by [src/commands/.spec/rules/install.md#the-weighted-review-configuration-is-collected-only-when-the-reviewer-list-has-two-or-more-reviewers](/src/commands/.spec/rules/install.md#the-weighted-review-configuration-is-collected-only-when-the-reviewer-list-has-two-or-more-reviewers) still governs the accepted entry.
+
+The per-question fresh-install defaults pinned elsewhere in this file and in the install contract — the minimum defaulting to `T`, each reviewer defaulting to required, and the first entry of any other list being the initial highlight — are the defaults used when no configuration is read; a read configuration replaces each with the stored value as above.
+
+### Flags still win
+
+A question answered by a flag is skipped and takes the flag value, never the stored default (see [src/commands/.spec/rules/install.md#a-flag-supplied-answer-skips-its-interactive-prompt](/src/commands/.spec/rules/install.md#a-flag-supplied-answer-skips-its-interactive-prompt)). Pre-selection seeds only the defaults of questions that are actually asked.
+
+### Failure signals
+
+- `install` aborts, or prints a malformed-configuration diagnostic, when the pre-existing `.flanders/config.json` at the chosen scope is malformed, instead of falling back to fresh-install defaults.
+- The pre-selection read applies the project-over-global precedence instead of reading the chosen scope's file directly.
+- Accepting every pre-selected default at a scope whose stored configuration is intact writes back a `.flanders/config.json` that differs from the one read.
+- A stored answer that is still among its question's offered options is not pre-selected — for example, a stored worker tool is not the default entry of the worker tool question.
+- The skills-tool or scope question is pre-selected from `.flanders/config.json`, which stores neither.
+- A `codex` model the current probe no longer returns is forced onto some other entry as the default instead of leaving that question without a pre-selected default.
