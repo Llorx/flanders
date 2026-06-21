@@ -237,7 +237,8 @@ const ask = (() => {
         for (let i = 0; i < q.options.length; i++) {
             const o = q.options[i]!;
             const marker = pickedLabels.has(o.label) ? "*" : " ";
-            out.write(`  ${marker} ${i + 1}) ${o.label}${o.description ? ` — ${o.description}` : ""}\n`);
+            const isDefault = q.defaultIndex === i;
+            out.write(`  ${marker} ${i + 1}) ${o.label}${o.description ? ` — ${o.description}` : ""}${isDefault ? " (default — press Enter)" : ""}\n`);
         }
         if (existing) {
             const labels = existing.picked.map(p => p.label).join(", ");
@@ -261,6 +262,9 @@ const ask = (() => {
                 hints.push(q.multiSelect
                     ? `[1-${q.options.length}, comma-separated; free-text OK]`
                     : `[1-${q.options.length}; free-text OK]`);
+                if (q.defaultIndex !== undefined) {
+                    hints.push("Enter for default");
+                }
                 if (idx > 0) {
                     hints.push("'-' back");
                 }
@@ -286,6 +290,11 @@ const ask = (() => {
                     } else {
                         out.writeError("Already at the last question — submit it to finish.\n");
                     }
+                    continue;
+                }
+                if (raw === "" && q.defaultIndex !== undefined) {
+                    answers[idx] = { picked: [q.options[q.defaultIndex]!] };
+                    idx++;
                     continue;
                 }
                 const parsed = parseAnswer(raw, q.options.length, q.multiSelect);

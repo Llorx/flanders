@@ -4,11 +4,13 @@ export type AskChoiceArgs = Readonly<{
     header:string;
     question:string;
     options:readonly ChoiceOption[];
+    defaultLabel?:string; // label of the option Enter selects; ignored when it matches no option
 }>;
 
 export type AskTextArgs = Readonly<{
     question:string;
     placeholder?:string;
+    default?:string; // returned when the user presses Enter on an empty input
 }>;
 
 function abortError():Error {
@@ -18,11 +20,15 @@ function abortError():Error {
 }
 
 export async function askChoice(ask:AskContext, args:AskChoiceArgs, output?:OutputContext):Promise<ChoiceOption> {
+    const matchIndex = args.defaultLabel !== undefined
+        ? args.options.findIndex(o => o.label === args.defaultLabel)
+        : -1;
     const [answer] = await ask.askChoices([{
         header: args.header,
         question: args.question,
         options: args.options,
-        multiSelect: false
+        multiSelect: false,
+        defaultIndex: matchIndex >= 0 ? matchIndex : undefined
     }], output);
     if (!answer || answer.picked.length === 0) {
         throw abortError();
@@ -34,9 +40,14 @@ export async function askText(ask:AskContext, args:AskTextArgs):Promise<string> 
     const prompt = args.placeholder
         ? `${args.question} (${args.placeholder}): `
         : `${args.question}: `;
+    let value:string;
     try {
-        return await ask.askText(prompt);
+        value = await ask.askText(prompt);
     } catch {
         throw abortError();
     }
+    if (value === "" && args.default !== undefined) {
+        return args.default;
+    }
+    return value;
 }

@@ -63,6 +63,7 @@ export type AskChoiceOptions = Readonly<{
     question:string;
     options:readonly ChoiceOption[];
     multiSelect:boolean;
+    defaultIndex?:number; // zero-based index into `options` chosen when the user accepts the prompt with an empty line
 }>;
 
 export type AskAnswer = Readonly<{

@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import type { AskContext } from "../contexts";
+import type { AskChoiceOptions, AskContext } from "../contexts";
 import { askChoice, askText } from "./PromptHelper";
 
 test.describe("askChoice", test => {
@@ -92,6 +92,90 @@ test.describe("askChoice", test => {
             Assert.strictEqual(result.name, "AbortError");
         }
     });
+
+    test("passes defaultIndex equal to the index of the option whose label matches defaultLabel", {
+        ARRANGE() {
+            let captured:readonly AskChoiceOptions[]|null = null;
+            const ask:AskContext = {
+                askChoices(questions) {
+                    captured = questions;
+                    return Promise.resolve([{ picked: [{ label: "option-b" }] }]);
+                },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask, getCaptured: () => captured };
+        },
+        async ACT({ ask }) {
+            return await askChoice(ask, {
+                header: "Test header",
+                question: "Pick one?",
+                options: [
+                    { label: "option-a" },
+                    { label: "option-b" },
+                    { label: "option-c" }
+                ],
+                defaultLabel: "option-b"
+            });
+        },
+        ASSERT(_result, { getCaptured }) {
+            Assert.strictEqual(getCaptured()![0]!.defaultIndex, 1);
+        }
+    });
+
+    test("passes defaultIndex undefined when no defaultLabel is supplied", {
+        ARRANGE() {
+            let captured:readonly AskChoiceOptions[]|null = null;
+            const ask:AskContext = {
+                askChoices(questions) {
+                    captured = questions;
+                    return Promise.resolve([{ picked: [{ label: "option-a" }] }]);
+                },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask, getCaptured: () => captured };
+        },
+        async ACT({ ask }) {
+            return await askChoice(ask, {
+                header: "Test header",
+                question: "Pick one?",
+                options: [
+                    { label: "option-a" },
+                    { label: "option-b" }
+                ]
+            });
+        },
+        ASSERT(_result, { getCaptured }) {
+            Assert.strictEqual(getCaptured()![0]!.defaultIndex, undefined);
+        }
+    });
+
+    test("passes defaultIndex undefined when defaultLabel matches no option", {
+        ARRANGE() {
+            let captured:readonly AskChoiceOptions[]|null = null;
+            const ask:AskContext = {
+                askChoices(questions) {
+                    captured = questions;
+                    return Promise.resolve([{ picked: [{ label: "option-a" }] }]);
+                },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask, getCaptured: () => captured };
+        },
+        async ACT({ ask }) {
+            return await askChoice(ask, {
+                header: "Test header",
+                question: "Pick one?",
+                options: [
+                    { label: "option-a" },
+                    { label: "option-b" }
+                ],
+                defaultLabel: "no-such-label"
+            });
+        },
+        ASSERT(_result, { getCaptured }) {
+            Assert.strictEqual(getCaptured()![0]!.defaultIndex, undefined);
+        }
+    });
 });
 
 test.describe("askText", test => {
@@ -168,6 +252,38 @@ test.describe("askText", test => {
             "prompt includes question and placeholder"(_result, { getCapturedPrompt }) {
                 Assert.strictEqual(getCapturedPrompt(), "Enter model (leave empty for default): ");
             }
+        }
+    });
+
+    test("returns the supplied default when the read yields the empty string", {
+        ARRANGE() {
+            const ask:AskContext = {
+                askChoices() { return Promise.resolve([]); },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask };
+        },
+        async ACT({ ask }) {
+            return await askText(ask, { question: "Enter value", default: "stored-default" });
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "stored-default");
+        }
+    });
+
+    test("returns the typed value verbatim, not the default, when the read is non-empty", {
+        ARRANGE() {
+            const ask:AskContext = {
+                askChoices() { return Promise.resolve([]); },
+                askText() { return Promise.resolve("  typed value  "); }
+            };
+            return { ask };
+        },
+        async ACT({ ask }) {
+            return await askText(ask, { question: "Enter value", default: "stored-default" });
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, "  typed value  ");
         }
     });
 });
