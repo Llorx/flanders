@@ -14,4 +14,4 @@ A change to the project-root public contract layer is not complete until the roo
 
 ## Out of scope
 - The nested `.spec/contracts/` folders inside source directories pin internal-boundary public surfaces, not the end-user surface the root `README.md` presents; this rule binds only the project-root public contract layer.
-- The exact structure, wording, and section layout of the `README.md` are not pinned here; only its agreement with the public contract layer is.
+- The exact structure, wording, and section layout of the `README.md` are not pinned here; only its agreement with the public contract layer is. Which topics the `README.md` covers and leaves out — its content scope — is pinned by [.spec/rules/readme-scoped-to-usable-surface.md](/.spec/rules/readme-scoped-to-usable-surface.md), not here.

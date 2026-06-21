@@ -1,8 +1,6 @@
 # Flanders
 
-> Flanders never breaks a rule.
-
-Hi-diddly-ho, neighbor! Flanders is a Node.js toolkit that helps you author contracts, derive work plans from them, and implement those plans through a mix of plain code and AI orchestration, exposed through two surfaces — a CLI invoked as `npx flanders <command>` and three AI-tool skills invoked from inside an AI-coding-tool session.
+Hi-diddly-ho, neighbor! Flanders is a Node.js toolkit that helps you author contracts, derive work plans from them, and implement those plans through a mix of plain code and AI orchestration. It reaches you through two surfaces — a CLI invoked as `npx flanders <command>`, and three AI-tool skills invoked from inside an AI-coding-tool session.
 
 ## Contents
 
@@ -11,27 +9,27 @@ Hi-diddly-ho, neighbor! Flanders is a Node.js toolkit that helps you author cont
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
-- [Voice](#voice)
-- [Project metadata](#project-metadata)
+- [A worked example](#a-worked-example)
 
 ## How it works
 
 Flanders speaks to you through two surfaces. The **CLI** — invoked as `npx flanders <command>` — carries two commands: `install`, which sets Flanders up in your project or your home directory, and `implement [plan]`, which builds a plan from start to finish. The three **AI-tool skills** — `/flanders-spec`, `/flanders-plan`, and `/flanders-work` — are invoked from right inside an AI-coding-tool session.
 
-Underneath, Flanders keeps a tidy little spec corpus alongside your code, and golly, everything flows from it:
+Underneath, Flanders keeps a tidy little spec corpus alongside your code, and everything flows from it:
 
 - **`.spec/contracts`** holds the public obligations a scope exposes — the promises its surface makes to the outside world.
 - **`.spec/rules`** holds the internal conventions its code follows — the house rules it keeps for itself.
+- **`.spec/flanders`** holds behavior rules — the obligations that govern how Flanders' own commands and skills behave while they work in your project.
 
 Ordered work plans then live under **`plans/`**: each plan is a sequence of tasks derived from the contracts and rules, ready to be built one at a time.
 
 The whole neighborly cycle runs **spec → plan → implement**:
 
-1. Capture obligations and conventions as contracts and rules in the spec corpus (with `/flanders-spec`).
+1. Capture obligations and conventions as contracts, rules, and behavior rules in the spec corpus (with `/flanders-spec`).
 2. Derive an ordered work plan from them under `plans/` (with `/flanders-plan`).
 3. Implement the plan task by task, gating each result through build, test, and adversarial review (with `npx flanders implement`).
 
-For a small, self-contained change that doesn't need a whole plan, there's a friendly shortcut: **`/flanders-work`** implements the request directly and gates it through the same adversarial review, all in one invocation.
+For a small, self-contained change that doesn't need a whole plan, there's a friendly shortcut: **`/flanders-work`** implements the request directly and gates it through the same build, test, and adversarial review, all in one invocation.
 
 ## Requirements
 
@@ -81,9 +79,38 @@ Run it without flags and Flanders walks you through the setup, asking in this or
 4. **Reviewer configuration** — an ordered list of one or more adversarial reviewers, each with its own tool, model, and effort.
 5. **Weighted-review configuration** — when two or more reviewers are configured, the minimum number of reviewers that must run to a verdict, and which reviewers are optional.
 
-### Running without prompts
+Any question whose answer you supply by flag is not prompted again.
 
-Every question has an equivalent command-line flag, so the whole thing can run non-interactively, doncha know. Any answer you supply by flag is not prompted again.
+### Flags
+
+Every question has an equivalent command-line flag, so the whole setup can run without a single prompt:
+
+**Scope** (mutually exclusive)
+
+- `--project` — install into the current working directory.
+- `--global` — install into your home directory.
+
+**Skills and worker**
+
+- `--skills-tool=<claude|codex|both>` — which AI tool(s) the skills are installed for.
+- `--worker-tool=<claude|codex>` — which AI tool the `implement` worker uses.
+- `--worker-model=<value>` — model the worker tool invokes; an empty value means "use the tool's default configured model".
+- `--worker-effort=<value>` — reasoning effort the worker tool invokes; an empty value means "use the tool's default configured effort".
+
+**Reviewers** — an ordered list, where reviewer 1 uses the unindexed names and reviewer `N` (2 or greater) carries the index:
+
+- `--reviewer-tool=<claude|codex>` / `--reviewer-N-tool=<claude|codex>`
+- `--reviewer-model=<value>` / `--reviewer-N-model=<value>`
+- `--reviewer-effort=<value>` / `--reviewer-N-effort=<value>`
+
+The reviewer indices must form a contiguous run starting at reviewer 1. Supplying any reviewer flag fixes the reviewer list to those indices and skips the "configure another reviewer?" prompt.
+
+**Weighted review** — only meaningful with two or more reviewers:
+
+- `--reviewer-optional` / `--reviewer-N-optional` — a presence flag that marks that reviewer optional; a reviewer with no such flag is required.
+- `--reviewer-minimum=<value>` — the minimum number of reviewers that must run to a verdict each round, an integer between `1` and the number of configured reviewers.
+
+A tool flag, or the `codex` effort flag, rejects a value outside its accepted set; model flags and the `claude` effort flag accept any value verbatim. Supplying a weighted-review flag with a single reviewer — or a `--reviewer-minimum` equal to the reviewer count together with any optional flag — is a usage error.
 
 ### Overwriting and output
 
@@ -120,38 +147,82 @@ With Flanders installed, here's how to put it to work — running plans from the
 npx flanders implement [plan]
 ```
 
-`implement` takes a plan from your `plans/` folder and carries it through from start to finish. Leave `[plan]` off and Flanders runs the single plan in `plans/` for you automatically; when there's more than one, it lists them and asks you to re-run naming the one to implement. From there it works through each open task with the worker AI, gating every result through build, test, and adversarial review before marking that task complete in the plan — and it commits once per accepted task, so each step lands as its own neat little commit. The project must be a git repository: `implement` needs git and has no flag to turn it off.
+`implement` takes a plan from your `plans/` folder and carries it through from start to finish. Leave `[plan]` off and Flanders runs the single plan in `plans/` for you automatically; when there's more than one, it lists them and asks you to re-run naming the one to implement. From there it works through each open task with the worker AI, gating every result through build, test, and adversarial review before marking that task complete in the plan — and it commits once per accepted task, so each step lands as its own neat little commit. The whole run is non-interactive: once started, it never stops to ask you anything, and it caps each task at five attempts before halting. The project must be a git repository: `implement` needs git and has no flag to turn it off.
 
 ### The three skills
 
-The skills become available after a successful `npx flanders install` run. Each one shapes a different part of the spec → plan → implement cycle:
+The skills become available after a successful `npx flanders install` run, and each is invoked from inside your AI-coding-tool session. Each one shapes a different part of the spec → plan → implement cycle:
 
 - **`/flanders-spec`** — turns a free-form request into your contracts, rules, and behavior rules, written into the `.spec/contracts`, `.spec/rules`, and `.spec/flanders` folders.
 - **`/flanders-plan`** — derives a single, ordered, contract-aware work plan under `plans/` from your request.
-- **`/flanders-work`** — implements a small, self-contained request directly and gates it through a single adversarial review, all in one invocation — no plan file and no commit.
+- **`/flanders-work`** — implements a small, self-contained request directly and gates it through build, test, and a single adversarial review, all in one invocation — no plan file and no commit.
+
+Each skill takes the same optional `<data>` argument:
+
+```
+/flanders-spec [<data>]
+/flanders-plan [<data>]
+/flanders-work [<data>]
+```
+
+- Omit it, and the skill takes your request straight from the conversation.
+- Give it a path to an existing file, and the skill reads that file as the input.
+- Give it any other text, and the skill uses that text verbatim.
 
 ### A typical workflow
 
 Here's the neighborly path from a blank slate to shipped code:
 
 1. **`npx flanders install`** — set Flanders up and deliver the skills.
-2. **`/flanders-spec`** — capture your obligations and conventions as contracts and rules.
+2. **`/flanders-spec`** — capture your obligations and conventions as contracts, rules, and behavior rules.
 3. **`/flanders-plan`** — derive an ordered work plan from them under `plans/`.
 4. **`npx flanders implement`** — build the plan task by task, each result gated through build, test, and review.
 
 And when a change is small enough that a whole plan would be overkill, **`/flanders-work`** is your shortcut — it carries that one request from request to reviewed finish without a plan or a commit.
 
-## Voice
+## A worked example
 
-You may notice Flanders is a friendly neighbor through and through: every surface that speaks to you — the `install` command's interactive prompts, the status writes of both `install` and `implement`, the live `implement` UI, and the narration from the worker, the reviewers, and the skills — carries a gentle, good-natured Ned-Flanders tone. It's only ever a light seasoning, mind you: the flavor colors how a message reads, but it never changes what the message means or how accurate it is, and it never lands on the things that must stay exact — command names, paths, flags, the facts inside a diagnostic, or git commit messages.
+Let's build a tiny web calculator that only multiplies and subtracts, neighbor — start to finish, the whole spec → plan → implement stroll.
 
----
+1. **Set Flanders up** in your project and deliver the skills:
 
-## Project metadata
+   ```sh
+   npx flanders install
+   ```
 
-- **Package** — `flanders`
-- **License** — MIT
-- **Author** — Llorx
-- **Repository** — git+https://github.com/Llorx/flanders.git
-- **Issues** — https://github.com/Llorx/flanders/issues
-- **Homepage** — https://github.com/Llorx/flanders#readme
+2. **Capture the spec** with `/flanders-spec`. You describe what you want; the skill sorts each obligation into the right folder — public behavior into `.spec/contracts`, internal conventions into `.spec/rules`:
+
+   ```
+   /flanders-spec A web calculator with exactly two operations — multiply and
+   subtract — over two number inputs, showing the result. The operation buttons
+   are teal, the result panel is white, and the page background is slate. Build
+   the UI with React bundled by Vite, and use no other UI framework.
+   ```
+
+   From that one request it writes, for example:
+
+   - a **functionality contract** under `.spec/contracts/` — the calculator offers exactly two operations, multiply and subtract, over two numeric inputs, and shows the result;
+   - a **colors contract** under `.spec/contracts/` — the operation buttons are teal, the result panel white, and the background slate;
+   - a **frameworks rule** under `.spec/rules/` — the UI is built with React bundled by Vite, and no other UI framework is introduced.
+
+   The skill shows you the planned layout first and writes the files once you approve.
+
+3. **Derive the plan** with `/flanders-plan` — one ordered, contract-aware plan under `plans/`, each task linked back to the contracts and rules it satisfies:
+
+   ```
+   /flanders-plan
+   ```
+
+4. **Build it** with `implement` — Flanders works each task with the worker AI, gates every result through build, test, and adversarial review, and lands one commit per accepted task:
+
+   ```sh
+   npx flanders implement
+   ```
+
+   When it finishes, the contracts are honored by code: a calculator that multiplies and subtracts and nothing else, in teal, white, and slate, built on the framework your rule pinned.
+
+5. **Tweak it later** with the shortcut — a small change that doesn't need a whole plan:
+
+   ```
+   /flanders-work make the result panel use a larger font
+   ```
