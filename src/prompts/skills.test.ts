@@ -1007,6 +1007,33 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("plan content rules carry the achievability obligation", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "scopes achievability to mechanism-constraining tasks"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("A task that constrains how the work is done — reusing existing code unchanged, leaving a function, type, or file untouched, or declaring code out of the task's scope — is achievable against the baseline it leaves immutable"), "the Plan content rules list must scope the achievability obligation to mechanism-constraining tasks");
+            },
+            "requires the immutable baseline already satisfy the task's required obligations"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("every contract and rule the task's acceptance criteria require its output to satisfy is already satisfied by that immutable baseline"), "the Plan content rules list must require the immutable baseline already satisfy the obligations the task's acceptance criteria impose on its output");
+            },
+            "invalidates a task whose criteria are unreachable despite accurate baseline claims"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("the acceptance criteria are unreachable and the task is invalid even when every claim it makes about the baseline is accurate"), "the Plan content rules list must invalidate a task whose acceptance criteria are unreachable even when its baseline claims are accurate");
+            },
+            "resolves an unreachable task by widening scope or escalating"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("widen the task's scope — or the producing earlier task's scope — to authorize and ground the change that closes the gap, or escalate the conflict to the user during the clarification phase"), "the Plan content rules list must resolve an unreachable task by widening scope or escalating");
+            },
+            "does not relax the close-every-choice requirement"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("This is a feasibility check, not a license to leave the mechanism open"), "the Plan content rules list must state achievability is a feasibility check that does not license leaving the mechanism open");
+            }
+        }
+    });
+
     test("validator inputs state the validator reads the source and audits each task against its baseline", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
@@ -1068,6 +1095,29 @@ Every message you address to the user during the run — your clarifying questio
             "includes code removal on the strength of such a premise"(body) {
                 const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
                 Assert.ok(category4.includes("This explicitly includes a task that removes, weakens, or replaces existing code on the strength of such an unbacked claim"), "category 4 must include code removal on the strength of an unbacked premise");
+            }
+        }
+    });
+
+    test("validator category 4 carries the achievability check", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "names the achievability check"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("Tasks are achievable against the baseline they leave immutable"), "category 4 must name the achievability check");
+            },
+            "FAILs a mechanism-constraining task whose immutable baseline lacks a required obligation"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("is FAIL when the immutable baseline does not already satisfy an obligation the task's acceptance criteria require of its output, so those criteria cannot be met without breaking the constraint"), "category 4 must FAIL a mechanism-constraining task whose immutable baseline lacks a required obligation");
+            },
+            "FAILs a gap that is neither widened into scope nor escalated"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("a gap the no-touch constraint cannot close, neither widened into the task's (or an earlier task's) scope nor escalated to the user, is FAIL"), "category 4 must FAIL a gap that is neither widened into scope nor escalated");
+            },
+            "distinguishes achievability from the accurate-claims check"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("This is distinct from the accurate-claims check above: a task whose every statement about the baseline is accurate is still FAIL when its acceptance criteria are unreachable given its own constraint"), "category 4 must distinguish achievability from the accurate-claims check");
             }
         }
     });
