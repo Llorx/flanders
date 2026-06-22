@@ -82,6 +82,8 @@ Run it without flags and Flanders walks you through the setup, asking in this or
 
 Any question whose answer you supply by flag is not prompted again.
 
+And if a `.flanders/` configuration already lives at the scope you choose, neighbor, `install` reads it the moment you pick that scope and pre-selects your stored answers as the question defaults — the worker's tool, model, and effort; the reviewer list, including how many reviewers there are and, for each one, its tool, model, effort, and whether it's optional; and the minimum number of reviewers that must run. Press Enter straight through and, but for one edge case, you reproduce your saved configuration just as it was. That edge case is a stored Codex model the probe no longer offers: with it no longer on the menu, that one question is shown with no pre-selected default and you answer it afresh. The skills tool and the scope aren't kept in that file, so they're always asked fresh too, and any flag you pass still wins over a pre-selected default. When no configuration lives at that scope yet — or the file can't be read — Flanders gently falls back to its fresh-install defaults and pre-selects nothing.
+
 ### Flags
 
 Every question has an equivalent command-line flag, so the whole setup can run without a single prompt:
