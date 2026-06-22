@@ -2,8 +2,9 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { Install, parseInstallFlags, stripYamlFrontmatter } from "./Install";
+import { Install, parseInstallFlags } from "./Install";
 import type { InstallContexts } from "./Install";
+import { stripYamlFrontmatter } from "./skillArtifacts";
 import type { AskAnswer, ScriptContext, SpawnedProcess } from "../contexts";
 import { read as readConfig } from "../workspace/FlandersConfig";
 import type { FlandersConfig } from "../workspace/FlandersConfig";
@@ -372,11 +373,11 @@ test.describe("Install filesystem errors", test => {
             return code;
         },
         ASSERTS: {
-            "exits with non-zero code"(code) {
-                Assert.notStrictEqual(code, 0);
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
             },
-            "diagnostic names the path"(_code, { errors }) {
-                Assert.ok(errors.join("").includes("/proj/.claude/skills/flanders-spec"));
+            "diagnostic is exactly the Cannot create destination message for the offending folder"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Cannot create destination: /proj/.claude/skills/flanders-spec\n");
             }
         }
     });
@@ -396,11 +397,11 @@ test.describe("Install filesystem errors", test => {
             return code;
         },
         ASSERTS: {
-            "exits with non-zero code"(code) {
-                Assert.notStrictEqual(code, 0);
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
             },
-            "diagnostic names the file path"(_code, { errors }) {
-                Assert.ok(errors.join("").includes("/SKILL.md"));
+            "diagnostic is exactly the Cannot write file message for the offending SKILL.md path"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Cannot write file: /proj/.claude/skills/flanders-spec/SKILL.md\n");
             }
         }
     });
@@ -3892,21 +3893,14 @@ test.describe("Install skills-tool stdout enumeration", test => {
             await cmd.dispose();
         },
         ASSERTS: {
-            "stdout includes flanders-spec.md path"(_, { written }) {
-                Assert.ok(written.join("").includes("/proj/.codex/prompts/flanders-spec.md"));
-            },
-            "stdout includes flanders-plan.md path"(_, { written }) {
-                Assert.ok(written.join("").includes("/proj/.codex/prompts/flanders-plan.md"));
-            },
-            "stdout includes flanders-work.md path"(_, { written }) {
-                Assert.ok(written.join("").includes("/proj/.codex/prompts/flanders-work.md"));
-            },
-            "stdout includes config path"(_, { written }) {
-                Assert.ok(written.join("").includes(".flanders/config.json"));
-            },
-            "outputs exactly 4 lines"(_, { written }) {
+            "stdout is exactly the three Codex prompt paths then the config path, one per line in order"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
-                Assert.strictEqual(lines.length, 4);
+                Assert.deepStrictEqual(lines, [
+                    "/proj/.codex/prompts/flanders-spec.md",
+                    "/proj/.codex/prompts/flanders-plan.md",
+                    "/proj/.codex/prompts/flanders-work.md",
+                    "/proj/.flanders/config.json"
+                ]);
             }
         }
     });
@@ -3921,30 +3915,17 @@ test.describe("Install skills-tool stdout enumeration", test => {
             await cmd.dispose();
         },
         ASSERTS: {
-            "stdout includes Claude spec skill path"(_, { written }) {
-                Assert.ok(written.join("").includes("/proj/.claude/skills/flanders-spec/SKILL.md"));
-            },
-            "stdout includes Claude plan skill path"(_, { written }) {
-                Assert.ok(written.join("").includes("/proj/.claude/skills/flanders-plan/SKILL.md"));
-            },
-            "stdout includes Claude work skill path"(_, { written }) {
-                Assert.ok(written.join("").includes("/proj/.claude/skills/flanders-work/SKILL.md"));
-            },
-            "stdout includes Codex spec prompt path"(_, { written }) {
-                Assert.ok(written.join("").includes("/proj/.codex/prompts/flanders-spec.md"));
-            },
-            "stdout includes Codex plan prompt path"(_, { written }) {
-                Assert.ok(written.join("").includes("/proj/.codex/prompts/flanders-plan.md"));
-            },
-            "stdout includes Codex work prompt path"(_, { written }) {
-                Assert.ok(written.join("").includes("/proj/.codex/prompts/flanders-work.md"));
-            },
-            "stdout includes config path"(_, { written }) {
-                Assert.ok(written.join("").includes(".flanders/config.json"));
-            },
-            "outputs exactly 7 lines"(_, { written }) {
+            "stdout is exactly the three Claude skill paths, then the three Codex prompt paths, then the config path, one per line in order"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
-                Assert.strictEqual(lines.length, 7);
+                Assert.deepStrictEqual(lines, [
+                    "/proj/.claude/skills/flanders-spec/SKILL.md",
+                    "/proj/.claude/skills/flanders-plan/SKILL.md",
+                    "/proj/.claude/skills/flanders-work/SKILL.md",
+                    "/proj/.codex/prompts/flanders-spec.md",
+                    "/proj/.codex/prompts/flanders-plan.md",
+                    "/proj/.codex/prompts/flanders-work.md",
+                    "/proj/.flanders/config.json"
+                ]);
             }
         }
     });
@@ -4059,8 +4040,8 @@ test.describe("Install codex mkdir failure", test => {
             "exits with non-zero code"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "diagnostic names the codex prompts path"(_code, { errors }) {
-                Assert.ok(errors.join("").includes(".codex/prompts"));
+            "diagnostic is exactly the Cannot create destination message for the codex prompts root"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Cannot create destination: /proj/.codex/prompts\n");
             }
         }
     });
@@ -4087,8 +4068,8 @@ test.describe("Install codex mkdir failure", test => {
             "exits with non-zero code"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "diagnostic names the file path"(_code, { errors }) {
-                Assert.ok(errors.join("").includes(".codex/prompts/flanders-spec.md"));
+            "diagnostic is exactly the Cannot write file message for the offending codex prompt path"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Cannot write file: /proj/.codex/prompts/flanders-spec.md\n");
             }
         }
     });
