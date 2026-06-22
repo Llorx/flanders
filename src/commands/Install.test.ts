@@ -3661,6 +3661,1000 @@ test.describe("Install effort question", test => {
     });
 });
 
+// Seeds a well-formed `.flanders/config.json` at the project scope so `install`'s pre-selection read
+// (`readScope`) finds it. Mirrors the writer's serialization (two-space indent, trailing newline).
+function seedProjectConfig(s:ReturnType<typeof stubContexts>, config:FlandersConfig) {
+    s.files.set("/proj/.flanders/config.json", JSON.stringify(config, null, 2) + "\n");
+}
+
+// Captures every `askChoices` question together with its `defaultIndex` so a test can assert which
+// option `install` pre-selected (the default Enter would accept) for each rendered prompt. Selection
+// still flows through the existing `askResponses` queue. Lookups are keyed by the question text, which
+// is unique per prompt (the claude family submenu differs from the top level by its question).
+function captureChoiceDefaults(s:ReturnType<typeof stubContexts>) {
+    const snapshots:{ question:string; options:readonly string[]; defaultIndex:number|undefined }[] = [];
+    const origAsk = s.contexts.ask.askChoices;
+    (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
+        for (const q of questions) {
+            s.askedHeaders.push(q.header);
+            snapshots.push({ question: q.question, options: q.options.map(o => o.label), defaultIndex: q.defaultIndex });
+        }
+        const response = s.askResponses.shift();
+        return Promise.resolve(response ?? []);
+    };
+    const labelOf = (sn:{ options:readonly string[]; defaultIndex:number|undefined }):string|undefined =>
+        sn.defaultIndex !== undefined ? sn.options[sn.defaultIndex] : undefined;
+    return {
+        // The raw `defaultIndex` of the first question matching `question` (undefined when no default).
+        defaultIndexFor: (question:string):number|undefined => snapshots.find(x => x.question === question)?.defaultIndex,
+        // The label of the pre-selected option for the first question matching `question`, or
+        // undefined when that question carried no forced default.
+        defaultLabelFor: (question:string):string|undefined => {
+            const sn = snapshots.find(x => x.question === question);
+            return sn !== undefined ? labelOf(sn) : undefined;
+        },
+        // The pre-selected option label of every occurrence of `question`, in ask order. Lets a test
+        // distinguish repeated prompts (e.g. the "Configure another reviewer?" question asked once per
+        // reviewer) that a first-match lookup would collapse.
+        allDefaultLabelsFor: (question:string):(string|undefined)[] =>
+            snapshots.filter(x => x.question === question).map(labelOf)
+    };
+}
+
+test.describe("Install worker pre-selection from an existing configuration (4.1)", test => {
+    test("claude worker: tool, model family then submenu entry, and effort each default to the stored value", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "claude", model: "claude-opus-4-8", effort: "high" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model top-level -> Opus family submenu
+            s.askResponses.push([{ picked: [{ label: "Opus 4.8" }] }]); // worker model submenu
+            s.askResponses.push([{ picked: [{ label: "high" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker tool prompt defaults to the stored tool claude"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which AI tool should the worker use?"), "claude");
+            },
+            "the worker model top-level menu defaults to the Opus family"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which model should the worker use?"), "Opus");
+            },
+            "the Opus submenu defaults to the Opus 4.8 entry"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which Opus model should the worker use?"), "Opus 4.8");
+            },
+            "the worker effort prompt defaults to the stored level high"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("What effort level should the worker use?"), "high");
+            }
+        }
+    });
+
+    test("claude worker model and effort default to the synthetic default entries when the stored values are the empty string", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker model menu defaults to the default configured model entry"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which model should the worker use?"), "default configured model");
+            },
+            "the worker effort list defaults to the default configured effort entry"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("What effort level should the worker use?"), "default configured effort");
+            }
+        }
+    });
+
+    test("claude worker model defaults to the cross-family alias entry when the stored model is the alias best", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "claude", model: "best", effort: "low" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "Best (auto-pick)" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "low" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker model menu defaults to the Best (auto-pick) cross-family alias entry"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which model should the worker use?"), "Best (auto-pick)");
+            }
+        }
+    });
+
+    test("claude worker model defaults to the custom entry pre-filled with the stored model when it is not catalogued", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "claude", model: "my-private-model", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // worker model -> custom
+            // askTextResponses left empty -> the custom free-text input returns "" -> the default applies
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker model menu defaults to the custom entry"(_result, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which model should the worker use?"), "enter a custom value…");
+            },
+            "accepting the empty custom free-text reproduces the stored model verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "my-private-model");
+            }
+        }
+    });
+
+    test("claude worker effort defaults to the custom entry pre-filled with the stored effort when it is outside the curated set", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "claude", model: "", effort: "turbo" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // worker effort -> custom
+            // askTextResponses left empty -> the custom free-text input returns "" -> the default applies
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker effort list defaults to the custom entry"(_result, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("What effort level should the worker use?"), "enter a custom value…");
+            },
+            "accepting the empty custom free-text reproduces the stored effort verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "turbo");
+            }
+        }
+    });
+
+    test("codex worker model defaults to the stored model when the probe still returns it", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list"},{"slug":"gpt-4.1","visibility":"list"}]}',
+                probeExitCode: 0
+            });
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "gpt-5-codex", effort: "" },
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]); // worker model
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker model list defaults to the stored gpt-5-codex entry"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which model should the worker use?"), "gpt-5-codex");
+            }
+        }
+    });
+
+    test("codex worker model carries no forced default when the probe no longer returns the stored model", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: '{"models":[{"slug":"gpt-4.1","visibility":"list"}]}',
+                probeExitCode: 0
+            });
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "gpt-5-codex", effort: "" },
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "gpt-4.1" }] }]); // worker model (answered actively)
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker model list has no forced default (defaultIndex undefined)"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultIndexFor("Which model should the worker use?"), undefined);
+            }
+        }
+    });
+
+    test("codex worker model defaults to the synthetic default entry for the empty stored model", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list"},{"slug":"gpt-4.1","visibility":"list"}]}',
+                probeExitCode: 0
+            });
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "", effort: "" },
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker model list defaults to the default configured model entry"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which model should the worker use?"), "default configured model");
+            }
+        }
+    });
+
+    test("codex worker effort defaults to the stored level", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "", effort: "high" },
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "high" }] }]); // worker effort
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker effort list defaults to the stored high level"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("What effort level should the worker use?"), "high");
+            }
+        }
+    });
+
+    test("codex worker effort defaults to the synthetic default entry for the empty stored effort", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "", effort: "" },
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker effort list defaults to the default configured effort entry"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("What effort level should the worker use?"), "default configured effort");
+            }
+        }
+    });
+
+    test("codex worker model free-text fallback pre-fills the stored model when the probe yields no list", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({ probeExitCode: 1 });
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "legacy-codex-model", effort: "" },
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            // The probe yields no list -> the worker model question is a free-text input. With no
+            // askText response queued, the input returns "" so the pre-fill default takes effect.
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "accepting the empty free-text reproduces the stored model verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "legacy-codex-model");
+            }
+        }
+    });
+
+    test("codex worker model free-text fallback resolves to the empty string for an empty stored model", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({ probeExitCode: 1 });
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "", effort: "" },
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            // The probe yields no list -> free-text input. With no askText response queued the input
+            // returns "" and, because the stored model is "", the resolved model stays "".
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the resolved worker model is exactly the empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "");
+            }
+        }
+    });
+
+    test("a null configuration (no file) leaves every worker prompt at its fresh-install default", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            // No config seeded -> readScope returns null.
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker tool prompt has no forced default"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultIndexFor("Which AI tool should the worker use?"), undefined);
+            },
+            "the worker model menu has no forced default"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultIndexFor("Which model should the worker use?"), undefined);
+            },
+            "the worker effort list has no forced default"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultIndexFor("What effort level should the worker use?"), undefined);
+            }
+        }
+    });
+
+    test("a flag-supplied worker tool, model, and effort skip their prompts and take the flag values regardless of the stored configuration", {
+        ARRANGE() {
+            const s = stubContexts();
+            // Stored configuration disagrees with every flag below.
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "gpt-5-codex", effort: "high" },
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=  flag-model  ", "--worker-effort=max", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.tool is the flag value claude, not the stored codex"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.tool, "claude");
+            },
+            "config worker.model is the flag value verbatim, not the stored gpt-5-codex"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "  flag-model  ");
+            },
+            "config worker.effort is the flag value max, not the stored high"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "max");
+            },
+            "the worker tool prompt is never rendered"(_result, { askedHeaders }) {
+                Assert.ok(!askedHeaders.includes("Worker tool, neighborino"));
+            },
+            "the worker model prompt is never rendered"(_result, { askedHeaders }) {
+                Assert.ok(!askedHeaders.includes("Worker model"));
+            },
+            "the worker effort prompt is never rendered"(_result, { askedHeaders }) {
+                Assert.ok(!askedHeaders.includes("Worker effort"));
+            }
+        }
+    });
+
+    test("the configuration is read exactly once per run and reused across the worker and reviewer questions", {
+        ARRANGE() {
+            const s = stubContexts();
+            seedProjectConfig(s, {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            let configReads = 0;
+            const origReadFile = s.contexts.fs.readFile.bind(s.contexts.fs);
+            (s.contexts.fs as { readFile:typeof s.contexts.fs.readFile }).readFile = (p) => {
+                if (p === "/proj/.flanders/config.json") {
+                    configReads++;
+                }
+                return origReadFile(p);
+            };
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
+            return { ...s, getConfigReads: () => configReads };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the configuration file is read exactly once"(_code, { getConfigReads }) {
+                Assert.strictEqual(getConfigReads(), 1);
+            }
+        }
+    });
+
+    test("disposed during the configuration pre-selection read returns 1 without emitting any artifact on a fully flag-supplied run", {
+        ARRANGE() {
+            // Every worker/reviewer answer is supplied by flags, so no interactive prompt's disposed
+            // guard can stop the run — only the unconditional guard right after readScope can. codex
+            // skills are used because writeSkillArtifacts mkdirs the codex prompts root before its own
+            // disposed check, so a missing guard would create that directory.
+            const s = stubContexts();
+            let resolveRead:(() => void) | null = null;
+            const origReadFile = s.contexts.fs.readFile.bind(s.contexts.fs);
+            (s.contexts.fs as { readFile:typeof s.contexts.fs.readFile }).readFile = (p) => {
+                if (p === "/proj/.flanders/config.json") {
+                    return new Promise<string>(resolve => { resolveRead = () => resolve("{}"); });
+                }
+                return origReadFile(p);
+            };
+            return { ...s, getResolveRead: () => resolveRead };
+        },
+        async ACT({ contexts, getResolveRead }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-model=", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            // Wait for the pre-selection read to be in flight.
+            while (!getResolveRead()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolveRead()!();
+            await disposePromise;
+            return await cmd.result();
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no directory is created (writeSkillArtifacts never ran)"(_code, { dirs }) {
+                Assert.strictEqual(dirs.size, 0);
+            },
+            "no file is written (no skills, no config)"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+});
+
+test.describe("Install reviewer and weighted-review pre-selection from an existing configuration (4.2)", test => {
+    test("each interactively-asked reviewer's tool, model, and effort defaults to the stored reviewer at that position, and Configure another reviewer? rebuilds the stored 2-reviewer length", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "claude-opus-4-8", effort: "high", optional: false },
+                    { tool: "claude", model: "best", effort: "low", optional: false }
+                ],
+                minimumReviews: 2
+            });
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer 1 model -> Opus family
+            s.askResponses.push([{ picked: [{ label: "Opus 4.8" }] }]); // reviewer 1 submenu
+            s.askResponses.push([{ picked: [{ label: "high" }] }]); // reviewer 1 effort
+            s.askResponses.push([{ picked: [{ label: "yes" }] }]); // configure another? -> reviewer 2
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 2 tool
+            s.askResponses.push([{ picked: [{ label: "Best (auto-pick)" }] }]); // reviewer 2 model
+            s.askResponses.push([{ picked: [{ label: "low" }] }]); // reviewer 2 effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another? -> stop at two
+            // minimum: no askText queued -> empty accepts the default 2 (== count), so no optional prompts.
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer 1 tool defaults to the stored claude"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which AI tool should reviewer use?"), "claude");
+            },
+            "reviewer 1 model top-level defaults to the Opus family"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which model should reviewer use?"), "Opus");
+            },
+            "reviewer 1 Opus submenu defaults to Opus 4.8"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which Opus model should reviewer use?"), "Opus 4.8");
+            },
+            "reviewer 1 effort defaults to the stored high"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("What effort level should reviewer use?"), "high");
+            },
+            "reviewer 2 tool defaults to the stored claude"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which AI tool should reviewer 2 use?"), "claude");
+            },
+            "reviewer 2 model defaults to the stored cross-family alias Best (auto-pick)"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which model should reviewer 2 use?"), "Best (auto-pick)");
+            },
+            "reviewer 2 effort defaults to the stored low"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("What effort level should reviewer 2 use?"), "low");
+            },
+            "Configure another reviewer? defaults to yes then no, rebuilding the stored two-reviewer length"(_code, { cap }) {
+                Assert.deepStrictEqual(cap.allDefaultLabelsFor("Okely-dokely — care to configure another reviewer?"), ["yes", "no"]);
+            }
+        }
+    });
+
+    test("Configure another reviewer? defaults to no after the only reviewer, reproducing a stored single-reviewer length", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 1 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 1 effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another? -> single reviewer
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "Configure another reviewer? is asked once and defaults to no"(_code, { cap }) {
+                Assert.deepStrictEqual(cap.allDefaultLabelsFor("Okely-dokely — care to configure another reviewer?"), ["no"]);
+            }
+        }
+    });
+
+    test("the minimum free-text defaults to the stored minimumReviews and each per-reviewer optional question defaults to the stored optional flag", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", optional: true },
+                    { tool: "claude", model: "", effort: "", optional: false }
+                ],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 1 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 1 effort
+            s.askResponses.push([{ picked: [{ label: "yes" }] }]); // configure another? -> reviewer 2
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 2 tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 2 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 2 effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another? -> stop at two
+            // minimum: no askText queued -> empty accepts the stored default 1 (< count 2), so optional prompts are asked.
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional? (active pick)
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional? (active pick)
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the minimum prompt shows the stored default 1, not the reviewer count 2"(_result, { askedTextPrompts }) {
+                Assert.ok(askedTextPrompts.includes("Minimum reviewers that must run to a verdict in each review round (1-2, empty for 1): "));
+            },
+            "accepting the empty minimum persists the stored minimumReviews 1"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.minimumReviews, 1);
+            },
+            "reviewer 1 optional defaults to yes (stored optional true)"(_result, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Is reviewer 1 (claude · default configured model · default configured effort) optional?"), "yes");
+            },
+            "reviewer 2 optional defaults to no (stored optional false)"(_result, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Is reviewer 2 (claude · default configured model · default configured effort) optional?"), "no");
+            }
+        }
+    });
+
+    test("the minimum default is clamped to the current reviewer count when the stored minimum exceeds it", {
+        ARRANGE() {
+            const s = stubContexts();
+            // Stored minimum 3 (a valid 3-reviewer config), but only 2 reviewers are supplied by flags,
+            // so the offered default must clamp down to 2.
+            seedProjectConfig(s, {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "claude", model: "", effort: "", optional: false },
+                    { tool: "claude", model: "", effort: "", optional: false }
+                ],
+                minimumReviews: 3
+            });
+            s.askTextResponses.push("2"); // explicit minimum (== count) so the run completes without optional prompts
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=",
+                "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort=",
+                "--reviewer-2-tool=claude", "--reviewer-2-model=", "--reviewer-2-effort="
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the minimum prompt shows the clamped default 2, not the stored 3"(_result, { askedTextPrompts }) {
+                Assert.ok(askedTextPrompts.includes("Minimum reviewers that must run to a verdict in each review round (1-2, empty for 2): "));
+            },
+            "the persisted minimum is the entered value 2"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.minimumReviews, 2);
+            }
+        }
+    });
+
+    test("with no stored configuration each per-reviewer optional question still defaults to required (no)", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            // No config seeded -> readScope returns null.
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 1 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 1 effort
+            s.askResponses.push([{ picked: [{ label: "yes" }] }]); // configure another?
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 2 tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 2 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 2 effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another? -> two reviewers
+            s.askTextResponses.push("1"); // minimum 1 (< count 2) so optional prompts are asked
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional?
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 optional?
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer 1 optional defaults to no"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Is reviewer 1 (claude · default configured model · default configured effort) optional?"), "no");
+            },
+            "reviewer 2 optional defaults to no"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Is reviewer 2 (claude · default configured model · default configured effort) optional?"), "no");
+            }
+        }
+    });
+
+    test("a reviewer position beyond the stored list keeps fresh-install defaults", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "best", effort: "high", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
+            s.askResponses.push([{ picked: [{ label: "Best (auto-pick)" }] }]); // reviewer 1 model
+            s.askResponses.push([{ picked: [{ label: "high" }] }]); // reviewer 1 effort
+            s.askResponses.push([{ picked: [{ label: "yes" }] }]); // configure another? (default no, user deviates to add a 2nd)
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 2 tool (no stored -> no default)
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 2 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 2 effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another? -> stop at two
+            s.askTextResponses.push("2"); // minimum (== count) so no optional prompts
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "stored reviewer 1 model defaults to the cross-family alias Best (auto-pick)"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which model should reviewer use?"), "Best (auto-pick)");
+            },
+            "stored reviewer 1 effort defaults to high"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("What effort level should reviewer use?"), "high");
+            },
+            "the beyond-list reviewer 2 tool carries no forced default"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultIndexFor("Which AI tool should reviewer 2 use?"), undefined);
+            },
+            "the beyond-list reviewer 2 model carries no forced default"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultIndexFor("Which model should reviewer 2 use?"), undefined);
+            },
+            "the beyond-list reviewer 2 effort carries no forced default"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultIndexFor("What effort level should reviewer 2 use?"), undefined);
+            }
+        }
+    });
+
+    test("accepting every pre-selected default across worker, reviewer, and weighted-review questions writes back a config equal to the one read", {
+        ARRANGE() {
+            const s = stubContexts();
+            const stored:FlandersConfig = {
+                worker: { tool: "claude", model: "claude-opus-4-8", effort: "high" },
+                reviewers: [
+                    { tool: "claude", model: "best", effort: "low", optional: true },
+                    { tool: "claude", model: "", effort: "max", optional: false }
+                ],
+                minimumReviews: 1
+            };
+            seedProjectConfig(s, stored);
+            // Simulate the user accepting every prompt's pre-selected default: pick the option at
+            // defaultIndex for each single-select (failing loudly if a prompt offered no default), and
+            // return "" for each free-text so the shared helper applies its default. This reproduces
+            // "press Enter through every question".
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
+                const answers = questions.map(q => {
+                    s.askedHeaders.push(q.header);
+                    if (q.defaultIndex === undefined) {
+                        throw new Error(`pre-selection gap: question "${q.question}" offered no default`);
+                    }
+                    return { picked: [q.options[q.defaultIndex]!] };
+                });
+                return Promise.resolve(answers);
+            };
+            return { ...s, stored };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the written configuration equals the one read"({ config }, { stored }) {
+                Assert.deepStrictEqual(config, stored);
+            }
+        }
+    });
+
+    test("flag-supplied reviewer and weighted-review answers are unaffected by a conflicting stored configuration", {
+        ARRANGE() {
+            const s = stubContexts();
+            // Every flag below disagrees with the stored configuration.
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "stored-w", effort: "stored-we" },
+                reviewers: [{ tool: "codex", model: "stored-r", effort: "stored-re", optional: true }],
+                minimumReviews: 1
+            });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project", "--skills-tool=claude",
+                "--worker-tool=claude", "--worker-model=W", "--worker-effort=E",
+                "--reviewer-tool=claude", "--reviewer-model=R1", "--reviewer-effort=E1",
+                "--reviewer-2-tool=claude", "--reviewer-2-model=R2", "--reviewer-2-effort=E2",
+                "--reviewer-minimum=1", "--reviewer-2-optional"
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "no interactive prompt is shown"(_result, { askedHeaders, askedTextPrompts }) {
+                Assert.deepStrictEqual(askedHeaders, []);
+                Assert.deepStrictEqual(askedTextPrompts, []);
+            },
+            "the written configuration is the flag values, not the stored ones"({ config }) {
+                Assert.deepStrictEqual(config, {
+                    worker: { tool: "claude", model: "W", effort: "E" },
+                    reviewers: [
+                        { tool: "claude", model: "R1", effort: "E1", optional: false },
+                        { tool: "claude", model: "R2", effort: "E2", optional: true }
+                    ],
+                    minimumReviews: 1
+                });
+            }
+        }
+    });
+});
+
 test.describe("stripYamlFrontmatter", test => {
     test("strips a leading YAML frontmatter block", {
         ARRANGE() {

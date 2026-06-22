@@ -1,6 +1,6 @@
 import type { AskContext, ChoiceOption, FsContext, OutputContext, ScriptContext } from "../contexts";
 import type { FlandersConfig, FlandersRole, FlandersReviewer } from "../workspace/FlandersConfig";
-import { write as writeConfig } from "../workspace/FlandersConfig";
+import { write as writeConfig, readScope } from "../workspace/FlandersConfig";
 import { askChoice, askText } from "../ui/PromptHelper";
 import type { AskChoiceArgs, AskTextArgs } from "../ui/PromptHelper";
 import { writeSkillArtifacts } from "./skillArtifacts";
@@ -350,14 +350,31 @@ export class Install {
     result():Promise<number> {
         return this._runPromise;
     }
-    private async _resolveCuratedChoice(headerLabel:string, question:string, curatedValues:readonly string[], defaultLabel:string, customLabel:string, customPlaceholder:string, contexts:InstallContexts):Promise<string|null> {
+    private async _resolveCuratedChoice(headerLabel:string, question:string, curatedValues:readonly string[], defaultLabel:string, customLabel:string, customPlaceholder:string, contexts:InstallContexts, preselect?:string):Promise<string|null> {
         const options:ChoiceOption[] = curatedValues.map(v => ({ label: v }));
         options.push({ label: defaultLabel });
         options.push({ label: customLabel });
+        // Pre-select the entry reproducing the stored value: the synthetic default entry for the
+        // empty string, the matching curated entry when the value is one of the suggestions, and
+        // otherwise the custom entry with its free-text input defaulted to the stored value. An
+        // undefined preselect (no stored configuration) leaves the list at its fresh default.
+        let preselectLabel:string|undefined;
+        let customDefault:string|undefined;
+        if (preselect !== undefined) {
+            if (preselect === "") {
+                preselectLabel = defaultLabel;
+            } else if (curatedValues.includes(preselect)) {
+                preselectLabel = preselect;
+            } else {
+                preselectLabel = customLabel;
+                customDefault = preselect;
+            }
+        }
         const option = await promptChoice(contexts.ask, {
             header: headerLabel,
             question,
-            options
+            options,
+            defaultLabel: preselectLabel
         });
         if (!option) {
             return null;
@@ -371,7 +388,8 @@ export class Install {
         if (option.label === customLabel) {
             const text = await promptText(contexts.ask, {
                 question,
-                placeholder: customPlaceholder
+                placeholder: customPlaceholder,
+                default: customDefault
             });
             if (text === null) {
                 return null;
@@ -383,8 +401,38 @@ export class Install {
         }
         return option.label;
     }
-    private async _resolveClaudeModel(roleLabel:string, headerLabel:string, contexts:InstallContexts):Promise<string|null> {
+    private async _resolveClaudeModel(roleLabel:string, headerLabel:string, contexts:InstallContexts, preselect?:string):Promise<string|null> {
         const question = `Which model should ${roleLabel} use?`;
+        // Pre-select along the path to the stored model: the synthetic default entry for the empty
+        // string, the cross-family alias entry when it matches, the family entry (and, inside its
+        // submenu, the matching model entry) when the stored model is one of that family's
+        // catalogued values, and otherwise the custom entry with its free-text input defaulted to
+        // the stored model. An undefined preselect (no stored configuration) leaves every level at
+        // its fresh default.
+        let topDefault:string|undefined;
+        let customDefault:string|undefined;
+        let preselectedFamily:ClaudeModelFamily|undefined;
+        let preselectedEntryLabel:string|undefined;
+        if (preselect !== undefined) {
+            if (preselect === "") {
+                topDefault = "default configured model";
+            } else {
+                const alias = CLAUDE_CROSS_FAMILY_ALIASES.find(a => a.value === preselect);
+                if (alias) {
+                    topDefault = alias.label;
+                } else {
+                    const family = CLAUDE_MODEL_FAMILIES.find(f => f.entries.some(e => e.value === preselect));
+                    if (family) {
+                        topDefault = family.family;
+                        preselectedFamily = family;
+                        preselectedEntryLabel = family.entries.find(e => e.value === preselect)!.label;
+                    } else {
+                        topDefault = "enter a custom value…";
+                        customDefault = preselect;
+                    }
+                }
+            }
+        }
         topLevel: for (;;) {
             const topOptions:ChoiceOption[] = [
                 ...CLAUDE_MODEL_FAMILIES.map(family => ({ label: family.family })),
@@ -395,7 +443,8 @@ export class Install {
             const top = await promptChoice(contexts.ask, {
                 header: headerLabel,
                 question,
-                options: topOptions
+                options: topOptions,
+                defaultLabel: topDefault
             });
             if (!top) {
                 return null;
@@ -409,7 +458,8 @@ export class Install {
             if (top.label === "enter a custom value…") {
                 const text = await promptText(contexts.ask, {
                     question,
-                    placeholder: "leave empty for the default configured model"
+                    placeholder: "leave empty for the default configured model",
+                    default: customDefault
                 });
                 if (text === null) {
                     return null;
@@ -430,7 +480,8 @@ export class Install {
                 const choice = await promptChoice(contexts.ask, {
                     header: headerLabel,
                     question: `Which ${family.family} model should ${roleLabel} use?`,
-                    options: familyOptions
+                    options: familyOptions,
+                    defaultLabel: family === preselectedFamily ? preselectedEntryLabel : undefined
                 });
                 if (!choice) {
                     return null;
@@ -446,7 +497,7 @@ export class Install {
             }
         }
     }
-    private async _resolveRoleModel(roleLabel:string, headerLabel:string, tool:"claude"|"codex", suppliedModel:string|undefined, contexts:InstallContexts):Promise<string|null> {
+    private async _resolveRoleModel(roleLabel:string, headerLabel:string, tool:"claude"|"codex", suppliedModel:string|undefined, contexts:InstallContexts, preselect?:string):Promise<string|null> {
         if (suppliedModel !== undefined) {
             return suppliedModel;
         }
@@ -455,7 +506,7 @@ export class Install {
             return null;
         }
         if (tool === "claude") {
-            return await this._resolveClaudeModel(roleLabel, headerLabel, contexts);
+            return await this._resolveClaudeModel(roleLabel, headerLabel, contexts, preselect);
         }
         if (!this._modelProbeCache.has(tool)) {
             const result = await probeModelList(contexts.script);
@@ -473,10 +524,22 @@ export class Install {
         if (probeResult.kind === "list") {
             const options:ChoiceOption[] = probeResult.models.map(m => ({ label: m }));
             options.push({ label: "default configured model" });
+            // Pre-select the probe entry reproducing the stored model, or the synthetic default
+            // entry for the empty string. A stored model the probe no longer returns is left
+            // without a forced default, so that question is answered actively.
+            let modelDefaultLabel:string|undefined;
+            if (preselect !== undefined) {
+                if (preselect === "") {
+                    modelDefaultLabel = "default configured model";
+                } else if (probeResult.models.includes(preselect)) {
+                    modelDefaultLabel = preselect;
+                }
+            }
             const option = await promptChoice(contexts.ask, {
                 header: headerLabel,
                 question: `Which model should ${roleLabel} use?`,
-                options
+                options,
+                defaultLabel: modelDefaultLabel
             });
             if (!option) {
                 return null;
@@ -487,9 +550,12 @@ export class Install {
             }
             return option.label === "default configured model" ? "" : option.label;
         }
+        // Free-text fallback (empty or failed probe): default to the stored model so accepting the
+        // empty input reproduces it.
         const text = await promptText(contexts.ask, {
             question: `Which model should ${roleLabel} use?`,
-            placeholder: "leave empty for the default configured model"
+            placeholder: "leave empty for the default configured model",
+            default: preselect
         });
         if (text === null) {
             return null;
@@ -500,7 +566,7 @@ export class Install {
         }
         return text;
     }
-    private async _resolveRoleEffort(roleLabel:string, headerLabel:string, tool:"claude"|"codex", suppliedEffort:string|undefined, contexts:InstallContexts):Promise<string|null> {
+    private async _resolveRoleEffort(roleLabel:string, headerLabel:string, tool:"claude"|"codex", suppliedEffort:string|undefined, contexts:InstallContexts, preselect?:string):Promise<string|null> {
         if (suppliedEffort !== undefined) {
             return suppliedEffort;
         }
@@ -511,10 +577,18 @@ export class Install {
         if (tool === "codex") {
             const options:ChoiceOption[] = CODEX_EFFORT_LEVELS.map(e => ({ label: e }));
             options.push({ label: "default configured effort" });
+            // Pre-select the documented level reproducing the stored effort, or the synthetic
+            // default entry for the empty string. The codex effort set is closed, so a stored
+            // effort is always one of these entries.
+            let effortDefaultLabel:string|undefined;
+            if (preselect !== undefined) {
+                effortDefaultLabel = preselect === "" ? "default configured effort" : preselect;
+            }
             const option = await promptChoice(contexts.ask, {
                 header: headerLabel,
                 question: `What effort level should ${roleLabel} use?`,
-                options
+                options,
+                defaultLabel: effortDefaultLabel
             });
             if (!option) {
                 return null;
@@ -532,10 +606,11 @@ export class Install {
             "default configured effort",
             "enter a custom value…",
             "leave empty for the default configured effort",
-            contexts
+            contexts,
+            preselect
         );
     }
-    private async _resolveReviewer(idx:number, supplied:ReviewerFlagAnswers|undefined, contexts:InstallContexts):Promise<FlandersRole|null> {
+    private async _resolveReviewer(idx:number, supplied:ReviewerFlagAnswers|undefined, contexts:InstallContexts, storedReviewer?:FlandersReviewer):Promise<FlandersRole|null> {
         const ordinal = idx === 1 ? "" : ` ${idx}`;
         const roleLabel = `reviewer${ordinal}`;
         let tool:"claude"|"codex";
@@ -546,13 +621,16 @@ export class Install {
             if (this._disposed) {
                 return null;
             }
+            // Pre-select this reviewer's stored tool when a configuration was read for this position;
+            // a fresh position (no stored reviewer) leaves the tool question at its fresh default.
             const option = await promptChoice(contexts.ask, {
                 header: `Reviewer${ordinal} tool`,
                 question: `Which AI tool should ${roleLabel} use?`,
                 options: [
                     { label: "claude", description: "Use Claude Code" },
                     { label: "codex", description: "Use Codex CLI" }
-                ]
+                ],
+                defaultLabel: storedReviewer?.tool
             });
             if (!option) {
                 return null;
@@ -562,11 +640,13 @@ export class Install {
             }
             tool = option.label as "claude"|"codex";
         }
-        const model = await this._resolveRoleModel(roleLabel, `Reviewer${ordinal} model`, tool, supplied?.model, contexts);
+        // The stored reviewer's model and effort seed their questions through the same resolvers as
+        // the worker; a fresh position passes undefined and keeps the fresh default.
+        const model = await this._resolveRoleModel(roleLabel, `Reviewer${ordinal} model`, tool, supplied?.model, contexts, storedReviewer?.model);
         if (model === null) {
             return null;
         }
-        const effort = await this._resolveRoleEffort(roleLabel, `Reviewer${ordinal} effort`, tool, supplied?.effort, contexts);
+        const effort = await this._resolveRoleEffort(roleLabel, `Reviewer${ordinal} effort`, tool, supplied?.effort, contexts, storedReviewer?.effort);
         if (effort === null) {
             return null;
         }
@@ -641,11 +721,27 @@ export class Install {
                 }
                 mode = option.label as "global"|"project";
             }
+            // Read the chosen scope's configuration once to pre-select the interactive defaults of
+            // the questions asked afterward. This pre-selection read is lenient (readScope returns
+            // null on an absent, unreadable, or malformed file), so a missing or corrupt
+            // configuration simply leaves every prompt at its fresh-install default rather than
+            // aborting. The single result is reused for the worker (here) and reviewer questions;
+            // the consume-to-run reader `implement` uses is unaffected and still hard-errors.
+            const storedConfig = await readScope(contexts.fs, {
+                scope: mode,
+                projectRoot: options.projectRoot,
+                homeDir: contexts.platform.homedir()
+            });
+            // A disposal during the pre-selection read stops the run here, before any path — including
+            // a fully flag-supplied one that skips every prompt — can continue into skill emission.
+            if (this._disposed) {
+                return 1;
+            }
             let workerTool:"claude"|"codex";
             if (answers.workerTool !== undefined) {
                 workerTool = answers.workerTool;
             } else {
-                /* coverage ignore next 3 */ // — Defensive: no await between the previous disposed guard and this point.
+                /* coverage ignore next 3 */ // — Defensive: the unconditional post-read guard already returned on disposal; no await between it and here.
                 if (this._disposed) {
                     return 1;
                 }
@@ -655,7 +751,8 @@ export class Install {
                     options: [
                         { label: "claude", description: "Use Claude Code" },
                         { label: "codex", description: "Use Codex CLI" }
-                    ]
+                    ],
+                    defaultLabel: storedConfig?.worker.tool
                 });
                 if (!option) {
                     return 1;
@@ -665,19 +762,23 @@ export class Install {
                 }
                 workerTool = option.label as "claude"|"codex";
             }
-            const workerModel = await this._resolveRoleModel("the worker", "Worker model", workerTool, answers.workerModel, contexts);
+            const workerModel = await this._resolveRoleModel("the worker", "Worker model", workerTool, answers.workerModel, contexts, storedConfig?.worker.model);
             if (workerModel === null) {
                 return 1;
             }
-            const workerEffort = await this._resolveRoleEffort("the worker", "Worker effort", workerTool, answers.workerEffort, contexts);
+            const workerEffort = await this._resolveRoleEffort("the worker", "Worker effort", workerTool, answers.workerEffort, contexts, storedConfig?.worker.effort);
             if (workerEffort === null) {
                 return 1;
             }
             const suppliedReviewers = answers.reviewers;
+            // The stored reviewer at each 1-based position seeds that position's prompts; a position
+            // beyond the stored list (or with no configuration read) gets undefined and keeps its
+            // fresh defaults.
+            const storedReviewers = storedConfig?.reviewers;
             const reviewers:FlandersRole[] = [];
             if (suppliedReviewers && suppliedReviewers.length > 0) {
                 for (let i = 0; i < suppliedReviewers.length; i++) {
-                    const reviewer = await this._resolveReviewer(i + 1, suppliedReviewers[i]!, contexts);
+                    const reviewer = await this._resolveReviewer(i + 1, suppliedReviewers[i]!, contexts, storedReviewers?.[i]);
                     if (reviewer === null) {
                         return 1;
                     }
@@ -686,7 +787,7 @@ export class Install {
             } else {
                 let idx = 1;
                 for (;;) {
-                    const reviewer = await this._resolveReviewer(idx, undefined, contexts);
+                    const reviewer = await this._resolveReviewer(idx, undefined, contexts, storedReviewers?.[idx - 1]);
                     if (reviewer === null) {
                         return 1;
                     }
@@ -695,13 +796,20 @@ export class Install {
                     if (this._disposed) {
                         return 1;
                     }
+                    // Seed the loop so accepting every default rebuilds a list of the stored length T:
+                    // default to yes after each of the first T − 1 reviewers and to no at reviewer T.
+                    // With no configuration read the question keeps its fresh default (none).
+                    const moreDefault = storedReviewers !== undefined
+                        ? (idx < storedReviewers.length ? "yes" : "no")
+                        : undefined;
                     const more = await promptChoice(contexts.ask, {
                         header: "Configure another reviewer?",
                         question: "Okely-dokely — care to configure another reviewer?",
                         options: [
                             { label: "no", description: "Stop adding reviewers" },
                             { label: "yes", description: "Configure another reviewer in the ordered list" }
-                        ]
+                        ],
+                        defaultLabel: moreDefault
                     });
                     if (!more) {
                         return 1;
@@ -727,12 +835,13 @@ export class Install {
             }
             // A single reviewer has no weighted-review question: it is required and the minimum is 1.
             // Two or more reviewers are collected directly, with no gate question — the minimum first
-            // (a free-text numeric entry defaulting to the reviewer count T on an empty entry; an entry
-            // outside [1, T] is re-prompted), then, only when the chosen minimum is below T, each
-            // reviewer's optional flag (no/required as the default). A minimum equal to T forces every
-            // reviewer to run to a verdict, so no optional question is asked and every reviewer is
-            // required. Each value is taken from its flag when present, otherwise asked through the
-            // shared prompt helper.
+            // (a free-text numeric entry whose empty-input default is the stored minimumReviews,
+            // clamped to the current reviewer count, or the reviewer count T when no configuration was
+            // read; an entry outside [1, T] is re-prompted), then, only when the chosen minimum is
+            // below T, each reviewer's optional flag (defaulting to the stored reviewer's optional, or
+            // required when none was read). A minimum equal to T forces every reviewer to run to a
+            // verdict, so no optional question is asked and every reviewer is required. Each value is
+            // taken from its flag when present, otherwise asked through the shared prompt helper.
             let minimumReviews:number;
             const reviewerConfigs:FlandersReviewer[] = [];
             if (reviewers.length === 1) {
@@ -740,6 +849,11 @@ export class Install {
                 reviewerConfigs.push({ ...reviewers[0]!, optional: false });
             } else {
                 const reviewerCount = reviewers.length;
+                // The minimum's empty-input default is the stored minimumReviews clamped to the current
+                // reviewer count; with no configuration read it falls back to the reviewer count.
+                const minimumDefault = storedConfig !== null
+                    ? Math.min(storedConfig.minimumReviews, reviewerCount)
+                    : reviewerCount;
                 if (answers.reviewerMinimum !== undefined) {
                     minimumReviews = answers.reviewerMinimum;
                 } else {
@@ -751,7 +865,8 @@ export class Install {
                     while (chosen === null) {
                         const entry = await promptText(contexts.ask, {
                             question: "Minimum reviewers that must run to a verdict in each review round",
-                            placeholder: `1-${reviewerCount}, empty for ${reviewerCount}`
+                            placeholder: `1-${reviewerCount}, empty for ${minimumDefault}`,
+                            default: String(minimumDefault)
                         });
                         if (entry === null) {
                             return 1;
@@ -760,15 +875,11 @@ export class Install {
                             return 1;
                         }
                         const trimmed = entry.trim();
-                        if (trimmed === "") {
-                            chosen = reviewerCount;
+                        const parsed = Number(trimmed);
+                        if (/^\d+$/.test(trimmed) && parsed >= 1 && parsed <= reviewerCount) {
+                            chosen = parsed;
                         } else {
-                            const parsed = Number(trimmed);
-                            if (/^\d+$/.test(trimmed) && parsed >= 1 && parsed <= reviewerCount) {
-                                chosen = parsed;
-                            } else {
-                                contexts.output.write(`Whoopsie — enter an integer between 1 and ${reviewerCount}, or leave empty for ${reviewerCount}.\n`);
-                            }
+                            contexts.output.write(`Whoopsie — enter an integer between 1 and ${reviewerCount}, or leave empty for ${minimumDefault}.\n`);
                         }
                     }
                     minimumReviews = chosen;
@@ -795,13 +906,17 @@ export class Install {
                             const reviewer = reviewers[i]!;
                             const modelLabel = reviewer.model === "" ? "default configured model" : reviewer.model;
                             const effortLabel = reviewer.effort === "" ? "default configured effort" : reviewer.effort;
+                            // Default to the stored reviewer's optional flag at this position; a fresh
+                            // position (no stored reviewer) defaults to "no" (required).
+                            const optionalDefault = storedReviewers?.[i]?.optional === true ? "yes" : "no";
                             const optionalOption = await promptChoice(contexts.ask, {
                                 header: `Reviewer ${i + 1} optional`,
                                 question: `Is reviewer ${i + 1} (${reviewer.tool} · ${modelLabel} · ${effortLabel}) optional?`,
                                 options: [
                                     { label: "no", description: "Required — always waits out its rate-limit waits; the round never completes without its verdict" },
                                     { label: "yes", description: "Optional — reviews exactly like a required reviewer; the only difference is the round abandons it while it is in a rate-limit wait, once every required reviewer is in and the minimum is met" }
-                                ]
+                                ],
+                                defaultLabel: optionalDefault
                             });
                             if (!optionalOption) {
                                 return 1;
