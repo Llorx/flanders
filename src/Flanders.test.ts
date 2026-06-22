@@ -72,6 +72,10 @@ test.describe("Flanders dispatch", test => {
                 const stderr = errors.join("");
                 Assert.ok(stderr.includes("install"));
             },
+            "USAGE lists update"(_code, { errors }) {
+                const stderr = errors.join("");
+                Assert.ok(stderr.includes("update"));
+            },
             "USAGE lists implement"(_code, { errors }) {
                 const stderr = errors.join("");
                 Assert.ok(stderr.includes("implement"));
@@ -196,6 +200,65 @@ test.describe("Flanders dispatch", test => {
             "diagnostic names --project"(_code, { errors }) {
                 const stderr = errors.join("");
                 Assert.ok(stderr.includes("--project"));
+            }
+        }
+    });
+
+    test("update command dispatches to Update and refreshes installed skills", {
+        ARRANGE() {
+            const { contexts, written, errors } = stubContexts();
+            const files:Record<string, string> = { "/proj/.claude/skills/flanders-spec/SKILL.md": "old content" };
+            contexts.fs.exists = async (p) => p in files;
+            contexts.fs.writeFile = async (p, content) => { files[p] = content; };
+            contexts.fs.mkdir = async () => {};
+            return { contexts, written, errors, files };
+        },
+        async ACT({ contexts }) {
+            const f = new Flanders(["update"], { projectRoot: "/proj" }, contexts);
+            const code = await f.result();
+            await f.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "produces no errors"(_code, { errors }) {
+                Assert.strictEqual(errors.length, 0);
+            },
+            "rewrites the pre-existing spec skill"(_code, { files }) {
+                Assert.notStrictEqual(files["/proj/.claude/skills/flanders-spec/SKILL.md"], "old content");
+            },
+            "completes the full Claude trio"(_code, { files }) {
+                Assert.ok("/proj/.claude/skills/flanders-plan/SKILL.md" in files && "/proj/.claude/skills/flanders-work/SKILL.md" in files);
+            }
+        }
+    });
+
+    test("update command rejects unexpected arguments and exits non-zero", {
+        ARRANGE() {
+            const { contexts, written, errors } = stubContexts();
+            const files:Record<string, string> = { "/proj/.claude/skills/flanders-spec/SKILL.md": "old content" };
+            contexts.fs.exists = async (p) => p in files;
+            contexts.fs.writeFile = async (p, content) => { files[p] = content; };
+            contexts.fs.mkdir = async () => {};
+            return { contexts, written, errors, files };
+        },
+        async ACT({ contexts }) {
+            const f = new Flanders(["update", "--bogus"], { projectRoot: "/proj" }, contexts);
+            const code = await f.result();
+            await f.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic is exactly the no-arguments message"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "The update command takes no arguments.\n");
+            },
+            "does not refresh the pre-existing installation"(_code, { files }) {
+                Assert.strictEqual(files["/proj/.claude/skills/flanders-spec/SKILL.md"], "old content");
             }
         }
     });

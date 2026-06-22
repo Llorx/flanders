@@ -13,6 +13,26 @@ export const SKILLS:readonly SkillDef[] = [
     { name: "flanders-work", body: workSkillBody }
 ];
 
+// The per-tool subfolders, under a scope root, where each tool keeps its user-installed artifacts.
+const CLAUDE_SKILLS_SUBDIR = ".claude/skills";
+const CODEX_PROMPTS_SUBDIR = ".codex/prompts";
+
+// The single source of the artifact path scheme for one skill under a scope root: for `claude`,
+// `<scopeRoot>/.claude/skills/<name>/SKILL.md`; for `codex`, `<scopeRoot>/.codex/prompts/<name>.md`.
+// Both the writer below and `update`'s installation detection derive their paths from here, so the
+// detected and written locations never drift apart.
+export function skillArtifactPath(scopeRoot:string, tool:"claude"|"codex", skillName:string):string {
+    if (tool === "claude") {
+        return joinPath(scopeRoot, CLAUDE_SKILLS_SUBDIR, skillName, "SKILL.md");
+    }
+    return joinPath(scopeRoot, CODEX_PROMPTS_SUBDIR, `${skillName}.md`);
+}
+
+// The full set of one tool's Flanders skill artifact paths under a scope root, in `SKILLS` order.
+export function skillArtifactPaths(scopeRoot:string, tool:"claude"|"codex"):readonly string[] {
+    return SKILLS.map(skill => skillArtifactPath(scopeRoot, tool, skill.name));
+}
+
 export function stripYamlFrontmatter(body:string):string {
     if (!body.startsWith("---\n") && !body.startsWith("---\r\n")) {
         return body;
@@ -52,7 +72,7 @@ export async function writeSkillArtifacts(fs:FsContext, scopeRoot:string, tool:"
     }
     const writtenPaths:string[] = [];
     if (tool === "claude") {
-        const claudeSkillsRoot = joinPath(scopeRoot, ".claude/skills");
+        const claudeSkillsRoot = joinPath(scopeRoot, CLAUDE_SKILLS_SUBDIR);
         for (const skill of SKILLS) {
             if (isDisposed()) {
                 return { ok: false, diagnostic: null };
@@ -63,7 +83,7 @@ export async function writeSkillArtifacts(fs:FsContext, scopeRoot:string, tool:"
             } catch {
                 return { ok: false, diagnostic: `Cannot create destination: ${skillFolder}\n` };
             }
-            const filePath = joinPath(skillFolder, "SKILL.md");
+            const filePath = skillArtifactPath(scopeRoot, "claude", skill.name);
             try {
                 await fs.writeFile(filePath, skill.body);
                 writtenPaths.push(filePath);
@@ -73,7 +93,7 @@ export async function writeSkillArtifacts(fs:FsContext, scopeRoot:string, tool:"
         }
         return { ok: true, writtenPaths };
     }
-    const codexPromptsRoot = joinPath(scopeRoot, ".codex/prompts");
+    const codexPromptsRoot = joinPath(scopeRoot, CODEX_PROMPTS_SUBDIR);
     try {
         await fs.mkdir(codexPromptsRoot, { recursive: true });
     } catch {
@@ -83,7 +103,7 @@ export async function writeSkillArtifacts(fs:FsContext, scopeRoot:string, tool:"
         if (isDisposed()) {
             return { ok: false, diagnostic: null };
         }
-        const filePath = joinPath(codexPromptsRoot, `${skill.name}.md`);
+        const filePath = skillArtifactPath(scopeRoot, "codex", skill.name);
         try {
             await fs.writeFile(filePath, stripYamlFrontmatter(skill.body));
             writtenPaths.push(filePath);

@@ -7,13 +7,14 @@ Hi-diddly-ho, neighbor! Flanders is a Node.js toolkit that helps you author cont
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Updating](#updating)
 - [Configuration](#configuration)
 - [Usage](#usage)
 - [A worked example](#a-worked-example)
 
 ## How it works
 
-Flanders speaks to you through two surfaces. The **CLI** — invoked as `npx flanders <command>` — carries two commands: `install`, which sets Flanders up in your project or your home directory, and `implement [plan]`, which builds a plan from start to finish. The three **AI-tool skills** — `/flanders-spec`, `/flanders-plan`, and `/flanders-work` — are invoked from right inside an AI-coding-tool session.
+Flanders speaks to you through two surfaces. The **CLI** — invoked as `npx flanders <command>` — carries three commands: `install`, which sets Flanders up in your project or your home directory; `update`, which refreshes the already-installed skills in place; and `implement [plan]`, which builds a plan from start to finish. The three **AI-tool skills** — `/flanders-spec`, `/flanders-plan`, and `/flanders-work` — are invoked from right inside an AI-coding-tool session.
 
 Underneath, Flanders keeps a tidy little spec corpus alongside your code, and everything flows from it:
 
@@ -47,7 +48,7 @@ Setting Flanders up is a breeze, neighbor — just run:
 npx flanders install
 ```
 
-This is the one and only way Flanders publishes its skills to disk, and the only way it writes the persistent `.flanders/` configuration the other commands read.
+This is how Flanders first sets up on disk: it is the only command that writes the persistent `.flanders/` configuration that `implement` reads, and the way you publish the skills to a fresh scope. Once the skills are in place, `npx flanders update` refreshes them where they already live (see [Updating](#updating)).
 
 ### Scope
 
@@ -116,9 +117,23 @@ A tool flag, or the `codex` effort flag, rejects a value outside its accepted se
 
 Existing files at the destination — both skill artifacts and `.flanders/` configuration files — are overwritten silently, with no backup and no prompt, so preserving prior versions is up to your own version control. On success, the command prints the full list of files it wrote, one path per line.
 
+## Updating
+
+Already set up and itching for the freshest skills, neighbor? Just run:
+
+```sh
+npx flanders update
+```
+
+`update` takes no flags. It scans the four skill destinations `install` writes to — Claude Code and Codex CLI, each at project and global scope — and wherever it finds at least one Flanders skill artifact already in place, it rewrites the full `/flanders-spec`, `/flanders-plan`, and `/flanders-work` trio there with the current version. A destination where no Flanders skill artifact is present is left untouched, so `update` refreshes the installations you already have and never creates one where you had none.
+
+It is entirely hands-off: `update` asks you nothing, and it never reads or writes your `.flanders/` configuration — the worker and reviewer answers a previous `install` saved carry over exactly as they were. Existing skill files are overwritten silently, the same way `install` overwrites them. On success it prints every file it wrote, one path per line.
+
+If no Flanders skills are installed at any scope or tool, `update` has nothing to refresh: it exits with an error that points you to `npx flanders install` to set one up first.
+
 ## Configuration
 
-The `install` command tucks your answers into a `.flanders/` folder so the other commands — `implement` today — know just how you like things done. Where that folder lives depends on the scope you chose:
+The `install` command tucks your answers into a `.flanders/` folder so the command that consumes them — `implement` — knows just how you like things done. (`update` leaves this configuration untouched; it only refreshes the skills.) Where that folder lives depends on the scope you chose:
 
 - **Project scope** — `.flanders/` at the project root.
 - **Global scope** — `~/.flanders/` in your home directory.

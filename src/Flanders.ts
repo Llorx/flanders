@@ -1,8 +1,9 @@
 import { Implement, ImplementContexts } from "./commands/Implement";
 import { Install, InstallContexts } from "./commands/Install";
+import { Update, UpdateContexts } from "./commands/Update";
 import type { AskContext, OutputContext } from "./contexts";
 
-export type FlandersContexts = ImplementContexts & InstallContexts & Readonly<{ output:OutputContext; ask:AskContext }>;
+export type FlandersContexts = ImplementContexts & InstallContexts & UpdateContexts & Readonly<{ output:OutputContext; ask:AskContext }>;
 
 export type FlandersOptions = Readonly<{
     projectRoot:string;
@@ -10,6 +11,7 @@ export type FlandersOptions = Readonly<{
 
 const USAGE = `usage: flanders <command> [arguments...]
   install [--global | --project]    install Claude Code skills
+  update                            refresh installed skills in place
   implement [plan]                  run the iterative implementation loop`;
 
 type AnyCommand = { result():Promise<number>; dispose():Promise<void> };
@@ -35,6 +37,11 @@ export class Flanders {
         switch (command) {
             case "install": {
                 const cmd = new Install(rest, { projectRoot: this._options.projectRoot }, this._contexts);
+                this._command = cmd;
+                return await cmd.result();
+            }
+            case "update": {
+                const cmd = new Update(rest, { projectRoot: this._options.projectRoot }, this._contexts);
                 this._command = cmd;
                 return await cmd.result();
             }
