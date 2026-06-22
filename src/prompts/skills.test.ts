@@ -684,7 +684,13 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(!body.includes("interaction-language.md"), "must not name the interaction-language contract file");
             },
             "inlines the narrower clarification-scope criteria"(body) {
-                Assert.ok(body.includes("implementation choice in the code the tasks will produce that the request does not specify, or a task-scope ambiguity"), "must inline the narrower clarification-scope criteria");
+                Assert.ok(body.includes("implementation choice that shapes a task's observable outcome and that the request does not specify, or a task-scope ambiguity"), "must inline the narrower clarification-scope criteria");
+            },
+            "leaves an outcome-neutral mechanism choice to the implementer in the clarification phase"(body) {
+                Assert.ok(body.includes("A choice that affects only how a task's work is carried out internally, with no effect on any observable outcome its acceptance criteria pin, is not asked about: it is left for the implementer to resolve against the real code"), "the clarification phase must leave an outcome-neutral mechanism choice to the implementer rather than asking about it");
+            },
+            "narrows the FAIL-triage clarification-scope restatement to outcome-affecting choices"(body) {
+                Assert.ok(body.includes("an implementation choice that shapes a task's observable outcome and that the request does not specify, a task-scope ambiguity the planner cannot reasonably infer"), "the FAIL-triage restatement must narrow the implementation-choice criterion to an outcome-affecting choice");
             },
             "inlines the scope-driven rule-selection heuristic"(body) {
                 Assert.ok(body.includes("Rule selection per task is scope-driven, not topic-driven"), "must inline the scope-driven rule-selection heuristic");
@@ -783,7 +789,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(body.includes("Internally self-consistent — no contradiction between the plan's narrative and its tasks"), "must list the validator self-consistency check");
             },
             "plan-content bullet appears verbatim immediately after the placeholders bullet"(body) {
-                const placeholdersBullet = "- The persisted plan is free of placeholders, contradictions with existing contracts or rules, ambiguous task wording, missing acceptance criteria on leaf tasks, and missing contract or rule links on leaf tasks.";
+                const placeholdersBullet = "- The persisted plan is free of placeholders, contradictions with existing contracts or rules, acceptance criteria that leave a leaf task's observable outcome ambiguous, missing acceptance criteria on leaf tasks, and missing contract or rule links on leaf tasks.";
                 const selfConsistencyBullet = "- The persisted plan is internally self-consistent: its narrative — context, rationale, and any explanatory prose — does not contradict the obligations, verification approach, or any other statement made in its task bodies, and no task contradicts that narrative. Where the prose describes how something is tested or built, it matches what the tasks prescribe.";
                 const lines = body.split("\n");
                 const placeholdersIndex = lines.indexOf(placeholdersBullet);
@@ -1007,29 +1013,25 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
-    test("plan content rules carry the achievability obligation", {
+    test("plan content rules pin the observable outcome and leave the internal mechanism to the implementer", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            "scopes achievability to mechanism-constraining tasks"(body) {
+            "pins each leaf task's observable outcome"(body) {
                 const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
-                Assert.ok(planContentRules.includes("A task that constrains how the work is done — reusing existing code unchanged, leaving a function, type, or file untouched, or declaring code out of the task's scope — is achievable against the baseline it leaves immutable"), "the Plan content rules list must scope the achievability obligation to mechanism-constraining tasks");
+                Assert.ok(planContentRules.includes("Each leaf task's acceptance criteria pin the task's observable outcome — the behavior the result must exhibit through the surface a reader or a test can inspect — so that any two implementations satisfying them are observably equivalent"), "the Plan content rules list must pin each leaf task's observable outcome");
             },
-            "requires the immutable baseline already satisfy the task's required obligations"(body) {
+            "does not dictate the internal mechanism beyond what an outcome or architectural property needs"(body) {
                 const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
-                Assert.ok(planContentRules.includes("every contract and rule the task's acceptance criteria require its output to satisfy is already satisfied by that immutable baseline"), "the Plan content rules list must require the immutable baseline already satisfy the obligations the task's acceptance criteria impose on its output");
+                Assert.ok(planContentRules.includes("The plan does not dictate a task's internal mechanism beyond what an observable acceptance criterion or an explicitly required architectural property demands"), "the Plan content rules list must not dictate the internal mechanism beyond what an outcome or required architectural property needs");
             },
-            "invalidates a task whose criteria are unreachable despite accurate baseline claims"(body) {
+            "leaves an outcome-neutral internal choice to the implementer"(body) {
                 const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
-                Assert.ok(planContentRules.includes("the acceptance criteria are unreachable and the task is invalid even when every claim it makes about the baseline is accurate"), "the Plan content rules list must invalidate a task whose acceptance criteria are unreachable even when its baseline claims are accurate");
+                Assert.ok(planContentRules.includes("is left for the implementer to resolve against the real code rather than fixed by the planner"), "the Plan content rules list must leave an outcome-neutral internal choice to the implementer");
             },
-            "resolves an unreachable task by widening scope or escalating"(body) {
+            "states an architectural property as a required outcome rather than freezing a code element"(body) {
                 const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
-                Assert.ok(planContentRules.includes("widen the task's scope — or the producing earlier task's scope — to authorize and ground the change that closes the gap, or escalate the conflict to the user during the clarification phase"), "the Plan content rules list must resolve an unreachable task by widening scope or escalating");
-            },
-            "does not relax the close-every-choice requirement"(body) {
-                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
-                Assert.ok(planContentRules.includes("This is a feasibility check, not a license to leave the mechanism open"), "the Plan content rules list must state achievability is a feasibility check that does not license leaving the mechanism open");
+                Assert.ok(planContentRules.includes("states that property as a required outcome the acceptance criteria assert rather than freezing a specific code element to reuse or to leave untouched"), "the Plan content rules list must state a needed structural property as a required outcome rather than freezing a code element");
             }
         }
     });
@@ -1099,25 +1101,25 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
-    test("validator category 4 carries the achievability check", {
+    test("validator category 4 carries the outcome-precise / mechanism-free check", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            "names the achievability check"(body) {
+            "requires acceptance criteria to pin the observable outcome"(body) {
                 const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
-                Assert.ok(category4.includes("Tasks are achievable against the baseline they leave immutable"), "category 4 must name the achievability check");
+                Assert.ok(category4.includes("Each leaf task's acceptance criteria pin the task's observable outcome precisely"), "category 4 must require acceptance criteria to pin the observable outcome");
             },
-            "FAILs a mechanism-constraining task whose immutable baseline lacks a required obligation"(body) {
+            "FAILs acceptance criteria that leave the observable outcome open"(body) {
                 const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
-                Assert.ok(category4.includes("is FAIL when the immutable baseline does not already satisfy an obligation the task's acceptance criteria require of its output, so those criteria cannot be met without breaking the constraint"), "category 4 must FAIL a mechanism-constraining task whose immutable baseline lacks a required obligation");
+                Assert.ok(category4.includes("Acceptance criteria that leave the observable outcome open — satisfiable by implementations that differ in observable behavior"), "category 4 must FAIL acceptance criteria that leave the observable outcome open");
             },
-            "FAILs a gap that is neither widened into scope nor escalated"(body) {
+            "does not FAIL leaving an outcome-neutral internal mechanism choice open"(body) {
                 const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
-                Assert.ok(category4.includes("a gap the no-touch constraint cannot close, neither widened into the task's (or an earlier task's) scope nor escalated to the user, is FAIL"), "category 4 must FAIL a gap that is neither widened into scope nor escalated");
+                Assert.ok(category4.includes("is NOT a violation when left for the implementer to resolve"), "category 4 must not FAIL leaving an outcome-neutral mechanism choice open");
             },
-            "distinguishes achievability from the accurate-claims check"(body) {
+            "FAILs a gratuitously frozen internal mechanism"(body) {
                 const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
-                Assert.ok(category4.includes("This is distinct from the accurate-claims check above: a task whose every statement about the baseline is accurate is still FAIL when its acceptance criteria are unreachable given its own constraint"), "category 4 must distinguish achievability from the accurate-claims check");
+                Assert.ok(category4.includes("a task that freezes an internal mechanism that no observable acceptance criterion and no explicitly required architectural property needs is FAIL"), "category 4 must FAIL a gratuitously frozen internal mechanism");
             }
         }
     });
