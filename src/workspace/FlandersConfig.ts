@@ -16,15 +16,19 @@ type ReadArgs = Readonly<{
     homeDir:string;
 }>;
 
-type WriteArgs = Readonly<{
+// Single source for the scope + base-directory shape shared by the per-scope reader
+// and the writer; both compose it so the scope/base-directory fields have one definition.
+type ScopedConfigArgs = ReadArgs & Readonly<{
     scope:"project"|"global";
-    projectRoot:string;
-    homeDir:string;
+}>;
+
+type WriteArgs = ScopedConfigArgs & Readonly<{
     config:FlandersConfig;
 }>;
 
 const CONFIG_PATH = ".flanders/config.json";
 const CONFIG_DIR = ".flanders";
+const ALLOWED_TOP_LEVEL_KEYS = ["worker", "reviewers", "minimumReviews"];
 
 function configPath(base:string):string {
     return joinPath(base, CONFIG_PATH);
@@ -64,6 +68,11 @@ function validate(raw:unknown, filePath:string):FlandersConfig {
     const minimumReviews = obj["minimumReviews"];
     if (typeof minimumReviews !== "number" || !Number.isInteger(minimumReviews) || minimumReviews < 1 || minimumReviews > reviewers.length) {
         throw new Error(`Malformed config at ${filePath}: field "minimumReviews" must be an integer in [1, ${reviewers.length}]`);
+    }
+    for (const key of Object.keys(obj)) {
+        if (!ALLOWED_TOP_LEVEL_KEYS.includes(key)) {
+            throw new Error(`Malformed config at ${filePath}: unexpected top-level key "${key}"`);
+        }
     }
     return raw as FlandersConfig;
 }
@@ -107,6 +116,21 @@ export async function read(fs:FsContext, args:ReadArgs):Promise<FlandersConfig |
         return validate(parsed, globalPath);
     }
     return null;
+}
+
+// Lenient pre-selection reader (install): targets the chosen scope's file directly,
+// applies no project-over-global precedence, and falls back to null — never throws —
+// on an absent, unreadable, unparseable, or malformed file. The consume-to-run `read`
+// above keeps its hard-error behavior; both share the single `validate` shape check.
+export async function readScope(fs:FsContext, args:ScopedConfigArgs):Promise<FlandersConfig | null> {
+    const base = args.scope === "project" ? args.projectRoot : args.homeDir;
+    const target = configPath(base);
+    try {
+        const content = await fs.readFile(target);
+        return validate(JSON.parse(content), target);
+    } catch {
+        return null;
+    }
 }
 
 export async function write(fs:FsContext, args:WriteArgs):Promise<string> {

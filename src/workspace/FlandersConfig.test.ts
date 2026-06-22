@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { read, write } from "./FlandersConfig";
+import { read, readScope, write } from "./FlandersConfig";
 import type { FlandersConfig } from "./FlandersConfig";
 import type { FsContext } from "../contexts";
 
@@ -10,8 +10,10 @@ function stubFs() {
     const files = new Map<string, string>();
     const dirs = new Set<string>();
     const renames:Array<{ oldPath:string; newPath:string }> = [];
+    const reads:string[] = [];
+    const unreadable = new Set<string>();
     const fs:FsContext = {
-        readFile(p) { return files.has(p) ? Promise.resolve(files.get(p)!) : Promise.reject(new Error("not found: " + p)); },
+        readFile(p) { reads.push(p); if (unreadable.has(p)) { return Promise.reject(new Error("EACCES: permission denied: " + p)); } return files.has(p) ? Promise.resolve(files.get(p)!) : Promise.reject(new Error("not found: " + p)); },
         writeFile(p, content) { files.set(p, content); return Promise.resolve(); },
         rename(oldP, newP) { renames.push({ oldPath: oldP, newPath: newP }); const c = files.get(oldP); if (c !== undefined) { files.delete(oldP); files.set(newP, c); } return Promise.resolve(); },
         readdir() { return Promise.resolve([]); },
@@ -21,7 +23,7 @@ function stubFs() {
         mkdtemp() { return Promise.reject(new Error("unexpected mkdtemp")); },
         rm() { return Promise.reject(new Error("unexpected rm")); }
     };
-    return { fs, files, dirs, renames };
+    return { fs, files, dirs, renames, reads, unreadable };
 }
 
 const VALID_CONFIG:FlandersConfig = {
@@ -746,6 +748,263 @@ test.describe("read", test => {
         },
         ASSERT(error) {
             Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: field "minimumReviews" must be an integer in [1, 2]`);
+        }
+    });
+
+    test("throws on an unexpected top-level key", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1,
+                extra: true
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            try {
+                await read(fs, { projectRoot: "/project", homeDir: "/home" });
+                return null;
+            } catch (e) {
+                return e as Error;
+            }
+        },
+        ASSERT(error) {
+            Assert.strictEqual(error!.message, `Malformed config at /project/.flanders/config.json: unexpected top-level key "extra"`);
+        }
+    });
+});
+
+test.describe("readScope", test => {
+    test("returns the validated config when the project scope file exists and is well-formed", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify(VALID_CONFIG, null, 2));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await readScope(fs, { scope: "project", projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, VALID_CONFIG);
+        }
+    });
+
+    test("returns the validated config when the global scope file exists and is well-formed", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/home/.flanders/config.json", JSON.stringify(SECOND_CONFIG, null, 2));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await readScope(fs, { scope: "global", projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, SECOND_CONFIG);
+        }
+    });
+
+    test("returns null when the targeted file is absent", {
+        ARRANGE() {
+            return stubFs();
+        },
+        async ACT({ fs }) {
+            return await readScope(fs, { scope: "project", projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERTS: {
+            "returns null"(result) {
+                Assert.strictEqual(result, null);
+            },
+            "reads only the requested project scope path"(_result, { reads }) {
+                Assert.deepStrictEqual(reads, ["/project/.flanders/config.json"]);
+            }
+        }
+    });
+
+    test("returns null when the targeted file cannot be read", {
+        ARRANGE() {
+            const s = stubFs();
+            s.unreadable.add("/project/.flanders/config.json");
+            s.files.set("/home/.flanders/config.json", JSON.stringify(VALID_CONFIG, null, 2));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await readScope(fs, { scope: "project", projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERTS: {
+            "returns null"(result) {
+                Assert.strictEqual(result, null);
+            },
+            "reads only the requested project scope path and never the valid global one"(_result, { reads }) {
+                Assert.deepStrictEqual(reads, ["/project/.flanders/config.json"]);
+            }
+        }
+    });
+
+    test("returns null when the targeted file is not valid JSON", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", "not json{{{");
+            s.files.set("/home/.flanders/config.json", JSON.stringify(VALID_CONFIG, null, 2));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await readScope(fs, { scope: "project", projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERTS: {
+            "returns null"(result) {
+                Assert.strictEqual(result, null);
+            },
+            "reads only the requested project scope path and never the valid global one"(_result, { reads }) {
+                Assert.deepStrictEqual(reads, ["/project/.flanders/config.json"]);
+            }
+        }
+    });
+
+    test("returns null when the targeted file is missing a required field", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            }));
+            s.files.set("/home/.flanders/config.json", JSON.stringify(VALID_CONFIG, null, 2));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await readScope(fs, { scope: "project", projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERTS: {
+            "returns null"(result) {
+                Assert.strictEqual(result, null);
+            },
+            "reads only the requested project scope path and never the valid global one"(_result, { reads }) {
+                Assert.deepStrictEqual(reads, ["/project/.flanders/config.json"]);
+            }
+        }
+    });
+
+    test("returns null when the targeted file has an unexpected top-level key", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1,
+                extra: true
+            }));
+            s.files.set("/home/.flanders/config.json", JSON.stringify(VALID_CONFIG, null, 2));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await readScope(fs, { scope: "project", projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERTS: {
+            "returns null"(result) {
+                Assert.strictEqual(result, null);
+            },
+            "reads only the requested project scope path and never the valid global one"(_result, { reads }) {
+                Assert.deepStrictEqual(reads, ["/project/.flanders/config.json"]);
+            }
+        }
+    });
+
+    test("a project call reads the project file and not the global file", {
+        ARRANGE() {
+            const s = stubFs();
+            const projectConfig:FlandersConfig = {
+                worker: { tool: "claude", model: "project-sentinel", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            };
+            const globalConfig:FlandersConfig = {
+                worker: { tool: "codex", model: "global-sentinel", effort: "" },
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            };
+            s.files.set("/project/.flanders/config.json", JSON.stringify(projectConfig));
+            s.files.set("/home/.flanders/config.json", JSON.stringify(globalConfig));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await readScope(fs, { scope: "project", projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERTS: {
+            "reads only the project scope path"(_result, { reads }) {
+                Assert.deepStrictEqual(reads, ["/project/.flanders/config.json"]);
+            },
+            "returns the project scope's stored config"(result) {
+                Assert.strictEqual(result!.worker.model, "project-sentinel");
+            }
+        }
+    });
+
+    test("a global call reads the global file and not the project file", {
+        ARRANGE() {
+            const s = stubFs();
+            const projectConfig:FlandersConfig = {
+                worker: { tool: "claude", model: "project-sentinel", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            };
+            const globalConfig:FlandersConfig = {
+                worker: { tool: "codex", model: "global-sentinel", effort: "" },
+                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            };
+            s.files.set("/project/.flanders/config.json", JSON.stringify(projectConfig));
+            s.files.set("/home/.flanders/config.json", JSON.stringify(globalConfig));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await readScope(fs, { scope: "global", projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERTS: {
+            "reads only the global scope path"(_result, { reads }) {
+                Assert.deepStrictEqual(reads, ["/home/.flanders/config.json"]);
+            },
+            "returns the global scope's stored config"(result) {
+                Assert.strictEqual(result!.worker.model, "global-sentinel");
+            }
+        }
+    });
+
+    test("a project call does not fall back to the global file", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/home/.flanders/config.json", JSON.stringify(VALID_CONFIG, null, 2));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await readScope(fs, { scope: "project", projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERTS: {
+            "returns null"(result) {
+                Assert.strictEqual(result, null);
+            },
+            "reads only the project scope path and never the present global one"(_result, { reads }) {
+                Assert.deepStrictEqual(reads, ["/project/.flanders/config.json"]);
+            }
+        }
+    });
+
+    test("a global call does not fall back to the project file", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify(VALID_CONFIG, null, 2));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await readScope(fs, { scope: "global", projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERTS: {
+            "returns null"(result) {
+                Assert.strictEqual(result, null);
+            },
+            "reads only the global scope path and never the present project one"(_result, { reads }) {
+                Assert.deepStrictEqual(reads, ["/home/.flanders/config.json"]);
+            }
         }
     });
 });

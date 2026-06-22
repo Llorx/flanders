@@ -981,6 +981,36 @@ test.describe("Implement config loading", test => {
             }
         }
     });
+
+    test("config JSON with an unexpected top-level key is rejected as malformed", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(CONFIG_PATH, JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1,
+                detect: { tool: "claude", model: "detect-model", effort: "detect-effort" }
+            }));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic names the unexpected top-level key and the config path"(_code, { written }) {
+                const allOutput = stripAnsi(written.join(""));
+                Assert.ok(allOutput.includes(`Malformed config at /project/.flanders/config.json: unexpected top-level key "detect"`), "should name the unexpected key and the config path");
+            }
+        }
+    });
 });
 
 test.describe("Implement ambiguous plan selection", test => {
@@ -6046,43 +6076,6 @@ test.describe("Implement detect agent inherits worker triple", test => {
             },
             "detect prompt does not contain reviewer effort value"(promptQueue) {
                 Assert.ok(!promptQueue[0]!.includes("reviewer-sentinel-effort"), "detect prompt must not contain reviewer effort");
-            }
-        }
-    });
-
-    test("detect agent uses worker values even when config JSON contains an extra detect section", {
-        ARRANGE() {
-            const s = stubContexts();
-            gitRunQueue(s.gitQueue);
-            const config = JSON.stringify({
-                worker: { tool: "codex", model: "worker-model", effort: "high" },
-                reviewers: [{ tool: "claude", model: "reviewer-model", effort: "low", optional: false }],
-                minimumReviews: 1,
-                detect: { tool: "claude", model: "detect-model", effort: "detect-effort" }
-            });
-            s.files.set(CONFIG_PATH, config);
-            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.codexQueue.push({ text: "detect" });
-            s.codexQueue.push({ text: "worker output" });
-            s.claudeQueue.push({ text: "review ok", errorLog: "" });
-            return s;
-        },
-        async ACT({ contexts, codexSpawnedArgs }) {
-            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
-            await cmd.result();
-            await cmd.dispose();
-            return codexSpawnedArgs;
-        },
-        ASSERTS: {
-            "detect uses codex adapter (worker tool) not claude (hypothetical third-section tool)"(codexSpawnedArgs) {
-                Assert.ok(codexSpawnedArgs.length >= 1, "at least one codex spawn for detect");
-                Assert.strictEqual(codexSpawnedArgs[0]![0], "exec");
-            },
-            "detect spawn carries worker-model not third-section model"(codexSpawnedArgs) {
-                const detectArgs = codexSpawnedArgs[0]!;
-                const mIndex = detectArgs.indexOf("-m");
-                Assert.ok(mIndex >= 0, "-m flag present");
-                Assert.strictEqual(detectArgs[mIndex + 1], "worker-model");
             }
         }
     });
