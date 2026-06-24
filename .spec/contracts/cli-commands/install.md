@@ -13,13 +13,13 @@ Configure Flanders for the chosen scope and deliver the Flanders skills (`/fland
 The scope flags are mutually exclusive; supplying both is a usage error. When neither is passed, the command prompts the user interactively to pick one of the two scopes. The interactive scope prompt is asked after the skills-tool answer is known (see `Interactive prompts`) and offers exactly those two destinations, each labelled with the concrete destination path(s) implied by the selected skills tool.
 
 ### Tool, model, and effort flags
-- `--skills-tool=<value>` — which AI tool(s) the skills are installed for. Value is one of `claude`, `codex`, or `both`.
-- `--worker-tool=<value>` — which AI tool the `implement` command's worker uses. Value is one of `claude` or `codex`.
+- `--skills-tool=<value>` — which AI tool(s) the skills are installed for. The value is a comma-separated list of one or more distinct names drawn from `claude`, `codex`, and `antigravity` (for example `claude`, `codex,antigravity`, or `claude,codex,antigravity`). The skills are installed for every tool the list names.
+- `--worker-tool=<value>` — which AI tool the `implement` command's worker uses. Value is one of `claude`, `codex`, or `antigravity`.
 - `--worker-model=<value>` — model identifier the worker tool invokes. An empty value means "use the tool's default configured model".
 - `--worker-effort=<value>` — reasoning-effort identifier the worker tool invokes. An empty value means "use the tool's default configured effort".
 
 The adversarial reviewers form an ordered list of one or more reviewers, addressed by a 1-based index. Reviewer 1 uses the unindexed flag names; every later reviewer uses the index in the flag name:
-- `--reviewer-tool=<value>` / `--reviewer-N-tool=<value>` — which AI tool reviewer 1 / reviewer N uses. Value is one of `claude` or `codex`.
+- `--reviewer-tool=<value>` / `--reviewer-N-tool=<value>` — which AI tool reviewer 1 / reviewer N uses. Value is one of `claude`, `codex`, or `antigravity`.
 - `--reviewer-model=<value>` / `--reviewer-N-model=<value>` — model identifier that reviewer's tool invokes. An empty value means "use the tool's default configured model".
 - `--reviewer-effort=<value>` / `--reviewer-N-effort=<value>` — reasoning-effort identifier that reviewer's tool invokes. An empty value means "use the tool's default configured effort".
 
@@ -31,14 +31,14 @@ The reviewers also carry a weighted-review configuration, addressed by the same 
 
 Supplying any weighted-review flag (`--reviewer-minimum` or any `--reviewer[-N]-optional`) with a single-reviewer configuration is a usage error. Supplying `--reviewer-minimum` with a value equal to the number of configured reviewers together with any `--reviewer[-N]-optional` flag is also a usage error: a minimum equal to the reviewer count forces every reviewer to run to a verdict, so no reviewer can be optional.
 
-Any tool, model, or effort question whose answer was not supplied via flags is prompted interactively (see `Interactive prompts`). Any question whose answer was supplied via a flag is not prompted again. The questions whose values form a closed set — every tool question and the `codex` effort question — reject a flag value outside that set as a usage error. The questions whose values are open — every model question and the `claude` effort question — accept any flag value verbatim and are never rejected on value-set grounds.
+Any tool, model, or effort question whose answer was not supplied via flags is prompted interactively (see `Interactive prompts`). Any question whose answer was supplied via a flag is not prompted again. The questions whose values form a closed set — every tool question, the `codex` effort question, and the `antigravity` effort question — reject a flag value outside that set as a usage error; for an `antigravity` tool the only valid effort value is the empty default, so any non-empty effort flag is a usage error, and `--skills-tool` accepts only a comma-separated list of distinct names drawn from the closed tool set. The questions whose values are open — every model question and the `claude` effort question — accept any flag value verbatim and are never rejected on value-set grounds.
 
 ## Interactive prompts
 When run interactively, the command asks the following questions, in order, skipping any question whose answer was provided via flags:
 
-1. Skills tool — `claude`, `codex`, or `both`.
-2. Scope — `--project` vs `--global`. The two options are labelled with the concrete destination path(s) implied by the skills tool chosen in question 1: a `claude` skills tool labels the options with `.claude/skills/` (project) and `~/.claude/skills/` (global); a `codex` skills tool labels them with `.codex/prompts/` (project) and `~/.codex/prompts/` (global); a `both` skills tool labels each option with both of its paths. When the skills tool was supplied via `--skills-tool`, the scope prompt uses that flag's value to derive the same labels.
-3. Worker tool — `claude` or `codex`.
+1. Skills tool — a selection of one or more of `claude`, `codex`, and `antigravity` (any non-empty subset).
+2. Scope — `--project` vs `--global`. The two options are labelled with the concrete destination path(s) implied by the skills tools chosen in question 1: `claude` contributes `.claude/skills/` (project) and `~/.claude/skills/` (global); `codex` contributes `.codex/prompts/` (project) and `~/.codex/prompts/` (global); `antigravity` contributes `.agents/skills/` (project) and `~/.gemini/antigravity-cli/skills/` (global). Each option is labelled with the destination path of every tool the skills-tool selection names. When the skills tools were supplied via `--skills-tool`, the scope prompt uses that flag's value to derive the same labels.
+3. Worker tool — `claude`, `codex`, or `antigravity`.
 4. Worker model — see `Model selection`.
 5. Worker effort — see `Effort selection`.
 6. Reviewer configuration — see `Reviewer configuration`. This collects an ordered list of one or more reviewers, and, when two or more reviewers are configured, the weighted-review configuration (see `Weighted-review configuration`).
@@ -46,7 +46,7 @@ When run interactively, the command asks the following questions, in order, skip
 ### Reviewer configuration
 The command configures the adversarial reviewers as an ordered list, asked after the worker questions:
 
-1. Reviewer 1 tool — `claude` or `codex`.
+1. Reviewer 1 tool — `claude`, `codex`, or `antigravity`.
 2. Reviewer 1 model — see `Model selection`.
 3. Reviewer 1 effort — see `Effort selection`.
 4. `Configure another reviewer?` — a yes/no question. On `yes`, the command asks the tool, model, and effort questions for the next reviewer (in the same shape as reviewer 1), then asks `Configure another reviewer?` again. On `no`, reviewer configuration ends.
@@ -64,18 +64,20 @@ Once the reviewer list is established, and only when it holds two or more review
 The defaults reproduce a run where no reviewer is ever cancelled: the minimum equal to the number of reviewers and every reviewer required. Because the default minimum equals `T`, accepting it (an empty entry) skips the per-reviewer optional questions altogether and persists every reviewer as required; the optional questions appear only when the user lowers the minimum below `T`. The minimum and the per-reviewer optional flags follow the same flag-versus-prompt behavior as every other answer, pinned in [src/commands/.spec/rules/install.md#the-weighted-review-configuration-is-collected-only-when-the-reviewer-list-has-two-or-more-reviewers](/src/commands/.spec/rules/install.md#the-weighted-review-configuration-is-collected-only-when-the-reviewer-list-has-two-or-more-reviewers). When the reviewer list holds a single reviewer, this section is not shown: that reviewer is required and the minimum is `1`.
 
 ### Model selection
-For each tool selected as the worker or as any reviewer, the model question is rendered as a selectable list, sourced according to the tool:
+For each tool selected as the worker or as any reviewer, the model question is rendered according to the tool:
 - For `codex`, the list is the set of models the tool reports as available for the user's account, plus one entry, `default configured model`, that resolves to "do not pass an explicit model and let the tool use its default". When the tool reports no such set — or when `codex` cannot be contacted at all — the question falls back to a free-text input with the placeholder `leave empty for the default configured model`, whose empty answer resolves to the same "default configured model" semantics; when `codex` could not be contacted, `install` first reports why it could not be started.
 - For `claude`, the model question is a hierarchical selection rather than a single flat list. The top level offers one entry per model family, a cross-family entry that auto-picks the most capable available model, the `default configured model` entry, and a final custom entry that opens a free-text input accepting any model identifier the user types. Selecting a family opens a submenu of that family's models: its latest auto-updating alias, that alias's 1M-context variant where the family offers one, and each concrete pinned version of the family — each also with its 1M-context variant where the model offers one. The offered models are a set of suggestions, not a closed set: through the custom entry the user reaches any model Claude Code accepts but the suggestions omit.
+- For `antigravity`, the model question is a free-text input with the placeholder `leave empty for the default configured model`, whose empty answer resolves to the "default configured model" semantics. The Antigravity CLI's model identifiers are not enumerated, so this question offers no selectable suggestions and no custom entry: the typed value is the answer, persisted verbatim.
 
 A model identifier is always an open value: whatever the user selects — from the top-level list or from a drill-down submenu — types into the `codex` free-text fallback, or types into the `claude` custom entry is persisted verbatim. The `--worker-model`, `--reviewer-model`, and `--reviewer-N-model` flag equivalents follow the same rule: any value is accepted verbatim, and an empty value or an omitted flag answered as empty resolves to "default configured model".
 
 ### Effort selection
-For each tool selected as the worker or as any reviewer, the effort question is rendered as a selectable list, sourced according to the tool:
+For each tool selected as the worker or as any reviewer, the effort question is rendered according to the tool:
 - For `codex`, the list is the closed set of reasoning-effort levels the tool documents, plus one entry, `default configured effort`, that resolves to "do not pass an explicit effort and let the tool use its default". This set is closed: the only valid effort values for `codex` are the documented levels and the empty "default configured effort".
 - For `claude`, the list is a curated set of the reasoning-effort levels Claude Code is known to accept, plus `default configured effort`, plus a final custom entry that opens a free-text input accepting any effort identifier the user types. The curated set is a set of suggestions, not a closed set: through the custom entry the user reaches any effort level the curated set omits, so any effort value is valid for `claude`.
+- For `antigravity`, the Antigravity CLI exposes no reasoning-effort setting, so no effort question is asked; the persisted effort is always the empty `default configured effort`.
 
-The `--worker-effort`, `--reviewer-effort`, and `--reviewer-N-effort` flag equivalents follow the same rule per tool: for `claude` any value is accepted verbatim; for `codex` only a documented level or an empty value is accepted, and a value outside that closed set is a usage error. An empty value or an omitted flag answered as empty resolves to "default configured effort".
+The `--worker-effort`, `--reviewer-effort`, and `--reviewer-N-effort` flag equivalents follow the same rule per tool: for `claude` any value is accepted verbatim; for `codex` only a documented level or an empty value is accepted, and a value outside that closed set is a usage error; for `antigravity` only an empty value is accepted, and any non-empty value is a usage error because the tool exposes no effort setting. An empty value or an omitted flag answered as empty resolves to "default configured effort".
 
 ## Pre-selection from an existing configuration
 After the scope is chosen (`Interactive prompts` question 2), the command reads the `.flanders/config.json` file at that chosen scope — the same file a successful run writes (see `Configuration written`) — and seeds the interactive defaults of the questions asked afterward from its stored answers. The read targets the chosen scope's file directly: it does not consult the other scope and does not apply the read-time precedence that commands consuming the configuration to run follow (see [.spec/contracts/shared/flanders-config.md](/.spec/contracts/shared/flanders-config.md)).
@@ -92,8 +94,9 @@ Accepting every pre-selected default — pressing through the configuration-deri
 For each AI tool the user picked for skills, the command writes one skill artifact per Flanders skill (`/flanders-spec`, `/flanders-plan`, `/flanders-work`) into that tool's skill folder for the selected scope:
 - Claude Code skills are written to `.claude/skills/` (project scope) or `~/.claude/skills/` (global scope), in the directory-plus-`SKILL.md` form Claude Code requires for user-installed skills.
 - Codex CLI prompts are written to `.codex/prompts/` (project scope) or `~/.codex/prompts/` (global scope), in the form Codex CLI requires for user-installed prompts.
+- Antigravity CLI skills are written to `.agents/skills/` (project scope) or `~/.gemini/antigravity-cli/skills/` (global scope), in the directory-plus-`SKILL.md` form Antigravity CLI requires for user-installed skills.
 
-When `--skills-tool=both` is selected (or the interactive answer is `both`), the artifacts for both tools are written, each into its own tool-specific folder.
+When the skills-tool selection names more than one tool, the artifacts for every named tool are written, each into its own tool-specific folder.
 
 The textual obligations a user sees when invoking a skill are pinned by the contract files in `.spec/contracts/ai-skills/`. The internal form of each skill artifact (frontmatter fields, body shape) is an implementation detail; what is pinned is that after a successful `install` run the user is able to invoke `/flanders-spec`, `/flanders-plan`, and `/flanders-work` from inside an AI-tool session of each selected tool whose skills root is the chosen scope.
 
@@ -111,7 +114,8 @@ The command's interactive prompts and its own status writes carry the Flanders v
 
 ## Errors
 - `--global` and `--project` supplied together: exits non-zero with a diagnostic naming the conflict.
-- A flag for a closed-set question — any tool flag, or the `codex` effort flag — is supplied with a value outside that closed set: exits non-zero with a diagnostic that names the offending flag and value. Model flags and the `claude` effort flag are open and never trigger this error.
+- A single-valued tool flag (`--worker-tool`, `--reviewer-tool`, or `--reviewer-N-tool`), the `codex` effort flag, or the `antigravity` effort flag is supplied with a value outside its closed set: exits non-zero with a diagnostic that names the offending flag and value. For an `antigravity` tool the only valid effort value is empty, so any non-empty `--worker-effort`/`--reviewer-effort`/`--reviewer-N-effort` is rejected. Model flags and the `claude` effort flag are open and never trigger this error.
+- `--skills-tool` is supplied with a value that is not a comma-separated list of one or more distinct names drawn from `claude`, `codex`, and `antigravity` (an empty list, an unknown name, or a repeated name): exits non-zero with a diagnostic that names the offending value.
 - Reviewer index flags do not form a contiguous run starting at reviewer 1 (for example a `--reviewer-2-tool`/`-model`/`-effort` flag is supplied without any reviewer-1 flag): exits non-zero with a diagnostic that names the gap.
 - A weighted-review flag (`--reviewer-minimum` or any `--reviewer[-N]-optional`) is supplied with a single-reviewer configuration: exits non-zero with a diagnostic that names the offending flag.
 - `--reviewer-minimum` equal to the number of configured reviewers is supplied together with any `--reviewer[-N]-optional` flag: exits non-zero with a diagnostic that names the conflict, because a minimum equal to the reviewer count leaves no reviewer that can be optional.
