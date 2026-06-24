@@ -769,6 +769,53 @@ test.describe("PlanFile.markDone", test => {
     });
 });
 
+test.describe("PlanFile.rename", test => {
+    function pathTrackingFs(initialPath:string, initialContent:string) {
+        const files = new Map<string, string>();
+        files.set(initialPath, initialContent);
+        const renameCalls:Array<{ from:string; to:string }> = [];
+        const fs:FsContext = {
+            readFile(p:string) { return files.has(p) ? Promise.resolve(files.get(p)!) : Promise.reject(new Error("not found: " + p)); },
+            writeFile(p:string, c:string) { files.set(p, c); return Promise.resolve(); },
+            rename(from:string, to:string) { renameCalls.push({ from, to }); const c = files.get(from); files.delete(from); if (c !== undefined) files.set(to, c); return Promise.resolve(); },
+            readdir() { return Promise.resolve([]); },
+            stat(p:string) { return files.has(p) ? Promise.resolve({ size: files.get(p)!.length, isFile: true, isDirectory: false }) : Promise.reject(new Error("not found: " + p)); },
+            exists(p:string) { return Promise.resolve(files.has(p)); },
+            mkdir() { return Promise.resolve(); },
+            mkdtemp(prefix:string) { return Promise.resolve(prefix); },
+            rm() { return Promise.resolve(); }
+        };
+        return { fs, files, renameCalls };
+    }
+
+    test("moves the file on disk and retargets later writes to the new path", {
+        ARRANGE() {
+            return pathTrackingFs("/plans/p.md", '- [ ]{"it":0,"ot":0,"t":0} Task\n');
+        },
+        async ACT({ fs }) {
+            const plan = await PlanFile.load("/plans/p.md", fs);
+            await plan.rename("/plans/V-p.md");
+            await plan.markDone(1, {it:1, ot:2, t:3});
+            return plan.path;
+        },
+        ASSERTS: {
+            "the in-memory path reflects the new location"(path) {
+                Assert.strictEqual(path, "/plans/V-p.md");
+            },
+            "the rename moves the content to the new path"(_path, { files }) {
+                Assert.ok(files.has("/plans/V-p.md"), "content should live at the new path");
+                Assert.ok(!files.has("/plans/p.md"), "the old path should be vacated");
+            },
+            "a write after the rename lands on the new path"(_path, { files }) {
+                Assert.ok(files.get("/plans/V-p.md")!.includes('[x]{"it":1,"ot":2,"t":3}'), "markDone after rename should write to the new path");
+            },
+            "rename delegates to fs.rename with the old and new paths"(_path, { renameCalls }) {
+                Assert.deepStrictEqual(renameCalls, [{ from: "/plans/p.md", to: "/plans/V-p.md" }]);
+            }
+        }
+    });
+});
+
 test.describe("PlanFile.markOpen", test => {
     test("flips checkbox from done to open and writes given metrics", {
         ARRANGE() {

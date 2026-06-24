@@ -21,6 +21,24 @@ export type { Activity };
 
 const MAX_ITER = 5;
 
+// The marker the implement command prepends to a plan file's name once the plan is fully
+// complete. It sits at the very start of the name, ahead of every other part of it; a name that
+// already begins with it is returned unchanged, so the completed name carries the marker once.
+const COMPLETED_PLAN_MARKER = "V-";
+
+// Computes the marked name a completed plan file takes: the plan's name with the completion
+// marker prepended to its basename, directory and the rest of the name preserved. A name whose
+// basename already begins with the marker is returned unchanged.
+export function completedPlanPath(planPath:string):string {
+    const slash = Math.max(planPath.lastIndexOf("/"), planPath.lastIndexOf("\\"));
+    const dir = planPath.slice(0, slash + 1);
+    const base = planPath.slice(slash + 1);
+    if (base.startsWith(COMPLETED_PLAN_MARKER)) {
+        return planPath;
+    }
+    return `${dir}${COMPLETED_PLAN_MARKER}${base}`;
+}
+
 class LineBufferedBlock {
     private _stdoutBuf = "";
     private _stderrBuf = "";
@@ -392,17 +410,37 @@ export class Implement {
                 continue;
             }
             await plan.markDone(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});
+            // When this task was the last open one, the plan is now complete: rename the plan file
+            // to mark it before staging, so the same `git add -A`/commit that finalizes the task
+            // captures the rename and the working tree is left clean. If the staging or commit then
+            // fails, the rename is reverted alongside the checkbox so the loop restarts from the
+            // original on-disk state.
+            const originalPlanPath = plan.path;
+            let completionRenamed = false;
+            if (plan.nextOpenTask() === null) {
+                const completedPath = completedPlanPath(originalPlanPath);
+                if (completedPath !== originalPlanPath) {
+                    await plan.rename(completedPath);
+                    completionRenamed = true;
+                }
+            }
+            const revertCompletion = async () => {
+                if (completionRenamed) {
+                    await plan.rename(originalPlanPath);
+                }
+                await plan.markOpen(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});
+            };
             const commitMessage = task.taskNumber ? `${task.taskNumber} ${task.title}` : task.title;
             const addResult = await addAll(this._contexts.script, this._contexts.time, this._gitOutputContext(), this._options.projectRoot);
             if (addResult.code !== 0) {
                 await this._writeErrorLog(ws, `git add -A failed (exit ${addResult.code})\n--- stdout ---\n${addResult.stdout}\n--- stderr ---\n${addResult.stderr}`);
-                await plan.markOpen(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});
+                await revertCompletion();
                 continue;
             }
             const commitResult = await commit(this._contexts.script, this._contexts.time, this._gitOutputContext(), this._options.projectRoot, commitMessage);
             if (commitResult.code !== 0) {
                 await this._writeErrorLog(ws, `git commit failed (exit ${commitResult.code})\n--- stdout ---\n${commitResult.stdout}\n--- stderr ---\n${commitResult.stderr}`);
-                await plan.markOpen(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});
+                await revertCompletion();
                 continue;
             }
             const planTotals = plan.planTotals();

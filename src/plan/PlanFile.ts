@@ -264,14 +264,26 @@ export function buildSpecFileContent(references:readonly LinkedReference[], file
 }
 
 export class PlanFile {
+    private _path:string;
     private constructor(
-        readonly path:string,
+        path:string,
         private _content:string,
         private _fs:FsContext
-    ) {}
+    ) {
+        this._path = path;
+    }
+    get path():string {
+        return this._path;
+    }
     static async load(path:string, fs:FsContext):Promise<PlanFile> {
         const content = await fs.readFile(path);
         return new PlanFile(path, content, fs);
+    }
+    // Renames the plan file on disk and retargets the in-memory path, so any later write
+    // (a checkbox or metrics rewrite) lands on the new location.
+    async rename(newPath:string):Promise<void> {
+        await this._fs.rename(this._path, newPath);
+        this._path = newPath;
     }
     parse():PlanParseResult {
         return parsePlan(this._content);

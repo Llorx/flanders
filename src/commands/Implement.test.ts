@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { Implement } from "./Implement";
+import { Implement, completedPlanPath } from "./Implement";
 import type { ImplementContexts } from "./Implement";
 import type { FlandersConfig } from "../workspace/FlandersConfig";
 import type { SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
@@ -238,6 +238,10 @@ function stubContexts() {
 }
 
 const PLAN_PATH = "/project/plans/test.md";
+// Where a plan at PLAN_PATH ends up once the implement command accepts its last open task: the
+// command prepends the `V-` completion marker to the plan's basename. A fully-completed run reads
+// its plan content here, not at PLAN_PATH.
+const COMPLETED_PLAN_PATH = "/project/plans/V-test.md";
 const PLAN_ONE_TASK = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Implement feature A\n';
 const WS_ROOT = "/tmp/flanders-ws123";
 function reviewerRoot(n:number):string { return `/tmp/flanders-rev${n}`; }
@@ -2111,7 +2115,7 @@ test.describe("Implement per-task token and time metrics", test => {
         },
         ASSERT(code, { files }) {
             Assert.strictEqual(code, 0);
-            const plan = files.get(PLAN_PATH)!;
+            const plan = files.get(COMPLETED_PLAN_PATH)!;
             Assert.ok(plan.includes('[x]{"it":180,"ot":80,"t":0}'), `plan should have accumulated metrics, got: ${plan}`);
         }
     });
@@ -2137,7 +2141,7 @@ test.describe("Implement per-task token and time metrics", test => {
         },
         ASSERT(code, { files }) {
             Assert.strictEqual(code, 0);
-            const plan = files.get(PLAN_PATH)!;
+            const plan = files.get(COMPLETED_PLAN_PATH)!;
             Assert.ok(plan.includes('[x]{"it":390,"ot":180,"t":0}'), `plan should accumulate across iterations, got: ${plan}`);
         }
     });
@@ -2164,7 +2168,7 @@ test.describe("Implement per-task token and time metrics", test => {
         },
         ASSERT(code, { files }) {
             Assert.strictEqual(code, 0);
-            const plan = files.get(PLAN_PATH)!;
+            const plan = files.get(COMPLETED_PLAN_PATH)!;
             Assert.ok(plan.includes('[x]{"it":180,"ot":80,"t":0}'), `tokens should only come from AI calls, got: ${plan}`);
         }
     });
@@ -2211,7 +2215,7 @@ test.describe("Implement per-task token and time metrics", test => {
         },
         ASSERT(code, { s }) {
             Assert.strictEqual(code, 0);
-            const plan = s.files.get(PLAN_PATH)!;
+            const plan = s.files.get(COMPLETED_PLAN_PATH)!;
             // _taskStartedAt is captured at the start of _runTask (after the detect spawn), so only
             // spawns within the task count. Each script spawn advances 4000; the post-worker git add -A
             // is one such spawn. Within the task: worker (claude spawn 2, +3000),
@@ -2275,7 +2279,7 @@ test.describe("Implement per-task token and time metrics", test => {
         },
         ASSERT(code, { s }) {
             Assert.strictEqual(code, 0);
-            const plan = s.files.get(PLAN_PATH)!;
+            const plan = s.files.get(COMPLETED_PLAN_PATH)!;
             // detect spawn(1): time→2000. Task starts: _taskStartedAt=2000
             // worker spawn(2) (rate-limited): time→3000. _enterRateLimit: _taskRateLimitStartedAt=3000
             // time.advance(10000): time→13000. Rate-limit timer fires, _exitRateLimit: _taskRateLimitMs=10000
@@ -2304,7 +2308,7 @@ test.describe("Implement per-task token and time metrics", test => {
         },
         ASSERT(code, { files }) {
             Assert.strictEqual(code, 0);
-            const plan = files.get(PLAN_PATH)!;
+            const plan = files.get(COMPLETED_PLAN_PATH)!;
             Assert.ok(plan.includes('[x]{"it":180,"ot":80,"t":0}'), `detect tokens should not appear in task metrics, got: ${plan}`);
         }
     });
@@ -2340,7 +2344,7 @@ test.describe("Implement per-task token and time metrics", test => {
             Assert.strictEqual(code, 0);
             const allOutput = written.join("");
             Assert.ok(allOutput.includes("metrics persist failed"), "should log persist failure");
-            const plan = files.get(PLAN_PATH)!;
+            const plan = files.get(COMPLETED_PLAN_PATH)!;
             Assert.ok(plan.includes("[x]"), "task should still be marked done despite earlier persist failure");
         }
     });
@@ -2401,7 +2405,7 @@ test.describe("Implement per-task token and time metrics", test => {
         },
         ASSERT(code, { s }) {
             Assert.strictEqual(code, 0);
-            const plan = s.files.get(PLAN_PATH)!;
+            const plan = s.files.get(COMPLETED_PLAN_PATH)!;
             // detect (1s) → task starts at 1000
             // worker rate-limited (1s spawn + 5s wait) → 7000
             // worker retry (1s) → 8000
@@ -2465,7 +2469,7 @@ test.describe("Implement per-task token and time metrics", test => {
         },
         ASSERT(code, { s }) {
             Assert.strictEqual(code, 0);
-            const plan = s.files.get(PLAN_PATH)!;
+            const plan = s.files.get(COMPLETED_PLAN_PATH)!;
             // detect rate-limited (1s spawn + 10s wait) → 11000
             // detect retry (1s) → 12000
             // task starts at 12000, _taskRateLimitMs = 0
@@ -3419,7 +3423,7 @@ test.describe("Implement commit per task", test => {
         },
         ASSERT(code, { gitSpawns, files, written }) {
             Assert.strictEqual(code, 0);
-            const plan = files.get(PLAN_PATH)!;
+            const plan = files.get(COMPLETED_PLAN_PATH)!;
             Assert.ok(plan.includes("[x]"), "plan should be marked done");
             const plain = stripAnsi(written.join(""));
             Assert.ok(plain.includes("done"), "snapshot should be emitted");
@@ -3467,7 +3471,7 @@ test.describe("Implement commit per task", test => {
         },
         ASSERT(code, { files, written }) {
             Assert.strictEqual(code, 0);
-            const plan = files.get(PLAN_PATH)!;
+            const plan = files.get(COMPLETED_PLAN_PATH)!;
             Assert.ok(plan.includes("[x]"), "plan should be marked done after retry");
             const plain = stripAnsi(written.join(""));
             Assert.ok(plain.includes("done"), "snapshot should be emitted after successful retry");
@@ -3506,7 +3510,7 @@ test.describe("Implement commit per task", test => {
         },
         ASSERT(code, { files, written }) {
             Assert.strictEqual(code, 0);
-            const plan = files.get(PLAN_PATH)!;
+            const plan = files.get(COMPLETED_PLAN_PATH)!;
             Assert.ok(plan.includes("[x]"), "plan should be marked done after retry");
             const plain = stripAnsi(written.join(""));
             Assert.ok(plain.includes("done"), "snapshot should be emitted after successful retry");
@@ -3543,6 +3547,7 @@ test.describe("Implement commit per task", test => {
             Assert.strictEqual(code, 1, "should exit non-zero after MAX_ITER");
             const plan = files.get(PLAN_PATH)!;
             Assert.ok(plan.includes("[ ]"), "plan should still be open after exhausting iterations");
+            Assert.ok(!files.has(COMPLETED_PLAN_PATH), "the completion rename is reverted on each failed commit, so no V- plan file lingers");
             const allOutput = written.join("");
             Assert.ok(allOutput.includes("Hard stop"), "should show hard stop message");
             Assert.ok(allOutput.includes(WS_ROOT), "hard stop should point to workspace");
@@ -3662,7 +3667,7 @@ test.describe("Implement post-worker staging", test => {
                 Assert.strictEqual(code, 0);
             },
             "the task is marked done after the retry"(_code, { files }) {
-                const plan = files.get(PLAN_PATH)!;
+                const plan = files.get(COMPLETED_PLAN_PATH)!;
                 Assert.ok(plan.includes("[x]") && !plan.includes("[ ]"), "task should be marked done after the retry");
             },
             "the failing post-worker add streams its output to the output region"(_code, { written }) {
@@ -3771,7 +3776,7 @@ test.describe("Implement end-to-end git flow", test => {
         },
         ASSERT(code, { gitSpawns, files, written }) {
             Assert.strictEqual(code, 0);
-            const plan = files.get(PLAN_PATH)!;
+            const plan = files.get(COMPLETED_PLAN_PATH)!;
             Assert.ok(plan.includes("[x]") && !plan.includes("[ ]"), "both tasks should be marked done");
             const postPreflight = gitSpawns.slice(4);
             Assert.strictEqual(postPreflight.length, 6, "should have exactly 6 git calls after preflight+discovery (post-worker add + commit-stage add + commit per task)");
@@ -3922,7 +3927,7 @@ test.describe("Implement end-to-end git flow", test => {
         },
         ASSERT(code, { files, written }) {
             Assert.strictEqual(code, 0);
-            const plan = files.get(PLAN_PATH)!;
+            const plan = files.get(COMPLETED_PLAN_PATH)!;
             Assert.ok(plan.includes("[x]"), "task should be marked done after second iteration");
             Assert.ok(!plan.includes("[ ]"), "no open tasks should remain");
             const plain = stripAnsi(written.join(""));
@@ -3930,6 +3935,120 @@ test.describe("Implement end-to-end git flow", test => {
             Assert.ok(plain.includes("done"), "snapshot should contain done header");
             Assert.ok(plain.includes(allTasksCompletedPool[0]! + "\n"), "should print the all-tasks-completed pool entry followed by a newline");
         }
+    });
+});
+
+test.describe("Implement completion rename", test => {
+    test("accepting the last open task renames the plan file with the V- completion marker", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the plan content lives at the V- marked path, marked done"(_code, { files }) {
+                const plan = files.get(COMPLETED_PLAN_PATH);
+                Assert.ok(plan !== undefined, "completed plan should exist at the V- path");
+                Assert.ok(plan!.includes("[x]"), "the renamed plan should be marked done");
+            },
+            "the original plan path is vacated by the rename"(_code, { files }) {
+                Assert.ok(!files.has(PLAN_PATH), "the original plan path should no longer hold the file");
+            },
+            "the accepted task still produces its commit (capturing the rename)"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.filter(g => g.args[0] === "commit").length, 1);
+            }
+        }
+    });
+
+    test("the completion marker is prepended ahead of the rest of the name, including a timestamp prefix", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            const timestampedPath = "/project/plans/2026-06-24_10.00-add-feature.md";
+            s.files.set(timestampedPath, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return { s, timestampedPath };
+        },
+        async ACT({ s, timestampedPath }) {
+            const cmd = new Implement([timestampedPath], { projectRoot: "/project" }, s.contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERT(code, { s }) {
+            Assert.strictEqual(code, 0);
+            Assert.ok(s.files.has("/project/plans/V-2026-06-24_10.00-add-feature.md"), "the V- marker sits at the very start, ahead of the timestamp prefix");
+            Assert.ok(!s.files.has("/project/plans/2026-06-24_10.00-add-feature.md"), "the un-marked timestamped path is vacated");
+        }
+    });
+
+    test("a plan already complete at startup keeps its name (no completion marker added)", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, '# Plan\n\n- [x]{"it":1,"ot":1,"t":1} Already done\n');
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the plan keeps its original name"(_code, { files }) {
+                Assert.ok(files.has(PLAN_PATH), "an already-complete plan is left at its original path");
+            },
+            "no V- marked file is created"(_code, { files }) {
+                Assert.ok(!files.has(COMPLETED_PLAN_PATH), "the already-complete startup path adds no completion marker");
+            }
+        }
+    });
+});
+
+test.describe("completedPlanPath", test => {
+    test("prepends the V- marker to the basename, preserving the directory", {
+        ARRANGE() { return "/project/plans/test.md"; },
+        ACT(path) { return completedPlanPath(path); },
+        ASSERT(result) { Assert.strictEqual(result, "/project/plans/V-test.md"); }
+    });
+    test("returns a name already carrying the marker unchanged", {
+        ARRANGE() { return "/project/plans/V-test.md"; },
+        ACT(path) { return completedPlanPath(path); },
+        ASSERT(result) { Assert.strictEqual(result, "/project/plans/V-test.md"); }
+    });
+    test("places the marker ahead of a timestamp prefix in the basename", {
+        ARRANGE() { return "/project/plans/2026-06-24_10.00-feature.md"; },
+        ACT(path) { return completedPlanPath(path); },
+        ASSERT(result) { Assert.strictEqual(result, "/project/plans/V-2026-06-24_10.00-feature.md"); }
+    });
+    test("prepends the marker when the path has no directory", {
+        ARRANGE() { return "test.md"; },
+        ACT(path) { return completedPlanPath(path); },
+        ASSERT(result) { Assert.strictEqual(result, "V-test.md"); }
+    });
+    test("handles a backslash-separated path", {
+        ARRANGE() { return "C:\\dev\\plans\\test.md"; },
+        ACT(path) { return completedPlanPath(path); },
+        ASSERT(result) { Assert.strictEqual(result, "C:\\dev\\plans\\V-test.md"); }
     });
 });
 
@@ -5479,12 +5598,12 @@ test.describe("Implement reviewer delete-before and relaunch protocol", test => 
                 Assert.strictEqual(code, 0);
             },
             "task it accumulates both reviewer invocations"({ files }) {
-                const plan = files.get(PLAN_PATH)!;
+                const plan = files.get(COMPLETED_PLAN_PATH)!;
                 // worker(100) + reviewer#1(200) + reviewer#2(300) = 600
                 Assert.ok(plan.includes('"it":600'), `it should be 600, got: ${plan}`);
             },
             "task ot accumulates both reviewer invocations"({ files }) {
-                const plan = files.get(PLAN_PATH)!;
+                const plan = files.get(COMPLETED_PLAN_PATH)!;
                 // worker(50) + reviewer#1(80) + reviewer#2(120) = 250
                 Assert.ok(plan.includes('"ot":250'), `ot should be 250, got: ${plan}`);
             }
@@ -7451,7 +7570,7 @@ test.describe("Implement multiple parallel reviewers", test => {
                 Assert.strictEqual(code, 0);
             },
             "reviewer rate-limit wait does NOT subtract from t (metrics not frozen)"({}, { s }) {
-                const plan = s.files.get(PLAN_PATH)!;
+                const plan = s.files.get(COMPLETED_PLAN_PATH)!;
                 // detect (1s) → 1000 (task starts here)
                 // worker (1s) → 2000
                 // reviewer rate-limit (1s spawn + 5s wait) → 8000
