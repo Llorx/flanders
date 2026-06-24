@@ -1135,9 +1135,9 @@ test.describe("Implement intermediate header and metrics states", test => {
                 Assert.ok(metricsCalls.length >= 1, "need at least 1 metrics call");
                 Assert.strictEqual(metricsCalls[0]!.task, undefined);
             },
-            "noop metrics plan pair has accumulated values"({ metricsCalls }) {
+            "noop metrics plan pair is a static accumulated total (no anchor, base seconds)"({ metricsCalls }) {
                 Assert.ok(metricsCalls.length >= 1, "need at least 1 metrics call");
-                Assert.deepStrictEqual(metricsCalls[0]!.plan, { tokens: 150, seconds: 5 });
+                Assert.deepStrictEqual(metricsCalls[0]!.plan, { tokens: 150, baseSeconds: 5 });
             }
         }
     });
@@ -1187,9 +1187,9 @@ test.describe("Implement intermediate header and metrics states", test => {
                 Assert.ok(metricsCalls.length >= 1, "need at least 1 metrics call");
                 Assert.strictEqual(metricsCalls[0]!.task, undefined);
             },
-            "first metrics call has zero plan pair"({ metricsCalls }) {
+            "first metrics call has a static zero plan pair (no anchor)"({ metricsCalls }) {
                 Assert.ok(metricsCalls.length >= 1, "need at least 1 metrics call");
-                Assert.deepStrictEqual(metricsCalls[0]!.plan, { tokens: 0, seconds: 0 });
+                Assert.deepStrictEqual(metricsCalls[0]!.plan, { tokens: 0, baseSeconds: 0 });
             },
             "footer shows the working label in output"(_result, { s }) {
                 const allOutput = s.written.join("");
@@ -2641,41 +2641,90 @@ test.describe("Implement per-task token and time metrics", test => {
                 Assert.ok(metricsCalls.length >= 1, "need at least 1 call");
                 Assert.strictEqual(metricsCalls[0]!.task, undefined);
             },
-            "plan-level metrics has zero plan pair"({ metricsCalls }) {
+            "plan-level metrics has a static zero plan pair (no anchor)"({ metricsCalls }) {
                 Assert.ok(metricsCalls.length >= 1, "need at least 1 call");
-                Assert.deepStrictEqual(metricsCalls[0]!.plan, { tokens: 0, seconds: 0 });
+                Assert.deepStrictEqual(metricsCalls[0]!.plan, { tokens: 0, baseSeconds: 0 });
             },
-            "initial task call has zero task metrics"({ metricsCalls }) {
+            "initial task call has a live zero-anchored task pair"({ metricsCalls }) {
                 Assert.ok(metricsCalls.length >= 2, "need at least 2 calls");
-                Assert.deepStrictEqual(metricsCalls[1]!.task, { tokens: 0, seconds: 0 });
+                Assert.deepStrictEqual(metricsCalls[1]!.task, { tokens: 0, anchorMs: 0, baseSeconds: 0 });
             },
-            "initial task call has zero plan metrics"({ metricsCalls }) {
+            "initial task call has a live zero-anchored plan pair"({ metricsCalls }) {
                 Assert.ok(metricsCalls.length >= 2, "need at least 2 calls");
-                Assert.deepStrictEqual(metricsCalls[1]!.plan, { tokens: 0, seconds: 0 });
+                Assert.deepStrictEqual(metricsCalls[1]!.plan, { tokens: 0, anchorMs: 0, baseSeconds: 0 });
             },
-            "after-worker call task metrics accumulate worker tokens"({ metricsCalls }) {
+            "after-worker call task metrics accumulate worker tokens on a live anchor"({ metricsCalls }) {
                 Assert.ok(metricsCalls.length >= 3, "need at least 3 calls");
-                Assert.deepStrictEqual(metricsCalls[2]!.task, { tokens: 1500, seconds: 0 });
+                Assert.deepStrictEqual(metricsCalls[2]!.task, { tokens: 1500, anchorMs: 0, baseSeconds: 0 });
             },
-            "after-worker call plan metrics accumulate worker tokens"({ metricsCalls }) {
+            "after-worker call plan metrics accumulate worker tokens on a live anchor"({ metricsCalls }) {
                 Assert.ok(metricsCalls.length >= 3, "need at least 3 calls");
-                Assert.deepStrictEqual(metricsCalls[2]!.plan, { tokens: 1500, seconds: 0 });
+                Assert.deepStrictEqual(metricsCalls[2]!.plan, { tokens: 1500, anchorMs: 0, baseSeconds: 0 });
             },
-            "after-reviewer call task metrics accumulate reviewer tokens"({ metricsCalls }) {
+            "after-reviewer call task metrics accumulate reviewer tokens on a live anchor"({ metricsCalls }) {
                 Assert.ok(metricsCalls.length >= 4, "need at least 4 calls");
-                Assert.deepStrictEqual(metricsCalls[3]!.task, { tokens: 2600, seconds: 0 });
+                Assert.deepStrictEqual(metricsCalls[3]!.task, { tokens: 2600, anchorMs: 0, baseSeconds: 0 });
             },
-            "after-reviewer call plan metrics accumulate reviewer tokens"({ metricsCalls }) {
+            "after-reviewer call plan metrics accumulate reviewer tokens on a live anchor"({ metricsCalls }) {
                 Assert.ok(metricsCalls.length >= 4, "need at least 4 calls");
-                Assert.deepStrictEqual(metricsCalls[3]!.plan, { tokens: 2600, seconds: 0 });
+                Assert.deepStrictEqual(metricsCalls[3]!.plan, { tokens: 2600, anchorMs: 0, baseSeconds: 0 });
             },
-            "after-markDone call task metrics preserve final tokens"({ metricsCalls }) {
+            "after-markDone call task metrics preserve final tokens on a live anchor"({ metricsCalls }) {
                 Assert.ok(metricsCalls.length >= 5, "need at least 5 calls");
-                Assert.deepStrictEqual(metricsCalls[4]!.task, { tokens: 2600, seconds: 0 });
+                Assert.deepStrictEqual(metricsCalls[4]!.task, { tokens: 2600, anchorMs: 0, baseSeconds: 0 });
             },
-            "after-markDone call plan metrics preserve final tokens"({ metricsCalls }) {
+            "after-markDone call plan metrics preserve final tokens on a live anchor"({ metricsCalls }) {
                 Assert.ok(metricsCalls.length >= 5, "need at least 5 calls");
-                Assert.deepStrictEqual(metricsCalls[4]!.plan, { tokens: 2600, seconds: 0 });
+                Assert.deepStrictEqual(metricsCalls[4]!.plan, { tokens: 2600, anchorMs: 0, baseSeconds: 0 });
+            }
+        }
+    });
+
+    test("the live plan pair's base seconds are the accumulated active time of every other task", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            // Task 1 is already done carrying t=7; task 2 is open. When task 2 starts,
+            // the plan pair's base seconds must equal the other (done) task's 7 active
+            // seconds, while the task pair's base is 0 — so the rendered plan time is the
+            // open task's live seconds plus 7.
+            const plan = '# Plan\n\n- [x]{"it":100,"ot":50,"t":7} Done task\n- [ ]{"it":0,"ot":0,"t":0} Open task\n';
+            s.files.set(PLAN_PATH, plan);
+            const metricsCalls:MetricsFields[] = [];
+            const origSetMetrics = BottomBlock.prototype.setMetrics;
+            BottomBlock.prototype.setMetrics = function(fields:MetricsFields) {
+                metricsCalls.push(fields);
+                origSetMetrics.call(this, fields);
+            };
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "worker", inputTokens: 10, outputTokens: 5 });
+            s.claudeQueue.push({ text: "reviewer ok", inputTokens: 8, outputTokens: 3, errorLog: "" });
+            return { s, metricsCalls, origSetMetrics };
+        },
+        async ACT({ s, metricsCalls, origSetMetrics }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+                const code = await cmd.result();
+                await cmd.dispose();
+                return { code, metricsCalls: [...metricsCalls] };
+            } finally {
+                BottomBlock.prototype.setMetrics = origSetMetrics;
+            }
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "a live anchored task-start push is emitted for the open task"({ metricsCalls }) {
+                Assert.ok(metricsCalls.some(c => c.task?.anchorMs !== undefined), "expected a live task-start metrics push");
+            },
+            "the task pair carries a zero base on a live anchor"({ metricsCalls }) {
+                const firstLive = metricsCalls.find(c => c.task?.anchorMs !== undefined)!;
+                Assert.deepStrictEqual(firstLive.task, { tokens: 0, anchorMs: 0, baseSeconds: 0 });
+            },
+            "the plan pair's base equals the done task's 7 accumulated seconds"({ metricsCalls }) {
+                const firstLive = metricsCalls.find(c => c.task?.anchorMs !== undefined)!;
+                Assert.deepStrictEqual(firstLive.plan, { tokens: 150, anchorMs: 0, baseSeconds: 7 });
             }
         }
     });

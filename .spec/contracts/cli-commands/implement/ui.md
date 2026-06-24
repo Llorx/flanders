@@ -46,8 +46,8 @@ The metrics line shows, on a single line, two paired figures separated by a vert
 
     task <tokens> <time>  │  plan <tokens> <time>
 
-- `task` — accumulated consumption of the task currently being worked on. Tokens is the sum `it + ot` of the in-progress task; time is `t` of the in-progress task.
-- `plan` — accumulated consumption of every task in the plan file, including tasks already completed in previous runs and the task currently in progress. Tokens is the sum of `it + ot` across all tasks; time is the sum of `t` across all tasks.
+- `task` — accumulated consumption of the task currently being worked on. Tokens is the sum `it + ot` of the in-progress task; time is the active working time elapsed on the in-progress task so far.
+- `plan` — accumulated consumption of every task in the plan file, including tasks already completed in previous runs and the task currently in progress. Tokens is the sum of `it + ot` across all tasks; time is the active working time of the in-progress task added to the accumulated active working time of every other task.
 
 Tokens are rendered with a thousands suffix and one decimal: values below 1000 are shown as a plain integer (for example, `999`); values at or above 1000 are shown with a `k` suffix (for example, `16.4k`); values at or above 1,000,000 are shown with an `M` suffix (for example, `1.2M`).
 
@@ -56,15 +56,17 @@ Time is rendered in a human-readable form derived from the integer second count:
 - At least one minute but less than one hour: `<minutes>m<seconds>s` (for example, `2m22s`).
 - One hour or more: `<hours>h<minutes>m<seconds>s` (for example, `1h03m12s`).
 
+Both time figures are a live counter. While the tool is actively working on the current task, the `task` time and the `plan` time advance once per second, recomputed on every redraw of the bottom-fixed block from the current clock, so the displayed seconds climb continuously rather than only jumping when an AI invocation reports new consumption. The two token figures are not a clock: each changes only when an AI invocation reports new consumption.
+
 If the full line does not fit on the terminal width, Flanders falls back to a compact form that abbreviates the labels (for example, `t:` for task and `p:` for plan, with the separator and inter-field spaces tightened). Only if the compact form also does not fit is the line truncated with an ellipsis at the end.
 
 Each field is colored according to the scheme defined in `Colors`.
 
 Until the plan file has been parsed and validated, both the `task` and `plan` pairs render as blank — the row still occupies its line of the block. From the moment the plan is parsed onward, the `plan` pair shows the accumulated tokens and time of the plan and keeps doing so during the git preflight and the tasks-completed noop case. The `task` pair stays blank until work on the first task begins, at the start of that task's worker stage.
 
-When work moves to a new task, the `task` pair resets to that task at the start of its worker stage and advances with that task's consumption as the task progresses; the `plan` pair keeps accumulating across every task.
+When work moves to a new task, the `task` pair resets to that task at the start of its worker stage — its tokens reset to that task's consumption and its time counter restarts from that task's freshly begun active time — and the `plan` pair keeps accumulating across every task, its time counter continuing to climb because the in-progress task's live time is part of it.
 
-While the waiting footer state is active, the tokens and time values on this line freeze at their last reported value and only resume advancing when normal work resumes.
+While the waiting footer state is active, the live time counter pauses and the token figures hold at their last reported value; both resume advancing when normal work resumes.
 
 ## Footer line — normal state
 The footer line shows a working label accompanied by a smooth animated indicator. The working label is drawn from a pool of short Ned-Flanders-flavored variants whose membership is pinned by [src/.spec/rules/flanders-voice-cli-variants.md](/src/.spec/rules/flanders-voice-cli-variants.md), and it rotates to a different variant than the one currently shown every 9 seconds, so the label keeps changing while work continues. The animated indicator is a continuous motion that gives the user a clear visual cue that the program is alive and progressing — for example, a spinner cycling through a sequence of glyphs, or a wave that moves a single highlighted character across the label. The indicator animation runs at 5 frames per second, a cadence independent of the 9-second label rotation. The working label and the animated indicator are both rendered in orange. The voice these variants carry is defined in [.spec/contracts/shared/flanders-voice.md](/.spec/contracts/shared/flanders-voice.md).
@@ -118,7 +120,7 @@ Whenever a task is accepted at the commit/check stage (see [.spec/contracts/cli-
 The snapshot consists of, in order:
 1. A horizontal separator line that spans the terminal width, using the same glyph as the separator inside the bottom-fixed block.
 2. A header line identical in shape and coloring to the live header line, except that the `activity` field shows the literal `done` rather than one of the four live values. The task index, iteration count, plan task number, and task title reflect the task that was just completed.
-3. A metrics line identical in shape and coloring to the live metrics line. The `task` figures show the total consumption accumulated over the completed task across all iterations (including ones that failed before the one that passed adversarial review). The `plan` figures show the running totals across the entire plan after that task was marked complete.
+3. A metrics line identical in shape and coloring to the live metrics line. The `task` figures show the total consumption accumulated over the completed task across all iterations (including ones that failed before the one that passed adversarial review). The `plan` figures show the running totals across the entire plan after that task was marked complete. The snapshot's time figures are the final elapsed values reached at completion, captured once into the scrolling output; the snapshot is a static record and does not tick.
 4. A second horizontal separator line, identical to the one above.
 
 The snapshot lines are never truncated and never fall back to the compact metrics form. The header and metrics are rendered at their full length even when they exceed the terminal width; in that case they wrap at the terminal's natural wrap boundary, in line with the general output-region rule that long lines wrap rather than getting cut. The truncation and compact-form rules defined in `Header line content` and `Metrics line content` therefore apply only to the live bottom-fixed block, not to the snapshot.
@@ -160,7 +162,7 @@ Each line is fitted to the current terminal width before it is drawn, by applyin
 2. Any compact form the line defines — for example, the metrics line's abbreviated `t:`/`p:` labels, or the reviewing footer's dropped per-reviewer `(<model> <effort>)` descriptors. A line that defines no compact form skips this step.
 3. Truncation with an ellipsis at the end when no form fits.
 
-The separator spans the full terminal width; the header, the metrics, and the footer are fitted as above. This fit is recomputed on every redraw — a change in any field, an animation tick, a working-label rotation tick, a countdown tick (the waiting footer's countdown or any reviewer's `waiting` countdown), a transition into or out of the waiting or reviewing state, a write above the block, and a terminal resize — against the current state and the current terminal width, and is never frozen at the width of an earlier draw.
+The separator spans the full terminal width; the header, the metrics, and the footer are fitted as above. This fit is recomputed on every redraw — a change in any field, an animation tick, a working-label rotation tick, a countdown tick (the waiting footer's countdown or any reviewer's `waiting` countdown), a metrics time tick (the live `task`/`plan` time counter advancing a second), a transition into or out of the waiting or reviewing state, a write above the block, and a terminal resize — against the current state and the current terminal width, and is never frozen at the width of an earlier draw.
 
 On a terminal resize the block recomputes and redraws all four lines at the new width and re-anchors to the bottom of the terminal, leaving no rows from the previous size on screen and remaining exactly four rows. Output already written into the scrolling region above the block is not retroactively reflowed; subsequent output flows according to the new width.
 

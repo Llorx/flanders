@@ -130,6 +130,12 @@ export class Implement {
     private _taskRateLimitMs:number = 0;
     private _taskRateLimitStartedAt:number|null = null;
     private _taskTokens = {it:0, ot:0};
+    // Accumulated active seconds of every task in the plan OTHER than the in-progress
+    // one, snapshotted at task start (the other tasks' persisted `t` does not change
+    // while the current task runs). The plan time the block renders is the in-progress
+    // task's live active time plus this constant, so it ticks in lockstep with the task
+    // time instead of lagging behind the persisted `plan.planTotals().t`.
+    private _otherTasksSeconds = 0;
     private _runPromise:Promise<number>;
     /** Public for testing: the stashed config is otherwise observable only as downstream AI invocation arguments (tool/model/effort). */
     get config():FlandersConfig|null { return this._config; }
@@ -204,13 +210,13 @@ export class Implement {
             const planTotals = plan.planTotals();
             if (initialParse.tasks.every(t => t.done)) {
                 this._block!.setHeader({ indexLabel: `${totalTasks}/${totalTasks}` });
-                this._block!.setMetrics({ plan: { tokens: planTotals.it + planTotals.ot, seconds: planTotals.t } });
+                this._block!.setMetrics({ plan: { tokens: planTotals.it + planTotals.ot, baseSeconds: planTotals.t } });
                 this._buffered.write(`${pickVariant(tasksCompletedPool, this._contexts.random)}\n`);
                 this._finalizeBlock("Done");
                 return 0;
             }
             this._block!.setHeader({ indexLabel: `0/${totalTasks}` });
-            this._block!.setMetrics({ plan: { tokens: planTotals.it + planTotals.ot, seconds: planTotals.t } });
+            this._block!.setMetrics({ plan: { tokens: planTotals.it + planTotals.ot, baseSeconds: planTotals.t } });
             const gitAvailable = await isGitAvailable(this._contexts.script, this._contexts.time);
             const insideWorkTree = gitAvailable && await isInsideWorkTree(this._contexts.script, this._contexts.time, this._options.projectRoot);
             if (!insideWorkTree) {
@@ -334,9 +340,15 @@ export class Implement {
         /* coverage ignore next */ // — Defensive: _updateMetrics is only called when _currentTask is set and outside rate-limit windows.
         if (!this._currentTask || this._taskRateLimitStartedAt !== null) return;
         const planTotals = plan.planTotals();
+        // The active-time anchor the block measures the live seconds from: the
+        // in-progress task's start shifted forward by every completed rate-limit
+        // wait, so floor((now - anchorMs)/1000) equals _activeSeconds(). Both pairs
+        // share the anchor; the plan pair adds the other tasks' accumulated active
+        // seconds as its static base, so the two times tick together.
+        const anchorMs = this._taskStartedAt + this._taskRateLimitMs;
         this._block!.setMetrics({
-            task: { tokens: this._taskTokens.it + this._taskTokens.ot, seconds: this._activeSeconds() },
-            plan: { tokens: planTotals.it + planTotals.ot, seconds: planTotals.t }
+            task: { tokens: this._taskTokens.it + this._taskTokens.ot, anchorMs, baseSeconds: 0 },
+            plan: { tokens: planTotals.it + planTotals.ot, anchorMs, baseSeconds: this._otherTasksSeconds }
         });
     }
     private _gitOutputContext():OutputContext {
@@ -359,6 +371,10 @@ export class Implement {
         this._taskRateLimitMs = 0;
         this._taskRateLimitStartedAt = null;
         this._taskTokens = {it:0, ot:0};
+        // The other tasks' accumulated active time is the plan total minus this
+        // task's own persisted `t`; it stays constant while this task runs because
+        // only this task's line is rewritten, so it is snapshotted once here.
+        this._otherTasksSeconds = plan.planTotals().t - task.metrics.t;
         this._updateMetrics(plan);
         let iteration = 0;
         for (;;) {

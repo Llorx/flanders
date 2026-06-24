@@ -219,6 +219,10 @@ After the final validator returns PASS, print a summary in chat containing:
 - The plan file's total line count.
 - The total number of detected tasks.
 
+## After completion: implementing the plan
+
+After the final validator returns PASS and you print the summary above, tell the user in chat that the plan you produced is implemented from the command line by running \`flanders implement\` against it. This message is informational and final: you state that implementation path and end the run. You do not ask the user whether to proceed, and you do not offer to launch, nor launch, any AI-tool skill — including /flanders-work — to implement the plan; carrying out a plan is the job of the \`flanders implement\` command, not of an in-session skill.
+
 ## Output language
 
 Write the plan file in the same natural language as the input request, unless the user says otherwise.

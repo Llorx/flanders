@@ -648,6 +648,37 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("After completion section points the user at the implement CLI and not at an AI skill", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "has the After completion: implementing the plan section"(body) {
+                Assert.ok(body.includes("## After completion: implementing the plan"), "must have the After completion: implementing the plan section");
+            },
+            "tells the user the plan is implemented by running flanders implement"(body) {
+                Assert.ok(body.includes("implemented from the command line by running \`flanders implement\` against it"), "must tell the user the plan is implemented by running flanders implement");
+            },
+            "states the completion message is informational and final"(body) {
+                Assert.ok(body.includes("This message is informational and final"), "must state the completion message is informational and final");
+            },
+            "does not ask the user whether to proceed"(body) {
+                Assert.ok(body.includes("You do not ask the user whether to proceed"), "must state it does not ask the user whether to proceed");
+            },
+            "does not offer to launch nor launch any AI-tool skill"(body) {
+                Assert.ok(body.includes("you do not offer to launch, nor launch, any AI-tool skill"), "must state it does not offer to launch, nor launch, any AI-tool skill");
+            },
+            "names /flanders-work as a skill it must not launch to implement the plan"(body) {
+                Assert.ok(body.includes("including /flanders-work"), "must name /flanders-work as a skill it must not launch to implement the plan");
+            },
+            "section appears after the Summary section"(body) {
+                Assert.ok(body.indexOf("## After completion: implementing the plan") > body.indexOf("## Summary"), "the After completion section must appear after the Summary section");
+            },
+            "section appears before the Output language section"(body) {
+                Assert.ok(body.indexOf("## After completion: implementing the plan") < body.indexOf("## Output language"), "the After completion section must appear before the Output language section");
+            }
+        }
+    });
+
     test("has no unresolved placeholders or TODOs", {
         ARRANGE() {},
         ACT() { return planSkillBody; },

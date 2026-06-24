@@ -94,6 +94,17 @@ function workingLabelOf(output:string):string {
     return footerPlain.slice(footerPlain.indexOf(" ") + 1);
 }
 
+// Reads the metrics line — the third row of the most recent block draw — as plain
+// text. The block draws separator, header, metrics, footer in that order, so the
+// metrics row is index 2 of the last draw (the segment after the final clear). Lets
+// the live-time tests assert on what the metrics line renders rather than any
+// private field.
+function metricsLineOf(output:string):string {
+    const lastDraw = output.split(CLEAR_SEQ).pop() ?? "";
+    const lines = lastDraw.split("\n");
+    return stripAnsi(lines[2] ?? "");
+}
+
 function makeBlock(io:BottomBlockIO, time:ReturnType<typeof fakeTime>, random:RandomContext = fakeRandom(0)) {
     return new BottomBlock(io, time, random);
 }
@@ -169,7 +180,7 @@ async function mountEmulatorBlock(cols:number, termRows:number, aboveContent?:re
     const block = new BottomBlock(io, time, random);
     block.mount();
     block.setHeader({ indexLabel: "5/12", iteration: 2, activity: "implementing", taskNumber: "7.3", title: "Task title" });
-    block.setMetrics({ task: { tokens: 100, seconds: 5 }, plan: { tokens: 200, seconds: 10 } });
+    block.setMetrics({ task: { tokens: 100, baseSeconds: 5 }, plan: { tokens: 200, baseSeconds: 10 } });
     await flush();
     return { term, block, time, flush, resize };
 }
@@ -321,7 +332,7 @@ test.describe("BottomBlock", test => {
             return { io, block };
         },
         ACT({ io, block }) {
-            block.setMetrics({ plan: { tokens: 1_200_000, seconds: 3792 } });
+            block.setMetrics({ plan: { tokens: 1_200_000, baseSeconds: 3792 } });
             return io.output;
         },
         ASSERTS: {
@@ -358,7 +369,7 @@ test.describe("BottomBlock", test => {
             return { io, block };
         },
         ACT({ io, block }) {
-            block.setMetrics({ task: { tokens: 16432, seconds: 142 }, plan: { tokens: 1_200_000, seconds: 3792 } });
+            block.setMetrics({ task: { tokens: 16432, baseSeconds: 142 }, plan: { tokens: 1_200_000, baseSeconds: 3792 } });
             return io.output;
         },
         ASSERT(output) {
@@ -759,7 +770,7 @@ test.describe("BottomBlock", test => {
         },
         ACT({ io, block }) {
             block.setHeader({ indexLabel: "1/1" });
-            block.setMetrics({ plan: { tokens: 1000, seconds: 10 } });
+            block.setMetrics({ plan: { tokens: 1000, baseSeconds: 10 } });
             block.setFooter({ kind: "working" });
             return io.writes.length;
         },
@@ -906,7 +917,7 @@ test.describe("BottomBlock", test => {
             block.setFooter({ kind: "working" });
             block.mount();
             block.setHeader({ indexLabel: "1/1", iteration: 1, activity: "implementing", taskNumber: "1.1", title: "test" });
-            block.setMetrics({ task: { tokens: 100, seconds: 10 }, plan: { tokens: 200, seconds: 20 } });
+            block.setMetrics({ task: { tokens: 100, baseSeconds: 10 }, plan: { tokens: 200, baseSeconds: 20 } });
             block.writeAbove("text\n");
             block.finalize("Done");
             return io.output;
@@ -1125,7 +1136,7 @@ test.describe("BottomBlock", test => {
             const afterSetHeader = [...io.writes];
             io.reset();
 
-            block.setMetrics({ task: { tokens: 100, seconds: 5 }, plan: { tokens: 200, seconds: 10 } });
+            block.setMetrics({ task: { tokens: 100, baseSeconds: 5 }, plan: { tokens: 200, baseSeconds: 10 } });
             const afterSetMetrics = [...io.writes];
             io.reset();
 
@@ -2063,6 +2074,328 @@ test.describe("BottomBlock", test => {
             },
             "the indicator glyph changes between consecutive ticks"(result) {
                 Assert.notStrictEqual(result.afterTwo, result.afterOne);
+            }
+        }
+    });
+});
+
+test.describe("BottomBlock metrics-line live time counter", test => {
+    test("a live pair's seconds are derived from the clock at render time: two renders at the same clock match and a render after the clock advances shows more, with no metrics push between", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 0 } });
+            io.reset();
+            return { io, time };
+        },
+        ACT({ io, time }) {
+            // Redraw twice at the same clock through the resize path (no setMetrics,
+            // no clock change), then advance the clock by setNow (no timer fires) and
+            // redraw once more — isolating render-time derivation from any tick or push.
+            io.emitResize();
+            const firstRender = metricsLineOf(io.output);
+            io.reset();
+            io.emitResize();
+            const sameClockRender = metricsLineOf(io.output);
+            io.reset();
+            time.setNow(4000);
+            io.emitResize();
+            const laterRender = metricsLineOf(io.output);
+            return { firstRender, sameClockRender, laterRender };
+        },
+        ASSERTS: {
+            "two renders at the same clock value show the identical metrics line"(result) {
+                Assert.strictEqual(result.sameClockRender, result.firstRender);
+            },
+            "the metrics line at the unchanged clock reads zero seconds for both pairs"(result) {
+                Assert.strictEqual(result.firstRender, "task 100 0s  │  plan 200 0s");
+            },
+            "a render four seconds later shows four seconds for both pairs with no metrics push"(result) {
+                Assert.strictEqual(result.laterRender, "task 100 4s  │  plan 200 4s");
+            }
+        }
+    });
+
+    test("while working, the task and plan times climb once per second on the block's own animation ticks with no metrics push", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 0 } });
+            io.reset();
+            return { io, time };
+        },
+        ACT({ io, time }) {
+            time.advance(1000);
+            const afterOneSecond = metricsLineOf(io.output);
+            io.reset();
+            time.advance(2000);
+            const afterThreeSeconds = metricsLineOf(io.output);
+            return { afterOneSecond, afterThreeSeconds };
+        },
+        ASSERTS: {
+            "after one second of animation ticks both times read 1s"(result) {
+                Assert.strictEqual(result.afterOneSecond, "task 100 1s  │  plan 200 1s");
+            },
+            "after two more seconds of ticks both times read 3s"(result) {
+                Assert.strictEqual(result.afterThreeSeconds, "task 100 3s  │  plan 200 3s");
+            }
+        }
+    });
+
+    test("while reviewing, the task and plan times climb on the spinner ticks with no metrics push", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            const reviewers:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "running" }];
+            block.setFooter({ kind: "reviewing", reviewers });
+            block.mount();
+            block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 0 } });
+            io.reset();
+            return { io, time };
+        },
+        ACT({ io, time }) {
+            time.advance(2000);
+            return metricsLineOf(io.output);
+        },
+        ASSERT(metrics) {
+            Assert.strictEqual(metrics, "task 100 2s  │  plan 200 2s");
+        }
+    });
+
+    test("the plan time is the task's live active time plus the other tasks' accumulated seconds and advances in lockstep with the task time", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            // The plan pair shares the task's anchor and carries the other tasks'
+            // accumulated active seconds (10) as its static base.
+            block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 10 } });
+            io.reset();
+            return { io, time };
+        },
+        ACT({ io, time }) {
+            time.advance(1000);
+            const afterOneSecond = metricsLineOf(io.output);
+            io.reset();
+            time.advance(4000);
+            const afterFiveSeconds = metricsLineOf(io.output);
+            return { afterOneSecond, afterFiveSeconds };
+        },
+        ASSERTS: {
+            "at task-live 1s the plan time is 1s + 10s = 11s"(result) {
+                Assert.strictEqual(result.afterOneSecond, "task 100 1s  │  plan 200 11s");
+            },
+            "after four more seconds both times advanced by 4 (task 5s, plan 15s)"(result) {
+                Assert.strictEqual(result.afterFiveSeconds, "task 100 5s  │  plan 200 15s");
+            }
+        }
+    });
+
+    test("advancing the clock alone never changes the token figures, only the time figures", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            block.setMetrics({ task: { tokens: 1500, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 2600, anchorMs: 0, baseSeconds: 0 } });
+            io.reset();
+            return { io, time };
+        },
+        ACT({ io, time }) {
+            io.emitResize();
+            const beforeAdvance = metricsLineOf(io.output);
+            io.reset();
+            time.advance(5000);
+            const afterAdvance = metricsLineOf(io.output);
+            return { beforeAdvance, afterAdvance };
+        },
+        ASSERTS: {
+            "the token figures render before advancing the clock"(result) {
+                Assert.strictEqual(result.beforeAdvance, "task 1.5k 0s  │  plan 2.6k 0s");
+            },
+            "after advancing five seconds the token figures are unchanged while the times advanced to 5s"(result) {
+                Assert.strictEqual(result.afterAdvance, "task 1.5k 5s  │  plan 2.6k 5s");
+            }
+        }
+    });
+
+    test("a static metrics pair (no anchor) does not tick when the clock advances", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            // The pre-task plan total is pushed without an anchor, so it is static.
+            block.setMetrics({ plan: { tokens: 200, baseSeconds: 30 } });
+            io.reset();
+            return { io, time };
+        },
+        ACT({ io, time }) {
+            io.emitResize();
+            const beforeAdvance = metricsLineOf(io.output);
+            io.reset();
+            time.advance(5000);
+            // No footer-driven redraw changes the static value; force one render at the
+            // advanced clock to prove the static pair did not tick.
+            io.emitResize();
+            const afterAdvance = metricsLineOf(io.output);
+            return { beforeAdvance, afterAdvance };
+        },
+        ASSERTS: {
+            "the static plan pair shows its base seconds with no task pair"(result) {
+                Assert.strictEqual(result.beforeAdvance, "plan 200 30s");
+            },
+            "advancing the clock leaves the static plan time unchanged"(result) {
+                Assert.strictEqual(result.afterAdvance, "plan 200 30s");
+            }
+        }
+    });
+
+    test("the metrics time freezes through a waiting state and resumes from the paused value with the elapsed wait excluded", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 0 } });
+            time.advance(2000); // two active seconds before the wait
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            block.setFooter({ kind: "waiting", waitKind: "rate-limit", endTime: 999000 });
+            const atWaitStart = metricsLineOf(io.output);
+            io.reset();
+            time.advance(5000); // the wait elapses; countdown ticks redraw
+            const duringWait = metricsLineOf(io.output);
+            io.reset();
+            block.setFooter({ kind: "working" });
+            const onResume = metricsLineOf(io.output);
+            io.reset();
+            time.advance(3000); // three active seconds after the wait
+            const afterResume = metricsLineOf(io.output);
+            return { atWaitStart, duringWait, onResume, afterResume };
+        },
+        ASSERTS: {
+            "the metrics time freezes at its pre-wait value of 2s when the footer enters waiting"(result) {
+                Assert.strictEqual(result.atWaitStart, "task 100 2s  │  plan 200 2s");
+            },
+            "advancing the clock during the wait does not change the metrics time"(result) {
+                Assert.strictEqual(result.duringWait, "task 100 2s  │  plan 200 2s");
+            },
+            "the counter resumes from the paused value of 2s when work resumes"(result) {
+                Assert.strictEqual(result.onResume, "task 100 2s  │  plan 200 2s");
+            },
+            "after resuming the counter continues with the elapsed wait excluded (2s + 3s = 5s)"(result) {
+                Assert.strictEqual(result.afterResume, "task 100 5s  │  plan 200 5s");
+            }
+        }
+    });
+
+    test("after dispose, advancing the clock fires no redraw even with a live metrics anchor and leaves no pending timer", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 0 } });
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            block.dispose();
+            const afterDispose = io.output;
+            time.advance(5000);
+            const afterAdvance = io.output;
+            return { afterDispose, afterAdvance, pendingCount: time.pendingCount };
+        },
+        ASSERTS: {
+            "dispose itself writes nothing"(result) {
+                Assert.strictEqual(result.afterDispose, "");
+            },
+            "advancing the clock after dispose fires no redraw of the live counter"(result) {
+                Assert.strictEqual(result.afterAdvance, "");
+            },
+            "no redraw timer remains to drive the live counter"(result) {
+                Assert.strictEqual(result.pendingCount, 0);
+            }
+        }
+    });
+
+    test("after finalize, advancing the clock fires no redraw of the live metrics counter", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 0 } });
+            block.finalize("Done");
+            io.reset();
+            return { io, time };
+        },
+        ACT({ io, time }) {
+            time.advance(5000);
+            return { afterAdvance: io.output, pendingCount: time.pendingCount };
+        },
+        ASSERTS: {
+            "advancing the clock after finalize fires no redraw"(result) {
+                Assert.strictEqual(result.afterAdvance, "");
+            },
+            "no redraw timer remains after finalize"(result) {
+                Assert.strictEqual(result.pendingCount, 0);
+            }
+        }
+    });
+
+    test("@xterm/headless: the live metrics time advances on the rendered grid while the block stays exactly four rows", {
+        ARRANGE() {
+            return { cols: 120, termRows: 24 };
+        },
+        async ACT({ cols, termRows }) {
+            const { term, block, time, flush } = await mountEmulatorBlock(cols, termRows);
+            // Replace the static seed with a live anchored pair, then let the clock
+            // cross whole-second boundaries; the block's own animation ticks redraw it.
+            block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 0 } });
+            await flush();
+            time.advance(3000);
+            await flush();
+            const rows = readEmulatorViewport(term);
+            block.dispose();
+            term.dispose();
+            return { rows, termRows };
+        },
+        ASSERTS: {
+            "the metrics row on the grid shows both times advanced to 3s"(result) {
+                Assert.strictEqual(result.rows[result.termRows - 2], "task 100 3s  │  plan 200 3s");
+            },
+            "the separator row spans the full width with only ─ glyphs"(result) {
+                Assert.strictEqual(result.rows[result.termRows - 4], SEPARATOR_GLYPH.repeat(120));
+            },
+            "the block occupies exactly four terminal rows while the counter ticks"(result) {
+                Assert.deepStrictEqual(result.rows.slice(0, result.termRows - 4), new Array(result.termRows - 4).fill(""));
             }
         }
     });
