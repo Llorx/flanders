@@ -1,3 +1,5 @@
+import type { ToolName } from "../ai/ToolAdapter";
+
 export const CYAN = "\x1b[36m";
 export const YELLOW = "\x1b[33m";
 export const MAGENTA = "\x1b[35m";
@@ -248,7 +250,7 @@ export function formatSnapshotBlock(indexLabel:string, iteration:number, taskNum
     return sep + "\n" + header + "\n" + metrics + "\n" + sep + "\n";
 }
 
-export type ReviewerTool = "claude" | "codex";
+export type ReviewerTool = ToolName;
 export type ReviewerState = "running" | "waiting" | "pass" | "fail";
 
 export type ReviewerEntry = {

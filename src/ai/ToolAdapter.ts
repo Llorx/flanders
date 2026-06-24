@@ -1,3 +1,5 @@
+import type { TOOL_NAMES } from "../toolNames";
+
 export type ToolEventOutput = Readonly<{
     type:"output";
     title:string;
@@ -58,4 +60,4 @@ export interface ToolAdapter {
     invoke(args:ToolAdapterInvokeArgs):AsyncIterable<ToolEvent>;
 }
 
-export type ToolName = "claude" | "codex";
+export type ToolName = (typeof TOOL_NAMES)[number];

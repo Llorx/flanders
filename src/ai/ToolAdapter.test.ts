@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import type { ToolEvent, ToolAdapterInvokeArgs } from "./ToolAdapter";
+import type { ToolEvent, ToolAdapterInvokeArgs, ToolName } from "./ToolAdapter";
 
 function exhaustiveSwitch(event:ToolEvent):string {
     switch (event.type) {
@@ -44,6 +44,26 @@ test.describe("ToolAdapter types", test => {
         ASSERTS: {
             "returns the expected value for each variant"(result) {
                 Assert.deepStrictEqual(result, ["Read", "s1", "fail", "123", "done"]);
+            }
+        }
+    });
+
+    test("ToolName admits exactly claude, codex, and antigravity", {
+        ARRANGE() {
+            // Positive: each of the three closed-set names is assignable to ToolName.
+            const tools = ["claude", "codex", "antigravity"] as const satisfies readonly ToolName[];
+            // Negative: a name outside the closed set is not a ToolName, so the set stays closed.
+            // @ts-expect-error — "cursor" is not one of the three permitted tool identities
+            const _bad = "cursor" satisfies ToolName;
+            void _bad;
+            return { tools };
+        },
+        ACT({ tools }) {
+            return tools;
+        },
+        ASSERTS: {
+            "carries the three permitted tool names in order"(result) {
+                Assert.deepStrictEqual(result, ["claude", "codex", "antigravity"]);
             }
         }
     });
