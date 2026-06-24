@@ -16,7 +16,7 @@ Adding a new AI tool to Flanders is a matter of writing a new adapter that imple
 
 Every adapter exposes one invocation function. Its signature, abstractly:
 
-    invoke({ prompt, model, effort, resumeSessionId?, abortSignal }) → AsyncIterable<ToolEvent>
+    invoke({ prompt, model, effort, resumeSessionId?, priorSessionUsage?, abortSignal }) → AsyncIterable<ToolEvent>
 
 Arguments:
 
@@ -24,6 +24,7 @@ Arguments:
 - `model` — the model identifier persisted in `.flanders/config.json` per [src/workspace/.spec/rules/flanders-config/file-format.md](/src/workspace/.spec/rules/flanders-config/file-format.md). An empty string means "default configured model" and the adapter must not pass an explicit model flag to its binary.
 - `effort` — the effort identifier persisted in `.flanders/config.json`. An empty string means "default configured effort" and the adapter must not pass an explicit effort flag.
 - `resumeSessionId` — when set, the adapter resumes the previous session with that id (used by [src/commands/.spec/rules/ai/task-context.md#the-worker-resumes-its-captured-session_id-across-iterations-of-the-same-task](/src/commands/.spec/rules/ai/task-context.md#the-worker-resumes-its-captured-session_id-across-iterations-of-the-same-task)). When unset, the adapter starts a fresh invocation.
+- `priorSessionUsage` — the running token totals (`inputTokens` and `outputTokens`) already attributed to the session this invocation resumes, summed across every prior invocation of that same session. It is the baseline an adapter subtracts when its tool's native usage report is a session-cumulative running total, so the usage the adapter surfaces is this invocation's own consumption rather than the session's accumulated total. The Codex adapter subtracts it (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)); the Claude adapter, whose native report is already per-invocation, ignores it (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)). It is meaningful only alongside `resumeSessionId`; on a fresh invocation it is absent and the baseline is zero.
 - `abortSignal` — when the signal triggers, the adapter sends the appropriate termination signal to its spawned process, drains any remaining buffered output, and ends the iterable promptly. The runner waits for the iterable to close; the adapter does not return until the child process has exited.
 
 The return value is an async iterable of `ToolEvent`. The runner consumes events as they arrive and reacts to each one according to its type.
@@ -231,6 +232,12 @@ Every Claude invocation ends with exactly one `result` event. The adapter maps i
 
 The adapter never inspects `stderr` or the prompt text to decide retryability; the structured `result` event is authoritative.
 
+#### Token usage
+
+Every Claude invocation ends with a `result` event carrying a `usage` object. The adapter reports the invocation's token usage to the runner as `inputTokens = input_tokens + cache_creation_input_tokens + cache_read_input_tokens` and `outputTokens = output_tokens`. Claude reports `input_tokens` exclusive of the cached tokens, so the cache-creation and cache-read counts are added to recover the full input the invocation consumed; an absent field counts as zero.
+
+Claude's `result.usage` is the invocation's own consumption: a resumed invocation (`--resume`) opens a fresh query whose `result.usage` covers only that query's turns and does not include the tokens of the prior invocations it resumes. The adapter therefore reports these figures directly and does not subtract the `priorSessionUsage` baseline — for Claude there is no session-cumulative total to reconcile.
+
 #### Control-protocol events
 
 Per [src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively](/src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively), the adapter neither solicits nor processes Claude's control-protocol traffic. Claude's permission requests, tool-use approval prompts, and any interactive question it could raise are out of scope: the adapter does not write a control response on stdin and does not forward any question to the user. The five `ToolEvent` variants of [src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface](/src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface) are the entire surface the adapter produces; soliciting user input is not among them.
@@ -280,9 +287,9 @@ When the configured `model` is non-empty, the adapter appends `-m <model>`. When
 
 When the configured `effort` is non-empty, the adapter appends `-c model_reasoning_effort=<effort>`. Values follow what Codex documents at the time of the run (today: `minimal`, `low`, `medium`, `high`, `xhigh`). When the configured `effort` is the empty string, the override is not passed.
 
-When `resumeSessionId` is supplied, the adapter switches the subcommand from `exec` to `codex resume <resumeSessionId>`, applying the same non-interactive overrides (`-c approval_policy=never`, `-c sandbox_mode=danger-full-access`, `--json`).
+When `resumeSessionId` is supplied, the adapter resumes with the `codex exec resume <resumeSessionId>` subcommand — Codex's non-interactive resume, which lives under `exec` and accepts `--json` — applying the same non-interactive overrides (`-c approval_policy=never`, `-c sandbox_mode=danger-full-access`, `--json`).
 
-When the Codex CLI on the host does not support `codex resume` (older version), the adapter falls back to a fresh `codex exec` rather than silently changing semantics. The fallback is surfaced through an `output` event so the user can see that continuity was lost; it does not change the retryability of the call.
+When the Codex CLI on the host does not support `codex exec resume` (older version), the adapter falls back to a fresh `codex exec` rather than silently changing semantics. The fallback is surfaced through an `output` event so the user can see that continuity was lost; it does not change the retryability of the call.
 
 `-c` overrides are repeatable. The adapter emits one `-c key=value` per override and never collapses multiple overrides into a single string.
 
@@ -290,7 +297,7 @@ When the Codex CLI on the host does not support `codex resume` (older version), 
 
 The Codex CLI's `exec --json` output is a sequence of newline-delimited JSON events from the `ThreadEvent` family exposed by the Codex TypeScript SDK. The adapter parses each line and routes the object based on its top-level `type`. The event types it acts on are:
 
-- `thread.started` — carries the run's `thread_id` string. This is the session identifier the adapter surfaces and the value reused for `codex resume`.
+- `thread.started` — carries the run's `thread_id` string. This is the session identifier the adapter surfaces and the value reused for `codex exec resume`.
 - `turn.started` — turn boundary marker; filtered.
 - `item.started` — an item that is still in progress (its `status` is `in_progress`); filtered. Only `item.completed` items map to output.
 - `item.completed` — carries a completed `item`; the item's own `type` drives the output mapping below.
@@ -323,7 +330,11 @@ The session id is the `thread_id` string carried by the `thread.started` event. 
 
 #### Token usage
 
-The `turn.completed` event carries a `usage` object with the integer fields `input_tokens`, `cached_input_tokens`, `output_tokens`, and `reasoning_output_tokens`. The adapter reports the invocation's token usage to the runner as `inputTokens = input_tokens` and `outputTokens = output_tokens`. `cached_input_tokens` and `reasoning_output_tokens` are informational sub-counts already contained within `input_tokens` and `output_tokens` respectively; the adapter does not add them to the totals, so no token is counted twice.
+The `turn.completed` event carries a `usage` object with the integer fields `input_tokens`, `cached_input_tokens`, `output_tokens`, and `reasoning_output_tokens`. These fields are session-cumulative running totals: each `usage` object reports the tokens consumed by the whole session up to and including the turn that just completed, not the tokens of that turn alone. A resumed invocation (`codex exec resume`) therefore reports a `usage` that already includes every token consumed by the prior invocations of that same session.
+
+The adapter reports this invocation's own consumption — not the session-cumulative total — by subtracting the `priorSessionUsage` baseline supplied on the invocation: `inputTokens = input_tokens − priorSessionUsage.inputTokens` and `outputTokens = output_tokens − priorSessionUsage.outputTokens`. On a fresh invocation the baseline is zero, so the reported figure equals the `turn.completed` totals. Because the baseline carries the running total already attributed to the session, summing the figures the adapter reports across every invocation of one resumed session counts each token exactly once and yields that session's true total.
+
+`cached_input_tokens` and `reasoning_output_tokens` are informational sub-counts already contained within `input_tokens` and `output_tokens` respectively; the adapter does not add them to the totals, so no token is double-counted within a single `usage` object either.
 
 #### Terminal events from failure events and process exit
 
@@ -371,6 +382,8 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `codex` p
 - The adapter emits an `output` event for an `item.started` event instead of filtering it and emitting only on `item.completed`.
 - The adapter ignores the `usage` object on `turn.completed` and reports no token usage to the runner, so the displayed token figures stay at zero.
 - The adapter adds `cached_input_tokens` to `input_tokens` or `reasoning_output_tokens` to `output_tokens`, double-counting the sub-totals into the reported figures.
+- The adapter reports the raw session-cumulative `turn.completed.usage` on a resumed invocation instead of subtracting the `priorSessionUsage` baseline, so the figures it surfaces re-count every token the session's prior invocations already consumed.
+- The adapter resumes with the interactive `codex resume` subcommand — which rejects `--json` — instead of the non-interactive `codex exec resume`.
 - The adapter adds a new recognized substring to its matcher without adding it to this rule first.
 - The adapter classifies a rate-limit or quota/credit-exhaustion message (for example `out of credits` or `usage limit`) as a non-retryable `error` because that message was not in the recognized substring set.
 - The adapter emits the rate-limit `rate_limit` event with a `waitUntilMs` whose wait falls outside the 8-to-12-minute interval, or computed by calling `Date.now()` / `Math.random()` directly instead of through the injected contexts.

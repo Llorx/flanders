@@ -82,16 +82,20 @@ function rateLimitEvent(nowMs:number, retryAfterSeconds:number):string {
 }
 
 type ClaudeResponse = { text:string; inputTokens?:number; outputTokens?:number; sessionId?:string; error?:true; stderr?:string; errorLog?:string };
-type CodexResponse = { text:string; sessionId?:string; error?:true; errorLog?:string };
+type CodexResponse = { text:string; sessionId?:string; inputTokens?:number; outputTokens?:number; error?:true; errorLog?:string };
 type ScriptResponse = { code:number; stdout:string; stderr:string };
 
-function codexResultEvents(text:string, sessionId?:string):string {
+function codexResultEvents(text:string, sessionId?:string, inputTokens?:number, outputTokens?:number):string {
     let out = "";
     if (sessionId) {
         out += JSON.stringify({ type: "thread.started", thread_id: sessionId }) + "\n";
     }
     out += JSON.stringify({ type: "item.completed", item: { type: "agent_message", text } }) + "\n";
-    out += JSON.stringify({ type: "turn.completed" }) + "\n";
+    const turnCompleted:Record<string, unknown> = { type: "turn.completed" };
+    if (inputTokens !== undefined || outputTokens !== undefined) {
+        turnCompleted.usage = { input_tokens: inputTokens ?? 0, output_tokens: outputTokens ?? 0 };
+    }
+    out += JSON.stringify(turnCompleted) + "\n";
     return out;
 }
 
@@ -171,7 +175,7 @@ function stubContexts() {
                                 const target = targetErrorLogFromPrompt(capturedPrompt);
                                 files.set(target, response.errorLog);
                             }
-                            proc.$emitStdout(codexResultEvents(response.text, response.sessionId));
+                            proc.$emitStdout(codexResultEvents(response.text, response.sessionId, response.inputTokens, response.outputTokens));
                             proc.$emit("exit", 0);
                         }
                     });
@@ -2143,6 +2147,47 @@ test.describe("Implement per-task token and time metrics", test => {
             Assert.strictEqual(code, 0);
             const plan = files.get(COMPLETED_PLAN_PATH)!;
             Assert.ok(plan.includes('[x]{"it":390,"ot":180,"t":0}'), `plan should accumulate across iterations, got: ${plan}`);
+        }
+    });
+
+    test("a resumed codex worker counts each token once: task metrics reflect per-iteration consumption, not the re-counted session-cumulative total", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
+            const config:FlandersConfig = { worker: { tool: "codex", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "", optional: false }], minimumReviews: 1 };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            // detect agent (runs through the worker tool = codex), no usage
+            s.codexQueue.push({ text: "detect" });
+            // worker iteration 1: fresh session, codex reports cumulative usage 100/50
+            s.codexQueue.push({ text: "w1", sessionId: "cdx-1", inputTokens: 100, outputTokens: 50 });
+            // reviewer iteration 1 FAILs (claude), contributes no tokens
+            s.claudeQueue.push({ text: "found issues", errorLog: "not ready" });
+            // worker iteration 2 resumes cdx-1: codex reports the SESSION-CUMULATIVE total 250/120
+            s.codexQueue.push({ text: "w2", sessionId: "cdx-1", inputTokens: 250, outputTokens: 120 });
+            // reviewer iteration 2 passes (claude), contributes no tokens
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "run succeeds"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "iteration 2 resumes the captured codex session via codex exec resume"(_code, { codexSpawnedArgs }) {
+                // codex spawns: [0]=detect, [1]=worker iter 1 (fresh exec), [2]=worker iter 2 (resume)
+                Assert.deepStrictEqual(codexSpawnedArgs[2]!.slice(0, 3), ["exec", "resume", "cdx-1"]);
+            },
+            "task metrics count each token once (250/120), not the re-counted cumulative (350/170)"(_code, { files }) {
+                const plan = files.get(COMPLETED_PLAN_PATH)!;
+                Assert.ok(plan.includes('[x]{"it":250,"ot":120,"t":0}'), `expected delta-summed metrics, got: ${plan}`);
+            }
         }
     });
 

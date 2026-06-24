@@ -32,7 +32,9 @@ export type ToolEvent =
     | ToolEventRateLimit
     | ToolEventDone;
 
-export type ToolAdapterUsageCallback = (usage:Readonly<{ inputTokens:number; outputTokens:number }>) => void;
+export type ToolTokenUsage = Readonly<{ inputTokens:number; outputTokens:number }>;
+
+export type ToolAdapterUsageCallback = (usage:ToolTokenUsage) => void;
 
 type ToolAdapterInvokeArgsBase = Readonly<{
     prompt:string;
@@ -40,6 +42,7 @@ type ToolAdapterInvokeArgsBase = Readonly<{
     effort:string;
     abortSignal:AbortSignal;
     onUsage?:ToolAdapterUsageCallback;
+    priorSessionUsage?:ToolTokenUsage;
 }>;
 
 export type ToolAdapterInvokeArgsFresh = ToolAdapterInvokeArgsBase & Readonly<{

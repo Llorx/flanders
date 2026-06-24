@@ -3,6 +3,7 @@ import type {
     ToolAdapter,
     ToolAdapterInvokeArgs,
     ToolAdapterUsageCallback,
+    ToolTokenUsage,
     ToolEvent,
     ToolEventDone,
     ToolEventError,
@@ -29,6 +30,7 @@ export type RunArgs = Readonly<{
     model:string;
     effort:string;
     resumeSessionId?:string;
+    priorSessionUsage?:ToolTokenUsage;
     abortSignal:AbortSignal;
     callbacks:RunCallbacks;
     time:TimeContext;
@@ -50,7 +52,7 @@ export async function run(args:RunArgs):Promise<RunResult> {
     let firstInvocation = true;
 
     for (;;) {
-        const base = { prompt, model, effort, abortSignal, onUsage: callbacks.onUsage };
+        const base = { prompt, model, effort, abortSignal, onUsage: callbacks.onUsage, priorSessionUsage: args.priorSessionUsage };
 
         let invokeArgs:ToolAdapterInvokeArgs;
         if (firstInvocation) {

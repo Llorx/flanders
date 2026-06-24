@@ -195,7 +195,7 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
                     type: "output",
                     title: "Continuity lost",
                     subtitle: "",
-                    details: "codex resume unavailable in installed CLI"
+                    details: "codex exec resume unavailable in installed CLI"
                 });
                 this._cleanup();
                 this._sawTurnCompleted = false;
@@ -246,7 +246,7 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
         const argv:string[] = [];
 
         if (isResume) {
-            argv.push("resume", this._args.resumeSessionId!);
+            argv.push("exec", "resume", this._args.resumeSessionId!);
         } else {
             argv.push("exec");
         }
@@ -290,9 +290,15 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
         } else if (parsed.type === "turn.completed") {
             this._sawTurnCompleted = true;
             if (parsed.usage && this._args.onUsage) {
+                // `turn.completed.usage` is a session-cumulative running total. On a resumed
+                // invocation it already includes every token the session's prior invocations
+                // consumed, so the prior cumulative (priorSessionUsage) is subtracted to report
+                // this invocation's own consumption. A fresh invocation — including the exec
+                // fallback after an unavailable resume — has no baseline to subtract.
+                const base = this._usedResume ? this._args.priorSessionUsage : undefined;
                 this._args.onUsage({
-                    inputTokens: parsed.usage.input_tokens ?? 0,
-                    outputTokens: parsed.usage.output_tokens ?? 0
+                    inputTokens: (parsed.usage.input_tokens ?? 0) - (base?.inputTokens ?? 0),
+                    outputTokens: (parsed.usage.output_tokens ?? 0) - (base?.outputTokens ?? 0)
                 });
             }
         } else if (parsed.type === "error") {

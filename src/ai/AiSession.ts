@@ -1,5 +1,5 @@
 import type { OutputContext, TimeContext } from "../contexts";
-import type { ToolAdapter, ToolAdapterUsageCallback, ToolEventOutput } from "./ToolAdapter";
+import type { ToolAdapter, ToolAdapterUsageCallback, ToolTokenUsage, ToolEventOutput } from "./ToolAdapter";
 import { run } from "./AiRunner";
 import { colorize, CYAN, DIM, GREEN, MAGENTA, YELLOW } from "../ui/formatters";
 
@@ -18,6 +18,7 @@ export type AiSessionOptions = Readonly<{
     model:string;
     effort:string;
     resumeSessionId?:string|null;
+    priorSessionUsage?:ToolTokenUsage;
     onLongWaitStart?(kind:"rate-limit", endTimeMs:number):void;
     onLongWaitEnd?():void;
 }>;
@@ -109,6 +110,7 @@ export class AiSession {
                     model: this._options.model,
                     effort: this._options.effort,
                     ...(this._options.resumeSessionId != null ? { resumeSessionId: this._options.resumeSessionId } : null),
+                    ...(this._options.priorSessionUsage != null ? { priorSessionUsage: this._options.priorSessionUsage } : null),
                     abortSignal: controller.signal,
                     callbacks: {
                         onOutput,

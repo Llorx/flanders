@@ -432,6 +432,19 @@ test.describe("AiSession", test => {
         }
     });
 
+    test("passes priorSessionUsage to adapter", {
+        ARRANGE() {
+            const events:ToolEvent[] = [{ type: "done" }];
+            return buildSession(events, { priorSessionUsage: { inputTokens: 40, outputTokens: 12 } });
+        },
+        async ACT({ session }) {
+            return await session.run();
+        },
+        ASSERT(_result, { $invokeArgs }) {
+            Assert.deepStrictEqual($invokeArgs[0]!.priorSessionUsage, { inputTokens: 40, outputTokens: 12 });
+        }
+    });
+
     test("dispose aborts in-progress run", {
         ARRANGE() {
             const { adapter } = stubAdapter([

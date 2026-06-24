@@ -2,7 +2,7 @@ import { AiSession } from "../ai/AiSession";
 import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import { CodexAdapter } from "../ai/CodexAdapter";
 import type { FsContext, OutputContext, RandomContext, ScriptContext, TimeContext } from "../contexts";
-import type { ToolAdapter, ToolName } from "../ai/ToolAdapter";
+import type { ToolAdapter, ToolName, ToolTokenUsage } from "../ai/ToolAdapter";
 import type { FlandersConfig, FlandersRole } from "../workspace/FlandersConfig";
 import { read as readConfig } from "../workspace/FlandersConfig";
 import { isNonEmptyFile, joinPath, listFilesRecursive } from "../system/fsUtils";
@@ -111,6 +111,11 @@ export class Implement {
     private _block:BottomBlock|null = null;
     private _buffered!:LineBufferedBlock;
     private _currentWorkerSessionId:string|null = null;
+    // Running token total already attributed to the current worker session, fed back as the
+    // resume baseline (priorSessionUsage) so a tool that reports session-cumulative usage surfaces
+    // only the new iteration's own consumption. Reset per task; restarted whenever a new worker
+    // session id is established (see _workerStage).
+    private _workerSessionTokens:ToolTokenUsage = { inputTokens: 0, outputTokens: 0 };
     private _activeSession:RunningSession|null = null;
     private _activeScript:RunningScript|null = null;
     private _activeReviewerSessions:Set<AiSession> = new Set();
@@ -349,6 +354,7 @@ export class Implement {
         this._currentTask = task;
         this._currentIndexLabel = indexLabel;
         this._currentWorkerSessionId = null;
+        this._workerSessionTokens = { inputTokens: 0, outputTokens: 0 };
         this._taskStartedAt = this._contexts.time.now();
         this._taskRateLimitMs = 0;
         this._taskRateLimitStartedAt = null;
@@ -505,10 +511,21 @@ export class Implement {
                 prompt = `${prompt}\n\n${linkedReferenceDirective(ws.specFile)}`;
             }
             const { result, capturedOutput } = iteration === 1
-                ? await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt)
-                : await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, this._currentWorkerSessionId);
-            if (result.sessionId !== null) {
+                ? await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, null, this._workerSessionTokens)
+                : await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, this._currentWorkerSessionId, this._workerSessionTokens);
+            if (result.sessionId !== null && result.sessionId !== this._currentWorkerSessionId) {
+                // A new worker session was established (iteration 1, or a fresh fallback/renegotiation
+                // that abandoned the previous session). The resume baseline restarts from this run's
+                // own reported consumption, since the new session's cumulative usage starts here.
                 this._currentWorkerSessionId = result.sessionId;
+                this._workerSessionTokens = { inputTokens: result.inputTokens, outputTokens: result.outputTokens };
+            } else {
+                // Same session resumed: add this iteration's own consumption onto the session baseline,
+                // so the next resume subtracts the full running total of prior iterations.
+                this._workerSessionTokens = {
+                    inputTokens: this._workerSessionTokens.inputTokens + result.inputTokens,
+                    outputTokens: this._workerSessionTokens.outputTokens + result.outputTokens
+                };
             }
             this._taskTokens.it += result.inputTokens;
             this._taskTokens.ot += result.outputTokens;
@@ -835,10 +852,10 @@ export class Implement {
             }
         };
     }
-    private _runAi(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId?:string|null) {
-        return this._runAiWith(tool, model, effort, prompt, initialSessionId ?? null, this._defaultRunAiCallbacks());
+    private _runAi(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId?:string|null, priorSessionUsage?:ToolTokenUsage) {
+        return this._runAiWith(tool, model, effort, prompt, initialSessionId ?? null, this._defaultRunAiCallbacks(), priorSessionUsage);
     }
-    private async _runAiWith(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId:string|null, callbacks:RunAiCallbacks) {
+    private async _runAiWith(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId:string|null, callbacks:RunAiCallbacks, priorSessionUsage?:ToolTokenUsage) {
         /* coverage ignore next 3 */ // — Defensive: disposed guard; _runAiWith is only called from methods that already checked _disposed.
         if (this._disposed) {
             throw new Error("Implement disposed");
@@ -866,6 +883,7 @@ export class Implement {
             model,
             effort,
             ...(initialSessionId != null ? { resumeSessionId: initialSessionId } : null),
+            ...(priorSessionUsage != null ? { priorSessionUsage } : null),
             onLongWaitStart: callbacks.onLongWaitStart,
             onLongWaitEnd: callbacks.onLongWaitEnd
         }, {

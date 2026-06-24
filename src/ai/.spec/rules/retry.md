@@ -39,7 +39,7 @@ Adding a new AI tool means writing a new adapter rule that includes its own mapp
 - The runner adds tool-specific detection on top of the events it receives (for example, "if the configured tool is Claude and the message contains '503', retry even when the adapter marked the error non-retryable").
 - The runner conflates the two terminal failure shapes — applying the transient backoff to a `rate_limit` event, or applying the rate-limit wait to a plain `error retryable=true`.
 - The runner retries after a non-retryable `error` because "transient failures are bounded by some other counter anyway".
-- The runner re-invokes the adapter with arguments different from the original invocation (different prompt, different model, different effort, missing `resumeSessionId`), instead of re-issuing the exact same call.
+- The runner re-invokes the adapter with arguments different from the original invocation (different prompt, different model, different effort, missing `resumeSessionId`, or a changed `priorSessionUsage` baseline), instead of re-issuing the exact same call.
 - The runner gives up after a finite retry count, propagating a retryable failure that should have been absorbed.
 
 ## Transient retries use exponential backoff capped at one minute
@@ -112,6 +112,8 @@ The reuse applies exclusively to the retry of the **same turn** after a retryabl
 2. On wake, it re-invokes the same adapter with the same arguments.
 3. If the interrupted call's adapter emitted a `{ type: "session", id }` event (or if the caller supplied a `resumeSessionId` when invoking the runner), that same `id` is passed back to the adapter via `resumeSessionId`. The adapter translates that into the tool's resume invocation.
 4. The cycle repeats on the same session until the call either succeeds or fails with a non-retryable error.
+
+The resume baseline travels unchanged through this cycle: each within-call retry re-issues the same `priorSessionUsage` (see [src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface](/src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface)) the call started with, never advancing it mid-call. Holding the baseline at the call's entry point lets a tool that reports session-cumulative usage measure the eventual successful turn against a stable reference, so the call's total consumption — including any discarded attempts the session already absorbed — is counted once toward the real-consumption metrics [.spec/contracts/shared/plan-file-format.md](/.spec/contracts/shared/plan-file-format.md) defines.
 
 This rule does **not** cover continuity across distinct invocations of the runner. Other forms of session reuse — for example, keeping the worker's `session_id` across iterations of the inner loop — live in their own rules (see [src/commands/.spec/rules/ai/task-context.md#the-worker-resumes-its-captured-session_id-across-iterations-of-the-same-task](/src/commands/.spec/rules/ai/task-context.md#the-worker-resumes-its-captured-session_id-across-iterations-of-the-same-task)) and operate at a higher layer.
 

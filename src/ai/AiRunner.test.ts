@@ -132,6 +132,36 @@ test.describe("AiRunner", test => {
         }
     });
 
+    test("priorSessionUsage is forwarded to the adapter and held constant across a retry", {
+        ARRANGE() {
+            const stub = stubAdapter([
+                [{ type: "session" as const, id: "sess-1" }, { type: "error" as const, retryable: true, message: "boom" }],
+                [{ type: "done" as const }]
+            ]);
+            const time = autoTimeContext();
+            return { stub, time };
+        },
+        async ACT({ stub, time }) {
+            await run(baseArgs({
+                adapter: stub.adapter,
+                time,
+                priorSessionUsage: { inputTokens: 40, outputTokens: 12 }
+            }));
+            return {
+                first: (stub.$invokeArgs[0] as { priorSessionUsage?:{ inputTokens:number; outputTokens:number } }).priorSessionUsage,
+                second: (stub.$invokeArgs[1] as { priorSessionUsage?:{ inputTokens:number; outputTokens:number } }).priorSessionUsage
+            };
+        },
+        ASSERTS: {
+            "first invocation receives the baseline"(result) {
+                Assert.deepStrictEqual(result.first, { inputTokens: 40, outputTokens: 12 });
+            },
+            "the retry receives the same baseline unchanged"(result) {
+                Assert.deepStrictEqual(result.second, { inputTokens: 40, outputTokens: 12 });
+            }
+        }
+    });
+
     test("rate_limit waits then retries with captured session id", {
         ARRANGE() {
             const stub = stubAdapter([

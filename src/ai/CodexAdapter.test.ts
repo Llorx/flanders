@@ -200,7 +200,7 @@ test.describe("CodexAdapter", test => {
             },
             ASSERT(_result, { script }) {
                 Assert.deepStrictEqual(script.$spawned[0]!.args, [
-                    "resume", "abc", "--json",
+                    "exec", "resume", "abc", "--json",
                     "-c", "approval_policy=never",
                     "-c", "sandbox_mode=danger-full-access",
                     "-"
@@ -697,6 +697,96 @@ test.describe("CodexAdapter", test => {
             },
             ASSERT(result) {
                 Assert.deepStrictEqual(result, [{ type: "done" }]);
+            }
+        });
+
+        test("a resumed invocation reports the cumulative total minus the priorSessionUsage baseline", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const captured:Array<{ inputTokens:number; outputTokens:number }> = [];
+                const args = baseArgs({
+                    resumeSessionId: "sess-1",
+                    priorSessionUsage: { inputTokens: 70, outputTokens: 20 },
+                    onUsage(usage) { captured.push(usage); }
+                });
+                return { adapter, args, script, captured };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "turn.completed",
+                        usage: { input_tokens: 100, cached_input_tokens: 60, output_tokens: 50, reasoning_output_tokens: 10 }
+                    }) + "\n");
+                    proc.$emit("exit", 0, null);
+                });
+            },
+            ASSERTS: {
+                "reports this invocation's own consumption (cumulative minus baseline)"(_result, { captured }) {
+                    Assert.deepStrictEqual(captured, [{ inputTokens: 30, outputTokens: 30 }]);
+                },
+                "ends with done"(result) {
+                    Assert.deepStrictEqual(result, [{ type: "done" }]);
+                }
+            }
+        });
+
+        test("a fresh invocation does not subtract priorSessionUsage even when one is supplied", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const captured:Array<{ inputTokens:number; outputTokens:number }> = [];
+                const args = baseArgs({
+                    priorSessionUsage: { inputTokens: 70, outputTokens: 20 },
+                    onUsage(usage) { captured.push(usage); }
+                });
+                return { adapter, args, script, captured };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({
+                        type: "turn.completed",
+                        usage: { input_tokens: 100, output_tokens: 50 }
+                    }) + "\n");
+                    proc.$emit("exit", 0, null);
+                });
+            },
+            ASSERT(_result, { captured }) {
+                Assert.deepStrictEqual(captured, [{ inputTokens: 100, outputTokens: 50 }]);
+            }
+        });
+
+        test("after a resume fallback to a fresh exec, usage is reported raw without subtracting the baseline", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const captured:Array<{ inputTokens:number; outputTokens:number }> = [];
+                const args = baseArgs({
+                    resumeSessionId: "old-session",
+                    priorSessionUsage: { inputTokens: 70, outputTokens: 20 },
+                    onUsage(usage) { captured.push(usage); }
+                });
+                return { adapter, args, script, captured };
+            },
+            async ACT({ adapter, args, script }) {
+                const iterable = adapter.invoke(args);
+                const iter = iterable[Symbol.asyncIterator]();
+                const firstProc = script.$processes[0]!;
+                firstProc.$emit("exit", 1, null);
+                await iter.next();
+                const secondProc = script.$processes[1]!;
+                secondProc.$emitStdout(JSON.stringify({
+                    type: "turn.completed",
+                    usage: { input_tokens: 100, output_tokens: 50 }
+                }) + "\n");
+                secondProc.$emit("exit", 0, null);
+                for (;;) {
+                    const r = await iter.next();
+                    if (r.done) break;
+                }
+            },
+            ASSERT(_result, { captured }) {
+                Assert.deepStrictEqual(captured, [{ inputTokens: 100, outputTokens: 50 }]);
             }
         });
     });
@@ -1240,11 +1330,15 @@ test.describe("CodexAdapter", test => {
                     type: "output",
                     title: "Continuity lost",
                     subtitle: "",
-                    details: "codex resume unavailable in installed CLI"
+                    details: "codex exec resume unavailable in installed CLI"
                 });
             },
-            "second spawn uses exec subcommand"(result) {
+            "first spawn uses exec resume subcommand"(result) {
+                Assert.deepStrictEqual(result.spawns[0]!.args.slice(0, 3), ["exec", "resume", "old-session"]);
+            },
+            "second spawn falls back to a fresh exec without resume"(result) {
                 Assert.strictEqual(result.spawns[1]!.args[0], "exec");
+                Assert.strictEqual(result.spawns[1]!.args[1], "--json");
             },
             "ends with done"(result) {
                 Assert.deepStrictEqual(result.events[result.events.length - 1], { type: "done" });
