@@ -4,7 +4,7 @@ import { buildFlandersVoiceSection, flandersToneInstruction, reviewerMethodology
 // The user-facing Flanders-voice section each installed skill body carries, so the skill seasons the
 // messages it addresses to the user with the voice on top of the resolved interaction language while
 // every technical surface and every artifact it authors stays exact. It composes from the shared
-// voice builder in prompts.ts, so the soft-touch wording, the regional-localization directive, and
+// voice builder in prompts.ts, so the soft-touch wording, the English-only directive, and
 // the exclusion list have a single authoritative source rather than a copy that could drift from the
 // agent prompts; only the parts that legitimately differ for a skill are supplied here. The only
 // per-skill difference is the authored-artifact exclusion the caller passes: /flanders-plan authors
@@ -15,7 +15,7 @@ import { buildFlandersVoiceSection, flandersToneInstruction, reviewerMethodology
 function skillVoiceSection(authoredArtifactExclusion: string): string {
     return buildFlandersVoiceSection({
         subject: "the messages you address to the user — your questions, summaries, warnings, recommendations, and every other text you print in the conversation",
-        languageFraming: "in the resolved interaction language you are already addressing the user in",
+        languageFraming: "the resolved interaction language you are addressing the user in",
         finalExclusion: `, or ${authoredArtifactExclusion}`,
         trailer: ""
     });
