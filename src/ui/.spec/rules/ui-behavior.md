@@ -74,6 +74,27 @@ A string that has been precomputed at the moment a field changed must not be rep
 - Compact-form fallback only runs inside the setter, so the region survives a resize at the wide layout even when the new width can no longer hold it.
 - Color or ellipsis behaviour is observably stale immediately after a resize until the next state change repaints the region.
 
+## The metrics line time figures advance as a live counter recomputed from the clock
+
+The two time figures on the bottom-fixed block's metrics line — the `task` time and the `plan` time defined by the UI contract (see [.spec/contracts/cli-commands/implement/ui.md](/.spec/contracts/cli-commands/implement/ui.md), `Metrics line content`) — are recomputed on every redraw from the current clock and an active-time anchor, never stored as a precomputed seconds value set on the last consumption event and replayed across redraws. The `task` time is derived from the moment the current task's active work began and the current clock; the `plan` time is that live `task` time added to the accumulated active time of every other task. Because the bottom-fixed block redraws on its regular animation cadence, deriving these figures at render time makes the displayed seconds climb once per second on their own, with no consumption event required to move them.
+
+This is the same render-time recompute obligation the waiting countdown carries (see [src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state](/src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state)), applied to the metrics time: the structured state the block holds for each figure is its active-time anchor, not a finished seconds count, so the seconds are derived afresh on each redraw.
+
+While the footer is in its waiting state, the live time counter pauses — the active-time anchor excludes the elapsed wait — so the displayed seconds hold steady through the wait and resume climbing when normal work resumes, matching the contract. The token figures are out of this rule's scope: each changes only when an AI invocation reports new consumption.
+
+This rule governs only what the block renders. The cadence at which the metrics are written back to the plan file is fixed by [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md) (`Task metrics persistence`) and is independent of how often the on-screen counter ticks.
+
+### Who this applies to
+
+- **Subject:** the bottom-fixed UI block, specifically the `task` and `plan` time figures on its metrics line.
+- **Scope:** how those two figures are derived on each redraw of the live block. The per-task completion snapshot is out of scope — it is static output captured once, not a live region. The token figures on the same line are out of scope. The plan-file metrics persistence cadence is out of scope.
+
+### Failure signals
+
+- A setter stores a finished seconds count for the `task` or `plan` time and the block replays it on later redraws, so the on-screen seconds move only when a consumption event arrives instead of climbing once per second on their own.
+- The displayed time keeps advancing during a rate-limit wait, or fails to resume after the wait ends.
+- The on-screen counter's tick rate is coupled to the plan-file write cadence, so changing one changes the other.
+
 ## The waiting footer state appears only for long retry waits
 
 The footer's waiting state is reserved for retry waits long enough to be worth surfacing to the user. Short retry waits — those used by the transient-error backoff — do not transition the footer out of its normal footer state.
