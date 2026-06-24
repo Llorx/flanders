@@ -238,7 +238,7 @@ const ask = (() => {
             const o = q.options[i]!;
             const marker = pickedLabels.has(o.label) ? "*" : " ";
             const isDefault = q.defaultIndex === i;
-            out.write(`  ${marker} ${i + 1}) ${o.label}${o.description ? ` — ${o.description}` : ""}${isDefault ? " (default — press Enter)" : ""}\n`);
+            out.write(`  ${marker} ${i + 1}) ${o.label}${o.description ? ` — ${o.description}` : ""}${isDefault ? " (configured — press Enter)" : ""}\n`);
         }
         if (existing) {
             const labels = existing.picked.map(p => p.label).join(", ");
@@ -263,7 +263,7 @@ const ask = (() => {
                     ? `[1-${q.options.length}, comma-separated; free-text OK]`
                     : `[1-${q.options.length}; free-text OK]`);
                 if (q.defaultIndex !== undefined) {
-                    hints.push("Enter for default");
+                    hints.push("Enter for configured");
                 }
                 if (idx > 0) {
                     hints.push("'-' back");
