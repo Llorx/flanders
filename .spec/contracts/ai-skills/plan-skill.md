@@ -37,6 +37,9 @@ The skill's sole deliverable is exactly one markdown plan file inside the projec
    - The plan file's total line count.
    - The total number of detected tasks.
 
+## After completion: implementing the plan
+After the skill declares complete and prints the summary above, it tells the user in chat that the produced plan is implemented from the command line by running `flanders implement` against it (see [.spec/contracts/cli-commands/implement/overview.md](/.spec/contracts/cli-commands/implement/overview.md)). This message is informational and final: the skill states the implementation path and ends. It does not ask the user whether to proceed, and it does not offer to launch — nor does it launch — any AI-tool skill, including `/flanders-work` (see [.spec/contracts/ai-skills/work-skill.md](/.spec/contracts/ai-skills/work-skill.md)), to implement the plan; carrying out a plan is the `implement` command's role.
+
 ## Plan content rules
 - No task the skill writes may describe work that creates, modifies, deletes, or renames files inside any `.spec/contracts` folder, any `.spec/rules` folder, any `.spec/flanders` folder, or the `plans/` folder (with the bounded checkbox/metrics exception that the `implement` command holds, not the worker). The skill's own write boundary and the immovability that applies to the tasks it generates are pinned in [.spec/contracts/shared/spec-folder-write-authority.md](/.spec/contracts/shared/spec-folder-write-authority.md).
 - The persisted plan is free of placeholders, contradictions with existing contracts or rules, acceptance criteria that leave a leaf task's observable outcome ambiguous, missing acceptance criteria on leaf tasks, and missing contract or rule links on leaf tasks.
