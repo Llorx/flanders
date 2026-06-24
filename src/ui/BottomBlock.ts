@@ -1,7 +1,7 @@
 import type { RandomContext, TimeContext, TimeoutHandle } from "../contexts";
 import { pickVariant, terminalPools, workingPool } from "../voiceVariants";
 import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatTerminalFooter, formatWaitingFooter, formatWorkingFooter, SEPARATOR_GLYPH, stripAnsi } from "./formatters";
-import type { ReviewerEntry } from "./formatters";
+import type { MetricsPair, ReviewerEntry } from "./formatters";
 
 export type { ReviewerEntry, ReviewerState, ReviewerTool } from "./formatters";
 
@@ -21,9 +21,22 @@ export type HeaderFields = {
     title?:string|null;
 };
 
+// The structured state the block holds for one metrics pair. The displayed whole
+// seconds are NOT a precomputed count: when `anchorMs` is present the pair is live
+// and its seconds are derived on every redraw as
+// floor((evalNow - anchorMs - <accumulated wait>)/1000) + baseSeconds, where
+// evalNow is the live clock while working/reviewing and the frozen wait-start clock
+// while the footer is waiting. When `anchorMs` is absent the pair is static and
+// shows exactly `baseSeconds` (the pre-task plan total, which must not tick).
+export type MetricsPairFields = {
+    tokens:number;
+    anchorMs?:number;
+    baseSeconds:number;
+};
+
 export type MetricsFields = {
-    task?:{ tokens:number; seconds:number };
-    plan?:{ tokens:number; seconds:number };
+    task?:MetricsPairFields;
+    plan?:MetricsPairFields;
 };
 
 export type WaitKind = "rate-limit";
@@ -63,6 +76,16 @@ export class BottomBlock {
     private _countdownTimer:TimeoutHandle|null = null;
     private _unsubResize:(() => void)|null = null;
     private _prevLineWidths:readonly number[]|null = null;
+    // The clock value at which the metrics-time counter is currently frozen — set
+    // while the footer is in its waiting state, null while it is running. When set,
+    // every redraw evaluates the live metrics pairs against this frozen clock so the
+    // displayed seconds hold steady through the wait.
+    private _metricsPausedAtMs:number|null = null;
+    // Total milliseconds of completed waits since the current metrics anchor was
+    // pushed. Subtracted from the live window so the counter resumes after a wait
+    // with the elapsed wait excluded; reset whenever a fresh anchor is set (the
+    // orchestrator's pushed anchor already accounts for completed waits).
+    private _metricsPauseAccumMs = 0;
 
     constructor(private _io:BottomBlockIO, private _time:TimeContext, private _random:RandomContext) {}
 
@@ -97,6 +120,10 @@ export class BottomBlock {
     setMetrics(fields:MetricsFields):void {
         if (this._disposed || this._finalized) return;
         this._metrics = fields;
+        // A fresh anchor already excludes every completed wait (the orchestrator
+        // folds them into the value it pushes), so the block's own wait accumulator
+        // starts over from this push.
+        this._metricsPauseAccumMs = 0;
         if (this._mounted) {
             this._clearBlock();
             this._drawBlock();
@@ -106,6 +133,16 @@ export class BottomBlock {
     setFooter(state:FooterState):void {
         if (this._disposed || this._finalized) return;
         this._cancelTimers();
+        // Drive the metrics-time freeze from the waiting footer state: entering the
+        // wait captures the clock so the live pairs hold steady through it; leaving
+        // the wait folds its elapsed duration into the pause accumulator so the
+        // counter resumes from where it paused with the wait excluded.
+        if (state.kind === "waiting") {
+            this._metricsPausedAtMs = this._time.now();
+        } else if (this._metricsPausedAtMs !== null) {
+            this._metricsPauseAccumMs += this._time.now() - this._metricsPausedAtMs;
+            this._metricsPausedAtMs = null;
+        }
         this._footer = state;
         if (state.kind === "working") {
             this._animFrame = 0;
@@ -289,7 +326,21 @@ export class BottomBlock {
     }
 
     private _renderMetrics(cols:number):string {
-        return formatMetricsLine(this._metrics.task, this._metrics.plan, cols);
+        return formatMetricsLine(this._resolvePair(this._metrics.task), this._resolvePair(this._metrics.plan), cols);
+    }
+
+    // Derives the whole seconds a metrics pair displays on this redraw from the
+    // current clock (or the frozen wait clock) and the pair's active-time anchor,
+    // so the seconds climb once per second on their own between metrics pushes. A
+    // pair without an anchor is static and renders exactly its baseSeconds.
+    private _resolvePair(pair:MetricsPairFields|undefined):MetricsPair|undefined {
+        if (!pair) return undefined;
+        if (pair.anchorMs === undefined) {
+            return { tokens: pair.tokens, seconds: pair.baseSeconds };
+        }
+        const evalNow = this._metricsPausedAtMs ?? this._time.now();
+        const activeMs = Math.max(0, evalNow - pair.anchorMs - this._metricsPauseAccumMs);
+        return { tokens: pair.tokens, seconds: Math.floor(activeMs / 1000) + pair.baseSeconds };
     }
 
     private _renderFooter(cols:number):string {
