@@ -142,7 +142,7 @@ What a passing gate certifies: a pass certifies that the file(s) you wrote or up
 
 Launch the validator as a fresh subagent via the AI tool's subagent mechanism, in a session that does not share context with this drafting session. The fresh session is load-bearing — it forces the validator to re-derive its judgments from the file on disk rather than from this session's confirmation bias.
 
-The subagent mechanism is tool-specific. In Claude Code, the host spawns the validator through the Agent tool. In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run.
+The subagent mechanism is tool-specific. In Claude Code, the host spawns the validator through the Agent tool. In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run. In Antigravity CLI, the host spawns it through whatever Antigravity documents as its subagent surface at the time of the run.
 
 You may fall back to an inline pass (running the validator in this same session) only when the subagent mechanism is unavailable in the current environment, or when a subagent invocation returns an unrecoverable error (spawn failure, transport error, environment refusal). Inline fallback for ergonomic reasons — the plan looks small, tokens feel tight, you are confident — is forbidden. When you take the inline path, state in chat that you are falling back and name the concrete reason; a silent fallback is a violation. The validator is read-only on the project and does not run git mutations.
 
@@ -310,7 +310,7 @@ What a passing gate certifies: a pass certifies that the file(s) you wrote or up
 
 Launch the validator as a fresh subagent via the AI tool's subagent mechanism, in a session that does not share context with this drafting session. The fresh session is load-bearing — it forces the validator to re-derive its judgments from the file(s) on disk rather than from this session's confirmation bias.
 
-The subagent mechanism is tool-specific. In Claude Code, the host spawns the validator through the Agent tool. In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run.
+The subagent mechanism is tool-specific. In Claude Code, the host spawns the validator through the Agent tool. In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run. In Antigravity CLI, the host spawns it through whatever Antigravity documents as its subagent surface at the time of the run.
 
 You may fall back to an inline pass (running the validator in this same session) only when the subagent mechanism is unavailable in the current environment, or when a subagent invocation returns an unrecoverable error (spawn failure, transport error, environment refusal). Inline fallback for ergonomic reasons — the artifact looks small, tokens feel tight, you are confident — is forbidden. When you take the inline path, state in chat that you are falling back and name the concrete reason; a silent fallback is a violation. The validator is read-only on the project and does not run git mutations.
 
@@ -455,7 +455,7 @@ Neither the work you perform nor the reviewer subagent creates, modifies, delete
 
 Once the work is done, validate it through exactly one adversarial reviewer that you run as a subagent of this same session, using the host AI tool's own subagent mechanism, in a fresh subagent session that does not share context with the work you just performed. The fresh session is load-bearing: it forces the reviewer to re-derive its judgment from the working tree rather than from the reasoning you used while doing the work.
 
-The subagent mechanism is tool-specific. In Claude Code, you spawn the reviewer through the Agent tool. In Codex CLI, you spawn it through whatever Codex documents as its subagent surface at the time of the run.
+The subagent mechanism is tool-specific. In Claude Code, you spawn the reviewer through the Agent tool. In Codex CLI, you spawn it through whatever Codex documents as its subagent surface at the time of the run. In Antigravity CLI, you spawn it through whatever Antigravity documents as its subagent surface at the time of the run.
 
 You run a single reviewer per review round — never a list of reviewers and never several reviewers concurrently. The reviewer's tool, model, and effort are the host session's. You do not read or consult any \`.flanders/\` configuration to choose the reviewer — not its worker or reviewer tool, model, or effort, and not any reviewer list; /flanders-work relies only on having been installed and consumes no configuration.
 
