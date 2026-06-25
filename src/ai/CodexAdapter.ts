@@ -1,46 +1,10 @@
 import type { SpawnOptions } from "child_process";
 
 import type { RandomContext, ScriptContext, SpawnedProcess, TimeContext } from "../contexts";
+import { classifyToolFailure } from "./toolErrorClassification";
 import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent } from "./ToolAdapter";
 
 const COMMAND_INLINE_MAX = 120;
-
-const RATE_LIMIT_SUBSTRINGS = [
-    "out of credits",
-    "refill",
-    "usage limit",
-    "rate limit",
-    "rate-limit",
-    "rate_limit",
-    "quota",
-    "too many requests"
-];
-
-const RATE_LIMIT_429_RE = /\b429\b/;
-
-const EIGHT_MINUTES_MS = 8 * 60_000;
-const TWELVE_MINUTES_MS = 12 * 60_000;
-
-const FIVE_XX_RE = /\b5\d{2}\b/;
-const STATUS_408_RE = /\b408\b/;
-const STATUS_425_RE = /\b425\b/;
-
-const TRANSPORT_SUBSTRINGS = [
-    "timeout",
-    "timed out",
-    "connection reset",
-    "connection refused",
-    "socket hang up",
-    "temporarily unavailable",
-    "service unavailable",
-    "gateway",
-    "network",
-    "econnreset",
-    "econnrefused",
-    "enotfound",
-    "etimedout",
-    "eai_again"
-];
 
 type CodexNativeItem = Readonly<{
     type?:string;
@@ -78,30 +42,6 @@ export function formatCodexCommand(command:string|undefined):string {
         return firstLine.slice(0, COMMAND_INLINE_MAX - 3) + "...";
     }
     return firstLine;
-}
-
-function isRateLimitMessage(message:string):boolean {
-    const lower = message.trim().toLowerCase();
-    for (const sub of RATE_LIMIT_SUBSTRINGS) {
-        if (lower.includes(sub)) return true;
-    }
-    return RATE_LIMIT_429_RE.test(message.trim());
-}
-
-function isRetryableHttpStatus(message:string):boolean {
-    const trimmed = message.trim();
-    if (FIVE_XX_RE.test(trimmed)) return true;
-    if (STATUS_408_RE.test(trimmed)) return true;
-    if (STATUS_425_RE.test(trimmed)) return true;
-    return false;
-}
-
-function isRetryableTransport(message:string):boolean {
-    const lower = message.trim().toLowerCase();
-    for (const sub of TRANSPORT_SUBSTRINGS) {
-        if (lower.includes(sub)) return true;
-    }
-    return false;
 }
 
 export class CodexAdapter implements ToolAdapter {
@@ -330,20 +270,7 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
     }
 
     private _handleFailure(message:string):void {
-        if (isRateLimitMessage(message)) {
-            const r = EIGHT_MINUTES_MS + Math.round(this._contexts.random.random() * (TWELVE_MINUTES_MS - EIGHT_MINUTES_MS));
-            this._queue.push({
-                type: "rate_limit",
-                waitUntilMs: this._contexts.time.now() + r
-            });
-        } else if (isRetryableHttpStatus(message)) {
-            this._queue.push({ type: "error", retryable: true, message });
-        } else if (isRetryableTransport(message)) {
-            this._queue.push({ type: "error", retryable: true, message });
-        } else {
-            this._queue.push({ type: "error", retryable: false, message });
-        }
-
+        this._queue.push(classifyToolFailure(message, this._contexts.time, this._contexts.random));
         this._done = true;
     }
 
