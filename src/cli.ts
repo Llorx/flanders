@@ -252,7 +252,11 @@ const ask = (() => {
         async askChoices(questions:readonly AskChoiceOptions[], output?:OutputContext):Promise<readonly AskAnswer[]> {
             const out = output ?? outputContext;
             const total = questions.length;
-            const answers:Array<AskAnswer|undefined> = new Array(total).fill(undefined);
+            const answers:Array<AskAnswer|undefined> = questions.map(q =>
+                q.multiSelect && q.defaultIndexes !== undefined && q.defaultIndexes.length > 0
+                    ? { picked: q.defaultIndexes.map(i => q.options[i]!) }
+                    : undefined
+            );
             let idx = 0;
             while (idx < total) {
                 const q = questions[idx]!;
@@ -262,7 +266,7 @@ const ask = (() => {
                 hints.push(q.multiSelect
                     ? `[1-${q.options.length}, comma-separated; free-text OK]`
                     : `[1-${q.options.length}; free-text OK]`);
-                if (q.defaultIndex !== undefined) {
+                if (q.defaultIndex !== undefined || (q.multiSelect && existing !== undefined && existing.picked.length > 0)) {
                     hints.push("Enter for configured");
                 }
                 if (idx > 0) {
@@ -294,6 +298,10 @@ const ask = (() => {
                 }
                 if (raw === "" && q.defaultIndex !== undefined) {
                     answers[idx] = { picked: [q.options[q.defaultIndex]!] };
+                    idx++;
+                    continue;
+                }
+                if (raw === "" && q.multiSelect && existing !== undefined && existing.picked.length > 0) {
                     idx++;
                     continue;
                 }
