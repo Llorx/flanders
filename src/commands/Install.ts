@@ -947,7 +947,7 @@ export class Install {
                 tools.push("codex");
             }
             for (const tool of tools) {
-                const result = await writeSkillArtifacts(contexts.fs, scopeRoot, tool, () => this._disposed);
+                const result = await writeSkillArtifacts(contexts.fs, scopeRoot, mode, tool, () => this._disposed);
                 if (!result.ok) {
                     if (result.diagnostic !== null) {
                         contexts.output.writeError(result.diagnostic);

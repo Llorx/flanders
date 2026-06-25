@@ -12,7 +12,7 @@ export type UpdateOptions = Readonly<{
     projectRoot:string;
 }>;
 
-type Destination = Readonly<{ scopeRoot:string; tool:"claude"|"codex" }>;
+type Destination = Readonly<{ scopeRoot:string; scope:"project"|"global"; tool:"claude"|"codex" }>;
 
 // `update` refreshes the Flanders skills already delivered to the user's AI-tool environments. It is
 // non-interactive: it never reads or writes `.flanders/config.json`, asks the user nothing, and uses
@@ -37,8 +37,8 @@ export class Update {
     result():Promise<number> {
         return this._runPromise;
     }
-    private async _isInstalled(fs:FsContext, scopeRoot:string, tool:"claude"|"codex"):Promise<boolean> {
-        for (const path of skillArtifactPaths(scopeRoot, tool)) {
+    private async _isInstalled(fs:FsContext, scopeRoot:string, scope:"project"|"global", tool:"claude"|"codex"):Promise<boolean> {
+        for (const path of skillArtifactPaths(scopeRoot, scope, tool)) {
             if (await fs.exists(path)) {
                 return true;
             }
@@ -56,10 +56,10 @@ export class Update {
             }
             const homeDir = contexts.platform.homedir();
             const destinations:readonly Destination[] = [
-                { scopeRoot: options.projectRoot, tool: "claude" },
-                { scopeRoot: options.projectRoot, tool: "codex" },
-                { scopeRoot: homeDir, tool: "claude" },
-                { scopeRoot: homeDir, tool: "codex" }
+                { scopeRoot: options.projectRoot, scope: "project", tool: "claude" },
+                { scopeRoot: options.projectRoot, scope: "project", tool: "codex" },
+                { scopeRoot: homeDir, scope: "global", tool: "claude" },
+                { scopeRoot: homeDir, scope: "global", tool: "codex" }
             ];
             const writtenPaths:string[] = [];
             let found = false;
@@ -67,11 +67,11 @@ export class Update {
                 if (this._disposed) {
                     return 1;
                 }
-                if (!(await this._isInstalled(contexts.fs, dest.scopeRoot, dest.tool))) {
+                if (!(await this._isInstalled(contexts.fs, dest.scopeRoot, dest.scope, dest.tool))) {
                     continue;
                 }
                 found = true;
-                const result = await writeSkillArtifacts(contexts.fs, dest.scopeRoot, dest.tool, () => this._disposed);
+                const result = await writeSkillArtifacts(contexts.fs, dest.scopeRoot, dest.scope, dest.tool, () => this._disposed);
                 if (!result.ok) {
                     if (result.diagnostic !== null) {
                         contexts.output.writeError(result.diagnostic);
