@@ -54,6 +54,11 @@ const PROJ_CLAUDE_DIR = "/proj/.claude/skills";
 const PROJ_CODEX_DIR = "/proj/.codex/prompts";
 const HOME_CLAUDE_DIR = "/home/testuser/.claude/skills";
 const HOME_CODEX_DIR = "/home/testuser/.codex/prompts";
+// Antigravity keeps its directory-plus-`SKILL.md` skills under `.agents/skills` at project scope and
+// under `.gemini/antigravity-cli/skills` (relative to home) at global scope — distinct subfolders that
+// the scope discriminator selects between.
+const PROJ_ANTIGRAVITY_DIR = "/proj/.agents/skills";
+const HOME_ANTIGRAVITY_DIR = "/home/testuser/.gemini/antigravity-cli/skills";
 
 // Asserts that every recorded filesystem mutation path begins with one of the allowed destination
 // directory prefixes — proving no uninstalled destination saw a mkdir/writeFile/rename/rm.
@@ -83,6 +88,16 @@ const HOME_CODEX = {
     spec: "/home/testuser/.codex/prompts/flanders-spec.md",
     plan: "/home/testuser/.codex/prompts/flanders-plan.md",
     work: "/home/testuser/.codex/prompts/flanders-work.md"
+};
+const PROJ_ANTIGRAVITY = {
+    spec: "/proj/.agents/skills/flanders-spec/SKILL.md",
+    plan: "/proj/.agents/skills/flanders-plan/SKILL.md",
+    work: "/proj/.agents/skills/flanders-work/SKILL.md"
+};
+const HOME_ANTIGRAVITY = {
+    spec: "/home/testuser/.gemini/antigravity-cli/skills/flanders-spec/SKILL.md",
+    plan: "/home/testuser/.gemini/antigravity-cli/skills/flanders-plan/SKILL.md",
+    work: "/home/testuser/.gemini/antigravity-cli/skills/flanders-work/SKILL.md"
 };
 
 test.describe("Update refresh by scope and tool", test => {
@@ -449,6 +464,138 @@ test.describe("Update refresh by scope and tool", test => {
             }
         }
     });
+
+    test("refreshes an antigravity-only project installation detected via the work artifact", {
+        ARRANGE() {
+            const s = stubContexts();
+            // Only the last antigravity artifact is present — detection must still find the installation
+            // through the project-scope `.agents/skills` path, proving "at least one artifact" detection.
+            s.files.set(PROJ_ANTIGRAVITY.work, "old content");
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Update([], { projectRoot: PROJ }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "adds the missing spec skill with the current full body"(_code, { files }) {
+                Assert.strictEqual(files.get(PROJ_ANTIGRAVITY.spec), specSkillBody);
+            },
+            "adds the missing plan skill with the current full body"(_code, { files }) {
+                Assert.strictEqual(files.get(PROJ_ANTIGRAVITY.plan), planSkillBody);
+            },
+            "rewrites the pre-existing work skill with the current full body rather than leaving it stale"(_code, { files }) {
+                Assert.strictEqual(files.get(PROJ_ANTIGRAVITY.work), workSkillBody);
+            },
+            "ends holding exactly the three antigravity artifacts"(_code, { files }) {
+                Assert.strictEqual(files.size, 3);
+            },
+            "prints exactly the three written antigravity paths, one per line, with no blank lines"(_code, { written }) {
+                Assert.strictEqual(written.join(""), [PROJ_ANTIGRAVITY.spec, PROJ_ANTIGRAVITY.plan, PROJ_ANTIGRAVITY.work].map(p => `${p}\n`).join(""));
+            },
+            "produces no errors"(_code, { errors }) {
+                Assert.strictEqual(errors.length, 0);
+            },
+            "confines every filesystem mutation to the installed project antigravity destination"(_code, { mutationPaths }) {
+                assertMutationsConfinedTo(mutationPaths, [PROJ_ANTIGRAVITY_DIR]);
+            }
+        }
+    });
+
+    test("refreshes an antigravity installation present at both the project and home scopes", {
+        ARRANGE() {
+            const s = stubContexts();
+            // Detected at the project scope through its `.agents/skills` path and at the home scope
+            // through its distinct `.gemini/antigravity-cli/skills` path — the scope discriminator must
+            // pick the right subfolder for each.
+            s.files.set(PROJ_ANTIGRAVITY.spec, "old content");
+            s.files.set(HOME_ANTIGRAVITY.spec, "old content");
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Update([], { projectRoot: PROJ }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "rewrites the project spec skill with the current full body"(_code, { files }) {
+                Assert.strictEqual(files.get(PROJ_ANTIGRAVITY.spec), specSkillBody);
+            },
+            "rewrites the project plan skill with the current full body"(_code, { files }) {
+                Assert.strictEqual(files.get(PROJ_ANTIGRAVITY.plan), planSkillBody);
+            },
+            "rewrites the project work skill with the current full body"(_code, { files }) {
+                Assert.strictEqual(files.get(PROJ_ANTIGRAVITY.work), workSkillBody);
+            },
+            "rewrites the home spec skill with the current full body under the gemini skills folder"(_code, { files }) {
+                Assert.strictEqual(files.get(HOME_ANTIGRAVITY.spec), specSkillBody);
+            },
+            "rewrites the home plan skill with the current full body under the gemini skills folder"(_code, { files }) {
+                Assert.strictEqual(files.get(HOME_ANTIGRAVITY.plan), planSkillBody);
+            },
+            "rewrites the home work skill with the current full body under the gemini skills folder"(_code, { files }) {
+                Assert.strictEqual(files.get(HOME_ANTIGRAVITY.work), workSkillBody);
+            },
+            "writes exactly the six antigravity artifacts across both scopes"(_code, { files }) {
+                Assert.strictEqual(files.size, 6);
+            },
+            "prints exactly every written antigravity path, project trio then home trio, one per line, with no blank lines"(_code, { written }) {
+                Assert.strictEqual(written.join(""), [
+                    PROJ_ANTIGRAVITY.spec, PROJ_ANTIGRAVITY.plan, PROJ_ANTIGRAVITY.work,
+                    HOME_ANTIGRAVITY.spec, HOME_ANTIGRAVITY.plan, HOME_ANTIGRAVITY.work
+                ].map(p => `${p}\n`).join(""));
+            },
+            "confines every filesystem mutation to the two installed antigravity destinations"(_code, { mutationPaths }) {
+                assertMutationsConfinedTo(mutationPaths, [PROJ_ANTIGRAVITY_DIR, HOME_ANTIGRAVITY_DIR]);
+            }
+        }
+    });
+
+    test("leaves antigravity destinations with no artifacts untouched while refreshing a Claude installation", {
+        ARRANGE() {
+            const s = stubContexts();
+            // A Claude installation exists so the run proceeds and exits 0; neither antigravity
+            // destination (project `.agents/skills` nor home `.gemini/antigravity-cli/skills`) holds any
+            // artifact, so both must be left completely untouched.
+            s.files.set(PROJ_CLAUDE.spec, "old content");
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Update([], { projectRoot: PROJ }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "refreshes the installed project Claude destination"(_code, { files }) {
+                Assert.strictEqual(files.get(PROJ_CLAUDE.work), workSkillBody);
+            },
+            "leaves the uninstalled project antigravity destination untouched"(_code, { files }) {
+                Assert.ok(!files.has(PROJ_ANTIGRAVITY.spec) && !files.has(PROJ_ANTIGRAVITY.plan) && !files.has(PROJ_ANTIGRAVITY.work));
+            },
+            "leaves the uninstalled home antigravity destination untouched"(_code, { files }) {
+                Assert.ok(!files.has(HOME_ANTIGRAVITY.spec) && !files.has(HOME_ANTIGRAVITY.plan) && !files.has(HOME_ANTIGRAVITY.work));
+            },
+            "performs no filesystem mutation on either antigravity destination"(_code, { mutationPaths }) {
+                assertMutationsConfinedTo(mutationPaths, [PROJ_CLAUDE_DIR]);
+            },
+            "writes exactly the three Claude artifacts and none for antigravity"(_code, { files }) {
+                Assert.strictEqual(files.size, 3);
+            }
+        }
+    });
 });
 
 test.describe("Update with no installation", test => {
@@ -708,10 +855,10 @@ test.describe("Update dispose", test => {
     test("disposed as the final write completes exits non-zero with no success output", {
         ARRANGE() {
             const s = stubContexts();
-            // Only the last destination (home Codex) is installed, so its three writes are the run's
-            // last action; disposing after the third write lets writeSkillArtifacts return ok before
-            // the post-write disposal guard runs.
-            s.files.set(HOME_CODEX.spec, "old content");
+            // Only the last scanned destination (home antigravity) is installed, so its three writes are
+            // the run's last action; disposing after the third write lets writeSkillArtifacts return ok
+            // before the post-write disposal guard runs.
+            s.files.set(HOME_ANTIGRAVITY.spec, "old content");
             let writeCount = 0;
             let cmdRef:Update | null = null;
             const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
@@ -737,7 +884,7 @@ test.describe("Update dispose", test => {
                 Assert.strictEqual(code, 1);
             },
             "the full trio was written before disposal landed"(_code, { files }) {
-                Assert.ok(files.has(HOME_CODEX.spec) && files.has(HOME_CODEX.plan) && files.has(HOME_CODEX.work));
+                Assert.ok(files.has(HOME_ANTIGRAVITY.spec) && files.has(HOME_ANTIGRAVITY.plan) && files.has(HOME_ANTIGRAVITY.work));
             },
             "prints nothing to standard output"(_code, { written }) {
                 Assert.strictEqual(written.length, 0);

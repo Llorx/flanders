@@ -12,16 +12,19 @@ export type UpdateOptions = Readonly<{
     projectRoot:string;
 }>;
 
-type Destination = Readonly<{ scopeRoot:string; tool:"claude"|"codex" }>;
+type Destination = Readonly<{ scopeRoot:string; scope:"project"|"global"; tool:"claude"|"codex"|"antigravity" }>;
 
 // `update` refreshes the Flanders skills already delivered to the user's AI-tool environments. It is
 // non-interactive: it never reads or writes `.flanders/config.json`, asks the user nothing, and uses
-// no prompt helper. It scans the four destinations (the project and home scope roots crossed with the
-// claude and codex tools), rewrites the full skill trio at every destination that already holds at
-// least one Flanders skill artifact through the shared `writeSkillArtifacts` emission path, and leaves
-// untouched destinations the user never installed to. With no installation anywhere it points the user
-// at `npx flanders install` and exits non-zero. It is a disposable owner: its only async resource is
-// the in-flight run, which `dispose()` awaits and whose mid-run disposal stops further writes.
+// no prompt helper. It scans the six destinations (the project and home scope roots crossed with the
+// claude, codex, and antigravity tools), rewrites the full skill trio at every destination that already
+// holds at least one Flanders skill artifact through the shared `writeSkillArtifacts` emission path, and
+// leaves untouched destinations the user never installed to. The scope discriminator is threaded into
+// both detection and emission because the antigravity skills root differs by scope (`.agents/skills`
+// under the project, `.gemini/antigravity-cli/skills` under home), so the detected and written paths
+// must be computed from the same scope. With no installation anywhere it points the user at
+// `npx flanders install` and exits non-zero. It is a disposable owner: its only async resource is the
+// in-flight run, which `dispose()` awaits and whose mid-run disposal stops further writes.
 export class Update {
     private _disposed = false;
     private _runPromise:Promise<number>;
@@ -37,8 +40,8 @@ export class Update {
     result():Promise<number> {
         return this._runPromise;
     }
-    private async _isInstalled(fs:FsContext, scopeRoot:string, tool:"claude"|"codex"):Promise<boolean> {
-        for (const path of skillArtifactPaths(scopeRoot, tool)) {
+    private async _isInstalled(fs:FsContext, scopeRoot:string, scope:"project"|"global", tool:"claude"|"codex"|"antigravity"):Promise<boolean> {
+        for (const path of skillArtifactPaths(scopeRoot, scope, tool)) {
             if (await fs.exists(path)) {
                 return true;
             }
@@ -56,10 +59,12 @@ export class Update {
             }
             const homeDir = contexts.platform.homedir();
             const destinations:readonly Destination[] = [
-                { scopeRoot: options.projectRoot, tool: "claude" },
-                { scopeRoot: options.projectRoot, tool: "codex" },
-                { scopeRoot: homeDir, tool: "claude" },
-                { scopeRoot: homeDir, tool: "codex" }
+                { scopeRoot: options.projectRoot, scope: "project", tool: "claude" },
+                { scopeRoot: options.projectRoot, scope: "project", tool: "codex" },
+                { scopeRoot: options.projectRoot, scope: "project", tool: "antigravity" },
+                { scopeRoot: homeDir, scope: "global", tool: "claude" },
+                { scopeRoot: homeDir, scope: "global", tool: "codex" },
+                { scopeRoot: homeDir, scope: "global", tool: "antigravity" }
             ];
             const writtenPaths:string[] = [];
             let found = false;
@@ -67,11 +72,11 @@ export class Update {
                 if (this._disposed) {
                     return 1;
                 }
-                if (!(await this._isInstalled(contexts.fs, dest.scopeRoot, dest.tool))) {
+                if (!(await this._isInstalled(contexts.fs, dest.scopeRoot, dest.scope, dest.tool))) {
                     continue;
                 }
                 found = true;
-                const result = await writeSkillArtifacts(contexts.fs, dest.scopeRoot, dest.tool, () => this._disposed);
+                const result = await writeSkillArtifacts(contexts.fs, dest.scopeRoot, dest.scope, dest.tool, () => this._disposed);
                 if (!result.ok) {
                     if (result.diagnostic !== null) {
                         contexts.output.writeError(result.diagnostic);

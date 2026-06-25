@@ -1,12 +1,14 @@
 import type { AskContext, ChoiceOption, FsContext, OutputContext, ScriptContext } from "../contexts";
 import type { FlandersConfig, FlandersRole, FlandersReviewer } from "../workspace/FlandersConfig";
 import { write as writeConfig, readScope } from "../workspace/FlandersConfig";
-import { askChoice, askText } from "../ui/PromptHelper";
-import type { AskChoiceArgs, AskTextArgs } from "../ui/PromptHelper";
+import { askChoice, askMultiChoice, askText } from "../ui/PromptHelper";
+import type { AskChoiceArgs, AskMultiChoiceArgs, AskTextArgs } from "../ui/PromptHelper";
 import { writeSkillArtifacts } from "./skillArtifacts";
 import type { PlatformContext } from "../workspace/Workspace";
 import { probeModelList } from "./InstallModelProbe";
 import type { ModelProbeResult } from "./InstallModelProbe";
+import type { ToolName } from "../ai/ToolAdapter";
+import { TOOL_NAMES } from "../toolNames";
 
 export type InstallContexts = Readonly<{
     fs:FsContext;
@@ -43,16 +45,27 @@ async function promptText(ask:AskContext, args:AskTextArgs):Promise<string|null>
     }
 }
 
+async function promptMultiChoice(ask:AskContext, args:AskMultiChoiceArgs):Promise<readonly ChoiceOption[]|null> {
+    try {
+        return await askMultiChoice(ask, args);
+    } catch (e) {
+        if (e instanceof Error && e.name === "AbortError") {
+            return null;
+        }
+        throw e;
+    }
+}
+
 type ReviewerFlagAnswers = Readonly<{
-    tool?:"claude"|"codex";
+    tool?:ToolName;
     model?:string;
     effort?:string;
 }>;
 
 export type ResolvedAnswers = Readonly<{
     scope?:"project"|"global";
-    skillsTool?:"claude"|"codex"|"both";
-    workerTool?:"claude"|"codex";
+    skillsTools?:readonly ToolName[];
+    workerTool?:ToolName;
     workerModel?:string;
     workerEffort?:string;
     reviewers?:readonly ReviewerFlagAnswers[];
@@ -78,6 +91,64 @@ function validateClosedSet(value:string, allowed:readonly string[], flagName:str
 }
 
 const CODEX_EFFORT_LEVELS:readonly string[] = ["minimal", "low", "medium", "high", "xhigh"];
+
+// Validate an effort flag value against the tool it applies to, mirroring the per-tool effort rules.
+// An empty value is always accepted (it resolves to "default configured effort"). For `codex` the
+// value must be one of the closed documented levels; for `antigravity` the only valid value is empty,
+// because the Antigravity CLI exposes no reasoning-effort setting, so any non-empty value is a usage
+// error. For `claude` (and when the tool is not yet known from a flag) effort is open and unvalidated.
+// Returns the diagnostic to reject with, or null when the value is valid. Pinned by
+// `.spec/contracts/cli-commands/install.md` and `src/commands/.spec/rules/install.md`.
+function validateEffortForTool(value:string, tool:ToolName|undefined, flagName:string):string|null {
+    if (value === "") {
+        return null;
+    }
+    if (tool === "codex") {
+        return validateClosedSet(value, CODEX_EFFORT_LEVELS, flagName);
+    }
+    if (tool === "antigravity") {
+        return `Invalid value for ${flagName}: "${value}". The antigravity tool exposes no reasoning-effort setting, so only an empty value is accepted.\n`;
+    }
+    return null;
+}
+
+// Parse a `--skills-tool` value: a comma-separated list of one or more distinct names drawn from the
+// closed tool set. An empty list, an unknown name, or a repeated name is a usage error naming the
+// offending value, per `.spec/contracts/cli-commands/install.md`.
+function parseSkillsToolList(value:string):Readonly<{ ok:true; tools:readonly ToolName[] }>|Readonly<{ ok:false; diagnostic:string }> {
+    const invalid:Readonly<{ ok:false; diagnostic:string }> = {
+        ok: false,
+        diagnostic: `Invalid value for --skills-tool: "${value}". Expected a comma-separated list of distinct names from: ${TOOL_NAMES.join(", ")}.\n`
+    };
+    const seen = new Set<string>();
+    const tools:ToolName[] = [];
+    for (const part of value.split(",")) {
+        if (!(TOOL_NAMES as readonly string[]).includes(part) || seen.has(part)) {
+            return invalid;
+        }
+        seen.add(part);
+        tools.push(part as ToolName);
+    }
+    return { ok: true, tools };
+}
+
+// The worker-tool and reviewer-tool questions both offer the same closed set of tools with the same
+// per-tool descriptions; defined once so the two questions cannot drift apart.
+const TOOL_CHOICE_OPTIONS:readonly ChoiceOption[] = [
+    { label: "claude", description: "Use Claude Code" },
+    { label: "codex", description: "Use Codex CLI" },
+    { label: "antigravity", description: "Use Antigravity CLI" }
+];
+
+// The skills-root destination path each tool contributes to the scope prompt's option labels, per the
+// `Interactive prompts` section of `.spec/contracts/cli-commands/install.md`. These are user-facing
+// display fragments (with the `~/` home prefix for global and a trailing slash), distinct from the
+// `joinPath` subfolder fragments in `skillArtifacts.ts`.
+const SKILLS_TOOL_DESTINATIONS:Readonly<Record<ToolName, Readonly<{ project:string; global:string }>>> = {
+    claude: { project: ".claude/skills/", global: "~/.claude/skills/" },
+    codex: { project: ".codex/prompts/", global: "~/.codex/prompts/" },
+    antigravity: { project: ".agents/skills/", global: "~/.gemini/antigravity-cli/skills/" }
+};
 
 const CLAUDE_EFFORT_LEVELS:readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 
@@ -187,8 +258,8 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
     }
     const answers:{
         scope?:"project"|"global";
-        skillsTool?:"claude"|"codex"|"both";
-        workerTool?:"claude"|"codex";
+        skillsTools?:readonly ToolName[];
+        workerTool?:ToolName;
         workerModel?:string;
         workerEffort?:string;
         reviewers?:readonly ReviewerFlagAnswers[];
@@ -199,15 +270,15 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
     if (hasGlobal) answers.scope = "global";
     const skillsTool = extractFlagValue(rawArgs, "--skills-tool");
     if (skillsTool !== undefined) {
-        const error = validateClosedSet(skillsTool, ["claude", "codex", "both"], "--skills-tool");
-        if (error) return { ok: false, diagnostic: error };
-        answers.skillsTool = skillsTool as "claude"|"codex"|"both";
+        const result = parseSkillsToolList(skillsTool);
+        if (!result.ok) return { ok: false, diagnostic: result.diagnostic };
+        answers.skillsTools = result.tools;
     }
     const workerTool = extractFlagValue(rawArgs, "--worker-tool");
     if (workerTool !== undefined) {
-        const error = validateClosedSet(workerTool, ["claude", "codex"], "--worker-tool");
+        const error = validateClosedSet(workerTool, TOOL_NAMES, "--worker-tool");
         if (error) return { ok: false, diagnostic: error };
-        answers.workerTool = workerTool as "claude"|"codex";
+        answers.workerTool = workerTool as ToolName;
     }
     const workerModel = extractFlagValue(rawArgs, "--worker-model");
     if (workerModel !== undefined) {
@@ -215,21 +286,19 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
     }
     const workerEffort = extractFlagValue(rawArgs, "--worker-effort");
     if (workerEffort !== undefined) {
-        if (workerEffort !== "" && answers.workerTool === "codex") {
-            const error = validateClosedSet(workerEffort, CODEX_EFFORT_LEVELS, "--worker-effort");
-            if (error) return { ok: false, diagnostic: error };
-        }
+        const error = validateEffortForTool(workerEffort, answers.workerTool, "--worker-effort");
+        if (error) return { ok: false, diagnostic: error };
         answers.workerEffort = workerEffort;
     }
-    const reviewerIndices = new Map<number, { tool?:"claude"|"codex"; model?:string; effort?:string }>();
+    const reviewerIndices = new Map<number, { tool?:ToolName; model?:string; effort?:string }>();
     const reviewer1Tool = extractFlagValue(rawArgs, "--reviewer-tool");
     const reviewer1Model = extractFlagValue(rawArgs, "--reviewer-model");
     const reviewer1Effort = extractFlagValue(rawArgs, "--reviewer-effort");
     if (reviewer1Tool !== undefined) {
-        const error = validateClosedSet(reviewer1Tool, ["claude", "codex"], "--reviewer-tool");
+        const error = validateClosedSet(reviewer1Tool, TOOL_NAMES, "--reviewer-tool");
         if (error) return { ok: false, diagnostic: error };
         if (!reviewerIndices.has(1)) reviewerIndices.set(1, {});
-        reviewerIndices.get(1)!.tool = reviewer1Tool as "claude"|"codex";
+        reviewerIndices.get(1)!.tool = reviewer1Tool as ToolName;
     }
     if (reviewer1Model !== undefined) {
         if (!reviewerIndices.has(1)) reviewerIndices.set(1, {});
@@ -237,10 +306,8 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
     }
     if (reviewer1Effort !== undefined) {
         const tool1 = reviewerIndices.get(1)?.tool;
-        if (reviewer1Effort !== "" && tool1 === "codex") {
-            const error = validateClosedSet(reviewer1Effort, CODEX_EFFORT_LEVELS, "--reviewer-effort");
-            if (error) return { ok: false, diagnostic: error };
-        }
+        const error = validateEffortForTool(reviewer1Effort, tool1, "--reviewer-effort");
+        if (error) return { ok: false, diagnostic: error };
         if (!reviewerIndices.has(1)) reviewerIndices.set(1, {});
         reviewerIndices.get(1)!.effort = reviewer1Effort;
     }
@@ -259,9 +326,9 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
         if (!reviewerIndices.has(idx)) reviewerIndices.set(idx, {});
         const entry = reviewerIndices.get(idx)!;
         if (field === "tool") {
-            const error = validateClosedSet(value, ["claude", "codex"], `--reviewer-${idx}-tool`);
+            const error = validateClosedSet(value, TOOL_NAMES, `--reviewer-${idx}-tool`);
             if (error) return { ok: false, diagnostic: error };
-            entry.tool = value as "claude"|"codex";
+            entry.tool = value as ToolName;
         } else if (field === "model") {
             entry.model = value;
         } else {
@@ -270,8 +337,8 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
     }
     // Second pass: validate every collected effort against its now-known tool.
     for (const [idx, entry] of reviewerIndices) {
-        if (entry.effort !== undefined && entry.effort !== "" && entry.tool === "codex") {
-            const error = validateClosedSet(entry.effort, CODEX_EFFORT_LEVELS, `--reviewer-${idx}-effort`);
+        if (entry.effort !== undefined) {
+            const error = validateEffortForTool(entry.effort, entry.tool, `--reviewer-${idx}-effort`);
             if (error) return { ok: false, diagnostic: error };
         }
     }
@@ -497,7 +564,26 @@ export class Install {
             }
         }
     }
-    private async _resolveRoleModel(roleLabel:string, headerLabel:string, tool:"claude"|"codex", suppliedModel:string|undefined, contexts:InstallContexts, preselect?:string):Promise<string|null> {
+    // Free-text model entry shared by the `antigravity` model question (which never probes or
+    // catalogues) and the `codex` free-text fallback (empty or failed probe). The question text,
+    // placeholder, and empty→"" resolution are identical for both; the stored model seeds the default
+    // so accepting the empty input reproduces it.
+    private async _resolveFreeTextModel(roleLabel:string, contexts:InstallContexts, preselect?:string):Promise<string|null> {
+        const text = await promptText(contexts.ask, {
+            question: `Which model should ${roleLabel} use?`,
+            placeholder: "leave empty for the default configured model",
+            default: preselect
+        });
+        if (text === null) {
+            return null;
+        }
+        /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptText return and this check.
+        if (this._disposed) {
+            return null;
+        }
+        return text;
+    }
+    private async _resolveRoleModel(roleLabel:string, headerLabel:string, tool:ToolName, suppliedModel:string|undefined, contexts:InstallContexts, preselect?:string):Promise<string|null> {
         if (suppliedModel !== undefined) {
             return suppliedModel;
         }
@@ -507,6 +593,11 @@ export class Install {
         }
         if (tool === "claude") {
             return await this._resolveClaudeModel(roleLabel, headerLabel, contexts, preselect);
+        }
+        // `antigravity` neither probes nor catalogues: the model is a free-text input, persisted
+        // verbatim, with an empty answer resolving to "" (default configured model).
+        if (tool === "antigravity") {
+            return await this._resolveFreeTextModel(roleLabel, contexts, preselect);
         }
         if (!this._modelProbeCache.has(tool)) {
             const result = await probeModelList(contexts.script);
@@ -552,21 +643,15 @@ export class Install {
         }
         // Free-text fallback (empty or failed probe): default to the stored model so accepting the
         // empty input reproduces it.
-        const text = await promptText(contexts.ask, {
-            question: `Which model should ${roleLabel} use?`,
-            placeholder: "leave empty for the default configured model",
-            default: preselect
-        });
-        if (text === null) {
-            return null;
-        }
-        /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptText return and this check.
-        if (this._disposed) {
-            return null;
-        }
-        return text;
+        return await this._resolveFreeTextModel(roleLabel, contexts, preselect);
     }
-    private async _resolveRoleEffort(roleLabel:string, headerLabel:string, tool:"claude"|"codex", suppliedEffort:string|undefined, contexts:InstallContexts, preselect?:string):Promise<string|null> {
+    private async _resolveRoleEffort(roleLabel:string, headerLabel:string, tool:ToolName, suppliedEffort:string|undefined, contexts:InstallContexts, preselect?:string):Promise<string|null> {
+        // The Antigravity CLI exposes no reasoning-effort setting: no effort question is asked and the
+        // persisted effort is always the empty default, even if an effort flag slipped through without
+        // a tool flag to validate it against at parse time.
+        if (tool === "antigravity") {
+            return "";
+        }
         if (suppliedEffort !== undefined) {
             return suppliedEffort;
         }
@@ -613,7 +698,7 @@ export class Install {
     private async _resolveReviewer(idx:number, supplied:ReviewerFlagAnswers|undefined, contexts:InstallContexts, storedReviewer?:FlandersReviewer):Promise<FlandersRole|null> {
         const ordinal = idx === 1 ? "" : ` ${idx}`;
         const roleLabel = `reviewer${ordinal}`;
-        let tool:"claude"|"codex";
+        let tool:ToolName;
         if (supplied?.tool !== undefined) {
             tool = supplied.tool;
         } else {
@@ -626,10 +711,7 @@ export class Install {
             const option = await promptChoice(contexts.ask, {
                 header: `Reviewer${ordinal} tool`,
                 question: `Which AI tool should ${roleLabel} use?`,
-                options: [
-                    { label: "claude", description: "Use Claude Code" },
-                    { label: "codex", description: "Use Codex CLI" }
-                ],
+                options: TOOL_CHOICE_OPTIONS,
                 defaultLabel: storedReviewer?.tool
             });
             if (!option) {
@@ -638,7 +720,18 @@ export class Install {
             if (this._disposed) {
                 return null;
             }
-            tool = option.label as "claude"|"codex";
+            tool = option.label as ToolName;
+        }
+        // Re-validate the supplied effort flag against the now-resolved reviewer tool. As with the
+        // worker, parse-time validation only covers a tool fixed by a flag; an effort the resolved tool
+        // forbids (any non-empty value for antigravity, a non-documented level for codex) is rejected
+        // here with a diagnostic naming the offending flag and value, before any further prompt.
+        if (supplied?.effort !== undefined) {
+            const effortError = validateEffortForTool(supplied.effort, tool, idx === 1 ? "--reviewer-effort" : `--reviewer-${idx}-effort`);
+            if (effortError !== null) {
+                contexts.output.writeError(effortError);
+                return null;
+            }
         }
         // The stored reviewer's model and effort seed their questions through the same resolvers as
         // the worker; a fresh position passes undefined and keeps the fresh default.
@@ -660,30 +753,30 @@ export class Install {
                 return 1;
             }
             const answers = parsed.answers;
-            let skillsTool:"claude"|"codex"|"both";
-            if (answers.skillsTool !== undefined) {
-                skillsTool = answers.skillsTool;
+            let skillsTools:readonly ToolName[];
+            if (answers.skillsTools !== undefined) {
+                skillsTools = answers.skillsTools;
             } else {
                 /* coverage ignore next 3 */ // — Defensive: _disposed is false when _run begins synchronously from the constructor.
                 if (this._disposed) {
                     return 1;
                 }
-                const option = await promptChoice(contexts.ask, {
+                const picked = await promptMultiChoice(contexts.ask, {
                     header: "Skills tool",
                     question: "Which AI tool(s) should the skills be installed for, neighbor?",
                     options: [
                         { label: "claude", description: "Install skills for Claude Code" },
                         { label: "codex", description: "Install skills for Codex CLI" },
-                        { label: "both", description: "Install skills for both Claude Code and Codex CLI" }
+                        { label: "antigravity", description: "Install skills for Antigravity CLI" }
                     ]
                 });
-                if (!option) {
+                if (!picked) {
                     return 1;
                 }
                 if (this._disposed) {
                     return 1;
                 }
-                skillsTool = option.label as "claude"|"codex"|"both";
+                skillsTools = picked.map(o => o.label as ToolName);
             }
             let mode:"global"|"project";
             if (answers.scope) {
@@ -693,18 +786,10 @@ export class Install {
                 if (this._disposed) {
                     return 1;
                 }
-                let projectDescription:string;
-                let globalDescription:string;
-                if (skillsTool === "claude") {
-                    projectDescription = "Install in .claude/skills/ relative to CWD";
-                    globalDescription = "Install in ~/.claude/skills/";
-                } else if (skillsTool === "codex") {
-                    projectDescription = "Install in .codex/prompts/ relative to CWD";
-                    globalDescription = "Install in ~/.codex/prompts/";
-                } else {
-                    projectDescription = "Install in .claude/skills/ and .codex/prompts/ relative to CWD";
-                    globalDescription = "Install in ~/.claude/skills/ and ~/.codex/prompts/";
-                }
+                // Each scope option is labelled with the destination path of every tool the
+                // skills-tool selection names, in selection order, joined with " and ".
+                const projectDescription = `Install in ${skillsTools.map(t => SKILLS_TOOL_DESTINATIONS[t].project).join(" and ")} relative to CWD`;
+                const globalDescription = `Install in ${skillsTools.map(t => SKILLS_TOOL_DESTINATIONS[t].global).join(" and ")}`;
                 const option = await promptChoice(contexts.ask, {
                     header: "Install destination",
                     question: "Where should Flanders skills be installed?",
@@ -737,7 +822,7 @@ export class Install {
             if (this._disposed) {
                 return 1;
             }
-            let workerTool:"claude"|"codex";
+            let workerTool:ToolName;
             if (answers.workerTool !== undefined) {
                 workerTool = answers.workerTool;
             } else {
@@ -748,10 +833,7 @@ export class Install {
                 const option = await promptChoice(contexts.ask, {
                     header: "Worker tool, neighborino",
                     question: "Which AI tool should the worker use?",
-                    options: [
-                        { label: "claude", description: "Use Claude Code" },
-                        { label: "codex", description: "Use Codex CLI" }
-                    ],
+                    options: TOOL_CHOICE_OPTIONS,
                     defaultLabel: storedConfig?.worker.tool
                 });
                 if (!option) {
@@ -760,7 +842,19 @@ export class Install {
                 if (this._disposed) {
                     return 1;
                 }
-                workerTool = option.label as "claude"|"codex";
+                workerTool = option.label as ToolName;
+            }
+            // Re-validate the supplied --worker-effort against the now-resolved worker tool. Parse-time
+            // validation can only run when --worker-tool fixes the tool; when the tool is resolved
+            // interactively or from a stored default, an effort the resolved tool forbids (any non-empty
+            // value for antigravity, a non-documented level for codex) is caught here with a diagnostic
+            // naming the offending flag and value, before any further prompt.
+            if (answers.workerEffort !== undefined) {
+                const effortError = validateEffortForTool(answers.workerEffort, workerTool, "--worker-effort");
+                if (effortError !== null) {
+                    contexts.output.writeError(effortError);
+                    return 1;
+                }
             }
             const workerModel = await this._resolveRoleModel("the worker", "Worker model", workerTool, answers.workerModel, contexts, storedConfig?.worker.model);
             if (workerModel === null) {
@@ -939,15 +1033,9 @@ export class Install {
                 ? contexts.platform.homedir()
                 : options.projectRoot;
             const writtenPaths:string[] = [];
-            const tools:("claude"|"codex")[] = [];
-            if (skillsTool === "claude" || skillsTool === "both") {
-                tools.push("claude");
-            }
-            if (skillsTool === "codex" || skillsTool === "both") {
-                tools.push("codex");
-            }
-            for (const tool of tools) {
-                const result = await writeSkillArtifacts(contexts.fs, scopeRoot, tool, () => this._disposed);
+            // Emit each selected tool's skill trio into its own destination, in selection order.
+            for (const tool of skillsTools) {
+                const result = await writeSkillArtifacts(contexts.fs, scopeRoot, mode, tool, () => this._disposed);
                 if (!result.ok) {
                     if (result.diagnostic !== null) {
                         contexts.output.writeError(result.diagnostic);

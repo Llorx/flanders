@@ -8,7 +8,7 @@ Adding a new AI tool to Flanders is a matter of writing a new adapter that imple
 
 ### Who this applies to
 
-- **Subject:** every per-tool adapter. Today: the Claude adapter (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)) and the Codex adapter (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)). Any future adapter falls under this rule the moment it is added.
+- **Subject:** every per-tool adapter. Today: the Claude adapter (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)), the Codex adapter (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)), and the Antigravity adapter (see [src/ai/.spec/rules/runner.md#the-antigravity-adapter-spawns-agy---print-and-maps-its-output-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-antigravity-adapter-spawns-agy---print-and-maps-its-output-to-the-tool-interface)). Any future adapter falls under this rule the moment it is added.
 - **Subject:** the AI runner, which consumes the interface and is forbidden from branching on the underlying tool.
 - **Not subject:** the call sites of the runner (worker stage, reviewer stage, detect agent). They see only the runner's high-level result (success or non-retryable error), not the events.
 
@@ -145,7 +145,7 @@ A Flanders AI invocation runs a single turn to completion with no human in the l
 
 ### Who this applies to
 
-- **Subject:** every per-tool adapter — today the Claude adapter ([src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)) and the Codex adapter ([src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)), and any adapter added later. Each adapter realizes this obligation through the specific flags and input handling of its own binary, pinned in that adapter's rule.
+- **Subject:** every per-tool adapter — today the Claude adapter ([src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)), the Codex adapter ([src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)), and the Antigravity adapter ([src/ai/.spec/rules/runner.md#the-antigravity-adapter-spawns-agy---print-and-maps-its-output-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-antigravity-adapter-spawns-agy---print-and-maps-its-output-to-the-tool-interface)), and any adapter added later. Each adapter realizes this obligation through the specific flags and input handling of its own binary, pinned in that adapter's rule.
 - **Not subject:** the AI runner and the runner's call sites (worker stage, reviewer stage, detect-agent), which never touch a tool's invocation surface directly.
 
 The user-visible consequence of this rule — that an implement run never pauses for the AI to ask the user anything — is stated in [.spec/contracts/cli-commands/implement/non-interactive.md](/.spec/contracts/cli-commands/implement/non-interactive.md).
@@ -158,7 +158,7 @@ This obligation is distinct from non-interactivity (see [src/ai/.spec/rules/runn
 
 ### Who this applies to
 
-- **Subject:** every per-tool adapter — today the Claude adapter (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)) and the Codex adapter (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)), and any adapter added later. Each adapter realizes this obligation through the specific access flag(s) of its own binary, pinned in that adapter's rule.
+- **Subject:** every per-tool adapter — today the Claude adapter (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)), the Codex adapter (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)), and the Antigravity adapter (see [src/ai/.spec/rules/runner.md#the-antigravity-adapter-spawns-agy---print-and-maps-its-output-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-antigravity-adapter-spawns-agy---print-and-maps-its-output-to-the-tool-interface)), and any adapter added later. Each adapter realizes this obligation through the specific access flag(s) of its own binary, pinned in that adapter's rule.
 - **Not subject:** the AI runner and the runner's call sites (worker stage, reviewer stage, detect agent), which never touch a tool's invocation surface directly.
 
 ## The Claude adapter spawns `claude --print --output-format stream-json` and maps its events to the tool interface
@@ -391,3 +391,77 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `codex` p
 - The adapter emits two terminal events when Codex emits both `error` and `turn.failed` for the same failure, instead of acting on the first and absorbing the second.
 - The adapter leaks the spawned `codex` process on cancellation.
 - A call site spawns `codex` directly, bypassing the adapter.
+
+## The Antigravity adapter spawns `agy --print` and maps its output to the tool interface
+
+The Antigravity adapter is the per-tool implementation of the generic tool-adapter interface defined in [src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface](/src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface). It is the bridge between Google's Antigravity CLI — the `agy` binary, which in print mode emits a plain-text response rather than a structured event stream — and the runner's abstract `ToolEvent` stream. This rule pins how the binary is invoked, how its prompt is delivered, and how its plain-text output and process outcome are mapped to `ToolEvent`s.
+
+### Who this applies to
+
+- **Subject:** the Antigravity adapter module.
+- **Not subject:** the AI runner. The runner only consumes the events the adapter emits; it does not know that `agy` produces plain text rather than a structured event stream.
+
+### Invocation
+
+The adapter spawns the `agy` binary resolved from `PATH` — the same shell-launched resolution every spawned tool uses per [src/system/.spec/rules/spawn.md#child-processes-are-launched-through-a-shell-with-every-argument-escaped-so-the-child-receives-the-argv-verbatim](/src/system/.spec/rules/spawn.md#child-processes-are-launched-through-a-shell-with-every-argument-escaped-so-the-child-receives-the-argv-verbatim) — with at least the following arguments:
+
+- `--print <prompt-directive>` — non-interactive single-turn print mode. The prompt is the value of this flag (its aliases are `-p` and `--prompt`); how that value is built for prompts of any size is pinned under `Prompt delivery` below.
+- `--dangerously-skip-permissions` — auto-approves every tool permission request. This single flag realizes BOTH the non-interactive invocation required by [src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively](/src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively) — it opens no approval or interactive-prompt channel, suppressing permission prompts rather than soliciting input — AND the maximum access required by [src/ai/.spec/rules/runner.md#every-ai-adapter-grants-its-tool-the-maximum-access-its-cli-offers](/src/ai/.spec/rules/runner.md#every-ai-adapter-grants-its-tool-the-maximum-access-its-cli-offers), so every tool use runs without an access gate.
+
+When the configured `model` is non-empty, the adapter appends `--model <model>`. When it is the empty string, the flag is not passed and the Antigravity default applies.
+
+The adapter passes no effort flag under any condition: the Antigravity CLI exposes no reasoning-effort setting, so the `effort` argument — which is always the empty default for an `antigravity` tool per [src/workspace/.spec/rules/flanders-config/file-format.md](/src/workspace/.spec/rules/flanders-config/file-format.md) — maps to no flag.
+
+When `resumeSessionId` is supplied, the adapter appends `--conversation <resumeSessionId>` to resume that specific conversation by id. When it is unset, no resume flag is passed and the invocation starts a fresh conversation. The adapter resumes only by explicit id through `--conversation`; it never uses `--continue`/`-c`, which resumes the most recent conversation on the host globally and would cross independent invocations.
+
+### Prompt delivery
+
+`agy` print mode takes the prompt as the value of `--print`, an argv argument bounded by the host operating system's command-line length limit, and exposes no stdin or prompt-file input path. The adapter therefore delivers the prompt by writing the full prompt text to a file that `agy` reads as part of the turn and passing, as the `--print` value, a short directive that points `agy` at that file, so the complete prompt reaches the model regardless of prompt size. The adapter delivers the entire prompt without truncation and never places a prompt that would approach the command-line length limit directly on the command line. The file is created for the invocation and removed once the invocation ends, a disposable resource the adapter owns. The precise mechanism by which `agy` consumes the file is implementation; delivering the complete prompt intact is the obligation this rule pins.
+
+### Native output format
+
+`agy --print` writes the model's response to stdout as plain text, not as a structured event stream: it carries no per-tool-action records, no separate thinking channel, no session-id record, and no structured error or rate-limit fields. `agy` also suppresses its print-mode stdout when stdout is not attached to a terminal — a pipe, a redirect, or a spawned subprocess — exiting zero with no output. The adapter MUST capture `agy`'s complete textual response despite this suppression, because that response is the adapter's only signal of a successful turn. The mechanism that defeats the non-TTY suppression (allocating a pseudo-console for the child, or another capture path) is implementation; obtaining the complete response intact is the obligation this rule pins.
+
+### Mapping to `ToolEvent`
+
+#### `output` events
+
+The adapter surfaces `agy`'s response to the runner as one or more `{ type: "output", title: "Assistant", subtitle: "", details: <response text> }` events. Because print mode emits plain text without per-action structure, the adapter forwards the captured assistant response text and does not synthesize per-tool-action `output` events (no `Read`/`Edit`/`Bash`/`Thinking` breakdown). The adapter passes any ANSI the response already contains through unchanged and never relays `agy`'s stdout to the user's terminal directly, per the output-channel discipline of [src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface](/src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface).
+
+#### `session` event
+
+`agy` print mode exposes no conversation identifier, so the adapter emits no `session` event. The consequence — that an antigravity invocation carries no session continuity, so a retry of the same turn and a cross-iteration worker resume both run as a fresh conversation — is the behavior the absence of a session id already produces under [src/ai/.spec/rules/retry.md#retries-reuse-the-interrupted-calls-session_id](/src/ai/.spec/rules/retry.md#retries-reuse-the-interrupted-calls-session_id) (the runner retries without one) and [src/commands/.spec/rules/ai/task-context.md#when-resume-is-not-available](/src/commands/.spec/rules/ai/task-context.md#when-resume-is-not-available) (iteration n>1 launches fresh). When a future Antigravity CLI exposes the conversation id in print mode, the adapter captures it and emits a single `session` event with it, as the generic interface rule already provides for.
+
+#### Terminal events from the response and process exit
+
+`agy`'s print-mode output carries no structured error, HTTP status, retry-after, reset timestamp, or error code; the adapter classifies the outcome from the process exit and the captured stderr text, plus whether a response was captured. Every invocation produces exactly one terminal event:
+
+- **The process exits zero and a non-empty response was captured** — emit `{ type: "done" }`.
+- **The process exits zero but no response was captured** — emit `{ type: "error", retryable: true, message: <synthesized message describing the empty response> }`, treating the lost output as a transient transport failure.
+- **The process exits non-zero, or exits via a signal** — the adapter classifies the captured stderr (trimmed, case-insensitive, literal substring search) using the same recognized substring families the Codex adapter uses (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)):
+  - a rate-limit or quota/credit-exhaustion substring (`out of credits`, `refill`, `usage limit`, `rate limit`, `rate-limit`, `rate_limit`, `quota`, `too many requests`, or the standalone token `429`) — `agy` surfaces no reset time, so the adapter synthesizes one and emits `{ type: "rate_limit", waitUntilMs: <now> + R }`, where `R` is drawn uniformly at random from the closed interval of 8 minutes to 12 minutes; both the current time and the random draw are obtained through the injected contexts per [src/.spec/rules/external-access-through-contexts.md](/src/.spec/rules/external-access-through-contexts.md), never by calling `Date.now()` or `Math.random()` directly. This is the same synthesized wait the Codex adapter uses.
+  - a `5xx` token (`500`..`599`), the tokens `408` or `425`, or a transient-network substring (`timeout`, `timed out`, `connection reset`, `connection refused`, `socket hang up`, `temporarily unavailable`, `service unavailable`, `gateway`, `network`, `ECONNRESET`, `ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`, `EAI_AGAIN`) — emit `{ type: "error", retryable: true, message: <stderr text> }`.
+  - a signal-terminated exit carrying none of the recognized substrings — emit `{ type: "error", retryable: true, message: <synthesized message naming the signal> }`, treating an abnormal termination as transient.
+  - anything else — emit `{ type: "error", retryable: false, message: <stderr text, or a synthesized message naming the exit status when stderr is empty> }`. Unrecognized failures default to non-retryable so an unknown failure mode does not silently mask a bug.
+
+The recognized substring set is the closed set above; adding a new recognized substring requires updating this rule first. The matching is literal substring search, case-insensitive, on the trimmed text; the adapter does not use a natural-language classifier and never inspects the prompt text to decide retryability.
+
+### Cancellation
+
+When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `agy` process, stops consuming its output, awaits the child's termination, and ends the iterable. The child must not outlive the adapter call — the whole process tree is terminated per [src/system/.spec/rules/spawn.md#killing-a-spawned-process-terminates-its-whole-process-tree](/src/system/.spec/rules/spawn.md#killing-a-spawned-process-terminates-its-whole-process-tree). Any temporary prompt file the adapter created for the invocation is removed.
+
+### Failure signals
+
+- The adapter spawns `agy` without `--print`, or drives the interactive TUI, polluting the parser with terminal escapes.
+- The adapter places a large prompt directly as the `--print` argv value instead of delivering it through a file `agy` reads, so a prompt that approaches the OS command-line length limit is truncated or rejected.
+- The adapter drops `--dangerously-skip-permissions`, so `agy` pauses for a permission approval or runs with access gated.
+- The adapter passes `--model ""` (empty) instead of omitting the flag when the configured model is empty.
+- The adapter passes any effort flag to `agy`, which has none.
+- The adapter resumes with `--continue`/`-c` (global most-recent resume) instead of `--conversation <id>` for a targeted resume.
+- The adapter reports a successful turn after failing to capture `agy`'s response under a non-TTY stdout, instead of capturing the complete response or treating an empty capture as a retryable transport failure.
+- The adapter writes `agy`'s output to the user's terminal directly instead of emitting `output` events.
+- The adapter fabricates a `session` event when print mode exposed no conversation id, or invents an identifier of its own.
+- The adapter adds a new recognized error substring without adding it to this rule first, or classifies a rate-limit/quota message as a non-retryable `error`.
+- The adapter emits the synthesized `rate_limit` with a `waitUntilMs` whose wait falls outside the 8-to-12-minute interval, or computed by calling `Date.now()` / `Math.random()` directly instead of through the injected contexts.
+- The adapter leaks the spawned `agy` process, or leaves its temporary prompt file behind, on cancellation or completion.
+- A call site spawns `agy` directly, bypassing the adapter.

@@ -1,7 +1,9 @@
 import type { FsContext } from "../contexts";
 import { joinPath } from "../system/fsUtils";
+import { TOOL_NAMES } from "../toolNames";
+import type { ToolName } from "../ai/ToolAdapter";
 
-export type FlandersRole = Readonly<{ tool:"claude"|"codex"; model:string; effort:string }>;
+export type FlandersRole = Readonly<{ tool:ToolName; model:string; effort:string }>;
 
 export type FlandersReviewer = FlandersRole & Readonly<{ optional:boolean }>;
 
@@ -81,7 +83,7 @@ function validateRole(role:Record<string, unknown>, name:string, filePath:string
     if (!("tool" in role) || typeof role["tool"] !== "string") {
         throw new Error(`Malformed config at ${filePath}: missing or invalid field "${name}.tool"`);
     }
-    if (role["tool"] !== "claude" && role["tool"] !== "codex") {
+    if (!(TOOL_NAMES as readonly string[]).includes(role["tool"])) {
         throw new Error(`Malformed config at ${filePath}: invalid value for "${name}.tool": "${role["tool"]}"`);
     }
     if (!("model" in role) || typeof role["model"] !== "string") {

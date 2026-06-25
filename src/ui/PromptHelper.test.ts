@@ -3,7 +3,7 @@ import * as Assert from "assert";
 import test from "arrange-act-assert";
 
 import type { AskChoiceOptions, AskContext } from "../contexts";
-import { askChoice, askText } from "./PromptHelper";
+import { askChoice, askMultiChoice, askText } from "./PromptHelper";
 
 test.describe("askChoice", test => {
     test("returns the picked option with exact label and description", {
@@ -174,6 +174,206 @@ test.describe("askChoice", test => {
         },
         ASSERT(_result, { getCaptured }) {
             Assert.strictEqual(getCaptured()![0]!.defaultIndex, undefined);
+        }
+    });
+});
+
+test.describe("askMultiChoice", test => {
+    test("returns the full picked subset the user selected", {
+        ARRANGE() {
+            const picked = [
+                { label: "claude", description: "Claude Code" },
+                { label: "antigravity", description: "Antigravity CLI" }
+            ];
+            const ask:AskContext = {
+                askChoices() {
+                    return Promise.resolve([{ picked }]);
+                },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask, picked };
+        },
+        async ACT({ ask }) {
+            return await askMultiChoice(ask, {
+                header: "Test header",
+                question: "Pick one or more?",
+                options: [
+                    { label: "claude", description: "Claude Code" },
+                    { label: "codex", description: "Codex CLI" },
+                    { label: "antigravity", description: "Antigravity CLI" }
+                ]
+            });
+        },
+        ASSERT(result, { picked }) {
+            Assert.deepStrictEqual(result, picked);
+        }
+    });
+
+    test("renders the question through askChoices with multiSelect true", {
+        ARRANGE() {
+            let captured:readonly AskChoiceOptions[]|null = null;
+            const ask:AskContext = {
+                askChoices(questions) {
+                    captured = questions;
+                    return Promise.resolve([{ picked: [{ label: "claude" }] }]);
+                },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask, getCaptured: () => captured };
+        },
+        async ACT({ ask }) {
+            return await askMultiChoice(ask, {
+                header: "Test header",
+                question: "Pick one or more?",
+                options: [
+                    { label: "claude" },
+                    { label: "codex" },
+                    { label: "antigravity" }
+                ]
+            });
+        },
+        ASSERT(_result, { getCaptured }) {
+            Assert.strictEqual(getCaptured()![0]!.multiSelect, true);
+        }
+    });
+
+    test("throws AbortError when askChoices returns an empty picked array", {
+        ARRANGE() {
+            const ask:AskContext = {
+                askChoices() {
+                    return Promise.resolve([{ picked: [] }]);
+                },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask };
+        },
+        async ACT({ ask }) {
+            try {
+                await askMultiChoice(ask, {
+                    header: "Test",
+                    question: "Pick one or more?",
+                    options: [{ label: "claude" }, { label: "codex" }]
+                });
+                return null;
+            } catch (e) {
+                return e;
+            }
+        },
+        ASSERT(result) {
+            Assert.ok(result instanceof Error);
+            Assert.strictEqual(result.name, "AbortError");
+        }
+    });
+
+    test("throws AbortError when askChoices returns no answer", {
+        ARRANGE() {
+            const ask:AskContext = {
+                askChoices() {
+                    return Promise.resolve([]);
+                },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask };
+        },
+        async ACT({ ask }) {
+            try {
+                await askMultiChoice(ask, {
+                    header: "Test",
+                    question: "Pick one or more?",
+                    options: [{ label: "claude" }, { label: "codex" }]
+                });
+                return null;
+            } catch (e) {
+                return e;
+            }
+        },
+        ASSERT(result) {
+            Assert.ok(result instanceof Error);
+            Assert.strictEqual(result.name, "AbortError");
+        }
+    });
+
+    test("seeds defaultIndexes from the pre-selected subset, preserving option order", {
+        ARRANGE() {
+            let captured:readonly AskChoiceOptions[]|null = null;
+            const ask:AskContext = {
+                askChoices(questions) {
+                    captured = questions;
+                    return Promise.resolve([{ picked: [{ label: "claude" }] }]);
+                },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask, getCaptured: () => captured };
+        },
+        async ACT({ ask }) {
+            return await askMultiChoice(ask, {
+                header: "Test header",
+                question: "Pick one or more?",
+                options: [
+                    { label: "claude" },
+                    { label: "codex" },
+                    { label: "antigravity" }
+                ],
+                selected: [{ label: "antigravity" }, { label: "claude" }]
+            });
+        },
+        ASSERT(_result, { getCaptured }) {
+            Assert.deepStrictEqual(getCaptured()![0]!.defaultIndexes, [0, 2]);
+        }
+    });
+
+    test("passes defaultIndexes undefined when no pre-selection is supplied", {
+        ARRANGE() {
+            let captured:readonly AskChoiceOptions[]|null = null;
+            const ask:AskContext = {
+                askChoices(questions) {
+                    captured = questions;
+                    return Promise.resolve([{ picked: [{ label: "claude" }] }]);
+                },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask, getCaptured: () => captured };
+        },
+        async ACT({ ask }) {
+            return await askMultiChoice(ask, {
+                header: "Test header",
+                question: "Pick one or more?",
+                options: [
+                    { label: "claude" },
+                    { label: "codex" }
+                ]
+            });
+        },
+        ASSERT(_result, { getCaptured }) {
+            Assert.strictEqual(getCaptured()![0]!.defaultIndexes, undefined);
+        }
+    });
+
+    test("ignores a pre-selected entry whose label matches no option", {
+        ARRANGE() {
+            let captured:readonly AskChoiceOptions[]|null = null;
+            const ask:AskContext = {
+                askChoices(questions) {
+                    captured = questions;
+                    return Promise.resolve([{ picked: [{ label: "codex" }] }]);
+                },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask, getCaptured: () => captured };
+        },
+        async ACT({ ask }) {
+            return await askMultiChoice(ask, {
+                header: "Test header",
+                question: "Pick one or more?",
+                options: [
+                    { label: "claude" },
+                    { label: "codex" }
+                ],
+                selected: [{ label: "codex" }, { label: "no-such-tool" }]
+            });
+        },
+        ASSERT(_result, { getCaptured }) {
+            Assert.deepStrictEqual(getCaptured()![0]!.defaultIndexes, [1]);
         }
     });
 });

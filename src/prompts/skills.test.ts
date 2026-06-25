@@ -494,6 +494,15 @@ Every message you address to the user during the run — your clarifying questio
             },
             "fresh session is load-bearing"(body) {
                 Assert.ok(body.includes("does not share context with this drafting session"), "validator session must not share context with the drafter");
+            },
+            "names the Claude Code Agent tool for the validator"(body) {
+                Assert.ok(body.includes("In Claude Code, the host spawns the validator through the Agent tool."), "must name the Claude Code Agent tool for the validator");
+            },
+            "names the Codex CLI subagent surface for the validator"(body) {
+                Assert.ok(body.includes("In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run."), "must name the Codex CLI subagent surface for the validator");
+            },
+            "names the Antigravity CLI subagent surface for the validator"(body) {
+                Assert.ok(body.includes("In Antigravity CLI, the host spawns it through whatever Antigravity documents as its subagent surface at the time of the run."), "must name the Antigravity CLI subagent surface for the validator");
             }
         }
     });
@@ -1701,6 +1710,15 @@ Every message you address to the user during the run — your clarifying questio
             "fresh session does not share context"(body) {
                 Assert.ok(body.includes("does not share context with this drafting session"), "validator session must not share context with the drafter");
             },
+            "names the Claude Code Agent tool for the validator"(body) {
+                Assert.ok(body.includes("In Claude Code, the host spawns the validator through the Agent tool."), "must name the Claude Code Agent tool for the validator");
+            },
+            "names the Codex CLI subagent surface for the validator"(body) {
+                Assert.ok(body.includes("In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run."), "must name the Codex CLI subagent surface for the validator");
+            },
+            "names the Antigravity CLI subagent surface for the validator"(body) {
+                Assert.ok(body.includes("In Antigravity CLI, the host spawns it through whatever Antigravity documents as its subagent surface at the time of the run."), "must name the Antigravity CLI subagent surface for the validator");
+            },
             "permits inline fallback on unavailable mechanism"(body) {
                 Assert.ok(body.includes("subagent mechanism is unavailable in the current environment"), "must permit inline fallback when mechanism is unavailable");
             },
@@ -2039,6 +2057,9 @@ test.describe("skills – workSkillBody", test => {
             },
             "names the Codex CLI subagent surface"(body) {
                 Assert.ok(body.includes("In Codex CLI, you spawn it through whatever Codex documents as its subagent surface at the time of the run."), "must name the Codex CLI subagent surface");
+            },
+            "names the Antigravity CLI subagent surface"(body) {
+                Assert.ok(body.includes("In Antigravity CLI, you spawn it through whatever Antigravity documents as its subagent surface at the time of the run."), "must name the Antigravity CLI subagent surface");
             },
             "runs a single reviewer per round, never a list and never concurrently"(body) {
                 Assert.ok(body.includes("You run a single reviewer per review round — never a list of reviewers and never several reviewers concurrently."), "must run a single reviewer per round, never a list and never concurrently");

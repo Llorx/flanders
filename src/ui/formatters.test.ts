@@ -1212,6 +1212,19 @@ test.describe("formatReviewingFooter", test => {
         }
     });
 
+    test("renders an antigravity reviewer's tool token verbatim", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{ tool: "antigravity", model: "", effort: "", state: "running" }];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(FRAME, reviewers, 120, 0);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(stripAnsi(result), "⣋ review: antigravity (default): running");
+        }
+    });
+
     test("renders distinct model and effort with space-joined descriptor", {
         ARRANGE() {
             const reviewers:ReviewerEntry[] = [{ tool: "codex", model: "gpt-5.5", effort: "xhigh", state: "pass" }];

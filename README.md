@@ -131,7 +131,7 @@ Updated the lib and itching for the freshest skills, neighbor? Just run:
 flanders update
 ```
 
-`update` takes no flags. It scans the four skill destinations `install` writes to — Claude Code and Codex CLI, each at project and global scope — and wherever it finds at least one Flanders skill artifact already in place, it rewrites the full `/flanders-spec`, `/flanders-plan`, and `/flanders-work` trio there with the current version. A destination where no Flanders skill artifact is present is left untouched, so `update` refreshes the installations you already have and never creates one where you had none.
+`update` takes no flags. It scans the six skill destinations `install` writes to — Claude Code, Codex CLI, and Antigravity CLI, each at project and global scope — and wherever it finds at least one Flanders skill artifact already in place, it rewrites the full `/flanders-spec`, `/flanders-plan`, and `/flanders-work` trio there with the current version. A destination where no Flanders skill artifact is present is left untouched, so `update` refreshes the installations you already have and never creates one where you had none.
 
 ## Configuration
 

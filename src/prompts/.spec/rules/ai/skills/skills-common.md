@@ -14,7 +14,7 @@ The Flanders content skills (`/flanders-spec`, `/flanders-plan`) each gate their
 
 The validator runs as a subagent — spawned via the AI tool's subagent mechanism — in a fresh session that does not share context with the drafting phase. The fresh session is load-bearing: it forces the validator to re-derive its judgments from the artifact on disk and from the canonical listings, instead of inheriting the drafter's confirmation bias.
 
-The subagent mechanism is tool-specific. In Claude Code, the host spawns the validator through the `Agent` tool. In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run. The host chooses the mechanism based on the AI tool it is running inside.
+The subagent mechanism is tool-specific. In Claude Code, the host spawns the validator through the `Agent` tool. In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run. In Antigravity CLI, the host spawns it through whatever Antigravity documents as its subagent surface at the time of the run. The host chooses the mechanism based on the AI tool it is running inside.
 
 The host may fall back to an **inline pass** (running the checks in its own session, without spawning a subagent) only when the subagent invocation is genuinely unavailable or fails. Concretely, an inline fallback is allowed when:
 
@@ -195,7 +195,7 @@ The body of every Flanders skill artifact — the prompt text that the `install`
 ### What is permitted in a skill artifact body
 
 - Structural references to the user's project spec folders by their conventional shape — `.spec/contracts` and `.spec/rules` folders (which may appear at any level of the project tree) and the project-root `plans/` folder — without naming a specific file inside them. For example: "discover every `.spec/contracts` folder in the project tree", "persist exactly one markdown file inside the project's `plans/` folder", "for every leaf task, link the relevant contract file or files by their listed namespace (its project-root-relative path)".
-- Names of user-visible AI tools the skill targets (Claude Code, Codex CLI) and the install destinations those tools use as already pinned by the install behavior the user has consented to.
+- Names of user-visible AI tools the skill targets (Claude Code, Codex CLI, Antigravity CLI) and the install destinations those tools use as already pinned by the install behavior the user has consented to.
 
 The body never embeds a specific file path that points to a file from flanders' own spec.
 

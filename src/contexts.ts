@@ -64,6 +64,7 @@ export type AskChoiceOptions = Readonly<{
     options:readonly ChoiceOption[];
     multiSelect:boolean;
     defaultIndex?:number; // zero-based index into `options` chosen when the user accepts the prompt with an empty line
+    defaultIndexes?:readonly number[]; // multi-select only: zero-based indices toggled on as the initial state and returned when the prompt is accepted unchanged
 }>;
 
 export type AskAnswer = Readonly<{
