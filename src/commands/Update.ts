@@ -12,16 +12,19 @@ export type UpdateOptions = Readonly<{
     projectRoot:string;
 }>;
 
-type Destination = Readonly<{ scopeRoot:string; scope:"project"|"global"; tool:"claude"|"codex" }>;
+type Destination = Readonly<{ scopeRoot:string; scope:"project"|"global"; tool:"claude"|"codex"|"antigravity" }>;
 
 // `update` refreshes the Flanders skills already delivered to the user's AI-tool environments. It is
 // non-interactive: it never reads or writes `.flanders/config.json`, asks the user nothing, and uses
-// no prompt helper. It scans the four destinations (the project and home scope roots crossed with the
-// claude and codex tools), rewrites the full skill trio at every destination that already holds at
-// least one Flanders skill artifact through the shared `writeSkillArtifacts` emission path, and leaves
-// untouched destinations the user never installed to. With no installation anywhere it points the user
-// at `npx flanders install` and exits non-zero. It is a disposable owner: its only async resource is
-// the in-flight run, which `dispose()` awaits and whose mid-run disposal stops further writes.
+// no prompt helper. It scans the six destinations (the project and home scope roots crossed with the
+// claude, codex, and antigravity tools), rewrites the full skill trio at every destination that already
+// holds at least one Flanders skill artifact through the shared `writeSkillArtifacts` emission path, and
+// leaves untouched destinations the user never installed to. The scope discriminator is threaded into
+// both detection and emission because the antigravity skills root differs by scope (`.agents/skills`
+// under the project, `.gemini/antigravity-cli/skills` under home), so the detected and written paths
+// must be computed from the same scope. With no installation anywhere it points the user at
+// `npx flanders install` and exits non-zero. It is a disposable owner: its only async resource is the
+// in-flight run, which `dispose()` awaits and whose mid-run disposal stops further writes.
 export class Update {
     private _disposed = false;
     private _runPromise:Promise<number>;
@@ -37,7 +40,7 @@ export class Update {
     result():Promise<number> {
         return this._runPromise;
     }
-    private async _isInstalled(fs:FsContext, scopeRoot:string, scope:"project"|"global", tool:"claude"|"codex"):Promise<boolean> {
+    private async _isInstalled(fs:FsContext, scopeRoot:string, scope:"project"|"global", tool:"claude"|"codex"|"antigravity"):Promise<boolean> {
         for (const path of skillArtifactPaths(scopeRoot, scope, tool)) {
             if (await fs.exists(path)) {
                 return true;
@@ -58,8 +61,10 @@ export class Update {
             const destinations:readonly Destination[] = [
                 { scopeRoot: options.projectRoot, scope: "project", tool: "claude" },
                 { scopeRoot: options.projectRoot, scope: "project", tool: "codex" },
+                { scopeRoot: options.projectRoot, scope: "project", tool: "antigravity" },
                 { scopeRoot: homeDir, scope: "global", tool: "claude" },
-                { scopeRoot: homeDir, scope: "global", tool: "codex" }
+                { scopeRoot: homeDir, scope: "global", tool: "codex" },
+                { scopeRoot: homeDir, scope: "global", tool: "antigravity" }
             ];
             const writtenPaths:string[] = [];
             let found = false;
