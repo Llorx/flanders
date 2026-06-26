@@ -15,10 +15,12 @@ The folder persists the answers the user supplied to the `install` command that 
 - The AI tool the `implement` command's worker uses: one of `claude`, `codex`, or `antigravity`.
 - The model identifier the worker tool invokes, or the explicit marker "default configured model" when none was supplied.
 - The reasoning-effort identifier the worker tool invokes, or the explicit marker "default configured effort" when none was supplied.
+- Whether the worker runs with Claude Code's fast mode enabled. Fast mode is a higher-speed, higher-cost configuration that is enabled only for a worker whose tool is `claude` and whose model supports fast mode; for every other worker it is off.
 - The ordered list of adversarial reviewers the `implement` command runs. The list holds one or more reviewers, in the order the user configured them, and each reviewer carries its own four fields:
   - The AI tool that reviewer uses: one of `claude`, `codex`, or `antigravity`.
   - The model identifier that reviewer's tool invokes, or the explicit marker "default configured model" when none was supplied.
   - The reasoning-effort identifier that reviewer's tool invokes, or the explicit marker "default configured effort" when none was supplied.
+  - Whether that reviewer runs with Claude Code's fast mode enabled, under the same condition as the worker: enabled only for a reviewer whose tool is `claude` and whose model supports fast mode, and off otherwise.
   - Whether the reviewer is optional: a reviewer marked optional may be cancelled before it finishes once its review round can complete without it, while a reviewer not marked optional (required) always runs to a verdict and is never cancelled. See [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md).
 - The minimum number of reviewers that must run to a verdict in each review round. It is at least `1` and at most the number of configured reviewers, and it is `1` when the reviewer list holds a single reviewer. When it equals the number of configured reviewers, every reviewer is required and none is optional, because a minimum equal to the reviewer count leaves no reviewer that can be cancelled.
 

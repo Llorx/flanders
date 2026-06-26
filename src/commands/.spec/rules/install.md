@@ -2,7 +2,7 @@
 
 ## Interactive prompts go through the shared prompt helper
 
-Every interactive question `install` asks the user — skills tool, scope, worker tool, worker model, worker effort, and, for each reviewer in the configured list, that reviewer's tool, model, and effort, plus the `Configure another reviewer?` question that extends the reviewer list, and, when two or more reviewers are configured, the minimum-reviews question and the per-reviewer optional questions (see [src/commands/.spec/rules/install.md#the-weighted-review-configuration-is-collected-only-when-the-reviewer-list-has-two-or-more-reviewers](/src/commands/.spec/rules/install.md#the-weighted-review-configuration-is-collected-only-when-the-reviewer-list-has-two-or-more-reviewers)) — goes through the same prompt helper that `implement` uses for its plan-selection question. The `Configure another reviewer?` question is a single-select (yes/no) rendered through the helper's single-select function like every other bounded choice. There is one prompt helper for the whole library, and every interactive prompt across every command goes through it.
+Every interactive question `install` asks the user — skills tool, scope, worker tool, worker model, worker effort, worker fast, and, for each reviewer in the configured list, that reviewer's tool, model, effort, and fast, plus the `Configure another reviewer?` question that extends the reviewer list, and, when two or more reviewers are configured, the minimum-reviews question and the per-reviewer optional questions (see [src/commands/.spec/rules/install.md#the-weighted-review-configuration-is-collected-only-when-the-reviewer-list-has-two-or-more-reviewers](/src/commands/.spec/rules/install.md#the-weighted-review-configuration-is-collected-only-when-the-reviewer-list-has-two-or-more-reviewers)) — goes through the same prompt helper that `implement` uses for its plan-selection question. The `Configure another reviewer?` question and each fast question are single-selects (yes/no) rendered through the helper's single-select function like every other bounded choice. There is one prompt helper for the whole library, and every interactive prompt across every command goes through it.
 
 ### Who this applies to
 
@@ -62,12 +62,14 @@ The mapping between flags pinned by [.spec/contracts/cli-commands/install.md](/.
 | `--worker-tool=<value>` | Worker tool |
 | `--worker-model=<value>` | Worker model |
 | `--worker-effort=<value>` | Worker effort |
+| `--worker-fast` | Worker fast |
 | `--reviewer-tool=<value>` | Reviewer 1 tool |
 | `--reviewer-model=<value>` | Reviewer 1 model |
 | `--reviewer-effort=<value>` | Reviewer 1 effort |
 | `--reviewer-N-tool=<value>` | Reviewer N tool (N ≥ 2) |
 | `--reviewer-N-model=<value>` | Reviewer N model (N ≥ 2) |
 | `--reviewer-N-effort=<value>` | Reviewer N effort (N ≥ 2) |
+| `--reviewer-fast` / `--reviewer-N-fast` | Whether reviewer 1 / reviewer N runs with fast mode |
 | `--reviewer-optional` / `--reviewer-N-optional` | Whether reviewer 1 / reviewer N is optional |
 | `--reviewer-minimum=<value>` | Minimum reviewers that must run to a verdict |
 
@@ -260,6 +262,40 @@ The available paths never produce different persisted values for the same user i
 - `install` includes `ultracode` in the `claude` effort set, even though it is not a value the `--effort` flag accepts.
 - `install` asks an effort question for an `antigravity` tool, or persists a non-empty effort for it, even though the Antigravity CLI exposes no effort setting.
 
+## Fast mode is offered only for a claude role whose model supports it
+
+After the effort question for the worker or a reviewer, `install` asks whether that role runs with Claude Code's fast mode enabled — but only when the role's tool is `claude` and its selected model is one that supports fast mode. Fast mode is Claude Code's higher-speed, higher-cost configuration; its persisted value is the `fast` boolean pinned in [src/workspace/.spec/rules/flanders-config/file-format.md](/src/workspace/.spec/rules/flanders-config/file-format.md), and the runner consumes it per [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface). The contract [.spec/contracts/cli-commands/install.md](/.spec/contracts/cli-commands/install.md) pins the user-visible shape; this rule pins which models qualify, how the question is rendered, and how each path persists its value.
+
+### Who this applies to
+
+- **Subject:** the `install` command, on the fast question for the worker and for each reviewer.
+- **Not subject:** any later Flanders command — the persisted `fast` boolean is consumed opaquely by the AI runner and no later command re-derives which models support fast mode. The `codex` and `antigravity` roles are also not subject: their tools have no fast mode, so their `fast` is always `false` and no fast question is asked for them.
+
+### Which models support fast mode
+
+A model supports fast mode when its persisted model identifier is one of: `opus`, `opus[1m]`, `claude-opus-4-8`, `claude-opus-4-8[1m]`, `claude-opus-4-7`, `claude-opus-4-7[1m]`.
+
+These are the Opus 4.8 and Opus 4.7 entries of the `claude` catalog pinned in [src/commands/.spec/rules/install.md#the-model-list-is-sourced-per-tool-codex-by-probe-claude-from-a-hand-maintained-catalog](/src/commands/.spec/rules/install.md#the-model-list-is-sourced-per-tool-codex-by-probe-claude-from-a-hand-maintained-catalog): the auto-updating `Latest Opus` alias, which resolves to a fast-capable Opus, the pinned Opus 4.8 and Opus 4.7 identifiers, and each one's 1M-context variant. No other `claude` model identifier supports fast mode: not the `Best (auto-pick)` cross-family alias, not Opus 4.6 or any earlier Opus, not any Sonnet, Haiku, or Fable model, not a custom-typed identifier the catalog does not list, and not the empty `default configured model`. When Claude Code changes which models support fast mode — for example when fast mode for Opus 4.7 is removed — this rule is updated to track that change.
+
+### When the question is asked, and its default
+
+The fast question is asked for a role only when both hold: the role's tool is `claude`, and the role's selected model — the value resolved from that role's model question, whether picked from the catalog menu or typed into the custom entry (see [src/commands/.spec/rules/install.md#claudes-model-and-effort-lists-include-a-custom-value-entry](/src/commands/.spec/rules/install.md#claudes-model-and-effort-lists-include-a-custom-value-entry)) — is one of the fast-supporting identifiers above. The question is a yes/no single-select rendered through the shared prompt helper (see [src/commands/.spec/rules/install.md#interactive-prompts-go-through-the-shared-prompt-helper](/src/commands/.spec/rules/install.md#interactive-prompts-go-through-the-shared-prompt-helper)), and its default is `no` — fast mode off — because fast mode bills at a higher rate. Selecting yes persists `fast` as `true`; selecting no persists it as `false`.
+
+For every role whose fast question is not asked — a `codex` or `antigravity` role, or a `claude` role whose model does not support fast mode — `fast` is persisted as `false` without asking.
+
+### Flag behavior
+
+The `--worker-fast`, `--reviewer-fast`, and `--reviewer-N-fast` flags are presence flags. When the flag for a role is present, that role's fast question is not asked and its `fast` is recorded as `true`; when absent, the role takes the interactive outcome (asked when the model supports fast mode, `false` otherwise). Supplying a fast flag for a role whose tool is not `claude`, or whose resolved model does not support fast mode, is a usage error pinned by the install contract; a `--reviewer-N-fast` whose index exceeds the reviewer-list length is a usage error pinned by the install contract. The fast flags annotate roles within the reviewer list established by the tool, model, and effort flags; they do not establish or extend that list (the list-length determination is pinned in [src/commands/.spec/rules/install.md#reviewer-flags-fix-the-reviewer-list-length-and-skip-the-configure-another-reviewer-prompt](/src/commands/.spec/rules/install.md#reviewer-flags-fix-the-reviewer-list-length-and-skip-the-configure-another-reviewer-prompt)).
+
+### Failure signals
+
+- `install` asks the fast question for a `codex` or `antigravity` role, or for a `claude` role whose model does not support fast mode.
+- `install` does not ask the fast question for a `claude` role whose model does support fast mode.
+- `install` persists `fast` as `true` for a role whose tool is not `claude`, or whose model does not support fast mode.
+- The fast question defaults to `yes` instead of `no`.
+- `install` accepts a `--worker-fast` / `--reviewer[-N]-fast` flag for a role whose tool is not `claude` or whose model does not support fast mode, instead of exiting with a usage error.
+- `install` treats a fast flag as fixing or extending the reviewer-list length.
+
 ## Claude's model and effort lists include a custom value entry
 
 The selectable list `install` shows for the `claude` model question, the one it shows for the `claude` effort question, and the one it shows for the `antigravity` model question each end with a custom entry placed after the synthetic `default configured …` entry. Selecting the custom entry opens a free-text input through which the user types any identifier the tool accepts; the typed value becomes that question's answer. This is what lets the user choose a `claude` model or effort, or an `antigravity` model, that the curated suggestion lists do not enumerate.
@@ -387,6 +423,7 @@ Each question is seeded through the shared prompt helper's default support (see 
 - **Worker tool, each reviewer tool** — the single-select's default entry is the stored `tool`. `claude`, `codex`, and `antigravity` are always offered, so the stored tool is always pre-selectable.
 - **Worker effort, each reviewer effort** — the default entry is the entry whose persisted value equals the stored `effort` (the synthetic `default configured effort` entry when the stored effort is `""`). For `claude`, an effort that is not among the curated suggestions defaults to the custom entry, whose free-text default is set to the stored value. For `codex`, the stored effort is always a member of the closed documented set or `""`, so it is always among the offered entries. For `antigravity`, no effort question is asked, so there is no default to seed.
 - **Worker model, each reviewer model** — the default entry is the entry whose persisted value equals the stored `model` (the synthetic `default configured model` entry when the stored model is `""`). For `claude`, the two-tier menu pre-selects along the path to the stored model: when the stored model belongs to a family submenu, the family entry is the default at the top level and the matching model entry is the default inside that submenu; when it is the cross-family alias or the default entry, that top-level entry is the default; and when it matches none of the catalogued values, the custom entry is the default with its free-text default set to the stored model. For `codex`, the default entry is the probe-returned entry equal to the stored model, or the `default configured model` entry when the stored model is `""`; a stored `codex` model the current probe no longer returns is not among the offered entries and is not forced onto any entry — that question is then answered actively, while every other question still reproduces its stored answer. When the `codex` model question falls back to free-text (empty or failed probe), its free-text default is the stored model. For `antigravity`, the provider-grouped menu pre-selects along the path to the stored model exactly as the `claude` menu does: the provider entry is the default at the top level and the matching model entry is the default inside that provider's submenu; a stored model that matches none of the catalogued values defaults to the custom entry, with its free-text default set to the stored model; and the `default configured model` entry is the default when the stored model is `""`.
+- **Worker fast, each reviewer fast** — when the fast question is asked for a role (its tool is `claude` and its model supports fast mode per [src/commands/.spec/rules/install.md#fast-mode-is-offered-only-for-a-claude-role-whose-model-supports-it](/src/commands/.spec/rules/install.md#fast-mode-is-offered-only-for-a-claude-role-whose-model-supports-it)), the yes/no single-select defaults to the stored `fast` of that role. When the role's model does not support fast mode, no fast question is asked and the stored `fast` — always `false` for such a role — is carried through unchanged.
 - **Reviewer-list length** — the `Configure another reviewer?` single-select is seeded to rebuild a list of the stored length `T`: it defaults to `yes` after each of the first `T − 1` reviewers and to `no` after reviewer `T`, so accepting every default configures exactly `T` reviewers. When at least one reviewer flag is present, the list length is fixed by the flags and this question is not shown at all, per [src/commands/.spec/rules/install.md#reviewer-flags-fix-the-reviewer-list-length-and-skip-the-configure-another-reviewer-prompt](/src/commands/.spec/rules/install.md#reviewer-flags-fix-the-reviewer-list-length-and-skip-the-configure-another-reviewer-prompt).
 - **Each reviewer's `optional`** — when the per-reviewer optional questions are asked (the chosen minimum is below `T`), each defaults to the stored `optional` of the reviewer at that position.
 - **`minimumReviews`** — the free-text numeric entry's default is the stored `minimumReviews` rather than `T`. The validation pinned by [src/commands/.spec/rules/install.md#the-weighted-review-configuration-is-collected-only-when-the-reviewer-list-has-two-or-more-reviewers](/src/commands/.spec/rules/install.md#the-weighted-review-configuration-is-collected-only-when-the-reviewer-list-has-two-or-more-reviewers) still governs the accepted entry.

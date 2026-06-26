@@ -16,13 +16,14 @@ Adding a new AI tool to Flanders is a matter of writing a new adapter that imple
 
 Every adapter exposes one invocation function. Its signature, abstractly:
 
-    invoke({ prompt, model, effort, resumeSessionId?, priorSessionUsage?, abortSignal }) → AsyncIterable<ToolEvent>
+    invoke({ prompt, model, effort, fast, resumeSessionId?, priorSessionUsage?, abortSignal }) → AsyncIterable<ToolEvent>
 
 Arguments:
 
 - `prompt` — the prompt text to send. The adapter is responsible for delivering it to the binary in whatever way that binary requires (stdin, argv, file); the runner does not care.
 - `model` — the model identifier persisted in `.flanders/config.json` per [src/workspace/.spec/rules/flanders-config/file-format.md](/src/workspace/.spec/rules/flanders-config/file-format.md). An empty string means "default configured model" and the adapter must not pass an explicit model flag to its binary.
 - `effort` — the effort identifier persisted in `.flanders/config.json`. An empty string means "default configured effort" and the adapter must not pass an explicit effort flag.
+- `fast` — the `fast` boolean persisted in `.flanders/config.json` per [src/workspace/.spec/rules/flanders-config/file-format.md](/src/workspace/.spec/rules/flanders-config/file-format.md). `true` means the adapter runs the tool with its fast-mode configuration; `false` means it does not. It is meaningful only for a tool that has a fast mode (today `claude`); an adapter whose tool exposes no fast mode receives `false` — the only value the config records for such a tool — and passes no fast-mode setting.
 - `resumeSessionId` — when set, the adapter resumes the previous session with that id (used by [src/commands/.spec/rules/ai/task-context.md#the-worker-resumes-its-captured-session_id-across-iterations-of-the-same-task](/src/commands/.spec/rules/ai/task-context.md#the-worker-resumes-its-captured-session_id-across-iterations-of-the-same-task)). When unset, the adapter starts a fresh invocation.
 - `priorSessionUsage` — the running token totals (`inputTokens` and `outputTokens`) already attributed to the session this invocation resumes, summed across every prior invocation of that same session. It is the baseline an adapter subtracts when its tool's native usage report is a session-cumulative running total, so the usage the adapter surfaces is this invocation's own consumption rather than the session's accumulated total. The Codex adapter subtracts it (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)); the Claude adapter, whose native report is already per-invocation, ignores it (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)). It is meaningful only alongside `resumeSessionId`; on a fresh invocation it is absent and the baseline is zero.
 - `abortSignal` — when the signal triggers, the adapter sends the appropriate termination signal to its spawned process, drains any remaining buffered output, and ends the iterable promptly. The runner waits for the iterable to close; the adapter does not return until the child process has exited.
@@ -108,22 +109,22 @@ Spawned children may inherit a piped stdout/stderr that the adapter reads — th
 - An adapter ignores `abortSignal` and continues consuming the child's output (or leaks the child process) after the runner has cancelled.
 - A new adapter is added that introduces a new event variant beyond the five listed here, instead of mapping its tool's native events onto the existing five.
 
-## The detect agent inherits tool, model and effort from the worker
+## The detect agent inherits tool, model, effort and fast from the worker
 
-The build/test detection agent spawned by `implement` at workspace setup time (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)) is not separately configured in `.flanders/config.json`. It runs through the AI runner with the same `tool`, `model`, and `effort` the runner uses for the worker.
+The build/test detection agent spawned by `implement` at workspace setup time (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)) is not separately configured in `.flanders/config.json`. It runs through the AI runner with the same `tool`, `model`, `effort`, and `fast` the runner uses for the worker.
 
 ### Who this applies to
 
 - **Subject:** the workspace-setup code path in `implement` that spawns the detect agent.
-- **Not subject:** the AI runner itself. The runner receives tool/model/effort as arguments and does not know the call is a detect call.
+- **Not subject:** the AI runner itself. The runner receives tool, model, effort, and fast as arguments and does not know the call is a detect call.
 
 ### Behavior
 
 When the workspace setup spawns the detect agent:
 
 1. The orchestrator reads `.flanders/config.json` per [src/workspace/.spec/rules/flanders-config/file-format.md](/src/workspace/.spec/rules/flanders-config/file-format.md).
-2. It takes the `worker.tool`, `worker.model`, and `worker.effort` values verbatim and passes them to the AI runner along with the detect prompt and the two target script paths (`build.bat`/`test.bat` on Windows, `build.sh`/`test.sh` elsewhere).
-3. The runner invokes the resulting tool with that model and effort, per [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface) or [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface).
+2. It takes the `worker.tool`, `worker.model`, `worker.effort`, and `worker.fast` values verbatim and passes them to the AI runner along with the detect prompt and the two target script paths (`build.bat`/`test.bat` on Windows, `build.sh`/`test.sh` elsewhere).
+3. The runner invokes the resulting tool with that model, effort, and fast setting, per [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface) or [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface).
 
 The orchestrator does not consult `reviewer.*` for the detect agent, and does not invent a third "detect" set of fields.
 
@@ -134,8 +135,8 @@ The orchestrator does not consult `reviewer.*` for the detect agent, and does no
 
 ### Failure signals
 
-- The orchestrator passes the reviewer's tool/model/effort (or any mix) to the detect agent.
-- The orchestrator hardcodes a tool/model/effort for the detect agent instead of reading the worker's values from `.flanders/config.json`.
+- The orchestrator passes the reviewer's tool/model/effort/fast (or any mix) to the detect agent.
+- The orchestrator hardcodes a tool/model/effort/fast for the detect agent instead of reading the worker's values from `.flanders/config.json`.
 - The orchestrator introduces a `detect.*` section in `.flanders/config.json` and consumes it.
 - The orchestrator bypasses the AI runner to spawn the detect agent directly.
 
@@ -187,6 +188,8 @@ The prompt is delivered as a single user message inside the input stream-json on
 When the configured `model` is non-empty, the adapter appends `--model <model>`. When it is the empty string, the flag is not passed and the Claude default applies.
 
 When the configured `effort` is non-empty, the adapter appends `--effort <effort>` — the Claude Code flag that sets the reasoning-effort level for the launched session — passing the configured value verbatim. When it is the empty string, the flag is not passed and the Claude default applies.
+
+When `fast` is `true`, the adapter enables Claude Code's fast mode for the launched session by passing the `fastMode` setting — the Claude Code setting that turns fast mode on — set to `true` through the session-settings override the CLI exposes (the `--settings` flag, which accepts an inline JSON object). When `fast` is `false`, the adapter passes no such setting and Claude Code's default (fast mode off) applies. The fast setting is independent of `--effort`: the adapter sets each from its own configured value, and both appear on the same invocation when `fast` is `true` and `effort` is non-empty.
 
 When `resumeSessionId` is supplied, the adapter appends `--resume <resumeSessionId>`. When it is unset, no resume flag is passed and the invocation starts fresh.
 
@@ -256,6 +259,8 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `claude` 
 - The adapter processes a `control_request` / permission event, writes a `control_response` on stdin, or forwards a question to the user, instead of running the turn to completion without human interaction.
 - The adapter passes `--model ""` (empty string) instead of omitting the flag when the configured model is empty. Likewise for `--effort`.
 - The adapter drops a non-empty configured effort, or logs it as unsupported, instead of appending `--effort <effort>`.
+- The adapter leaves a `fast` of `true` unrealized — failing to enable Claude Code's `fastMode` setting (for example via `--settings`) — so the launched session runs without fast mode.
+- The adapter enables the `fastMode` setting when `fast` is `false`.
 - The adapter writes Claude's native output to the user's terminal directly, instead of emitting `output` events and letting the runner forward them.
 - The adapter classifies the retryable / non-retryable decision by parsing `result.error.message` text instead of the structured `is_error` / `api_error_status` / `subtype` fields.
 - The adapter emits a `rate_limit` event without an authoritative `waitUntilMs` parsed from Claude's signal, instead of falling back to a retryable `error`.

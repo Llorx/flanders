@@ -4,7 +4,7 @@
 Configure Flanders for the chosen scope and deliver the Flanders skills (`/flanders-spec`, `/flanders-plan`, and `/flanders-work`) to the user's AI-tool environment(s) so the user can invoke them from inside an AI-tool session. This subcommand is the only way the library publishes those skills to disk and the only way it writes the persistent `.flanders/` configuration consumed by other Flanders commands.
 
 ## Invocation
-    npx flanders install [scope-flag] [tool-flag ...] [model-flag ...] [effort-flag ...]
+    npx flanders install [scope-flag] [tool-flag ...] [model-flag ...] [effort-flag ...] [fast-flag ...]
 
 ### Scope flags
 - `--project` — install scope is the current working directory. Skills are written to the project's AI-tool skill folders, and the `.flanders/` configuration is written at the project root.
@@ -17,11 +17,13 @@ The scope flags are mutually exclusive; supplying both is a usage error. When ne
 - `--worker-tool=<value>` — which AI tool the `implement` command's worker uses. Value is one of `claude`, `codex`, or `antigravity`.
 - `--worker-model=<value>` — model identifier the worker tool invokes. An empty value means "use the tool's default configured model".
 - `--worker-effort=<value>` — reasoning-effort identifier the worker tool invokes. An empty value means "use the tool's default configured effort".
+- `--worker-fast` — a presence flag that enables Claude Code's fast mode for the worker. Fast mode is a higher-speed, higher-cost configuration that applies only to a worker whose tool is `claude` and whose model supports fast mode; absent the flag, the default is off. Supplying it for a worker whose tool is not `claude`, or whose model does not support fast mode, is a usage error.
 
 The adversarial reviewers form an ordered list of one or more reviewers, addressed by a 1-based index. Reviewer 1 uses the unindexed flag names; every later reviewer uses the index in the flag name:
 - `--reviewer-tool=<value>` / `--reviewer-N-tool=<value>` — which AI tool reviewer 1 / reviewer N uses. Value is one of `claude`, `codex`, or `antigravity`.
 - `--reviewer-model=<value>` / `--reviewer-N-model=<value>` — model identifier that reviewer's tool invokes. An empty value means "use the tool's default configured model".
 - `--reviewer-effort=<value>` / `--reviewer-N-effort=<value>` — reasoning-effort identifier that reviewer's tool invokes. An empty value means "use the tool's default configured effort".
+- `--reviewer-fast` / `--reviewer-N-fast` — a presence flag that enables Claude Code's fast mode for reviewer 1 / reviewer N, under the same condition and default as `--worker-fast`: it applies only to a reviewer whose tool is `claude` and whose model supports fast mode, and is off when absent. Like the per-reviewer optional flags, these annotate reviewers within the list established by the tool, model, and effort flags; they do not themselves establish or extend the list. A `--reviewer-N-fast` whose index exceeds the established reviewer-list length is a usage error.
 
 `N` is an integer of `2` or greater. The reviewer indices supplied via the tool, model, and effort flags must form a contiguous run starting at reviewer 1 (1, then 2, then 3, …); a gap in the indices (for example supplying `--reviewer-2-tool` without `--reviewer-tool`) is a usage error. For the purpose of fixing the reviewer-list length and skipping the interactive "configure another reviewer?" prompt, a reviewer flag means a `--reviewer[-N]-tool`, `--reviewer[-N]-model`, or `--reviewer[-N]-effort` flag; when at least one of these is present, the flag-supplied reviewers are the complete reviewer list and the "configure another reviewer?" prompt is not shown.
 
@@ -31,7 +33,7 @@ The reviewers also carry a weighted-review configuration, addressed by the same 
 
 Supplying any weighted-review flag (`--reviewer-minimum` or any `--reviewer[-N]-optional`) with a single-reviewer configuration is a usage error. Supplying `--reviewer-minimum` with a value equal to the number of configured reviewers together with any `--reviewer[-N]-optional` flag is also a usage error: a minimum equal to the reviewer count forces every reviewer to run to a verdict, so no reviewer can be optional.
 
-Any tool, model, or effort question whose answer was not supplied via flags is prompted interactively (see `Interactive prompts`). Any question whose answer was supplied via a flag is not prompted again. The questions whose values form a closed set — every tool question, the `codex` effort question, and the `antigravity` effort question — reject a flag value outside that set as a usage error; for an `antigravity` tool the only valid effort value is the empty default, so any non-empty effort flag is a usage error, and `--skills-tool` accepts only a comma-separated list of distinct names drawn from the closed tool set. The questions whose values are open — every model question and the `claude` effort question — accept any flag value verbatim and are never rejected on value-set grounds.
+Any tool, model, effort, or fast question whose answer was not supplied via flags is prompted interactively (see `Interactive prompts`). Any question whose answer was supplied via a flag is not prompted again. The questions whose values form a closed set — every tool question, the `codex` effort question, and the `antigravity` effort question — reject a flag value outside that set as a usage error; for an `antigravity` tool the only valid effort value is the empty default, so any non-empty effort flag is a usage error, and `--skills-tool` accepts only a comma-separated list of distinct names drawn from the closed tool set. The questions whose values are open — every model question and the `claude` effort question — accept any flag value verbatim and are never rejected on value-set grounds. The fast question is answered by a presence flag (`--worker-fast`, `--reviewer-fast`, `--reviewer-N-fast`) rather than a value: the flag enables fast mode for its role, and it is rejected as a usage error only when that role's tool is not `claude` or its model does not support fast mode.
 
 ## Interactive prompts
 When run interactively, the command asks the following questions, in order, skipping any question whose answer was provided via flags:
@@ -41,7 +43,8 @@ When run interactively, the command asks the following questions, in order, skip
 3. Worker tool — `claude`, `codex`, or `antigravity`.
 4. Worker model — see `Model selection`.
 5. Worker effort — see `Effort selection`.
-6. Reviewer configuration — see `Reviewer configuration`. This collects an ordered list of one or more reviewers, and, when two or more reviewers are configured, the weighted-review configuration (see `Weighted-review configuration`).
+6. Worker fast — see `Fast selection`. Asked only when the worker tool is `claude` and the worker model supports fast mode.
+7. Reviewer configuration — see `Reviewer configuration`. This collects an ordered list of one or more reviewers, and, when two or more reviewers are configured, the weighted-review configuration (see `Weighted-review configuration`).
 
 ### Reviewer configuration
 The command configures the adversarial reviewers as an ordered list, asked after the worker questions:
@@ -49,7 +52,8 @@ The command configures the adversarial reviewers as an ordered list, asked after
 1. Reviewer 1 tool — `claude`, `codex`, or `antigravity`.
 2. Reviewer 1 model — see `Model selection`.
 3. Reviewer 1 effort — see `Effort selection`.
-4. `Configure another reviewer?` — a yes/no question. On `yes`, the command asks the tool, model, and effort questions for the next reviewer (in the same shape as reviewer 1), then asks `Configure another reviewer?` again. On `no`, reviewer configuration ends.
+4. Reviewer 1 fast — see `Fast selection`. Asked only when reviewer 1's tool is `claude` and its model supports fast mode.
+5. `Configure another reviewer?` — a yes/no question. On `yes`, the command asks the tool, model, effort, and fast questions for the next reviewer (in the same shape as reviewer 1), then asks `Configure another reviewer?` again. On `no`, reviewer configuration ends.
 
 The loop always configures at least reviewer 1; the `Configure another reviewer?` question is what extends the list to two or more reviewers. The reviewers are persisted in the order they were configured.
 
@@ -79,12 +83,19 @@ For each tool selected as the worker or as any reviewer, the effort question is 
 
 The `--worker-effort`, `--reviewer-effort`, and `--reviewer-N-effort` flag equivalents follow the same rule per tool: for `claude` any value is accepted verbatim; for `codex` only a documented level or an empty value is accepted, and a value outside that closed set is a usage error; for `antigravity` only an empty value is accepted, and any non-empty value is a usage error because the tool exposes no effort setting. An empty value or an omitted flag answered as empty resolves to "default configured effort".
 
+### Fast selection
+Fast mode is Claude Code's higher-speed, higher-cost configuration. For the worker or a reviewer, the fast question is asked only when that role's tool is `claude` and its selected model is one that supports fast mode; the concrete set of models that support fast mode is pinned in [src/commands/.spec/rules/install.md#fast-mode-is-offered-only-for-a-claude-role-whose-model-supports-it](/src/commands/.spec/rules/install.md#fast-mode-is-offered-only-for-a-claude-role-whose-model-supports-it). For every other role — any `codex` or `antigravity` role, and any `claude` role whose model does not support fast mode — no fast question is asked and fast mode is off.
+
+When it is asked, the question is a yes/no choice whose default is off, because fast mode bills at a higher rate. Selecting yes enables fast mode for that role; selecting no, or not being asked at all, leaves it off.
+
+The `--worker-fast`, `--reviewer-fast`, and `--reviewer-N-fast` flag equivalents are presence flags: supplying one enables fast mode for its role and skips that role's fast question, while its absence leaves the role at the interactive outcome (asked when the model supports fast mode, off otherwise). Supplying a fast flag for a role whose tool is not `claude`, or whose model does not support fast mode, is a usage error.
+
 ## Pre-selection from an existing configuration
 After the scope is chosen (`Interactive prompts` question 2), the command reads the `.flanders/config.json` file at that chosen scope — the same file a successful run writes (see `Configuration written`) — and seeds the interactive defaults of the questions asked afterward from its stored answers. The read targets the chosen scope's file directly: it does not consult the other scope and does not apply the read-time precedence that commands consuming the configuration to run follow (see [.spec/contracts/shared/flanders-config.md](/.spec/contracts/shared/flanders-config.md)).
 
 The read is lenient. When no `.flanders/config.json` exists at the chosen scope, or the file exists but is malformed or unreadable, the command proceeds with its fresh-install defaults and pre-selects nothing — a malformed pre-existing configuration is repaired by completing the run, which overwrites it, so this read never aborts the command. This leniency is specific to this pre-selection read; a command that consumes the configuration to run still treats a malformed file as a hard error.
 
-When a valid `.flanders/config.json` is read, every interactively-asked question whose answer that file stores is pre-selected to the stored value, and that value is the question's default — the answer taken when the user accepts the prompt without changing it. The stored answers and the questions they seed are the worker tool, model, and effort; the reviewer list — its length and, for each reviewer in order, that reviewer's tool, model, effort, and whether it is optional; and the minimum number of reviewers. The reviewer-list length is reproduced by seeding the `Configure another reviewer?` question so that accepting every default rebuilds a list of the stored length. The per-question defaults stated above in `Reviewer configuration`, `Model selection`, `Effort selection`, and `Weighted-review configuration` — for example, the minimum defaulting to the reviewer-list length and each reviewer defaulting to required — are the defaults used when no configuration is read; a read configuration replaces each of them with its stored value.
+When a valid `.flanders/config.json` is read, every interactively-asked question whose answer that file stores is pre-selected to the stored value, and that value is the question's default — the answer taken when the user accepts the prompt without changing it. The stored answers and the questions they seed are the worker tool, model, effort, and fast; the reviewer list — its length and, for each reviewer in order, that reviewer's tool, model, effort, fast, and whether it is optional; and the minimum number of reviewers. The reviewer-list length is reproduced by seeding the `Configure another reviewer?` question so that accepting every default rebuilds a list of the stored length. The per-question defaults stated above in `Reviewer configuration`, `Model selection`, `Effort selection`, and `Weighted-review configuration` — for example, the minimum defaulting to the reviewer-list length and each reviewer defaulting to required — are the defaults used when no configuration is read; a read configuration replaces each of them with its stored value.
 
 The skills-tool answer and the scope are not stored in `.flanders/config.json` (see `Configuration written`) and are therefore never pre-selected from it; both are answered as on a fresh run. A flag still takes precedence over any pre-selected default: a question answered by a flag is not asked, and its answer is the flag's value, not the stored value.
 
@@ -101,7 +112,7 @@ When the skills-tool selection names more than one tool, the artifacts for every
 The textual obligations a user sees when invoking a skill are pinned by the contract files in `.spec/contracts/ai-skills/`. The internal form of each skill artifact (frontmatter fields, body shape) is an implementation detail; what is pinned is that after a successful `install` run the user is able to invoke `/flanders-spec`, `/flanders-plan`, and `/flanders-work` from inside an AI-tool session of each selected tool whose skills root is the chosen scope.
 
 ## Configuration written
-The command writes the persistent Flanders configuration at the chosen scope, as defined in [.spec/contracts/shared/flanders-config.md](/.spec/contracts/shared/flanders-config.md). Only the answers downstream Flanders commands consume are persisted (worker tool, model, and effort; for each reviewer in the configured order, its tool, model, effort, and whether it is optional; and the minimum number of reviewers that must run to a verdict in each review round). The skills-tool answer is consumed by `install` itself to decide which skill folders to write into and is not persisted to `.flanders/`.
+The command writes the persistent Flanders configuration at the chosen scope, as defined in [.spec/contracts/shared/flanders-config.md](/.spec/contracts/shared/flanders-config.md). Only the answers downstream Flanders commands consume are persisted (worker tool, model, effort, and fast; for each reviewer in the configured order, its tool, model, effort, fast, and whether it is optional; and the minimum number of reviewers that must run to a verdict in each review round). The skills-tool answer is consumed by `install` itself to decide which skill folders to write into and is not persisted to `.flanders/`.
 
 ## Overwrite behavior
 Existing files at the destination paths — both skill artifacts and `.flanders/` configuration files — are overwritten silently. The command does not back up, version, or prompt about pre-existing files. Preserving prior versions is the user's responsibility, typically through version control.
@@ -116,6 +127,8 @@ The command's interactive prompts and its own status writes carry the Flanders v
 - `--global` and `--project` supplied together: exits non-zero with a diagnostic naming the conflict.
 - A single-valued tool flag (`--worker-tool`, `--reviewer-tool`, or `--reviewer-N-tool`), the `codex` effort flag, or the `antigravity` effort flag is supplied with a value outside its closed set: exits non-zero with a diagnostic that names the offending flag and value. For an `antigravity` tool the only valid effort value is empty, so any non-empty `--worker-effort`/`--reviewer-effort`/`--reviewer-N-effort` is rejected. Model flags and the `claude` effort flag are open and never trigger this error.
 - `--skills-tool` is supplied with a value that is not a comma-separated list of one or more distinct names drawn from `claude`, `codex`, and `antigravity` (an empty list, an unknown name, or a repeated name): exits non-zero with a diagnostic that names the offending value.
+- A fast flag (`--worker-fast`, `--reviewer-fast`, or `--reviewer-N-fast`) is supplied for a role whose tool is not `claude`, or whose model does not support fast mode: exits non-zero with a diagnostic that names the offending flag.
+- A `--reviewer-N-fast` flag references an index beyond the configured reviewer list: exits non-zero with a diagnostic that names the offending index.
 - Reviewer index flags do not form a contiguous run starting at reviewer 1 (for example a `--reviewer-2-tool`/`-model`/`-effort` flag is supplied without any reviewer-1 flag): exits non-zero with a diagnostic that names the gap.
 - A weighted-review flag (`--reviewer-minimum` or any `--reviewer[-N]-optional`) is supplied with a single-reviewer configuration: exits non-zero with a diagnostic that names the offending flag.
 - `--reviewer-minimum` equal to the number of configured reviewers is supplied together with any `--reviewer[-N]-optional` flag: exits non-zero with a diagnostic that names the conflict, because a minimum equal to the reviewer count leaves no reviewer that can be optional.
