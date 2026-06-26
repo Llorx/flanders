@@ -885,6 +885,25 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("plan content rules carry the economy-of-words obligation", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "instructs using the fewest words that state each item unambiguously"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("Use the fewest words that state each task, obligation, and explanation unambiguously"), "the Plan content rules list must instruct using the fewest words that state each item unambiguously");
+            },
+            "writes content only when it carries something not already carried elsewhere"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("only when it carries something not already carried by another task, an earlier sentence, or the reader's ordinary competence"), "the Plan content rules list must write content only when it carries something not already carried elsewhere");
+            },
+            "reaches for more words only when fewer would leave an outcome ambiguous"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("Reach for more words only when fewer would leave an observable outcome ambiguous"), "the Plan content rules list must reach for more words only when fewer would leave an observable outcome ambiguous");
+            }
+        }
+    });
+
     test("covers updated plan content rules", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
@@ -1565,6 +1584,25 @@ test.describe("skills – specSkillBody", test => {
             "forbids wrapping a paragraph to a maximum column width"(body) {
                 const draftingSection = body.slice(body.indexOf("Drafting phase"), body.indexOf("Final validation"));
                 Assert.ok(draftingSection.includes("Never break a paragraph across multiple lines to keep it within a maximum column width"), "the drafting guidance must forbid wrapping a paragraph to a maximum column width");
+            }
+        }
+    });
+
+    test("carries the active economy instruction in drafting guidance", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "instructs using the fewest files and words that state each obligation unambiguously"(body) {
+                const draftingSection = body.slice(body.indexOf("Drafting phase"), body.indexOf("Final validation"));
+                Assert.ok(draftingSection.includes("Use the fewest files and the fewest words that state each obligation unambiguously"), "the drafting guidance must instruct using the fewest files and words that state each obligation unambiguously");
+            },
+            "writes content only when it carries something not already carried elsewhere"(body) {
+                const draftingSection = body.slice(body.indexOf("Drafting phase"), body.indexOf("Final validation"));
+                Assert.ok(draftingSection.includes("only when it carries something not already carried elsewhere"), "the drafting guidance must write content only when it carries something not already carried elsewhere");
+            },
+            "reaches for more only when fewer would leave ambiguity or fuse separable concerns"(body) {
+                const draftingSection = body.slice(body.indexOf("Drafting phase"), body.indexOf("Final validation"));
+                Assert.ok(draftingSection.includes("reach for more files or more words only when fewer would leave an obligation ambiguous or would fuse genuinely separable concerns into one place"), "the drafting guidance must reach for more only when fewer would leave ambiguity or fuse separable concerns");
             }
         }
     });

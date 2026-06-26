@@ -268,3 +268,22 @@ The `/flanders-spec` and `/flanders-plan` skill artifact bodies state this **act
 - A contract, rule, or plan file authored by a content skill breaks a paragraph of prose across multiple physical lines to fit a column width.
 - A content skill's artifact body omits the active drafting instruction to write each paragraph as a single unwrapped line.
 - A content skill re-wraps the contents of a fenced code block to a width budget instead of reproducing them verbatim.
+
+## The `/flanders-spec` and `/flanders-plan` skill bodies instruct economy of files and words
+
+The body of the `/flanders-spec` and `/flanders-plan` skill artifacts states, actively in its drafting guidance, that the skill commits each obligation to the fewest files and the fewest words that express it unambiguously. The body instructs the skill to write a file, a section, a sentence, or a cross-reference only when that content carries something not already carried elsewhere — by another file, by a sentence already written, or by the reader's ordinary competence — and to reach for more files or more words only when fewer would leave an obligation ambiguous or would fuse genuinely separable concerns into one place. This is active drafting guidance, not a post-write check: it keeps surplus content from being written in the first place rather than relying on a later pass to prune it.
+
+### Who this applies to
+
+- **Subject:** the source content that produces the `/flanders-spec` and `/flanders-plan` skill artifact bodies — every place in the flanders codebase where that prompt text is authored or assembled.
+- **Subject:** the resulting `/flanders-spec` and `/flanders-plan` skill artifact files that `install` writes into the user's AI-tool skill folders.
+- **Not subject:** `/flanders-work`, which implements code rather than authoring a spec or plan document, and every other agent or command.
+
+### How to apply
+
+The skill artifact bodies state the economy instruction where the body tells the skill how to draft, alongside the other drafting guidance. This is the umbrella instruction over the economy obligations pinned for specific cases — most directly the load-bearing test for an explicit prohibition in [src/prompts/.spec/rules/ai/skills/spec.md#a-spec-states-behavior-an-explicit-prohibition-is-written-only-when-load-bearing](/src/prompts/.spec/rules/ai/skills/spec.md#a-spec-states-behavior-an-explicit-prohibition-is-written-only-when-load-bearing) — and the body states it without restating those specific obligations; where no specific obligation settles whether a piece of content earns its place, the economy instruction does. The instruction is inlined in the body and carries no flanders-internal spec citation, per [src/prompts/.spec/rules/ai/skills/skills-common.md#flanders-skill-artifact-prompts-are-self-contained--no-citations-of-flanders-internal-spec-paths](/src/prompts/.spec/rules/ai/skills/skills-common.md#flanders-skill-artifact-prompts-are-self-contained--no-citations-of-flanders-internal-spec-paths).
+
+### Failure signals
+
+- A `/flanders-spec` or `/flanders-plan` skill body omits any active drafting instruction to use the fewest files and words, leaving economy to a post-write pass or to chance.
+- A skill body splits across several files or sections content that one would state unambiguously, or pads with a second sentence an obligation a single sentence already states.
