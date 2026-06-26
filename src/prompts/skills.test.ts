@@ -609,6 +609,12 @@ Every message you address to the user during the run — your clarifying questio
             "describes the re-clarify branch"(body) {
                 Assert.ok(body.includes("re-enter the clarification phase"), "must describe the re-clarify branch");
             },
+            "re-entered clarification carries the batched cadence"(body) {
+                Assert.ok(body.includes("Re-entered clarification follows the same cadence"), "re-entered clarification must carry the batched cadence");
+            },
+            "re-entered clarification drops the no-bundling restriction"(body) {
+                Assert.ok(!body.includes("no bundling"), "re-entered clarification must not restate the no-bundling restriction");
+            },
             "describes the silent-fix branch"(body) {
                 Assert.ok(body.includes("apply in place without asking"), "must describe the silent-fix branch");
             },
@@ -775,8 +781,11 @@ Every message you address to the user during the run — your clarifying questio
             "has Clarification phase heading"(body) {
                 Assert.ok(body.includes("Clarification phase"), "must have Clarification phase heading");
             },
-            "enforces one question per turn"(body) {
-                Assert.ok(body.includes("one question per turn"), "must enforce one question per turn");
+            "batches independent clarification questions"(body) {
+                Assert.ok(body.includes("ask that whole set together in a single interaction"), "must batch independent questions in a single interaction");
+            },
+            "falls back to one question per turn without a multi-question facility"(body) {
+                Assert.ok(body.includes("when it provides no such facility, ask one question per turn"), "must fall back to one question per turn when no multi-question facility exists");
             },
             "limits trigger to implementation choice"(body) {
                 Assert.ok(body.includes("implementation choice"), "must mention implementation choice as trigger");
@@ -1210,8 +1219,11 @@ test.describe("skills – specSkillBody", test => {
             "mentions clarification phase"(body) {
                 Assert.ok(body.includes("Clarification phase"), "must mention clarification phase");
             },
-            "enforces one question per turn"(body) {
-                Assert.ok(body.includes("one question per turn"), "must enforce one question per turn");
+            "batches independent clarification questions"(body) {
+                Assert.ok(body.includes("ask that whole set together in a single interaction"), "must batch independent questions in a single interaction");
+            },
+            "falls back to one question per turn without a multi-question facility"(body) {
+                Assert.ok(body.includes("when it provides no such facility, ask one question per turn"), "must fall back to one question per turn when no multi-question facility exists");
             }
         }
     });
@@ -1690,6 +1702,12 @@ Every message you address to the user during the run — your clarifying questio
             },
             "pins the bounded five-pass loop"(body) {
                 Assert.ok(body.includes("at most FIVE triage-then-fix passes"), "must pin the bounded five-pass triage-then-fix loop");
+            },
+            "re-entered clarification carries the batched cadence"(body) {
+                Assert.ok(body.includes("Re-entered clarification follows the same cadence"), "re-entered clarification must carry the batched cadence");
+            },
+            "re-entered clarification drops the no-bundling restriction"(body) {
+                Assert.ok(!body.includes("no bundling"), "re-entered clarification must not restate the no-bundling restriction");
             },
             "does not declare complete on exhaustion"(body) {
                 Assert.ok(body.includes("do not declare complete"), "must not declare complete on exhaustion");
