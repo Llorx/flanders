@@ -6333,7 +6333,7 @@ test.describe("Install antigravity", test => {
         }
     });
 
-    test("interactive worker and reviewer offer antigravity as a third tool and collect its model as free-text", {
+    test("interactive worker and reviewer offer antigravity as a third tool and collect its model through the provider-grouped menu", {
         ARRANGE() {
             const s = stubContexts();
             let workerToolOptions:readonly { label:string }[] = [];
@@ -6353,10 +6353,12 @@ test.describe("Install antigravity", test => {
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // skills tool (multi-select)
             s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
             s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "Gemini" }] }]); // worker model -> Gemini provider submenu
+            s.askResponses.push([{ picked: [{ label: "Gemini 3.5 Flash (Medium)" }] }]); // worker submenu choice
             s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // reviewer tool
+            s.askResponses.push([{ picked: [{ label: "Claude" }] }]); // reviewer model -> Claude provider submenu
+            s.askResponses.push([{ picked: [{ label: "Claude Opus 4.6 (Thinking)" }] }]); // reviewer submenu choice
             s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
-            s.askTextResponses.push("gem-worker"); // worker model free-text
-            s.askTextResponses.push("gem-reviewer"); // reviewer model free-text
             return { ...s, getWorkerToolOptions: () => workerToolOptions, getReviewerToolOptions: () => reviewerToolOptions };
         },
         async ACT({ contexts }) {
@@ -6376,29 +6378,56 @@ test.describe("Install antigravity", test => {
             "the reviewer tool question offers exactly claude, codex, antigravity"(_result, { getReviewerToolOptions }) {
                 Assert.deepStrictEqual(getReviewerToolOptions().map(o => o.label), ["claude", "codex", "antigravity"]);
             },
-            "the antigravity worker model is collected as a free-text question with the placeholder"(_result, { askedTextPrompts }) {
-                Assert.ok(askedTextPrompts.includes("Which model should the worker use? (leave empty for the default configured model): "));
-            },
-            "no Worker model catalog/menu was rendered through askChoices"(_result, { askedHeaders }) {
-                Assert.ok(!askedHeaders.includes("Worker model"));
+            "the antigravity worker model is collected through the menu, not a free-text prompt"(_result, { askedHeaders, askedTextPrompts }) {
+                Assert.ok(askedHeaders.includes("Worker model"));
+                Assert.ok(!askedTextPrompts.includes("Which model should the worker use? (leave empty for the default configured model): "));
             },
             "no Worker effort question was asked for the antigravity worker"(_result, { askedHeaders }) {
                 Assert.ok(!askedHeaders.includes("Worker effort"));
             },
-            "persists the antigravity worker and reviewer with verbatim models and empty efforts"({ config }) {
+            "persists the antigravity worker and reviewer with the selected labels verbatim and empty efforts"({ config }) {
                 Assert.deepStrictEqual(config, {
-                    worker: { tool: "antigravity", model: "gem-worker", effort: "" },
-                    reviewers: [{ tool: "antigravity", model: "gem-reviewer", effort: "", optional: false }],
+                    worker: { tool: "antigravity", model: "Gemini 3.5 Flash (Medium)", effort: "" },
+                    reviewers: [{ tool: "antigravity", model: "Claude Opus 4.6 (Thinking)", effort: "", optional: false }],
                     minimumReviews: 1
                 });
             }
         }
     });
 
-    test("interactive antigravity worker model left empty resolves to the default configured model", {
+    test("antigravity tool renders the provider-grouped top-level menu: providers, the synthetic default, then the custom entry, in order", {
         ARRANGE() {
-            // askTextResponses is left empty so the free-text input returns "".
-            return stubContexts();
+            const s = stubContexts();
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            return { ...s, capture };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "top-level options are exactly the three providers, the synthetic default, then the custom entry, in order"(_code, { capture }) {
+                Assert.deepStrictEqual(
+                    capture.optionsForQuestion("Which model should the worker use?")[0],
+                    ["Gemini", "Claude", "GPT-OSS", "default configured model", "enter a custom value…"]
+                );
+            }
+        }
+    });
+
+    test("antigravity selecting the Gemini provider opens its submenu with exact options and persists the selected label verbatim", {
+        ARRANGE() {
+            const s = stubContexts();
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "Gemini" }] }]); // worker model -> Gemini submenu
+            s.askResponses.push([{ picked: [{ label: "Gemini 3.1 Pro (High)" }] }]); // submenu choice
+            return { ...s, capture };
         },
         async ACT({ contexts }) {
             const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
@@ -6408,12 +6437,230 @@ test.describe("Install antigravity", test => {
             return { code, config };
         },
         ASSERTS: {
-            "exits with code 0"({ code }) {
+            "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "persists an empty antigravity worker model and effort"({ config }) {
+            "the Gemini submenu lists its five entries in catalog order plus the back affordance"({ code: _code }, { capture }) {
+                Assert.deepStrictEqual(
+                    capture.optionsForQuestion("Which Gemini model should the worker use?")[0],
+                    ["Gemini 3.5 Flash (Medium)", "Gemini 3.5 Flash (High)", "Gemini 3.5 Flash (Low)", "Gemini 3.1 Pro (Low)", "Gemini 3.1 Pro (High)", "← back"]
+                );
+            },
+            "config worker.model is the selected label verbatim"({ config }) {
                 Assert.ok(config);
-                Assert.deepStrictEqual(config.worker, { tool: "antigravity", model: "", effort: "" });
+                Assert.strictEqual(config.worker.model, "Gemini 3.1 Pro (High)");
+            }
+        }
+    });
+
+    test("antigravity single-model provider GPT-OSS opens a single-entry submenu plus the back affordance", {
+        ARRANGE() {
+            const s = stubContexts();
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "GPT-OSS" }] }]); // worker model -> GPT-OSS submenu
+            s.askResponses.push([{ picked: [{ label: "GPT-OSS 120B (Medium)" }] }]); // submenu choice
+            return { ...s, capture };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the GPT-OSS submenu lists its single entry plus the back affordance"({ code: _code }, { capture }) {
+                Assert.deepStrictEqual(
+                    capture.optionsForQuestion("Which GPT-OSS model should the worker use?")[0],
+                    ["GPT-OSS 120B (Medium)", "← back"]
+                );
+            },
+            "config worker.model is the single GPT-OSS label verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "GPT-OSS 120B (Medium)");
+            }
+        }
+    });
+
+    test("antigravity custom model entry opens a free-text input and persists the typed value verbatim", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // worker model -> custom
+            s.askTextResponses.push("  Gemini-Custom  "); // worker model custom text
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.model is the typed custom value verbatim (surrounding whitespace preserved, not trimmed)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "  Gemini-Custom  ");
+            },
+            "the custom free-text prompt is the worker model question with its placeholder"(_result, { askedTextPrompts }) {
+                Assert.ok(askedTextPrompts.includes("Which model should the worker use? (leave empty for the default configured model): "));
+            }
+        }
+    });
+
+    test("antigravity custom model entry with an empty typed value persists the empty string", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // worker model -> custom
+            // askTextResponses left empty -> the custom free-text input returns ""
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.model is empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "");
+            }
+        }
+    });
+
+    test("antigravity picking the synthetic default configured model persists as empty string", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.model is empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "");
+            }
+        }
+    });
+
+    test("antigravity back affordance returns to the top level without answering, then another provider can be chosen", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "Gemini" }] }]); // worker model -> Gemini submenu
+            s.askResponses.push([{ picked: [{ label: "← back" }] }]); // submenu -> back to top level
+            s.askResponses.push([{ picked: [{ label: "Claude" }] }]); // top level again -> Claude submenu
+            s.askResponses.push([{ picked: [{ label: "Claude Sonnet 4.6 (Thinking)" }] }]); // submenu choice
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.model is the label chosen after backing out"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "Claude Sonnet 4.6 (Thinking)");
+            }
+        }
+    });
+
+    test("antigravity worker model pre-selects the provider then the submenu entry from the stored model", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "antigravity", model: "Gemini 3.5 Flash (High)", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "Gemini" }] }]); // worker model top-level -> Gemini submenu
+            s.askResponses.push([{ picked: [{ label: "Gemini 3.5 Flash (High)" }] }]); // worker model submenu
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker model top-level menu defaults to the Gemini provider"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which model should the worker use?"), "Gemini");
+            },
+            "the Gemini submenu defaults to the stored Gemini 3.5 Flash (High) entry"(_code, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which Gemini model should the worker use?"), "Gemini 3.5 Flash (High)");
+            }
+        }
+    });
+
+    test("antigravity worker model defaults to the custom entry when the stored model matches no catalog value", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "antigravity", model: "some-future-model", effort: "" },
+                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // worker model -> custom
+            s.askTextResponses.push("some-future-model"); // accept the seeded custom default
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker model top-level menu defaults to the custom entry"({ code: _code }, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Which model should the worker use?"), "enter a custom value…");
+            },
+            "config worker.model round-trips the stored custom value"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "some-future-model");
             }
         }
     });
@@ -6687,15 +6934,20 @@ test.describe("Install antigravity", test => {
         ARRANGE() {
             const s = stubContexts();
             const stored:FlandersConfig = {
-                worker: { tool: "antigravity", model: "gem-stored", effort: "" },
-                reviewers: [{ tool: "antigravity", model: "rev-stored", effort: "", optional: false }],
+                worker: { tool: "antigravity", model: "Gemini 3.5 Flash (Low)", effort: "" },
+                reviewers: [{ tool: "antigravity", model: "Claude Sonnet 4.6 (Thinking)", effort: "", optional: false }],
                 minimumReviews: 1
             };
             s.files.set("/proj/.flanders/config.json", JSON.stringify(stored, null, 2) + "\n");
-            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool — accept stored default
-            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // reviewer tool — accept stored default
+            // Accepting every default walks the provider-grouped menu along the stored model's path: the
+            // provider entry at the top level, then the matching entry inside that provider's submenu.
+            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool — stored default
+            s.askResponses.push([{ picked: [{ label: "Gemini" }] }]); // worker model top — stored provider default
+            s.askResponses.push([{ picked: [{ label: "Gemini 3.5 Flash (Low)" }] }]); // worker submenu — stored entry default
+            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // reviewer tool — stored default
+            s.askResponses.push([{ picked: [{ label: "Claude" }] }]); // reviewer model top — stored provider default
+            s.askResponses.push([{ picked: [{ label: "Claude Sonnet 4.6 (Thinking)" }] }]); // reviewer submenu — stored entry default
             s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer? — stored length is 1
-            // The worker and reviewer model free-text inputs return "" so each falls back to its stored default.
             return s;
         },
         async ACT({ contexts }) {
@@ -6711,8 +6963,8 @@ test.describe("Install antigravity", test => {
             },
             "rewrites the same antigravity configuration"({ config }) {
                 Assert.deepStrictEqual(config, {
-                    worker: { tool: "antigravity", model: "gem-stored", effort: "" },
-                    reviewers: [{ tool: "antigravity", model: "rev-stored", effort: "", optional: false }],
+                    worker: { tool: "antigravity", model: "Gemini 3.5 Flash (Low)", effort: "" },
+                    reviewers: [{ tool: "antigravity", model: "Claude Sonnet 4.6 (Thinking)", effort: "", optional: false }],
                     minimumReviews: 1
                 });
             }

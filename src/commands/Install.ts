@@ -152,9 +152,11 @@ const SKILLS_TOOL_DESTINATIONS:Readonly<Record<ToolName, Readonly<{ project:stri
 
 const CLAUDE_EFFORT_LEVELS:readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 
-type ClaudeModelEntry = Readonly<{ label:string; value:string }>;
+type ModelEntry = Readonly<{ label:string; value:string }>;
 
-type ClaudeModelFamily = Readonly<{ family:string; entries:readonly ClaudeModelEntry[] }>;
+// A group of model entries shown as one submenu under a top-level entry — a `claude` model family or
+// an `antigravity` model provider. `name` is both the top-level label and the submenu title.
+type ModelGroup = Readonly<{ name:string; entries:readonly ModelEntry[] }>;
 
 // The `claude` model catalog, organized one group per model family in family order Opus, Sonnet,
 // Haiku, Fable. Each family's `entries` list its auto-updating "Latest" alias(es) first — which
@@ -162,9 +164,9 @@ type ClaudeModelFamily = Readonly<{ family:string; entries:readonly ClaudeModelE
 // and persisting the full model identifier. A `[1m context]` entry is offered only for a model that
 // supports a 1M-context window. Display labels are distinct from the persisted values. Pinned by
 // `src/commands/.spec/rules/install/model-list-discovery.md`.
-const CLAUDE_MODEL_FAMILIES:readonly ClaudeModelFamily[] = [
+const CLAUDE_MODEL_FAMILIES:readonly ModelGroup[] = [
     {
-        family: "Opus",
+        name: "Opus",
         entries: [
             { label: "Latest Opus", value: "opus" },
             { label: "Latest Opus [1m context]", value: "opus[1m]" },
@@ -177,7 +179,7 @@ const CLAUDE_MODEL_FAMILIES:readonly ClaudeModelFamily[] = [
         ]
     },
     {
-        family: "Sonnet",
+        name: "Sonnet",
         entries: [
             { label: "Latest Sonnet", value: "sonnet" },
             { label: "Latest Sonnet [1m context]", value: "sonnet[1m]" },
@@ -188,14 +190,14 @@ const CLAUDE_MODEL_FAMILIES:readonly ClaudeModelFamily[] = [
         ]
     },
     {
-        family: "Haiku",
+        name: "Haiku",
         entries: [
             { label: "Latest Haiku", value: "haiku" },
             { label: "Haiku 4.5", value: "claude-haiku-4-5-20251001" }
         ]
     },
     {
-        family: "Fable",
+        name: "Fable",
         entries: [
             { label: "Latest Fable", value: "fable" },
             { label: "Fable 5", value: "claude-fable-5" }
@@ -206,11 +208,41 @@ const CLAUDE_MODEL_FAMILIES:readonly ClaudeModelFamily[] = [
 // Cross-family aliases that do not belong to a single model family; each persists the alias string.
 // Rendered as top-level direct selections after the family entries. Pinned by
 // `src/commands/.spec/rules/install/model-list-discovery.md`.
-const CLAUDE_CROSS_FAMILY_ALIASES:readonly ClaudeModelEntry[] = [
+const CLAUDE_CROSS_FAMILY_ALIASES:readonly ModelEntry[] = [
     { label: "Best (auto-pick)", value: "best" }
 ];
 
-const CLAUDE_BACK_LABEL = "← back";
+// The `antigravity` model catalog, organized one group per model provider in the order the Antigravity
+// CLI lists them. Each entry's display label and persisted value are the same string — the model name
+// exactly as the Antigravity CLI offers it, including its trailing reasoning-effort qualifier — so a
+// selection persists verbatim. Pinned by `src/commands/.spec/rules/install.md`.
+const ANTIGRAVITY_MODEL_PROVIDERS:readonly ModelGroup[] = [
+    {
+        name: "Gemini",
+        entries: [
+            { label: "Gemini 3.5 Flash (Medium)", value: "Gemini 3.5 Flash (Medium)" },
+            { label: "Gemini 3.5 Flash (High)", value: "Gemini 3.5 Flash (High)" },
+            { label: "Gemini 3.5 Flash (Low)", value: "Gemini 3.5 Flash (Low)" },
+            { label: "Gemini 3.1 Pro (Low)", value: "Gemini 3.1 Pro (Low)" },
+            { label: "Gemini 3.1 Pro (High)", value: "Gemini 3.1 Pro (High)" }
+        ]
+    },
+    {
+        name: "Claude",
+        entries: [
+            { label: "Claude Sonnet 4.6 (Thinking)", value: "Claude Sonnet 4.6 (Thinking)" },
+            { label: "Claude Opus 4.6 (Thinking)", value: "Claude Opus 4.6 (Thinking)" }
+        ]
+    },
+    {
+        name: "GPT-OSS",
+        entries: [
+            { label: "GPT-OSS 120B (Medium)", value: "GPT-OSS 120B (Medium)" }
+        ]
+    }
+];
+
+const MODEL_BACK_LABEL = "← back";
 
 const REVIEWER_INDEXED_RE = /^--reviewer-(\d+)-(tool|model|effort)=/;
 
@@ -468,31 +500,36 @@ export class Install {
         }
         return option.label;
     }
-    private async _resolveClaudeModel(roleLabel:string, headerLabel:string, contexts:InstallContexts, preselect?:string):Promise<string|null> {
+    // Two-tier grouped model menu shared by the `claude` model question (groups are model families,
+    // with the cross-family aliases) and the `antigravity` model question (groups are model providers,
+    // no cross-group aliases). The top level lists one entry per group, then each cross-group alias as
+    // a direct selection, then the synthetic `default configured model` entry, then the custom entry;
+    // selecting a group opens a submenu of that group's entries plus a back affordance. Pre-selects
+    // along the path to the stored model: the synthetic default entry for the empty string, a
+    // cross-group alias entry when it matches, the group entry (and, inside its submenu, the matching
+    // model entry) when the stored model is one of that group's catalogued values, and otherwise the
+    // custom entry with its free-text input defaulted to the stored model. An undefined preselect (no
+    // stored configuration) leaves every level at its fresh default. Pinned by
+    // `src/commands/.spec/rules/install.md`.
+    private async _resolveGroupedModel(roleLabel:string, headerLabel:string, groups:readonly ModelGroup[], crossAliases:readonly ModelEntry[], contexts:InstallContexts, preselect?:string):Promise<string|null> {
         const question = `Which model should ${roleLabel} use?`;
-        // Pre-select along the path to the stored model: the synthetic default entry for the empty
-        // string, the cross-family alias entry when it matches, the family entry (and, inside its
-        // submenu, the matching model entry) when the stored model is one of that family's
-        // catalogued values, and otherwise the custom entry with its free-text input defaulted to
-        // the stored model. An undefined preselect (no stored configuration) leaves every level at
-        // its fresh default.
         let topDefault:string|undefined;
         let customDefault:string|undefined;
-        let preselectedFamily:ClaudeModelFamily|undefined;
+        let preselectedGroup:ModelGroup|undefined;
         let preselectedEntryLabel:string|undefined;
         if (preselect !== undefined) {
             if (preselect === "") {
                 topDefault = "default configured model";
             } else {
-                const alias = CLAUDE_CROSS_FAMILY_ALIASES.find(a => a.value === preselect);
+                const alias = crossAliases.find(a => a.value === preselect);
                 if (alias) {
                     topDefault = alias.label;
                 } else {
-                    const family = CLAUDE_MODEL_FAMILIES.find(f => f.entries.some(e => e.value === preselect));
-                    if (family) {
-                        topDefault = family.family;
-                        preselectedFamily = family;
-                        preselectedEntryLabel = family.entries.find(e => e.value === preselect)!.label;
+                    const group = groups.find(g => g.entries.some(e => e.value === preselect));
+                    if (group) {
+                        topDefault = group.name;
+                        preselectedGroup = group;
+                        preselectedEntryLabel = group.entries.find(e => e.value === preselect)!.label;
                     } else {
                         topDefault = "enter a custom value…";
                         customDefault = preselect;
@@ -502,8 +539,8 @@ export class Install {
         }
         topLevel: for (;;) {
             const topOptions:ChoiceOption[] = [
-                ...CLAUDE_MODEL_FAMILIES.map(family => ({ label: family.family })),
-                ...CLAUDE_CROSS_FAMILY_ALIASES.map(alias => ({ label: alias.label })),
+                ...groups.map(group => ({ label: group.name })),
+                ...crossAliases.map(alias => ({ label: alias.label })),
                 { label: "default configured model" },
                 { label: "enter a custom value…" }
             ];
@@ -536,19 +573,19 @@ export class Install {
                 }
                 return text;
             }
-            const crossFamily = CLAUDE_CROSS_FAMILY_ALIASES.find(alias => alias.label === top.label);
-            if (crossFamily) {
-                return crossFamily.value;
+            const crossAlias = crossAliases.find(alias => alias.label === top.label);
+            if (crossAlias) {
+                return crossAlias.value;
             }
-            const family = CLAUDE_MODEL_FAMILIES.find(f => f.family === top.label)!;
+            const group = groups.find(g => g.name === top.label)!;
             for (;;) {
-                const familyOptions:ChoiceOption[] = family.entries.map(entry => ({ label: entry.label }));
-                familyOptions.push({ label: CLAUDE_BACK_LABEL });
+                const groupOptions:ChoiceOption[] = group.entries.map(entry => ({ label: entry.label }));
+                groupOptions.push({ label: MODEL_BACK_LABEL });
                 const choice = await promptChoice(contexts.ask, {
                     header: headerLabel,
-                    question: `Which ${family.family} model should ${roleLabel} use?`,
-                    options: familyOptions,
-                    defaultLabel: family === preselectedFamily ? preselectedEntryLabel : undefined
+                    question: `Which ${group.name} model should ${roleLabel} use?`,
+                    options: groupOptions,
+                    defaultLabel: group === preselectedGroup ? preselectedEntryLabel : undefined
                 });
                 if (!choice) {
                     return null;
@@ -556,18 +593,17 @@ export class Install {
                 if (this._disposed) {
                     return null;
                 }
-                if (choice.label === CLAUDE_BACK_LABEL) {
+                if (choice.label === MODEL_BACK_LABEL) {
                     continue topLevel;
                 }
-                const entry = family.entries.find(e => e.label === choice.label)!;
+                const entry = group.entries.find(e => e.label === choice.label)!;
                 return entry.value;
             }
         }
     }
-    // Free-text model entry shared by the `antigravity` model question (which never probes or
-    // catalogues) and the `codex` free-text fallback (empty or failed probe). The question text,
-    // placeholder, and empty→"" resolution are identical for both; the stored model seeds the default
-    // so accepting the empty input reproduces it.
+    // Free-text model entry used by the `codex` free-text fallback (empty or failed probe). The
+    // question text, placeholder, and empty→"" resolution match the custom entry of the grouped menus;
+    // the stored model seeds the default so accepting the empty input reproduces it.
     private async _resolveFreeTextModel(roleLabel:string, contexts:InstallContexts, preselect?:string):Promise<string|null> {
         const text = await promptText(contexts.ask, {
             question: `Which model should ${roleLabel} use?`,
@@ -592,12 +628,14 @@ export class Install {
             return null;
         }
         if (tool === "claude") {
-            return await this._resolveClaudeModel(roleLabel, headerLabel, contexts, preselect);
+            return await this._resolveGroupedModel(roleLabel, headerLabel, CLAUDE_MODEL_FAMILIES, CLAUDE_CROSS_FAMILY_ALIASES, contexts, preselect);
         }
-        // `antigravity` neither probes nor catalogues: the model is a free-text input, persisted
-        // verbatim, with an empty answer resolving to "" (default configured model).
+        // `antigravity` presents a hand-maintained catalog grouped by model provider, navigated by the
+        // same two-tier menu as `claude` (no cross-provider aliases); the selected or typed value is
+        // persisted verbatim, with the synthetic default entry and an empty custom input resolving to
+        // "" (default configured model).
         if (tool === "antigravity") {
-            return await this._resolveFreeTextModel(roleLabel, contexts, preselect);
+            return await this._resolveGroupedModel(roleLabel, headerLabel, ANTIGRAVITY_MODEL_PROVIDERS, [], contexts, preselect);
         }
         if (!this._modelProbeCache.has(tool)) {
             const result = await probeModelList(contexts.script);
