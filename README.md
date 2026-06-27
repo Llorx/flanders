@@ -40,7 +40,7 @@ A few neighborly things to have on hand before you start:
 
 - **Node.js**.
 - **A git repository** — the `implement` command requires the project to be a git repository.
-- **A supported CLI AI coding tool** — currently Claude Code or Codex.
+- **A supported CLI AI coding tool** — currently Claude Code or Codex CLI.
 
 ## Installation
 
@@ -74,13 +74,13 @@ For each AI tool you select for skills, `install` writes one skill artifact per 
 | Claude Code | `.claude/skills/` | `~/.claude/skills/` |
 | Codex CLI | `.codex/prompts/` | `~/.codex/prompts/` |
 
-Select `both` and the artifacts are written for both tools, each into its own folder. Alongside the skills, the command writes the `.flanders/` configuration at the chosen scope (see [Configuration](#configuration)).
+Select both tools and the artifacts are written for each, into its own folder. Alongside the skills, the command writes the `.flanders/` configuration at the chosen scope (see [Configuration](#configuration)).
 
 ### Interactive prompts
 
 Run it without flags and Flanders walks you through the setup, asking in this order:
 
-1. **Skills tool** — `claude`, `codex`, or `both`.
+1. **Skills tool** — one or more of `claude` and `codex`.
 2. **Scope** — `--project` or `--global`, each option labelled with the concrete destination path(s) for the skills tool you picked.
 3. **Worker tool, model, and effort** — the AI the `implement` command's worker uses.
 4. **Reviewer configuration** — an ordered list of one or more adversarial reviewers, each with its own tool, model, and effort. You can have any number of reviewers, for example Claude Opus, Claude Sonnet and Codex. You can even duplicate them if you think that one pass is not enough to detect a problem.
@@ -101,7 +101,7 @@ Every question has an equivalent command-line flag, so the whole setup can run w
 
 **Skills and worker**
 
-- `--skills-tool=<claude|codex|both>` — which AI tool(s) the skills are installed for.
+- `--skills-tool=<claude|codex|claude,codex>` — which AI tool(s) the skills are installed for, as a comma-separated list of one or more of `claude` and `codex`.
 - `--worker-tool=<claude|codex>` — which AI tool the `implement` worker uses.
 - `--worker-model=<value>` — model the worker tool invokes; an empty value means "use the tool's default configured model".
 - `--worker-effort=<value>` — reasoning effort the worker tool invokes; an empty value means "use the tool's default configured effort".
@@ -136,7 +136,7 @@ Updated the lib and itching for the freshest skills, neighbor? Just run:
 flanders update
 ```
 
-`update` takes no flags. It scans the six skill destinations `install` writes to — Claude Code, Codex CLI, and Antigravity CLI, each at project and global scope — and wherever it finds at least one Flanders skill artifact already in place, it rewrites the full `/flanders-spec`, `/flanders-plan`, and `/flanders-work` trio there with the current version. A destination where no Flanders skill artifact is present is left untouched, so `update` refreshes the installations you already have and never creates one where you had none.
+`update` takes no flags. It scans the four skill destinations `install` writes to — Claude Code's `.claude/skills/` and `~/.claude/skills/`, and Codex CLI's `.codex/prompts/` and `~/.codex/prompts/` — and wherever it finds at least one Flanders skill artifact already in place, it rewrites the full `/flanders-spec`, `/flanders-plan`, and `/flanders-work` trio there with the current version. A destination where no Flanders skill artifact is present is left untouched, so `update` refreshes the installations you already have and never creates one where you had none.
 
 ## Configuration
 
