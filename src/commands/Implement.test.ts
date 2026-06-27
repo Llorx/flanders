@@ -83,7 +83,6 @@ function rateLimitEvent(nowMs:number, retryAfterSeconds:number):string {
 
 type ClaudeResponse = { text:string; inputTokens?:number; outputTokens?:number; sessionId?:string; error?:true; stderr?:string; errorLog?:string };
 type CodexResponse = { text:string; sessionId?:string; inputTokens?:number; outputTokens?:number; error?:true; errorLog?:string };
-type AntigravityResponse = { text:string; error?:true; stderr?:string; errorLog?:string };
 type ScriptResponse = { code:number; stdout:string; stderr:string };
 
 function codexResultEvents(text:string, sessionId?:string, inputTokens?:number, outputTokens?:number):string {
@@ -111,14 +110,12 @@ function stubContexts() {
 
     const claudeQueue:ClaudeResponse[] = [];
     const codexQueue:CodexResponse[] = [];
-    const antigravityQueue:AntigravityResponse[] = [];
     const promptQueue:string[] = [];
     const scriptQueue:ScriptResponse[] = [];
     const gitQueue:ScriptResponse[] = [];
     const gitSpawns:Array<{command:string; args:readonly string[]}> = [];
     const claudeSpawnedArgs:string[][] = [];
     const codexSpawnedArgs:string[][] = [];
-    const antigravitySpawnedArgs:string[][] = [];
 
     const contexts:ImplementContexts = {
         claude: {
@@ -184,40 +181,6 @@ function stubContexts() {
                     });
                     return proc;
                 }
-                if (command === "agy") {
-                    antigravitySpawnedArgs.push([...args]);
-                    const response = antigravityQueue.shift();
-                    if (!response) {
-                        setImmediate(() => proc.$emit("error", new Error("antigravity queue exhausted")));
-                        return proc;
-                    }
-                    setImmediate(() => {
-                        if (response.error) {
-                            proc.$emit("error", new Error("spawn error"));
-                            return;
-                        }
-                        // The adapter delivers the prompt through a file and names a response file in the
-                        // --print directive; mirror agy by reading the prompt back (to target the reviewer
-                        // error log) and depositing the response in the named output file.
-                        const printIdx = args.indexOf("--print");
-                        const directive = printIdx >= 0 ? (args[printIdx + 1] ?? "") : "";
-                        const paths = [...directive.matchAll(/"([^"]+)"/g)].map(m => m[1]!);
-                        const promptPath = paths[0];
-                        const outputPath = paths[1];
-                        if (response.errorLog !== undefined && promptPath !== undefined) {
-                            const promptContent = files.get(promptPath) ?? "";
-                            files.set(targetErrorLogFromPrompt(promptContent), response.errorLog);
-                        }
-                        if (outputPath !== undefined) {
-                            files.set(outputPath, response.text);
-                        }
-                        if (response.stderr) {
-                            proc.$emitStderr(response.stderr);
-                        }
-                        proc.$emit("exit", 0);
-                    });
-                    return proc;
-                }
                 const isGit = command === "git";
                 if (isGit) {
                     gitSpawns.push({ command, args: [...args] });
@@ -275,7 +238,7 @@ function stubContexts() {
             onResize() { return () => {}; }
         }
     };
-    return { contexts, files, rmCalls, written, errors, claudeQueue, codexQueue, antigravityQueue, promptQueue, scriptQueue, gitQueue, gitSpawns, claudeSpawnedArgs, codexSpawnedArgs, antigravitySpawnedArgs, mkdtempCalls };
+    return { contexts, files, rmCalls, written, errors, claudeQueue, codexQueue, promptQueue, scriptQueue, gitQueue, gitSpawns, claudeSpawnedArgs, codexSpawnedArgs, mkdtempCalls };
 }
 
 const PLAN_PATH = "/project/plans/test.md";
@@ -6058,84 +6021,6 @@ test.describe("Implement adapter routing via getAdapter", test => {
             "worker spawn args contain effort override"(codexSpawnedArgs) {
                 const workerSpawn = codexSpawnedArgs[1]!;
                 Assert.ok(workerSpawn.includes("model_reasoning_effort=high"), "effort override should be present");
-            }
-        }
-    });
-
-    test("worker.tool=antigravity routes worker stage through the agy binary", {
-        ARRANGE() {
-            const s = stubContexts();
-            gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "antigravity", model: "gemini-3-pro", effort: "", fast: false }, reviewers: [{ tool: "claude", model: "rev-model", effort: "", fast: false, optional: false }], minimumReviews: 1 };
-            s.files.set(CONFIG_PATH, JSON.stringify(config));
-            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.antigravityQueue.push({ text: "detect" });
-            s.antigravityQueue.push({ text: "worker output" });
-            s.claudeQueue.push({ text: "review ok", errorLog: "" });
-            return s;
-        },
-        async ACT({ contexts, antigravitySpawnedArgs }) {
-            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return { code, antigravitySpawnedArgs };
-        },
-        ASSERTS: {
-            "the run completes successfully"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "the worker is the second agy spawn"({ antigravitySpawnedArgs }) {
-                Assert.ok(antigravitySpawnedArgs[1] !== undefined, "second agy spawn (worker) should exist");
-            },
-            "the worker spawn carries --print and --dangerously-skip-permissions"({ antigravitySpawnedArgs }) {
-                const workerSpawn = antigravitySpawnedArgs[1]!;
-                Assert.strictEqual(workerSpawn[0], "--print");
-                Assert.ok(workerSpawn.includes("--dangerously-skip-permissions"), "--dangerously-skip-permissions should be present");
-            },
-            "the worker spawn carries the configured model"({ antigravitySpawnedArgs }) {
-                const workerSpawn = antigravitySpawnedArgs[1]!;
-                const modelIndex = workerSpawn.indexOf("--model");
-                Assert.ok(modelIndex >= 0, "--model flag should be present");
-                Assert.strictEqual(workerSpawn[modelIndex + 1], "gemini-3-pro");
-            }
-        }
-    });
-
-    test("reviewer.tool=antigravity routes reviewer stage through the agy binary", {
-        ARRANGE() {
-            const s = stubContexts();
-            gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "", fast: false }, reviewers: [{ tool: "antigravity", model: "rev-model", effort: "", fast: false, optional: false }], minimumReviews: 1 };
-            s.files.set(CONFIG_PATH, JSON.stringify(config));
-            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            s.claudeQueue.push({ text: "detect" });
-            s.claudeQueue.push({ text: "worker output" });
-            s.antigravityQueue.push({ text: "review ok", errorLog: "" });
-            return s;
-        },
-        async ACT({ contexts, antigravitySpawnedArgs }) {
-            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return { code, antigravitySpawnedArgs };
-        },
-        ASSERTS: {
-            "the run completes successfully"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "exactly one agy spawn (the reviewer) occurs"({ antigravitySpawnedArgs }) {
-                Assert.strictEqual(antigravitySpawnedArgs.length, 1);
-            },
-            "the reviewer spawn carries --print and --dangerously-skip-permissions"({ antigravitySpawnedArgs }) {
-                const reviewerSpawn = antigravitySpawnedArgs[0]!;
-                Assert.strictEqual(reviewerSpawn[0], "--print");
-                Assert.ok(reviewerSpawn.includes("--dangerously-skip-permissions"), "--dangerously-skip-permissions should be present");
-            },
-            "the reviewer spawn carries the configured model"({ antigravitySpawnedArgs }) {
-                const reviewerSpawn = antigravitySpawnedArgs[0]!;
-                const modelIndex = reviewerSpawn.indexOf("--model");
-                Assert.ok(modelIndex >= 0, "--model flag should be present");
-                Assert.strictEqual(reviewerSpawn[modelIndex + 1], "rev-model");
             }
         }
     });

@@ -1,5 +1,4 @@
 import { AiSession } from "../ai/AiSession";
-import { AntigravityAdapter } from "../ai/AntigravityAdapter";
 import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import { CodexAdapter } from "../ai/CodexAdapter";
 import type { FsContext, OutputContext, RandomContext, ScriptContext, TimeContext } from "../contexts";
@@ -834,15 +833,6 @@ export class Implement {
                 script: this._contexts.script,
                 time: this._contexts.time,
                 random: this._contexts.random
-            });
-        }
-        if (tool === "antigravity") {
-            return new AntigravityAdapter({
-                script: this._contexts.script,
-                fs: this._contexts.fs,
-                time: this._contexts.time,
-                random: this._contexts.random,
-                platform: this._contexts.platform
             });
         }
         return new ClaudeAdapter({
