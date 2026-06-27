@@ -54,7 +54,7 @@ const claimClassification = `${claimClassificationCore}
 ${workerToolchainRerunStep}`;
 
 const foregroundBoundary =
-`Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. You must not start any command in the background and must not end your turn while a command you spawned is still running. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example \`run_in_background: true\`), shell-level detachment (a trailing \`&\`, \`nohup\`, \`setsid\`, \`disown\`, \`start\`, \`Start-Process\`, \`Start-Job\`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.`;
+`Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example \`run_in_background: true\`), shell-level detachment (a trailing \`&\`, \`nohup\`, \`setsid\`, \`disown\`, \`start\`, \`Start-Process\`, \`Start-Job\`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.`;
 
 // The spec-folder write boundary shared by the detect, worker, and reviewer prompts: the single
 // source of truth for the sentence that bars an implement-spawned agent from writing to any of the
@@ -342,7 +342,7 @@ Your output will be inspected by an adversarial reviewer immediately after you f
 4. A contract or rule from the global lists below that the reviewer determines should have been applied but was not — even if the task did not reference it.
 5. A behavior rule from the behavior-rule list below whose \`.spec/flanders\` scope encloses the files your changes touch is not honored by the changes — in-scope behavior rules are mandatory whether or not the task links them.
 
-Condition 4 causes most rejections in practice. Rules whose scope matches your changes (testing rules when you touch tests, disposable rules when you touch async resources, UI rules when you change terminal output, etc.) are mandatory whether the task links them or not. Treat the global contract and rule lists below as part of your specification, not as optional reading. The reviewer will also enumerate every occurrence of a pattern violation, not just the first one, so partial compliance within a file is itself a FAIL.
+Condition 4 causes most rejections in practice. The reviewer will also enumerate every occurrence of a pattern violation, not just the first one, so partial compliance within a file is itself a FAIL.
 
 Procedure:
 1. Read the task shown above and respect the obligations of every contract and rule it references exactly. You may consult those files, or the plan file for broader context, at your discretion.
@@ -409,7 +409,7 @@ The plan file is at ${Placeholders.PLAN_PATH}; you may open it for broader conte
 
 ${Placeholders.TASK_TEXT}
 
-The task's full description and its acceptance criteria are provided to you directly, and the full content of every contract and rule it references has been consolidated into a spec.md that you must read in full — see "Linked reference content" below. Inspect the working-tree changes that the worker just produced.
+Inspect the working-tree changes that the worker just produced.
 
 ${linkedReferenceDirective(Placeholders.SPEC_PATH)}
 

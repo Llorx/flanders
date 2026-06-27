@@ -278,8 +278,8 @@ test.describe("prompts – deterministic task-text injection", test => {
             "no longer states the referenced contracts and rules are injected inline"(template) {
                 Assert.strictEqual(template.includes("injected inline at the end of this prompt"), false);
             },
-            "directs the reviewer to read its consolidated spec.md instead"(template) {
-                Assert.ok(template.includes("has been consolidated into a spec.md that you must read in full"));
+            "no longer restates the consolidated-spec.md read in the task-intro line (the directive carries it)"(template) {
+                Assert.strictEqual(template.includes("has been consolidated into a spec.md that you must read in full"), false);
             }
         }
     });
@@ -1332,7 +1332,7 @@ test.describe("prompts – foreground execution boundary", test => {
             const start = template.indexOf("Foreground execution boundary:");
             const end = template.indexOf("\n\n", start);
             const foreground = template.substring(start, end);
-            Assert.strictEqual(foreground, "Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. You must not start any command in the background and must not end your turn while a command you spawned is still running. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example `run_in_background: true`), shell-level detachment (a trailing `&`, `nohup`, `setsid`, `disown`, `start`, `Start-Process`, `Start-Job`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.");
+            Assert.strictEqual(foreground, "Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example `run_in_background: true`), shell-level detachment (a trailing `&`, `nohup`, `setsid`, `disown`, `start`, `Start-Process`, `Start-Job`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.");
         }
     });
 
@@ -1343,7 +1343,7 @@ test.describe("prompts – foreground execution boundary", test => {
             const start = template.indexOf("Foreground execution boundary:");
             const end = template.indexOf("\n\n", start);
             const foreground = template.substring(start, end === -1 ? undefined : end);
-            Assert.strictEqual(foreground, "Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. You must not start any command in the background and must not end your turn while a command you spawned is still running. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example `run_in_background: true`), shell-level detachment (a trailing `&`, `nohup`, `setsid`, `disown`, `start`, `Start-Process`, `Start-Job`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.");
+            Assert.strictEqual(foreground, "Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example `run_in_background: true`), shell-level detachment (a trailing `&`, `nohup`, `setsid`, `disown`, `start`, `Start-Process`, `Start-Job`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.");
         }
     });
 });
