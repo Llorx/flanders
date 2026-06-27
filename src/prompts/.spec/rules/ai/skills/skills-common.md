@@ -277,7 +277,7 @@ The body of the `/flanders-spec` and `/flanders-plan` skill artifacts states, ac
 
 - **Subject:** the source content that produces the `/flanders-spec` and `/flanders-plan` skill artifact bodies — every place in the flanders codebase where that prompt text is authored or assembled.
 - **Subject:** the resulting `/flanders-spec` and `/flanders-plan` skill artifact files that `install` writes into the user's AI-tool skill folders.
-- **Not subject:** `/flanders-work`, which implements code rather than authoring a spec or plan document, and every other agent or command.
+- **Not subject:** `/flanders-work` and the worker, reviewer, and other agent prompts, which author no spec or plan document and so carry no economical-output instruction. The economy of those prompts' own wording — and of the `/flanders-work` body's wording — is a separate obligation, pinned by [src/prompts/.spec/rules/ai/prompt-wording-economy.md#every-prompt-flanders-authors-is-worded-economically](/src/prompts/.spec/rules/ai/prompt-wording-economy.md#every-prompt-flanders-authors-is-worded-economically).
 
 ### How to apply
 
