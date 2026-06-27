@@ -244,6 +244,10 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
             argv.push("--effort", this._args.effort);
         }
 
+        if (this._args.fast) {
+            argv.push("--settings", JSON.stringify({ fastMode: true }));
+        }
+
         argv.push(
             "--input-format", "stream-json",
             "--output-format", "stream-json",

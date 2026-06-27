@@ -226,6 +226,86 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
+    test("spawn args with fast true appends --settings enabling fastMode", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs({ fast: true });
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            proc.$emit("exit", 0);
+            for await (const _ of iterable) { void _; }
+            return claude.$spawned[0]!.args;
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, ["--settings", '{"fastMode":true}', ...BASE_ARGV]);
+        }
+    });
+
+    test("spawn args with fast false contains no fast-mode --settings entry", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs({ fast: false });
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            proc.$emit("exit", 0);
+            for await (const _ of iterable) { void _; }
+            return claude.$spawned[0]!.args;
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result.filter(a => a === "--settings").length, 0);
+        }
+    });
+
+    test("spawn args with fast true and effort high carry both --effort and fast --settings", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs({ effort: "high", fast: true });
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            proc.$emit("exit", 0);
+            for await (const _ of iterable) { void _; }
+            return claude.$spawned[0]!.args;
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, ["--effort", "high", "--settings", '{"fastMode":true}', ...BASE_ARGV]);
+        }
+    });
+
+    test("spawn args with model, effort and fast keep --model placement and add fast --settings", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs({ model: "claude-opus-4-8", effort: "high", fast: true });
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            proc.$emit("exit", 0);
+            for await (const _ of iterable) { void _; }
+            return claude.$spawned[0]!.args;
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, ["--model", "claude-opus-4-8", "--effort", "high", "--settings", '{"fastMode":true}', ...BASE_ARGV]);
+        }
+    });
+
     test("resume invocation passes --resume <id>", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
