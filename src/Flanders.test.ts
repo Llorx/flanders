@@ -267,7 +267,7 @@ test.describe("Flanders dispatch", test => {
         ARRANGE() {
             const { contexts, written, errors } = stubContexts();
             const files:Record<string, string> = {};
-            const configJson = JSON.stringify({ worker: { tool: "claude", model: "", effort: "" }, reviewers: [{ tool: "claude", model: "", effort: "", optional: false }], minimumReviews: 1 });
+            const configJson = JSON.stringify({ worker: { tool: "claude", model: "", effort: "", fast: false }, reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }], minimumReviews: 1 });
             contexts.fs.writeFile = async (p, content) => { files[p] = content; };
             contexts.fs.readFile = async (p) => {
                 if (p === "/proj/plans/plan.md") {

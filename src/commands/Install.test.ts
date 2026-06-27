@@ -3734,8 +3734,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "claude", model: "claude-opus-4-8", effort: "high" },
-                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                worker: { tool: "claude", model: "claude-opus-4-8", effort: "high", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
@@ -3778,8 +3778,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "claude", model: "", effort: "" },
-                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
@@ -3815,8 +3815,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "claude", model: "best", effort: "low" },
-                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                worker: { tool: "claude", model: "best", effort: "low", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
@@ -3849,8 +3849,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "claude", model: "my-private-model", effort: "" },
-                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                worker: { tool: "claude", model: "my-private-model", effort: "", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
@@ -3889,8 +3889,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "claude", model: "", effort: "turbo" },
-                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                worker: { tool: "claude", model: "", effort: "turbo", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
@@ -3933,8 +3933,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             });
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "codex", model: "gpt-5-codex", effort: "" },
-                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                worker: { tool: "codex", model: "gpt-5-codex", effort: "", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]); // worker model
@@ -3965,8 +3965,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             });
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "codex", model: "gpt-5-codex", effort: "" },
-                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                worker: { tool: "codex", model: "gpt-5-codex", effort: "", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "gpt-4.1" }] }]); // worker model (answered actively)
@@ -3997,8 +3997,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             });
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "codex", model: "", effort: "" },
-                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                worker: { tool: "codex", model: "", effort: "", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
@@ -4025,8 +4025,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "codex", model: "", effort: "high" },
-                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                worker: { tool: "codex", model: "", effort: "high", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "high" }] }]); // worker effort
@@ -4053,8 +4053,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "codex", model: "", effort: "" },
-                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                worker: { tool: "codex", model: "", effort: "", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
@@ -4081,8 +4081,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({ probeExitCode: 1 });
             seedProjectConfig(s, {
-                worker: { tool: "codex", model: "legacy-codex-model", effort: "" },
-                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                worker: { tool: "codex", model: "legacy-codex-model", effort: "", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             // The probe yields no list -> the worker model question is a free-text input. With no
@@ -4112,8 +4112,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({ probeExitCode: 1 });
             seedProjectConfig(s, {
-                worker: { tool: "codex", model: "", effort: "" },
-                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                worker: { tool: "codex", model: "", effort: "", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             // The probe yields no list -> free-text input. With no askText response queued the input
@@ -4179,8 +4179,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             const s = stubContexts();
             // Stored configuration disagrees with every flag below.
             seedProjectConfig(s, {
-                worker: { tool: "codex", model: "gpt-5-codex", effort: "high" },
-                reviewers: [{ tool: "codex", model: "", effort: "", optional: false }],
+                worker: { tool: "codex", model: "gpt-5-codex", effort: "high", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             return s;
@@ -4224,8 +4224,8 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
         ARRANGE() {
             const s = stubContexts();
             seedProjectConfig(s, {
-                worker: { tool: "claude", model: "", effort: "" },
-                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             let configReads = 0;
@@ -4309,10 +4309,10 @@ test.describe("Install reviewer and weighted-review pre-selection from an existi
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "claude", model: "", effort: "" },
+                worker: { tool: "claude", model: "", effort: "", fast: false },
                 reviewers: [
-                    { tool: "claude", model: "claude-opus-4-8", effort: "high", optional: false },
-                    { tool: "claude", model: "best", effort: "low", optional: false }
+                    { tool: "claude", model: "claude-opus-4-8", effort: "high", fast: false, optional: false },
+                    { tool: "claude", model: "best", effort: "low", fast: false, optional: false }
                 ],
                 minimumReviews: 2
             });
@@ -4373,8 +4373,8 @@ test.describe("Install reviewer and weighted-review pre-selection from an existi
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "claude", model: "", effort: "" },
-                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
@@ -4407,10 +4407,10 @@ test.describe("Install reviewer and weighted-review pre-selection from an existi
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "claude", model: "", effort: "" },
+                worker: { tool: "claude", model: "", effort: "", fast: false },
                 reviewers: [
-                    { tool: "claude", model: "", effort: "", optional: true },
-                    { tool: "claude", model: "", effort: "", optional: false }
+                    { tool: "claude", model: "", effort: "", fast: false, optional: true },
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false }
                 ],
                 minimumReviews: 1
             });
@@ -4463,11 +4463,11 @@ test.describe("Install reviewer and weighted-review pre-selection from an existi
             // Stored minimum 3 (a valid 3-reviewer config), but only 2 reviewers are supplied by flags,
             // so the offered default must clamp down to 2.
             seedProjectConfig(s, {
-                worker: { tool: "claude", model: "", effort: "" },
+                worker: { tool: "claude", model: "", effort: "", fast: false },
                 reviewers: [
-                    { tool: "claude", model: "", effort: "", optional: false },
-                    { tool: "claude", model: "", effort: "", optional: false },
-                    { tool: "claude", model: "", effort: "", optional: false }
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false },
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false },
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false }
                 ],
                 minimumReviews: 3
             });
@@ -4544,8 +4544,8 @@ test.describe("Install reviewer and weighted-review pre-selection from an existi
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "claude", model: "", effort: "" },
-                reviewers: [{ tool: "claude", model: "best", effort: "high", optional: false }],
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [{ tool: "claude", model: "best", effort: "high", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
@@ -4594,10 +4594,10 @@ test.describe("Install reviewer and weighted-review pre-selection from an existi
         ARRANGE() {
             const s = stubContexts();
             const stored:FlandersConfig = {
-                worker: { tool: "claude", model: "claude-opus-4-8", effort: "high" },
+                worker: { tool: "claude", model: "claude-opus-4-8", effort: "high", fast: false },
                 reviewers: [
-                    { tool: "claude", model: "best", effort: "low", optional: true },
-                    { tool: "claude", model: "", effort: "max", optional: false }
+                    { tool: "claude", model: "best", effort: "low", fast: false, optional: true },
+                    { tool: "claude", model: "", effort: "max", fast: false, optional: false }
                 ],
                 minimumReviews: 1
             };
@@ -4641,8 +4641,8 @@ test.describe("Install reviewer and weighted-review pre-selection from an existi
             const s = stubContexts();
             // Every flag below disagrees with the stored configuration.
             seedProjectConfig(s, {
-                worker: { tool: "codex", model: "stored-w", effort: "stored-we" },
-                reviewers: [{ tool: "codex", model: "stored-r", effort: "stored-re", optional: true }],
+                worker: { tool: "codex", model: "stored-w", effort: "stored-we", fast: false },
+                reviewers: [{ tool: "codex", model: "stored-r", effort: "stored-re", fast: false, optional: true }],
                 minimumReviews: 1
             });
             return s;
@@ -4670,10 +4670,10 @@ test.describe("Install reviewer and weighted-review pre-selection from an existi
             },
             "the written configuration is the flag values, not the stored ones"({ config }) {
                 Assert.deepStrictEqual(config, {
-                    worker: { tool: "claude", model: "W", effort: "E" },
+                    worker: { tool: "claude", model: "W", effort: "E", fast: false },
                     reviewers: [
-                        { tool: "claude", model: "R1", effort: "E1", optional: false },
-                        { tool: "claude", model: "R2", effort: "E2", optional: true }
+                        { tool: "claude", model: "R1", effort: "E1", fast: false, optional: false },
+                        { tool: "claude", model: "R2", effort: "E2", fast: false, optional: true }
                     ],
                     minimumReviews: 1
                 });
@@ -5118,8 +5118,8 @@ test.describe("Install config persistence (3.7)", test => {
             },
             "read-back equals expected FlandersConfig literal"({ config }) {
                 const expected:FlandersConfig = {
-                    worker: { tool: "claude", model: "opus", effort: "high" },
-                    reviewers: [{ tool: "codex", model: "gpt-5", effort: "medium", optional: false }],
+                    worker: { tool: "claude", model: "opus", effort: "high", fast: false },
+                    reviewers: [{ tool: "codex", model: "gpt-5", effort: "medium", fast: false, optional: false }],
                     minimumReviews: 1
                 };
                 Assert.deepStrictEqual(config, expected);
@@ -5154,8 +5154,8 @@ test.describe("Install config persistence (3.7)", test => {
         ARRANGE() {
             const s = stubContexts();
             s.files.set("/proj/.flanders/config.json", JSON.stringify({
-                worker: { tool: "claude", model: "old-model", effort: "old" },
-                reviewers: [{ tool: "claude", model: "old-rev", effort: "old" }]
+                worker: { tool: "claude", model: "old-model", effort: "old", fast: false },
+                reviewers: [{ tool: "claude", model: "old-rev", effort: "old", fast: false }]
             }, null, 2) + "\n");
             const writeCalls:Array<{ path:string; content:string }> = [];
             (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, content) => {
@@ -5186,8 +5186,8 @@ test.describe("Install config persistence (3.7)", test => {
             },
             "final content matches new answers"({ config }) {
                 Assert.deepStrictEqual(config, {
-                    worker: { tool: "codex", model: "  New-Model-X  ", effort: "high" },
-                    reviewers: [{ tool: "claude", model: "  New-Rev-X  ", effort: "low", optional: false }],
+                    worker: { tool: "codex", model: "  New-Model-X  ", effort: "high", fast: false },
+                    reviewers: [{ tool: "claude", model: "  New-Rev-X  ", effort: "low", fast: false, optional: false }],
                     minimumReviews: 1
                 });
             }
@@ -6306,7 +6306,7 @@ test.describe("Install antigravity", test => {
             },
             "persists the antigravity worker with its model verbatim and empty effort"({ config }) {
                 Assert.ok(config);
-                Assert.deepStrictEqual(config.worker, { tool: "antigravity", model: "  gemini-flash  ", effort: "" });
+                Assert.deepStrictEqual(config.worker, { tool: "antigravity", model: "  gemini-flash  ", effort: "", fast: false });
             }
         }
     });
@@ -6328,7 +6328,7 @@ test.describe("Install antigravity", test => {
             },
             "persists the antigravity reviewer with its model verbatim and empty effort"({ config }) {
                 Assert.ok(config);
-                Assert.deepStrictEqual(config.reviewers, [{ tool: "antigravity", model: "gemini-rev", effort: "", optional: false }]);
+                Assert.deepStrictEqual(config.reviewers, [{ tool: "antigravity", model: "gemini-rev", effort: "", fast: false, optional: false }]);
             }
         }
     });
@@ -6387,8 +6387,8 @@ test.describe("Install antigravity", test => {
             },
             "persists the antigravity worker and reviewer with the selected labels verbatim and empty efforts"({ config }) {
                 Assert.deepStrictEqual(config, {
-                    worker: { tool: "antigravity", model: "Gemini 3.5 Flash (Medium)", effort: "" },
-                    reviewers: [{ tool: "antigravity", model: "Claude Opus 4.6 (Thinking)", effort: "", optional: false }],
+                    worker: { tool: "antigravity", model: "Gemini 3.5 Flash (Medium)", effort: "", fast: false },
+                    reviewers: [{ tool: "antigravity", model: "Claude Opus 4.6 (Thinking)", effort: "", fast: false, optional: false }],
                     minimumReviews: 1
                 });
             }
@@ -6594,8 +6594,8 @@ test.describe("Install antigravity", test => {
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "antigravity", model: "Gemini 3.5 Flash (High)", effort: "" },
-                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                worker: { tool: "antigravity", model: "Gemini 3.5 Flash (High)", effort: "", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool
@@ -6631,8 +6631,8 @@ test.describe("Install antigravity", test => {
             const s = stubContexts();
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "antigravity", model: "some-future-model", effort: "" },
-                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                worker: { tool: "antigravity", model: "some-future-model", effort: "", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
             s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool
@@ -6725,8 +6725,8 @@ test.describe("Install antigravity", test => {
         ARRANGE() {
             const s = stubContexts();
             const stored:FlandersConfig = {
-                worker: { tool: "antigravity", model: "gem-stored", effort: "" },
-                reviewers: [{ tool: "claude", model: "", effort: "", optional: false }],
+                worker: { tool: "antigravity", model: "gem-stored", effort: "", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             };
             s.files.set("/proj/.flanders/config.json", JSON.stringify(stored, null, 2) + "\n");
@@ -6934,8 +6934,8 @@ test.describe("Install antigravity", test => {
         ARRANGE() {
             const s = stubContexts();
             const stored:FlandersConfig = {
-                worker: { tool: "antigravity", model: "Gemini 3.5 Flash (Low)", effort: "" },
-                reviewers: [{ tool: "antigravity", model: "Claude Sonnet 4.6 (Thinking)", effort: "", optional: false }],
+                worker: { tool: "antigravity", model: "Gemini 3.5 Flash (Low)", effort: "", fast: false },
+                reviewers: [{ tool: "antigravity", model: "Claude Sonnet 4.6 (Thinking)", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             };
             s.files.set("/proj/.flanders/config.json", JSON.stringify(stored, null, 2) + "\n");
@@ -6963,8 +6963,8 @@ test.describe("Install antigravity", test => {
             },
             "rewrites the same antigravity configuration"({ config }) {
                 Assert.deepStrictEqual(config, {
-                    worker: { tool: "antigravity", model: "Gemini 3.5 Flash (Low)", effort: "" },
-                    reviewers: [{ tool: "antigravity", model: "Claude Sonnet 4.6 (Thinking)", effort: "", optional: false }],
+                    worker: { tool: "antigravity", model: "Gemini 3.5 Flash (Low)", effort: "", fast: false },
+                    reviewers: [{ tool: "antigravity", model: "Claude Sonnet 4.6 (Thinking)", effort: "", fast: false, optional: false }],
                     minimumReviews: 1
                 });
             }

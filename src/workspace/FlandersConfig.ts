@@ -3,7 +3,7 @@ import { joinPath } from "../system/fsUtils";
 import { TOOL_NAMES } from "../toolNames";
 import type { ToolName } from "../ai/ToolAdapter";
 
-export type FlandersRole = Readonly<{ tool:ToolName; model:string; effort:string }>;
+export type FlandersRole = Readonly<{ tool:ToolName; model:string; effort:string; fast:boolean }>;
 
 export type FlandersReviewer = FlandersRole & Readonly<{ optional:boolean }>;
 
@@ -91,6 +91,9 @@ function validateRole(role:Record<string, unknown>, name:string, filePath:string
     }
     if (!("effort" in role) || typeof role["effort"] !== "string") {
         throw new Error(`Malformed config at ${filePath}: missing or invalid field "${name}.effort"`);
+    }
+    if (!("fast" in role) || typeof role["fast"] !== "boolean") {
+        throw new Error(`Malformed config at ${filePath}: missing or invalid field "${name}.fast"`);
     }
 }
 

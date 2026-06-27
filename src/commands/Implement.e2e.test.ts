@@ -281,7 +281,7 @@ type E2eResult = {
 test.describe("Implement e2e: deterministic injection across tools and configs", test => {
     test("shape 1: claude/claude same triple — no prep, worker and reviewer are fresh and deliver linked content via spec.md", {
         ARRANGE() {
-            const config:FlandersConfig = { worker: { tool: "claude", model: "m1", effort: "high" }, reviewers: [{ tool: "claude", model: "m1", effort: "high", optional: false }], minimumReviews: 1 };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "m1", effort: "high", fast: false }, reviewers: [{ tool: "claude", model: "m1", effort: "high", fast: false, optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
             gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, LINKED_PLAN);
@@ -351,7 +351,7 @@ test.describe("Implement e2e: deterministic injection across tools and configs",
 
     test("shape 2: codex/codex same triple — no prep, all spawns use codex and deliver linked content via spec.md", {
         ARRANGE() {
-            const config:FlandersConfig = { worker: { tool: "codex", model: "m2", effort: "low" }, reviewers: [{ tool: "codex", model: "m2", effort: "low", optional: false }], minimumReviews: 1 };
+            const config:FlandersConfig = { worker: { tool: "codex", model: "m2", effort: "low", fast: false }, reviewers: [{ tool: "codex", model: "m2", effort: "low", fast: false, optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
             gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, LINKED_PLAN);
@@ -421,7 +421,7 @@ test.describe("Implement e2e: deterministic injection across tools and configs",
 
     test("shape 3: claude/codex — worker and reviewer are fresh and deliver linked content via spec.md", {
         ARRANGE() {
-            const config:FlandersConfig = { worker: { tool: "claude", model: "m3", effort: "mid" }, reviewers: [{ tool: "codex", model: "m3", effort: "mid", optional: false }], minimumReviews: 1 };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "m3", effort: "mid", fast: false }, reviewers: [{ tool: "codex", model: "m3", effort: "mid", fast: false, optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
             gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, LINKED_PLAN);
@@ -491,7 +491,7 @@ test.describe("Implement e2e: deterministic injection across tools and configs",
 
     test("shape 4: claude/claude with different effort — fresh worker and reviewer deliver linked content via spec.md", {
         ARRANGE() {
-            const config:FlandersConfig = { worker: { tool: "claude", model: "m4", effort: "high" }, reviewers: [{ tool: "claude", model: "m4", effort: "low", optional: false }], minimumReviews: 1 };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "m4", effort: "high", fast: false }, reviewers: [{ tool: "claude", model: "m4", effort: "low", fast: false, optional: false }], minimumReviews: 1 };
             const s = stubContexts(config);
             gitRunQueue(s.gitQueue);
             s.files.set(PLAN_PATH, LINKED_PLAN);

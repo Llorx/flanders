@@ -781,7 +781,8 @@ export class Install {
         if (effort === null) {
             return null;
         }
-        return { tool, model, effort };
+        // Provisional fast: the interactive fast flow and the real per-role value arrive in task 5.
+        return { tool, model, effort, fast: false };
     }
     private async _run(rawArgs:readonly string[], options:InstallOptions, contexts:InstallContexts):Promise<number> {
         try {
@@ -1087,7 +1088,8 @@ export class Install {
                 return 1;
             }
             const config:FlandersConfig = {
-                worker: { tool: workerTool, model: workerModel, effort: workerEffort },
+                // Provisional fast: the interactive fast flow and the real per-role value arrive in task 5.
+                worker: { tool: workerTool, model: workerModel, effort: workerEffort, fast: false },
                 reviewers: reviewerConfigs,
                 minimumReviews
             };
