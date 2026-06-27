@@ -726,7 +726,7 @@ test.describe("parseInstallFlags", test => {
         ASSERT(result) {
             Assert.deepStrictEqual(result, {
                 ok: false,
-                diagnostic: "Invalid value for --worker-tool: \"foo\". Allowed values: claude, codex, antigravity.\n"
+                diagnostic: "Invalid value for --worker-tool: \"foo\". Allowed values: claude, codex.\n"
             });
         }
     });
@@ -756,7 +756,7 @@ test.describe("parseInstallFlags", test => {
         ASSERT(result) {
             Assert.deepStrictEqual(result, {
                 ok: false,
-                diagnostic: "Invalid value for --skills-tool: \"cursor\". Expected a comma-separated list of distinct names from: claude, codex, antigravity.\n"
+                diagnostic: "Invalid value for --skills-tool: \"cursor\". Expected a comma-separated list of distinct names from: claude, codex.\n"
             });
         }
     });
@@ -825,7 +825,7 @@ test.describe("parseInstallFlags", test => {
         ASSERT(result) {
             Assert.deepStrictEqual(result, {
                 ok: false,
-                diagnostic: "Invalid value for --reviewer-tool: \"bad\". Allowed values: claude, codex, antigravity.\n"
+                diagnostic: "Invalid value for --reviewer-tool: \"bad\". Allowed values: claude, codex.\n"
             });
         }
     });
@@ -1102,7 +1102,7 @@ test.describe("Install flag validation integration", test => {
                 Assert.strictEqual(code, 1);
             },
             "diagnostic is exact"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Invalid value for --worker-tool: \"foo\". Allowed values: claude, codex, antigravity.\n");
+                Assert.strictEqual(errors.join(""), "Invalid value for --worker-tool: \"foo\". Allowed values: claude, codex.\n");
             },
             "no interactive prompt was called"(_code, { wasAskCalled }) {
                 Assert.strictEqual(wasAskCalled(), false);
@@ -1157,7 +1157,7 @@ test.describe("Install flag validation integration", test => {
                 Assert.strictEqual(code, 1);
             },
             "diagnostic is exact"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Invalid value for --skills-tool: \"cursor\". Expected a comma-separated list of distinct names from: claude, codex, antigravity.\n");
+                Assert.strictEqual(errors.join(""), "Invalid value for --skills-tool: \"cursor\". Expected a comma-separated list of distinct names from: claude, codex.\n");
             },
             "no interactive prompt was called"(_code, { wasAskCalled }) {
                 Assert.strictEqual(wasAskCalled(), false);
@@ -6150,7 +6150,7 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
                 if (result.ok) {
                     throw new Error("expected failure");
                 }
-                Assert.strictEqual(result.diagnostic, `Invalid value for --reviewer-2-tool: "bad". Allowed values: claude, codex, antigravity.\n`);
+                Assert.strictEqual(result.diagnostic, `Invalid value for --reviewer-2-tool: "bad". Allowed values: claude, codex.\n`);
             }
         }
     });
@@ -6971,685 +6971,72 @@ test.describe("Install weighted-review collection (2.2)", test => {
     });
 });
 
-test.describe("parseInstallFlags antigravity", test => {
-    test("--worker-tool=antigravity is accepted", {
+test.describe("Install codex effort re-validation after late tool resolution", test => {
+    test("--worker-effort with a non-documented codex level is rejected once the worker tool resolves to codex interactively", {
         ARRANGE() {
-            return { args: ["--worker-tool=antigravity"] };
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "codex" }] }]); // worker tool -> codex
+            return s;
         },
-        ACT({ args }) {
-            return parseInstallFlags(args);
+        async ACT({ contexts }) {
+            // --worker-effort carries a value codex does not document and --worker-tool is omitted, so
+            // parse-time cannot validate it against codex; the worker tool resolves to codex interactively
+            // and the re-validation rejects the effort before any worker model prompt.
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-effort=ultra"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
         },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, { ok: true, answers: { workerTool: "antigravity" } });
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic names the worker-effort flag and the offending value exactly"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid value for --worker-effort: \"ultra\". Allowed values: minimal, low, medium, high, xhigh.\n");
+            }
         }
     });
 
-    test("--reviewer-tool=antigravity is accepted", {
+    test("--reviewer-effort with a non-documented codex level is rejected once reviewer 1 resolves to codex interactively", {
         ARRANGE() {
-            return { args: ["--reviewer-tool=antigravity"] };
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "codex" }] }]); // reviewer 1 tool -> codex
+            return s;
         },
-        ACT({ args }) {
-            return parseInstallFlags(args);
+        async ACT({ contexts }) {
+            // The worker is fully flag-supplied, so reviewer 1's tool is the first prompt. --reviewer-effort
+            // carries a value codex does not document with --reviewer-tool omitted, so the re-validation
+            // rejects it after the reviewer tool resolves to codex, before the reviewer model prompt.
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-effort=ultra"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
         },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, { ok: true, answers: { reviewers: [{ tool: "antigravity" }] } });
-        }
-    });
-
-    test("--reviewer-2-tool=antigravity is accepted as a contiguous indexed reviewer", {
-        ARRANGE() {
-            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=antigravity"] };
-        },
-        ACT({ args }) {
-            return parseInstallFlags(args);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, { ok: true, answers: { reviewers: [{ tool: "claude" }, { tool: "antigravity" }] } });
-        }
-    });
-
-    test("--worker-effort=high with --worker-tool=antigravity is a usage error naming the flag and value", {
-        ARRANGE() {
-            return { args: ["--worker-effort=high", "--worker-tool=antigravity"] };
-        },
-        ACT({ args }) {
-            return parseInstallFlags(args);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, {
-                ok: false,
-                diagnostic: "Invalid value for --worker-effort: \"high\". The antigravity tool exposes no reasoning-effort setting, so only an empty value is accepted.\n"
-            });
-        }
-    });
-
-    test("--worker-effort= (empty) with --worker-tool=antigravity is accepted", {
-        ARRANGE() {
-            return { args: ["--worker-effort=", "--worker-tool=antigravity"] };
-        },
-        ACT({ args }) {
-            return parseInstallFlags(args);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, { ok: true, answers: { workerTool: "antigravity", workerEffort: "" } });
-        }
-    });
-
-    test("--reviewer-effort=high with --reviewer-tool=antigravity is a usage error", {
-        ARRANGE() {
-            return { args: ["--reviewer-effort=high", "--reviewer-tool=antigravity"] };
-        },
-        ACT({ args }) {
-            return parseInstallFlags(args);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, {
-                ok: false,
-                diagnostic: "Invalid value for --reviewer-effort: \"high\". The antigravity tool exposes no reasoning-effort setting, so only an empty value is accepted.\n"
-            });
-        }
-    });
-
-    test("--reviewer-2-effort=high with --reviewer-2-tool=antigravity is a usage error naming the indexed flag", {
-        ARRANGE() {
-            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=antigravity", "--reviewer-2-effort=high"] };
-        },
-        ACT({ args }) {
-            return parseInstallFlags(args);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, {
-                ok: false,
-                diagnostic: "Invalid value for --reviewer-2-effort: \"high\". The antigravity tool exposes no reasoning-effort setting, so only an empty value is accepted.\n"
-            });
-        }
-    });
-
-    test("--skills-tool=claude,codex,antigravity is accepted as the full set in order", {
-        ARRANGE() {
-            return { args: ["--skills-tool=claude,codex,antigravity"] };
-        },
-        ACT({ args }) {
-            return parseInstallFlags(args);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, { ok: true, answers: { skillsTools: ["claude", "codex", "antigravity"] } });
-        }
-    });
-
-    test("--skills-tool=antigravity is accepted as a single-tool list", {
-        ARRANGE() {
-            return { args: ["--skills-tool=antigravity"] };
-        },
-        ACT({ args }) {
-            return parseInstallFlags(args);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, { ok: true, answers: { skillsTools: ["antigravity"] } });
-        }
-    });
-
-    test("--skills-tool with a repeated name is a usage error naming the offending value", {
-        ARRANGE() {
-            return { args: ["--skills-tool=claude,claude"] };
-        },
-        ACT({ args }) {
-            return parseInstallFlags(args);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, {
-                ok: false,
-                diagnostic: "Invalid value for --skills-tool: \"claude,claude\". Expected a comma-separated list of distinct names from: claude, codex, antigravity.\n"
-            });
-        }
-    });
-
-    test("--skills-tool= (empty list) is a usage error naming the offending value", {
-        ARRANGE() {
-            return { args: ["--skills-tool="] };
-        },
-        ACT({ args }) {
-            return parseInstallFlags(args);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, {
-                ok: false,
-                diagnostic: "Invalid value for --skills-tool: \"\". Expected a comma-separated list of distinct names from: claude, codex, antigravity.\n"
-            });
-        }
-    });
-
-    test("--skills-tool with an unknown name in the list is a usage error naming the offending value", {
-        ARRANGE() {
-            return { args: ["--skills-tool=antigravity,cursor"] };
-        },
-        ACT({ args }) {
-            return parseInstallFlags(args);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, {
-                ok: false,
-                diagnostic: "Invalid value for --skills-tool: \"antigravity,cursor\". Expected a comma-separated list of distinct names from: claude, codex, antigravity.\n"
-            });
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic names the reviewer-effort flag and the offending value exactly"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid value for --reviewer-effort: \"ultra\". Allowed values: minimal, low, medium, high, xhigh.\n");
+            }
         }
     });
 });
 
-test.describe("Install antigravity", test => {
-    test("flag-driven antigravity worker persists tool, verbatim model, and empty effort", {
-        ARRANGE() {
-            return stubContexts();
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--worker-model=  gemini-flash  ", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
-            return { code, config };
-        },
-        ASSERTS: {
-            "exits with code 0"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "persists the antigravity worker with its model verbatim and empty effort"({ config }) {
-                Assert.ok(config);
-                Assert.deepStrictEqual(config.worker, { tool: "antigravity", model: "  gemini-flash  ", effort: "", fast: false });
-            }
-        }
-    });
-
-    test("flag-driven antigravity reviewer persists tool, verbatim model, and empty effort", {
-        ARRANGE() {
-            return stubContexts();
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=antigravity", "--reviewer-model=gemini-rev", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
-            return { code, config };
-        },
-        ASSERTS: {
-            "exits with code 0"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "persists the antigravity reviewer with its model verbatim and empty effort"({ config }) {
-                Assert.ok(config);
-                Assert.deepStrictEqual(config.reviewers, [{ tool: "antigravity", model: "gemini-rev", effort: "", fast: false, optional: false }]);
-            }
-        }
-    });
-
-    test("interactive worker and reviewer offer antigravity as a third tool and collect its model through the provider-grouped menu", {
+test.describe("Install tool questions offer only the claude and codex closed set", test => {
+    test("the interactive skills-tool, worker-tool, and reviewer-tool questions each offer exactly claude and codex", {
         ARRANGE() {
             const s = stubContexts();
-            let workerToolOptions:readonly { label:string }[] = [];
-            let reviewerToolOptions:readonly { label:string }[] = [];
-            const origAsk = s.contexts.ask.askChoices;
-            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
-                for (const q of questions) {
-                    if (q.header === "Worker tool, neighborino") {
-                        workerToolOptions = q.options;
-                    }
-                    if (q.header === "Reviewer tool") {
-                        reviewerToolOptions = q.options;
-                    }
-                }
-                return origAsk.call(s.contexts.ask, questions, output);
-            };
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // skills tool (multi-select)
-            s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope
-            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool
-            s.askResponses.push([{ picked: [{ label: "Gemini" }] }]); // worker model -> Gemini provider submenu
-            s.askResponses.push([{ picked: [{ label: "Gemini 3.5 Flash (Medium)" }] }]); // worker submenu choice
-            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // reviewer tool
-            s.askResponses.push([{ picked: [{ label: "Claude" }] }]); // reviewer model -> Claude provider submenu
-            s.askResponses.push([{ picked: [{ label: "Claude Opus 4.6 (Thinking)" }] }]); // reviewer submenu choice
-            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
-            return { ...s, getWorkerToolOptions: () => workerToolOptions, getReviewerToolOptions: () => reviewerToolOptions };
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install([], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
-            return { code, config };
-        },
-        ASSERTS: {
-            "exits with code 0"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "the worker tool question offers exactly claude, codex, antigravity"(_result, { getWorkerToolOptions }) {
-                Assert.deepStrictEqual(getWorkerToolOptions().map(o => o.label), ["claude", "codex", "antigravity"]);
-            },
-            "the reviewer tool question offers exactly claude, codex, antigravity"(_result, { getReviewerToolOptions }) {
-                Assert.deepStrictEqual(getReviewerToolOptions().map(o => o.label), ["claude", "codex", "antigravity"]);
-            },
-            "the antigravity worker model is collected through the menu, not a free-text prompt"(_result, { askedHeaders, askedTextPrompts }) {
-                Assert.ok(askedHeaders.includes("Worker model"));
-                Assert.ok(!askedTextPrompts.includes("Which model should the worker use? (leave empty for the default configured model): "));
-            },
-            "no Worker effort question was asked for the antigravity worker"(_result, { askedHeaders }) {
-                Assert.ok(!askedHeaders.includes("Worker effort"));
-            },
-            "persists the antigravity worker and reviewer with the selected labels verbatim and empty efforts"({ config }) {
-                Assert.deepStrictEqual(config, {
-                    worker: { tool: "antigravity", model: "Gemini 3.5 Flash (Medium)", effort: "", fast: false },
-                    reviewers: [{ tool: "antigravity", model: "Claude Opus 4.6 (Thinking)", effort: "", fast: false, optional: false }],
-                    minimumReviews: 1
-                });
-            }
-        }
-    });
-
-    test("antigravity tool renders the provider-grouped top-level menu: providers, the synthetic default, then the custom entry, in order", {
-        ARRANGE() {
-            const s = stubContexts();
-            const capture = captureModelMenu(s);
-            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
-            return { ...s, capture };
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits 0"(code) {
-                Assert.strictEqual(code, 0);
-            },
-            "top-level options are exactly the three providers, the synthetic default, then the custom entry, in order"(_code, { capture }) {
-                Assert.deepStrictEqual(
-                    capture.optionsForQuestion("Which model should the worker use?")[0],
-                    ["Gemini", "Claude", "GPT-OSS", "default configured model", "enter a custom value…"]
-                );
-            }
-        }
-    });
-
-    test("antigravity selecting the Gemini provider opens its submenu with exact options and persists the selected label verbatim", {
-        ARRANGE() {
-            const s = stubContexts();
-            const capture = captureModelMenu(s);
-            s.askResponses.push([{ picked: [{ label: "Gemini" }] }]); // worker model -> Gemini submenu
-            s.askResponses.push([{ picked: [{ label: "Gemini 3.1 Pro (High)" }] }]); // submenu choice
-            return { ...s, capture };
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
-            return { code, config };
-        },
-        ASSERTS: {
-            "exits 0"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "the Gemini submenu lists its five entries in catalog order plus the back affordance"({ code: _code }, { capture }) {
-                Assert.deepStrictEqual(
-                    capture.optionsForQuestion("Which Gemini model should the worker use?")[0],
-                    ["Gemini 3.5 Flash (Medium)", "Gemini 3.5 Flash (High)", "Gemini 3.5 Flash (Low)", "Gemini 3.1 Pro (Low)", "Gemini 3.1 Pro (High)", "← back"]
-                );
-            },
-            "config worker.model is the selected label verbatim"({ config }) {
-                Assert.ok(config);
-                Assert.strictEqual(config.worker.model, "Gemini 3.1 Pro (High)");
-            }
-        }
-    });
-
-    test("antigravity single-model provider GPT-OSS opens a single-entry submenu plus the back affordance", {
-        ARRANGE() {
-            const s = stubContexts();
-            const capture = captureModelMenu(s);
-            s.askResponses.push([{ picked: [{ label: "GPT-OSS" }] }]); // worker model -> GPT-OSS submenu
-            s.askResponses.push([{ picked: [{ label: "GPT-OSS 120B (Medium)" }] }]); // submenu choice
-            return { ...s, capture };
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
-            return { code, config };
-        },
-        ASSERTS: {
-            "exits 0"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "the GPT-OSS submenu lists its single entry plus the back affordance"({ code: _code }, { capture }) {
-                Assert.deepStrictEqual(
-                    capture.optionsForQuestion("Which GPT-OSS model should the worker use?")[0],
-                    ["GPT-OSS 120B (Medium)", "← back"]
-                );
-            },
-            "config worker.model is the single GPT-OSS label verbatim"({ config }) {
-                Assert.ok(config);
-                Assert.strictEqual(config.worker.model, "GPT-OSS 120B (Medium)");
-            }
-        }
-    });
-
-    test("antigravity custom model entry opens a free-text input and persists the typed value verbatim", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // worker model -> custom
-            s.askTextResponses.push("  Gemini-Custom  "); // worker model custom text
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
-            return { code, config };
-        },
-        ASSERTS: {
-            "exits 0"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "config worker.model is the typed custom value verbatim (surrounding whitespace preserved, not trimmed)"({ config }) {
-                Assert.ok(config);
-                Assert.strictEqual(config.worker.model, "  Gemini-Custom  ");
-            },
-            "the custom free-text prompt is the worker model question with its placeholder"(_result, { askedTextPrompts }) {
-                Assert.ok(askedTextPrompts.includes("Which model should the worker use? (leave empty for the default configured model): "));
-            }
-        }
-    });
-
-    test("antigravity custom model entry with an empty typed value persists the empty string", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // worker model -> custom
-            // askTextResponses left empty -> the custom free-text input returns ""
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
-            return { code, config };
-        },
-        ASSERTS: {
-            "exits 0"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "config worker.model is empty string"({ config }) {
-                Assert.ok(config);
-                Assert.strictEqual(config.worker.model, "");
-            }
-        }
-    });
-
-    test("antigravity picking the synthetic default configured model persists as empty string", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
-            return { code, config };
-        },
-        ASSERTS: {
-            "exits 0"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "config worker.model is empty string"({ config }) {
-                Assert.ok(config);
-                Assert.strictEqual(config.worker.model, "");
-            }
-        }
-    });
-
-    test("antigravity back affordance returns to the top level without answering, then another provider can be chosen", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "Gemini" }] }]); // worker model -> Gemini submenu
-            s.askResponses.push([{ picked: [{ label: "← back" }] }]); // submenu -> back to top level
-            s.askResponses.push([{ picked: [{ label: "Claude" }] }]); // top level again -> Claude submenu
-            s.askResponses.push([{ picked: [{ label: "Claude Sonnet 4.6 (Thinking)" }] }]); // submenu choice
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=antigravity", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
-            return { code, config };
-        },
-        ASSERTS: {
-            "exits 0"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "config worker.model is the label chosen after backing out"({ config }) {
-                Assert.ok(config);
-                Assert.strictEqual(config.worker.model, "Claude Sonnet 4.6 (Thinking)");
-            }
-        }
-    });
-
-    test("antigravity worker model pre-selects the provider then the submenu entry from the stored model", {
-        ARRANGE() {
-            const s = stubContexts();
-            const cap = captureChoiceDefaults(s);
-            seedProjectConfig(s, {
-                worker: { tool: "antigravity", model: "Gemini 3.5 Flash (High)", effort: "", fast: false },
-                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
-                minimumReviews: 1
-            });
-            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool
-            s.askResponses.push([{ picked: [{ label: "Gemini" }] }]); // worker model top-level -> Gemini submenu
-            s.askResponses.push([{ picked: [{ label: "Gemini 3.5 Flash (High)" }] }]); // worker model submenu
-            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
-            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
-            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
-            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
-            return { ...s, cap };
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits 0"(code) {
-                Assert.strictEqual(code, 0);
-            },
-            "the worker model top-level menu defaults to the Gemini provider"(_code, { cap }) {
-                Assert.strictEqual(cap.defaultLabelFor("Which model should the worker use?"), "Gemini");
-            },
-            "the Gemini submenu defaults to the stored Gemini 3.5 Flash (High) entry"(_code, { cap }) {
-                Assert.strictEqual(cap.defaultLabelFor("Which Gemini model should the worker use?"), "Gemini 3.5 Flash (High)");
-            }
-        }
-    });
-
-    test("antigravity worker model defaults to the custom entry when the stored model matches no catalog value", {
-        ARRANGE() {
-            const s = stubContexts();
-            const cap = captureChoiceDefaults(s);
-            seedProjectConfig(s, {
-                worker: { tool: "antigravity", model: "some-future-model", effort: "", fast: false },
-                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
-                minimumReviews: 1
-            });
-            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool
-            s.askResponses.push([{ picked: [{ label: "enter a custom value…" }] }]); // worker model -> custom
-            s.askTextResponses.push("some-future-model"); // accept the seeded custom default
-            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer tool
-            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
-            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer effort
-            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer?
-            return { ...s, cap };
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
-            return { code, config };
-        },
-        ASSERTS: {
-            "exits 0"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "the worker model top-level menu defaults to the custom entry"({ code: _code }, { cap }) {
-                Assert.strictEqual(cap.defaultLabelFor("Which model should the worker use?"), "enter a custom value…");
-            },
-            "config worker.model round-trips the stored custom value"({ config }) {
-                Assert.ok(config);
-                Assert.strictEqual(config.worker.model, "some-future-model");
-            }
-        }
-    });
-
-    test("--worker-effort=high with --worker-tool=antigravity exits non-zero before any prompt", {
-        ARRANGE() {
-            const s = stubContexts();
-            let askCalled = false;
-            (s.contexts as { ask:InstallContexts["ask"] }).ask = {
-                askChoices() { askCalled = true; throw new Error("askChoices should not be called"); },
-                askText() { askCalled = true; throw new Error("askText should not be called"); }
-            };
-            return { ...s, wasAskCalled: () => askCalled };
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--worker-effort=high", "--worker-tool=antigravity"], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 1"(code) {
-                Assert.strictEqual(code, 1);
-            },
-            "diagnostic is exact"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Invalid value for --worker-effort: \"high\". The antigravity tool exposes no reasoning-effort setting, so only an empty value is accepted.\n");
-            },
-            "no interactive prompt was called"(_code, { wasAskCalled }) {
-                Assert.strictEqual(wasAskCalled(), false);
-            }
-        }
-    });
-
-    test("--worker-effort=high is rejected once the worker tool resolves to antigravity interactively (no --worker-tool flag)", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool — resolves the antigravity violation
-            return s;
-        },
-        async ACT({ contexts }) {
-            // --worker-effort=high but --worker-tool omitted: the antigravity violation is only knowable
-            // after the worker tool is chosen interactively, so it must be caught post-resolution.
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-effort=high", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 1"(code) {
-                Assert.strictEqual(code, 1);
-            },
-            "diagnostic names --worker-effort and the offending value exactly"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Invalid value for --worker-effort: \"high\". The antigravity tool exposes no reasoning-effort setting, so only an empty value is accepted.\n");
-            },
-            "no config.json is written"(_code, { files }) {
-                Assert.ok(!files.has("/proj/.flanders/config.json"));
-            }
-        }
-    });
-
-    test("--worker-effort=high is rejected when the worker tool defaults to a stored antigravity tool", {
-        ARRANGE() {
-            const s = stubContexts();
-            const stored:FlandersConfig = {
-                worker: { tool: "antigravity", model: "gem-stored", effort: "", fast: false },
-                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
-                minimumReviews: 1
-            };
-            s.files.set("/proj/.flanders/config.json", JSON.stringify(stored, null, 2) + "\n");
-            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool — accepting the stored antigravity default
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-effort=high", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 1"(code) {
-                Assert.strictEqual(code, 1);
-            },
-            "diagnostic names --worker-effort and the offending value exactly"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Invalid value for --worker-effort: \"high\". The antigravity tool exposes no reasoning-effort setting, so only an empty value is accepted.\n");
-            }
-        }
-    });
-
-    test("--reviewer-effort=high is rejected once reviewer 1 resolves to antigravity interactively (no --reviewer-tool flag)", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // reviewer 1 tool
-            return s;
-        },
-        async ACT({ contexts }) {
-            // --reviewer-effort=high fixes the one-reviewer list but omits --reviewer-tool, so reviewer 1's
-            // tool is prompted; the antigravity violation is caught after that prompt resolves.
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-effort=high"], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 1"(code) {
-                Assert.strictEqual(code, 1);
-            },
-            "diagnostic names --reviewer-effort and the offending value exactly"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Invalid value for --reviewer-effort: \"high\". The antigravity tool exposes no reasoning-effort setting, so only an empty value is accepted.\n");
-            }
-        }
-    });
-
-    test("--reviewer-2-effort=high is rejected once reviewer 2 resolves to antigravity interactively, naming the indexed flag", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // reviewer 2 tool
-            return s;
-        },
-        async ACT({ contexts }) {
-            // Reviewer 1 is fully flag-supplied; reviewer 2 carries only --reviewer-2-effort, so its tool is
-            // prompted and the antigravity violation surfaces post-resolution with the indexed flag name.
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort=", "--reviewer-2-effort=high"], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 1"(code) {
-                Assert.strictEqual(code, 1);
-            },
-            "diagnostic names --reviewer-2-effort and the offending value exactly"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Invalid value for --reviewer-2-effort: \"high\". The antigravity tool exposes no reasoning-effort setting, so only an empty value is accepted.\n");
-            }
-        }
-    });
-
-    test("skills-tool=antigravity (project) writes the antigravity skill trio as directory-plus-SKILL.md with the full body", {
-        ARRANGE() {
-            return stubContexts();
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=antigravity", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            // Scope is flag-supplied and the model/effort answers are flag-supplied empties, so only the
+            // three tool questions are prompted (the --reviewer-model/-effort flags fix the list at one
+            // reviewer, skipping "configure another reviewer?"). Their offered labels are then asserted.
+            const cmd = new Install(["--project", "--worker-model=", "--worker-effort=", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -7658,162 +7045,17 @@ test.describe("Install antigravity", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "creates the antigravity spec SKILL.md under .agents/skills/"(_code, { files }) {
-                Assert.ok(files.has("/proj/.agents/skills/flanders-spec/SKILL.md"));
+            "the skills-tool question offers exactly claude and codex in order"(_code, { askedQuestions, askedOptions }) {
+                const i = askedQuestions.indexOf("Which AI tool(s) should the skills be installed for, neighbor?");
+                Assert.deepStrictEqual(askedOptions[i]!.map(o => o.label), ["claude", "codex"]);
             },
-            "creates the antigravity plan SKILL.md under .agents/skills/"(_code, { files }) {
-                Assert.ok(files.has("/proj/.agents/skills/flanders-plan/SKILL.md"));
+            "the worker-tool question offers exactly claude and codex in order"(_code, { askedQuestions, askedOptions }) {
+                const i = askedQuestions.indexOf("Which AI tool should the worker use?");
+                Assert.deepStrictEqual(askedOptions[i]!.map(o => o.label), ["claude", "codex"]);
             },
-            "creates the antigravity work SKILL.md under .agents/skills/"(_code, { files }) {
-                Assert.ok(files.has("/proj/.agents/skills/flanders-work/SKILL.md"));
-            },
-            "the antigravity spec body is the full claude-form body, frontmatter intact"(_code, { files }) {
-                Assert.strictEqual(files.get("/proj/.agents/skills/flanders-spec/SKILL.md"), specSkillBody);
-            },
-            "writes exactly 4 files (3 antigravity skills + config)"(_code, { files }) {
-                Assert.strictEqual(files.size, 4);
-            },
-            "stdout includes the antigravity spec skill path"(_code, { written }) {
-                Assert.ok(written.join("").includes("/proj/.agents/skills/flanders-spec/SKILL.md"));
-            }
-        }
-    });
-
-    test("skills-tool=antigravity (global) writes under ~/.gemini/antigravity-cli/skills/", {
-        ARRANGE() {
-            return stubContexts();
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--global", "--skills-tool=antigravity", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 0"(code) {
-                Assert.strictEqual(code, 0);
-            },
-            "creates the antigravity spec SKILL.md under the home gemini skills folder"(_code, { files }) {
-                Assert.ok(files.has("/home/testuser/.gemini/antigravity-cli/skills/flanders-spec/SKILL.md"));
-            },
-            "the global antigravity work body is the full body"(_code, { files }) {
-                Assert.strictEqual(files.get("/home/testuser/.gemini/antigravity-cli/skills/flanders-work/SKILL.md"), workSkillBody);
-            }
-        }
-    });
-
-    test("skills-tool=codex,antigravity writes each tool's artifacts to its own destination, in selection order", {
-        ARRANGE() {
-            return stubContexts();
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=codex,antigravity", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            await cmd.result();
-            await cmd.dispose();
-        },
-        ASSERT(_, { written }) {
-            const lines = written.join("").split("\n").filter(l => l.length > 0);
-            Assert.deepStrictEqual(lines, [
-                "/proj/.codex/prompts/flanders-spec.md",
-                "/proj/.codex/prompts/flanders-plan.md",
-                "/proj/.codex/prompts/flanders-work.md",
-                "/proj/.agents/skills/flanders-spec/SKILL.md",
-                "/proj/.agents/skills/flanders-plan/SKILL.md",
-                "/proj/.agents/skills/flanders-work/SKILL.md",
-                "/proj/.flanders/config.json"
-            ]);
-        }
-    });
-
-    test("skills tool antigravity (--skills-tool flag): scope descriptions name the antigravity destinations exactly", {
-        ARRANGE() {
-            const s = stubContexts();
-            let scopeOptions:readonly { label:string; description?:string }[] = [];
-            let callIndex = 0;
-            const origAsk = s.contexts.ask.askChoices;
-            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, output) => {
-                callIndex++;
-                if (callIndex === 1) {
-                    scopeOptions = questions[0]!.options;
-                }
-                return origAsk.call(s.contexts.ask, questions, output);
-            };
-            s.askResponses.push([{ picked: [{ label: "project" }] }]); // scope (skills tool is flag-supplied)
-            return { ...s, getScopeOptions: () => scopeOptions };
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--skills-tool=antigravity", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 0"(code) {
-                Assert.strictEqual(code, 0);
-            },
-            "project option description is exactly the antigravity project destination"(_code, { getScopeOptions }) {
-                Assert.strictEqual(getScopeOptions()[0]!.description, "Install in .agents/skills/ relative to CWD");
-            },
-            "global option description is exactly the antigravity global destination"(_code, { getScopeOptions }) {
-                Assert.strictEqual(getScopeOptions()[1]!.description, "Install in ~/.gemini/antigravity-cli/skills/");
-            }
-        }
-    });
-
-    test("interactive skills-tool multi-select with an empty selection aborts the run", {
-        ARRANGE() {
-            const s = stubContexts();
-            s.askResponses.push([{ picked: [] }]); // skills tool: nothing selected
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install([], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERT(code) {
-            Assert.strictEqual(code, 1);
-        }
-    });
-
-    test("pre-selection reproduces a stored antigravity worker and reviewer when every default is accepted", {
-        ARRANGE() {
-            const s = stubContexts();
-            const stored:FlandersConfig = {
-                worker: { tool: "antigravity", model: "Gemini 3.5 Flash (Low)", effort: "", fast: false },
-                reviewers: [{ tool: "antigravity", model: "Claude Sonnet 4.6 (Thinking)", effort: "", fast: false, optional: false }],
-                minimumReviews: 1
-            };
-            s.files.set("/proj/.flanders/config.json", JSON.stringify(stored, null, 2) + "\n");
-            // Accepting every default walks the provider-grouped menu along the stored model's path: the
-            // provider entry at the top level, then the matching entry inside that provider's submenu.
-            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // worker tool — stored default
-            s.askResponses.push([{ picked: [{ label: "Gemini" }] }]); // worker model top — stored provider default
-            s.askResponses.push([{ picked: [{ label: "Gemini 3.5 Flash (Low)" }] }]); // worker submenu — stored entry default
-            s.askResponses.push([{ picked: [{ label: "antigravity" }] }]); // reviewer tool — stored default
-            s.askResponses.push([{ picked: [{ label: "Claude" }] }]); // reviewer model top — stored provider default
-            s.askResponses.push([{ picked: [{ label: "Claude Sonnet 4.6 (Thinking)" }] }]); // reviewer submenu — stored entry default
-            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another reviewer? — stored length is 1
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
-            return { code, config };
-        },
-        ASSERTS: {
-            "exits with code 0"({ code }) {
-                Assert.strictEqual(code, 0);
-            },
-            "rewrites the same antigravity configuration"({ config }) {
-                Assert.deepStrictEqual(config, {
-                    worker: { tool: "antigravity", model: "Gemini 3.5 Flash (Low)", effort: "", fast: false },
-                    reviewers: [{ tool: "antigravity", model: "Claude Sonnet 4.6 (Thinking)", effort: "", fast: false, optional: false }],
-                    minimumReviews: 1
-                });
+            "the reviewer-tool question offers exactly claude and codex in order"(_code, { askedQuestions, askedOptions }) {
+                const i = askedQuestions.indexOf("Which AI tool should reviewer use?");
+                Assert.deepStrictEqual(askedOptions[i]!.map(o => o.label), ["claude", "codex"]);
             }
         }
     });

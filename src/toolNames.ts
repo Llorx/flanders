@@ -3,4 +3,4 @@
 // ToolAdapter — the type the adapter identity, the persisted config role tool (FlandersRole.tool),
 // and the reviewing-footer tool token (ReviewerTool) all reuse. The set is stated once here rather
 // than repeated per layer.
-export const TOOL_NAMES = ["claude", "codex", "antigravity"] as const;
+export const TOOL_NAMES = ["claude", "codex"] as const;

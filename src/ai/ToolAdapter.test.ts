@@ -3,6 +3,7 @@ import * as Assert from "assert";
 import test from "arrange-act-assert";
 
 import type { ToolEvent, ToolAdapterInvokeArgs, ToolName } from "./ToolAdapter";
+import { TOOL_NAMES } from "../toolNames";
 
 function exhaustiveSwitch(event:ToolEvent):string {
     switch (event.type) {
@@ -48,22 +49,25 @@ test.describe("ToolAdapter types", test => {
         }
     });
 
-    test("ToolName admits exactly claude, codex, and antigravity", {
+    test("ToolName is exactly claude and codex", {
         ARRANGE() {
-            // Positive: each of the three closed-set names is assignable to ToolName.
-            const tools = ["claude", "codex", "antigravity"] as const satisfies readonly ToolName[];
+            // Positive: both closed-set names are assignable to ToolName.
+            const _tools = ["claude", "codex"] as const satisfies readonly ToolName[];
+            void _tools;
             // Negative: a name outside the closed set is not a ToolName, so the set stays closed.
-            // @ts-expect-error — "cursor" is not one of the three permitted tool identities
+            // @ts-expect-error — "cursor" is not one of the two permitted tool identities
             const _bad = "cursor" satisfies ToolName;
             void _bad;
-            return { tools };
+            // ToolName is `(typeof TOOL_NAMES)[number]`, so pinning TOOL_NAMES' exact membership pins
+            // ToolName's members: a re-added tool would grow this array and fail the assertion below.
+            return { names: [...TOOL_NAMES] };
         },
-        ACT({ tools }) {
-            return tools;
+        ACT({ names }) {
+            return names;
         },
         ASSERTS: {
-            "carries the three permitted tool names in order"(result) {
-                Assert.deepStrictEqual(result, ["claude", "codex", "antigravity"]);
+            "carries exactly claude and codex in order"(result) {
+                Assert.deepStrictEqual(result, ["claude", "codex"]);
             }
         }
     });

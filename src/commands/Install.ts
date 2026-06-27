@@ -97,20 +97,16 @@ const CODEX_EFFORT_LEVELS:readonly string[] = ["minimal", "low", "medium", "high
 
 // Validate an effort flag value against the tool it applies to, mirroring the per-tool effort rules.
 // An empty value is always accepted (it resolves to "default configured effort"). For `codex` the
-// value must be one of the closed documented levels; for `antigravity` the only valid value is empty,
-// because the Antigravity CLI exposes no reasoning-effort setting, so any non-empty value is a usage
-// error. For `claude` (and when the tool is not yet known from a flag) effort is open and unvalidated.
-// Returns the diagnostic to reject with, or null when the value is valid. Pinned by
-// `.spec/contracts/cli-commands/install.md` and `src/commands/.spec/rules/install.md`.
+// value must be one of the closed documented levels. For `claude` (and when the tool is not yet known
+// from a flag) effort is open and unvalidated. Returns the diagnostic to reject with, or null when the
+// value is valid. Pinned by `.spec/contracts/cli-commands/install.md` and
+// `src/commands/.spec/rules/install.md`.
 function validateEffortForTool(value:string, tool:ToolName|undefined, flagName:string):string|null {
     if (value === "") {
         return null;
     }
     if (tool === "codex") {
         return validateClosedSet(value, CODEX_EFFORT_LEVELS, flagName);
-    }
-    if (tool === "antigravity") {
-        return `Invalid value for ${flagName}: "${value}". The antigravity tool exposes no reasoning-effort setting, so only an empty value is accepted.\n`;
     }
     return null;
 }
@@ -139,8 +135,7 @@ function parseSkillsToolList(value:string):Readonly<{ ok:true; tools:readonly To
 // per-tool descriptions; defined once so the two questions cannot drift apart.
 const TOOL_CHOICE_OPTIONS:readonly ChoiceOption[] = [
     { label: "claude", description: "Use Claude Code" },
-    { label: "codex", description: "Use Codex CLI" },
-    { label: "antigravity", description: "Use Antigravity CLI" }
+    { label: "codex", description: "Use Codex CLI" }
 ];
 
 // The skills-root destination path each tool contributes to the scope prompt's option labels, per the
@@ -149,16 +144,15 @@ const TOOL_CHOICE_OPTIONS:readonly ChoiceOption[] = [
 // `joinPath` subfolder fragments in `skillArtifacts.ts`.
 const SKILLS_TOOL_DESTINATIONS:Readonly<Record<ToolName, Readonly<{ project:string; global:string }>>> = {
     claude: { project: ".claude/skills/", global: "~/.claude/skills/" },
-    codex: { project: ".codex/prompts/", global: "~/.codex/prompts/" },
-    antigravity: { project: ".agents/skills/", global: "~/.gemini/antigravity-cli/skills/" }
+    codex: { project: ".codex/prompts/", global: "~/.codex/prompts/" }
 };
 
 const CLAUDE_EFFORT_LEVELS:readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 
 type ModelEntry = Readonly<{ label:string; value:string }>;
 
-// A group of model entries shown as one submenu under a top-level entry — a `claude` model family or
-// an `antigravity` model provider. `name` is both the top-level label and the submenu title.
+// A group of model entries shown as one submenu under a top-level entry — a `claude` model family.
+// `name` is both the top-level label and the submenu title.
 type ModelGroup = Readonly<{ name:string; entries:readonly ModelEntry[] }>;
 
 // The `claude` model catalog, organized one group per model family in family order Opus, Sonnet,
@@ -213,36 +207,6 @@ const CLAUDE_MODEL_FAMILIES:readonly ModelGroup[] = [
 // `src/commands/.spec/rules/install/model-list-discovery.md`.
 const CLAUDE_CROSS_FAMILY_ALIASES:readonly ModelEntry[] = [
     { label: "Best (auto-pick)", value: "best" }
-];
-
-// The `antigravity` model catalog, organized one group per model provider in the order the Antigravity
-// CLI lists them. Each entry's display label and persisted value are the same string — the model name
-// exactly as the Antigravity CLI offers it, including its trailing reasoning-effort qualifier — so a
-// selection persists verbatim. Pinned by `src/commands/.spec/rules/install.md`.
-const ANTIGRAVITY_MODEL_PROVIDERS:readonly ModelGroup[] = [
-    {
-        name: "Gemini",
-        entries: [
-            { label: "Gemini 3.5 Flash (Medium)", value: "Gemini 3.5 Flash (Medium)" },
-            { label: "Gemini 3.5 Flash (High)", value: "Gemini 3.5 Flash (High)" },
-            { label: "Gemini 3.5 Flash (Low)", value: "Gemini 3.5 Flash (Low)" },
-            { label: "Gemini 3.1 Pro (Low)", value: "Gemini 3.1 Pro (Low)" },
-            { label: "Gemini 3.1 Pro (High)", value: "Gemini 3.1 Pro (High)" }
-        ]
-    },
-    {
-        name: "Claude",
-        entries: [
-            { label: "Claude Sonnet 4.6 (Thinking)", value: "Claude Sonnet 4.6 (Thinking)" },
-            { label: "Claude Opus 4.6 (Thinking)", value: "Claude Opus 4.6 (Thinking)" }
-        ]
-    },
-    {
-        name: "GPT-OSS",
-        entries: [
-            { label: "GPT-OSS 120B (Medium)", value: "GPT-OSS 120B (Medium)" }
-        ]
-    }
 ];
 
 const MODEL_BACK_LABEL = "← back";
@@ -611,11 +575,10 @@ export class Install {
         }
         return option.label;
     }
-    // Two-tier grouped model menu shared by the `claude` model question (groups are model families,
-    // with the cross-family aliases) and the `antigravity` model question (groups are model providers,
-    // no cross-group aliases). The top level lists one entry per group, then each cross-group alias as
-    // a direct selection, then the synthetic `default configured model` entry, then the custom entry;
-    // selecting a group opens a submenu of that group's entries plus a back affordance. Pre-selects
+    // Two-tier grouped model menu used by the `claude` model question (groups are model families,
+    // with the cross-family aliases). The top level lists one entry per group, then each cross-group
+    // alias as a direct selection, then the synthetic `default configured model` entry, then the custom
+    // entry; selecting a group opens a submenu of that group's entries plus a back affordance. Pre-selects
     // along the path to the stored model: the synthetic default entry for the empty string, a
     // cross-group alias entry when it matches, the group entry (and, inside its submenu, the matching
     // model entry) when the stored model is one of that group's catalogued values, and otherwise the
@@ -741,13 +704,6 @@ export class Install {
         if (tool === "claude") {
             return await this._resolveGroupedModel(roleLabel, headerLabel, CLAUDE_MODEL_FAMILIES, CLAUDE_CROSS_FAMILY_ALIASES, contexts, preselect);
         }
-        // `antigravity` presents a hand-maintained catalog grouped by model provider, navigated by the
-        // same two-tier menu as `claude` (no cross-provider aliases); the selected or typed value is
-        // persisted verbatim, with the synthetic default entry and an empty custom input resolving to
-        // "" (default configured model).
-        if (tool === "antigravity") {
-            return await this._resolveGroupedModel(roleLabel, headerLabel, ANTIGRAVITY_MODEL_PROVIDERS, [], contexts, preselect);
-        }
         if (!this._modelProbeCache.has(tool)) {
             const result = await probeModelList(contexts.script);
             if (this._disposed) {
@@ -795,12 +751,6 @@ export class Install {
         return await this._resolveFreeTextModel(roleLabel, contexts, preselect);
     }
     private async _resolveRoleEffort(roleLabel:string, headerLabel:string, tool:ToolName, suppliedEffort:string|undefined, contexts:InstallContexts, preselect?:string):Promise<string|null> {
-        // The Antigravity CLI exposes no reasoning-effort setting: no effort question is asked and the
-        // persisted effort is always the empty default, even if an effort flag slipped through without
-        // a tool flag to validate it against at parse time.
-        if (tool === "antigravity") {
-            return "";
-        }
         if (suppliedEffort !== undefined) {
             return suppliedEffort;
         }
@@ -915,8 +865,8 @@ export class Install {
         }
         // Re-validate the supplied effort flag against the now-resolved reviewer tool. As with the
         // worker, parse-time validation only covers a tool fixed by a flag; an effort the resolved tool
-        // forbids (any non-empty value for antigravity, a non-documented level for codex) is rejected
-        // here with a diagnostic naming the offending flag and value, before any further prompt.
+        // forbids (a non-documented level for codex) is rejected here with a diagnostic naming the
+        // offending flag and value, before any further prompt.
         if (supplied?.effort !== undefined) {
             const effortError = validateEffortForTool(supplied.effort, tool, idx === 1 ? "--reviewer-effort" : `--reviewer-${idx}-effort`);
             if (effortError !== null) {
@@ -965,8 +915,7 @@ export class Install {
                     question: "Which AI tool(s) should the skills be installed for, neighbor?",
                     options: [
                         { label: "claude", description: "Install skills for Claude Code" },
-                        { label: "codex", description: "Install skills for Codex CLI" },
-                        { label: "antigravity", description: "Install skills for Antigravity CLI" }
+                        { label: "codex", description: "Install skills for Codex CLI" }
                     ]
                 });
                 if (!picked) {
@@ -1045,9 +994,9 @@ export class Install {
             }
             // Re-validate the supplied --worker-effort against the now-resolved worker tool. Parse-time
             // validation can only run when --worker-tool fixes the tool; when the tool is resolved
-            // interactively or from a stored default, an effort the resolved tool forbids (any non-empty
-            // value for antigravity, a non-documented level for codex) is caught here with a diagnostic
-            // naming the offending flag and value, before any further prompt.
+            // interactively or from a stored default, an effort the resolved tool forbids (a
+            // non-documented level for codex) is caught here with a diagnostic naming the offending flag
+            // and value, before any further prompt.
             if (answers.workerEffort !== undefined) {
                 const effortError = validateEffortForTool(answers.workerEffort, workerTool, "--worker-effort");
                 if (effortError !== null) {
