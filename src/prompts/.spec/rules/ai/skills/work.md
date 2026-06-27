@@ -81,7 +81,7 @@ The `/flanders-work` skill validates its work through one adversarial reviewer t
 
 ### Behavior
 
-1. **Spawned as a subagent through the host tool's mechanism.** The skill launches the reviewer through the host AI tool's subagent mechanism, in a fresh subagent session that does not share context with the work the session just performed. In Claude Code the host spawns it through the `Agent` tool; in Codex CLI through whatever Codex documents as its subagent surface at the time of the run; in Antigravity CLI through whatever Antigravity documents as its subagent surface at the time of the run.
+1. **Spawned as a subagent through the host tool's mechanism.** The skill launches the reviewer through the host AI tool's subagent mechanism, in a fresh subagent session that does not share context with the work the session just performed. In Claude Code the host spawns it through the `Agent` tool; in Codex CLI through whatever Codex documents as its subagent surface at the time of the run.
 
 2. **Exactly one reviewer.** The skill runs a single reviewer per review round. It does not read the `.flanders/` reviewer list and does not run multiple reviewers concurrently.
 

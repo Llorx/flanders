@@ -89,7 +89,7 @@ The line begins with a single animated indicator, followed by the literal prefix
 
     <tool> (<model> <effort>): <state>
 
-- **`<tool>`** — the reviewer's configured tool name, `claude`, `codex`, or `antigravity`.
+- **`<tool>`** — the reviewer's configured tool name, `claude` or `codex`.
 - **`(<model> <effort>)`** — the reviewer's model/effort descriptor. The model token is the reviewer's configured model, or the literal `default` when the configured model is the default configured model. The effort token is the reviewer's configured effort, or the literal `default` when the configured effort is the default configured effort. The effort token is appended after a single space only when the configured effort string differs from the configured model string; when the two configured strings are equal — including the common case where both are the default — only the model token is shown, so a reviewer left fully on defaults renders as `(default)` rather than `(default default)`.
 - **`<state>`** — one of:
   - `running` — the reviewer's invocation is in progress.

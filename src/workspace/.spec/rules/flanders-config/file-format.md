@@ -21,14 +21,14 @@ The file is a UTF-8 JSON object parseable by Node.js's built-in `JSON.parse`. It
 ```json
 {
   "worker": {
-    "tool": "claude" | "codex" | "antigravity",
+    "tool": "claude" | "codex",
     "model": "<model-identifier>" | "",
     "effort": "<effort-level>" | "",
     "fast": true | false
   },
   "reviewers": [
     {
-      "tool": "claude" | "codex" | "antigravity",
+      "tool": "claude" | "codex",
       "model": "<model-identifier>" | "",
       "effort": "<effort-level>" | "",
       "fast": true | false,
@@ -43,9 +43,9 @@ The file is a UTF-8 JSON object parseable by Node.js's built-in `JSON.parse`. It
 - `reviewers` — a JSON array of one or more reviewer objects, in the order the user configured them. The array is never empty.
 - `minimumReviews` — a JSON integer: the minimum number of reviewers that must run to a verdict in each review round. It is at least `1` and at most the number of entries in `reviewers`.
 - Inside `worker` and each `reviewers` entry:
-  - `tool` — exactly one of the three string literals `"claude"`, `"codex"`, or `"antigravity"`. No other value is accepted.
+  - `tool` — exactly one of the two string literals `"claude"` or `"codex"`. No other value is accepted.
   - `model` — the model identifier the user supplied at install time, or an empty string `""` to mean "default configured model" (the runner does not pass an explicit model flag to the CLI).
-  - `effort` — the reasoning-effort identifier the user supplied at install time, or an empty string `""` to mean "default configured effort" (the runner does not pass an explicit effort flag to the CLI). When `tool` is `"antigravity"`, this value is always the empty string `""`, because the Antigravity CLI exposes no reasoning-effort setting.
+  - `effort` — the reasoning-effort identifier the user supplied at install time, or an empty string `""` to mean "default configured effort" (the runner does not pass an explicit effort flag to the CLI).
   - `fast` — a JSON boolean. `true` means the role runs with Claude Code's fast mode enabled; `false` means it does not. It is `true` only when `tool` is `"claude"` and `model` is a model identifier that supports Claude Code's fast mode (the set of such identifiers is pinned in [src/commands/.spec/rules/install.md#fast-mode-is-offered-only-for-a-claude-role-whose-model-supports-it](/src/commands/.spec/rules/install.md#fast-mode-is-offered-only-for-a-claude-role-whose-model-supports-it)); for any other `tool`, or a `claude` model that does not support fast mode, it is always `false`.
 - Inside each `reviewers` entry only:
   - `optional` — a JSON boolean. `true` marks the reviewer optional: it may be cancelled before it finishes once its review round can complete without it. `false` marks it required: it always runs to a verdict and is never cancelled. See [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md).
@@ -69,7 +69,7 @@ A reader parses the file with `JSON.parse`. On any parse error, missing top-leve
 ## Failure signals
 
 - `install` writes any file inside `.flanders/` other than `config.json`.
-- `install` writes a `config.json` that is not parseable by `JSON.parse`, or that is missing any of the required fields, or that serializes `reviewers` as an empty array or as anything other than an array, or whose `tool` value is none of `"claude"`, `"codex"`, or `"antigravity"`, or whose `minimumReviews` is not an integer in `[1, reviewers.length]`, or any of whose reviewer `optional` values is not a boolean, or any of whose `fast` values is not a boolean.
+- `install` writes a `config.json` that is not parseable by `JSON.parse`, or that is missing any of the required fields, or that serializes `reviewers` as an empty array or as anything other than an array, or whose `tool` value is none of `"claude"` or `"codex"`, or whose `minimumReviews` is not an integer in `[1, reviewers.length]`, or any of whose reviewer `optional` values is not a boolean, or any of whose `fast` values is not a boolean.
 - A reader silently substitutes a default for a missing or invalid field instead of failing with a diagnostic.
 - A reader merges fields across scopes (for example, taking `worker` from the global file and `reviewers` from the project file).
 - A reader parses `.flanders/` directory entries other than `config.json`.
