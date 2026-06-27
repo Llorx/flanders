@@ -10,6 +10,9 @@ import { planSkillBody, specSkillBody, workSkillBody } from "./skills";
 // A citation of a flanders-internal spec file: a path under contracts/, rules/, or plans/ that names a specific .md file. Skill bodies ship into arbitrary user projects where those files do not exist, so such a citation must never appear. Shared by the plan-skill and spec-skill self-containedness guards so the pattern has one source of truth.
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
 
+// The AI-tool host name that the skill bodies no longer name. Assembled from fragments so the literal token never appears contiguously in this test file, while still letting each describe block assert — case-insensitively, over the public generated body string — that no occurrence of it survives anywhere in that body.
+const REMOVED_HOST_NAME = "Anti" + "gravity";
+
 // The soft Flanders-voice section each skill body addresses to the user. Reproduced here as a
 // literal — independently of the production helper — so any drift in the shipped wording is caught
 // by an exact-match. The only per-skill difference is the authored-artifact exclusion spliced in
@@ -43,6 +46,16 @@ test.describe("skills – planSkillBody", test => {
         ASSERT(body) {
             Assert.strictEqual(typeof body, "string");
             Assert.ok(body.length > 0);
+        }
+    });
+
+    test("names no occurrence of the removed AI-tool host, case-insensitively", {
+        ARRANGE() {
+            return { removedHost: REMOVED_HOST_NAME };
+        },
+        ACT() { return planSkillBody; },
+        ASSERT(body, { removedHost }) {
+            Assert.strictEqual(body.toLowerCase().includes(removedHost.toLowerCase()), false);
         }
     });
 
@@ -498,11 +511,8 @@ Every message you address to the user during the run — your clarifying questio
             "names the Claude Code Agent tool for the validator"(body) {
                 Assert.ok(body.includes("In Claude Code, the host spawns the validator through the Agent tool."), "must name the Claude Code Agent tool for the validator");
             },
-            "names the Codex CLI subagent surface for the validator"(body) {
-                Assert.ok(body.includes("In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run."), "must name the Codex CLI subagent surface for the validator");
-            },
-            "names the Antigravity CLI subagent surface for the validator"(body) {
-                Assert.ok(body.includes("In Antigravity CLI, the host spawns it through whatever Antigravity documents as its subagent surface at the time of the run."), "must name the Antigravity CLI subagent surface for the validator");
+            "names the Codex CLI subagent surface for the validator and names no host after it"(body) {
+                Assert.ok(body.includes("In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run.\n"), "the subagent-mechanism clause must name the Codex CLI surface and end there, naming no further host after it");
             }
         }
     });
@@ -1212,6 +1222,16 @@ test.describe("skills – specSkillBody", test => {
         }
     });
 
+    test("names no occurrence of the removed AI-tool host, case-insensitively", {
+        ARRANGE() {
+            return { removedHost: REMOVED_HOST_NAME };
+        },
+        ACT() { return specSkillBody; },
+        ASSERT(body, { removedHost }) {
+            Assert.strictEqual(body.toLowerCase().includes(removedHost.toLowerCase()), false);
+        }
+    });
+
     test("covers clarification phase", {
         ARRANGE() {},
         ACT() { return specSkillBody; },
@@ -1739,11 +1759,8 @@ Every message you address to the user during the run — your clarifying questio
             "names the Claude Code Agent tool for the validator"(body) {
                 Assert.ok(body.includes("In Claude Code, the host spawns the validator through the Agent tool."), "must name the Claude Code Agent tool for the validator");
             },
-            "names the Codex CLI subagent surface for the validator"(body) {
-                Assert.ok(body.includes("In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run."), "must name the Codex CLI subagent surface for the validator");
-            },
-            "names the Antigravity CLI subagent surface for the validator"(body) {
-                Assert.ok(body.includes("In Antigravity CLI, the host spawns it through whatever Antigravity documents as its subagent surface at the time of the run."), "must name the Antigravity CLI subagent surface for the validator");
+            "names the Codex CLI subagent surface for the validator and names no host after it"(body) {
+                Assert.ok(body.includes("In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run.\n"), "the subagent-mechanism clause must name the Codex CLI surface and end there, naming no further host after it");
             },
             "permits inline fallback on unavailable mechanism"(body) {
                 Assert.ok(body.includes("subagent mechanism is unavailable in the current environment"), "must permit inline fallback when mechanism is unavailable");
@@ -1974,6 +1991,16 @@ test.describe("skills – workSkillBody", test => {
         }
     });
 
+    test("names no occurrence of the removed AI-tool host, case-insensitively", {
+        ARRANGE() {
+            return { removedHost: REMOVED_HOST_NAME };
+        },
+        ACT() { return workSkillBody; },
+        ASSERT(body, { removedHost }) {
+            Assert.strictEqual(body.toLowerCase().includes(removedHost.toLowerCase()), false);
+        }
+    });
+
     test("resolves the [<data>] argument with the three documented cases", {
         ARRANGE() {},
         ACT() { return workSkillBody; },
@@ -2081,11 +2108,8 @@ test.describe("skills – workSkillBody", test => {
             "names the Claude Code Agent tool"(body) {
                 Assert.ok(body.includes("In Claude Code, you spawn the reviewer through the Agent tool."), "must name the Claude Code Agent tool");
             },
-            "names the Codex CLI subagent surface"(body) {
-                Assert.ok(body.includes("In Codex CLI, you spawn it through whatever Codex documents as its subagent surface at the time of the run."), "must name the Codex CLI subagent surface");
-            },
-            "names the Antigravity CLI subagent surface"(body) {
-                Assert.ok(body.includes("In Antigravity CLI, you spawn it through whatever Antigravity documents as its subagent surface at the time of the run."), "must name the Antigravity CLI subagent surface");
+            "names the Codex CLI subagent surface and names no host after it"(body) {
+                Assert.ok(body.includes("In Codex CLI, you spawn it through whatever Codex documents as its subagent surface at the time of the run.\n"), "the subagent-mechanism clause must name the Codex CLI surface and end there, naming no further host after it");
             },
             "runs a single reviewer per round, never a list and never concurrently"(body) {
                 Assert.ok(body.includes("You run a single reviewer per review round — never a list of reviewers and never several reviewers concurrently."), "must run a single reviewer per round, never a list and never concurrently");
