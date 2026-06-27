@@ -181,9 +181,12 @@ test.describe("askChoice", test => {
 test.describe("askMultiChoice", test => {
     test("returns the full picked subset the user selected", {
         ARRANGE() {
+            // The user picks both options but in a different order than they are
+            // displayed; the helper must return that picked array verbatim — not the
+            // options list (which is in a different order) and not just the first entry.
             const picked = [
-                { label: "claude", description: "Claude Code" },
-                { label: "antigravity", description: "Antigravity CLI" }
+                { label: "codex", description: "Codex CLI" },
+                { label: "claude", description: "Claude Code" }
             ];
             const ask:AskContext = {
                 askChoices() {
@@ -199,8 +202,7 @@ test.describe("askMultiChoice", test => {
                 question: "Pick one or more?",
                 options: [
                     { label: "claude", description: "Claude Code" },
-                    { label: "codex", description: "Codex CLI" },
-                    { label: "antigravity", description: "Antigravity CLI" }
+                    { label: "codex", description: "Codex CLI" }
                 ]
             });
         },
@@ -227,8 +229,7 @@ test.describe("askMultiChoice", test => {
                 question: "Pick one or more?",
                 options: [
                     { label: "claude" },
-                    { label: "codex" },
-                    { label: "antigravity" }
+                    { label: "codex" }
                 ]
             });
         },
@@ -310,15 +311,18 @@ test.describe("askMultiChoice", test => {
                 header: "Test header",
                 question: "Pick one or more?",
                 options: [
-                    { label: "claude" },
                     { label: "codex" },
-                    { label: "antigravity" }
+                    { label: "claude" }
                 ],
-                selected: [{ label: "antigravity" }, { label: "claude" }]
+                selected: [{ label: "claude" }, { label: "codex" }]
             });
         },
         ASSERT(_result, { getCaptured }) {
-            Assert.deepStrictEqual(getCaptured()![0]!.defaultIndexes, [0, 2]);
+            // Both options are pre-selected, but in the reverse of their display order
+            // (claude then codex, while the options list is codex then claude). The
+            // seeded indexes [0, 1] are in option order — emitting in selection order
+            // would give [1, 0] — proving multiple matches come out in option order.
+            Assert.deepStrictEqual(getCaptured()![0]!.defaultIndexes, [0, 1]);
         }
     });
 
