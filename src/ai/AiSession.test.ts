@@ -82,6 +82,7 @@ function buildSession(
         prompt: "test prompt",
         model: "",
         effort: "",
+        fast: false,
         ...overrides
     }, contexts);
     return { session, $writes, $errors, $invokeArgs };
@@ -287,7 +288,8 @@ test.describe("AiSession", test => {
                 adapter,
                 prompt: "p",
                 model: "",
-                effort: ""
+                effort: "",
+                fast: false
             }, { time, output });
             return { session, $invokeArgs };
         },
@@ -328,6 +330,7 @@ test.describe("AiSession", test => {
                 prompt: "p",
                 model: "",
                 effort: "",
+                fast: false,
                 onLongWaitStart: (kind, endTimeMs) => {
                     waitStartCount++;
                     waitStartKind = kind;
@@ -445,6 +448,19 @@ test.describe("AiSession", test => {
         }
     });
 
+    test("passes fast to adapter", {
+        ARRANGE() {
+            const events:ToolEvent[] = [{ type: "done" }];
+            return buildSession(events, { fast: true });
+        },
+        async ACT({ session }) {
+            return await session.run();
+        },
+        ASSERT(_result, { $invokeArgs }) {
+            Assert.strictEqual($invokeArgs[0]!.fast, true);
+        }
+    });
+
     test("dispose aborts in-progress run", {
         ARRANGE() {
             const { adapter } = stubAdapter([
@@ -456,7 +472,8 @@ test.describe("AiSession", test => {
                 adapter,
                 prompt: "p",
                 model: "",
-                effort: ""
+                effort: "",
+                fast: false
             }, { time, output });
             return { session };
         },
@@ -486,7 +503,8 @@ test.describe("AiSession", test => {
                 adapter,
                 prompt: "p",
                 model: "",
-                effort: ""
+                effort: "",
+                fast: false
             }, { time, output });
             return { session };
         },

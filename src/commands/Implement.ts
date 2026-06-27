@@ -908,6 +908,7 @@ export class Implement {
             prompt,
             model,
             effort,
+            fast: false, // Provisional: task 4 replaces this with each role's configured fast.
             ...(initialSessionId != null ? { resumeSessionId: initialSessionId } : null),
             ...(priorSessionUsage != null ? { priorSessionUsage } : null),
             onLongWaitStart: callbacks.onLongWaitStart,

@@ -17,6 +17,7 @@ export type AiSessionOptions = Readonly<{
     prompt:string;
     model:string;
     effort:string;
+    fast:boolean;
     resumeSessionId?:string|null;
     priorSessionUsage?:ToolTokenUsage;
     onLongWaitStart?(kind:"rate-limit", endTimeMs:number):void;
@@ -109,6 +110,7 @@ export class AiSession {
                     prompt: this._options.prompt,
                     model: this._options.model,
                     effort: this._options.effort,
+                    fast: this._options.fast,
                     ...(this._options.resumeSessionId != null ? { resumeSessionId: this._options.resumeSessionId } : null),
                     ...(this._options.priorSessionUsage != null ? { priorSessionUsage: this._options.priorSessionUsage } : null),
                     abortSignal: controller.signal,

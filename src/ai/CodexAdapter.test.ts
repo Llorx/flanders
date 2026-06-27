@@ -98,6 +98,7 @@ function baseArgs(overrides?:Partial<ToolAdapterInvokeArgs>):ToolAdapterInvokeAr
         prompt: "test prompt",
         model: "",
         effort: "",
+        fast: false,
         abortSignal: new AbortController().signal,
         ...overrides
     };
@@ -131,6 +132,26 @@ test.describe("CodexAdapter", test => {
                 const { contexts, script } = makeContexts();
                 const adapter = new CodexAdapter(contexts);
                 const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, emitTurnCompletedAndExit);
+            },
+            ASSERT(_result, { script }) {
+                Assert.deepStrictEqual(script.$spawned[0]!.args, [
+                    "exec", "--json",
+                    "-c", "approval_policy=never",
+                    "-c", "sandbox_mode=danger-full-access",
+                    "-"
+                ]);
+            }
+        });
+
+        test("fast:true leaves the spawned argv unchanged (no fast-mode flag)", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs({ fast: true });
                 return { adapter, args, script };
             },
             async ACT({ adapter, args, script }) {

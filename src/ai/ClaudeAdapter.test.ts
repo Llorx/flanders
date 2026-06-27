@@ -95,6 +95,7 @@ function baseArgs(overrides?:Partial<ToolAdapterInvokeArgs>):ToolAdapterInvokeAr
         prompt: "test prompt",
         model: "",
         effort: "",
+        fast: false,
         abortSignal: new AbortController().signal,
         ...overrides
     };
@@ -229,7 +230,7 @@ test.describe("ClaudeAdapter", test => {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
             const adapter = new ClaudeAdapter(contexts);
-            const args:ToolAdapterInvokeArgs = { prompt: "p", model: "", effort: "", abortSignal: new AbortController().signal, resumeSessionId: "sess-abc" };
+            const args:ToolAdapterInvokeArgs = { prompt: "p", model: "", effort: "", fast: false, abortSignal: new AbortController().signal, resumeSessionId: "sess-abc" };
             return { adapter, args, claude };
         },
         async ACT({ adapter, args, claude }) {

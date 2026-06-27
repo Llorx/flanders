@@ -42,6 +42,7 @@ type ToolAdapterInvokeArgsBase = Readonly<{
     prompt:string;
     model:string;
     effort:string;
+    fast:boolean;
     abortSignal:AbortSignal;
     onUsage?:ToolAdapterUsageCallback;
     priorSessionUsage?:ToolTokenUsage;

@@ -70,7 +70,7 @@ test.describe("ToolAdapter types", test => {
 
     test("ToolAdapterInvokeArgs fresh variant accepts prompt, model, effort, abortSignal", {
         ARRANGE() {
-            const args:ToolAdapterInvokeArgs = { prompt: "p", model: "m", effort: "e", abortSignal: AbortSignal.abort() };
+            const args:ToolAdapterInvokeArgs = { prompt: "p", model: "m", effort: "e", fast: false, abortSignal: AbortSignal.abort() };
             return { args };
         },
         ACT({ args }) {
@@ -83,7 +83,7 @@ test.describe("ToolAdapter types", test => {
 
     test("ToolAdapterInvokeArgs resume variant accepts resumeSessionId", {
         ARRANGE() {
-            const args:ToolAdapterInvokeArgs = { prompt: "p", model: "m", effort: "e", abortSignal: AbortSignal.abort(), resumeSessionId: "r" };
+            const args:ToolAdapterInvokeArgs = { prompt: "p", model: "m", effort: "e", fast: false, abortSignal: AbortSignal.abort(), resumeSessionId: "r" };
             return { args };
         },
         ACT({ args }) {
@@ -101,6 +101,7 @@ test.describe("ToolAdapter types", test => {
                 prompt: "p",
                 model: "m",
                 effort: "e",
+                fast: false,
                 abortSignal: AbortSignal.abort(),
                 onUsage(usage) { captured = usage; }
             };

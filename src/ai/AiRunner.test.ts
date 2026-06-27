@@ -81,6 +81,7 @@ function baseArgs(overrides:Partial<RunArgs> & Pick<RunArgs, "adapter"|"time">):
         prompt: "test",
         model: "",
         effort: "",
+        fast: false,
         abortSignal: new AbortController().signal,
         callbacks: { onOutput() {}, onSessionId() {} },
         ...overrides
@@ -162,6 +163,65 @@ test.describe("AiRunner", test => {
         }
     });
 
+    test("fast is forwarded to the adapter on the first invocation and on the post-retry re-invocation", {
+        ARRANGE() {
+            const stub = stubAdapter([
+                [{ type: "error" as const, retryable: true, message: "boom" }],
+                [{ type: "done" as const }]
+            ]);
+            const time = autoTimeContext();
+            return { stub, time };
+        },
+        async ACT({ stub, time }) {
+            await run(baseArgs({ adapter: stub.adapter, time, fast: true }));
+            return {
+                first: stub.$invokeArgs[0]!.fast,
+                second: stub.$invokeArgs[1]!.fast
+            };
+        },
+        ASSERTS: {
+            "first invocation receives the supplied fast value"(result) {
+                Assert.strictEqual(result.first, true);
+            },
+            "the post-retry re-invocation receives the same fast value"(result) {
+                Assert.strictEqual(result.second, true);
+            }
+        }
+    });
+
+    test("fast is forwarded to the adapter on a resumed first invocation", {
+        ARRANGE() {
+            const stub = stubAdapter([[{ type: "done" as const }]]);
+            const time = autoTimeContext();
+            return { stub, time };
+        },
+        async ACT({ stub, time }) {
+            await run(baseArgs({ adapter: stub.adapter, time, fast: true, resumeSessionId: "resume-1" }));
+            return stub.$invokeArgs[0]!.fast;
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, true);
+        }
+    });
+
+    test("fast is forwarded to the adapter on the post-rate-limit re-invocation", {
+        ARRANGE() {
+            const stub = stubAdapter([
+                [{ type: "rate_limit" as const, waitUntilMs: 1000 }],
+                [{ type: "done" as const }]
+            ]);
+            const time = autoTimeContext();
+            return { stub, time };
+        },
+        async ACT({ stub, time }) {
+            await run(baseArgs({ adapter: stub.adapter, time, fast: true }));
+            return stub.$invokeArgs[1]!.fast;
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result, true);
+        }
+    });
+
     test("rate_limit waits then retries with captured session id", {
         ARRANGE() {
             const stub = stubAdapter([
@@ -188,6 +248,7 @@ test.describe("AiRunner", test => {
                 prompt: "test",
                 model: "",
                 effort: "",
+                fast: false,
                 abortSignal: abort.signal,
                 callbacks,
                 time
@@ -251,7 +312,7 @@ test.describe("AiRunner", test => {
             return { time, abort, adapter1, adapter2 };
         },
         async ACT({ time, abort, adapter1, adapter2 }) {
-            const base = { prompt: "test", model: "", effort: "", abortSignal: abort.signal, callbacks: { onOutput() {}, onSessionId() {} }, time };
+            const base = { prompt: "test", model: "", effort: "", fast: false, abortSignal: abort.signal, callbacks: { onOutput() {}, onSessionId() {} }, time };
             await run({ ...base, adapter: adapter1.adapter });
             const durationsAfterFirstRun = time.$durations.length;
             await run({ ...base, adapter: adapter2.adapter });
@@ -449,6 +510,7 @@ test.describe("AiRunner", test => {
                 prompt: "test",
                 model: "",
                 effort: "",
+                fast: false,
                 abortSignal: abort.signal,
                 callbacks,
                 time
@@ -488,6 +550,7 @@ test.describe("AiRunner", test => {
                 prompt: "test",
                 model: "",
                 effort: "",
+                fast: false,
                 resumeSessionId: "resume-1",
                 abortSignal: abort.signal,
                 callbacks: { onOutput() {}, onSessionId() {} },

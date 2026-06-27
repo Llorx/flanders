@@ -134,6 +134,7 @@ function baseArgs(overrides?:Partial<ToolAdapterInvokeArgs>):ToolAdapterInvokeAr
         prompt: "test prompt",
         model: "",
         effort: "",
+        fast: false,
         abortSignal: new AbortController().signal,
         ...overrides
     };
@@ -203,6 +204,32 @@ test.describe("AntigravityAdapter", test => {
                     Assert.strictEqual(env.script.$spawned[0]!.args[2], "--dangerously-skip-permissions");
                 },
                 "argv has exactly three elements (no model, conversation, or effort flag)"(env) {
+                    Assert.strictEqual(env.script.$spawned[0]!.args.length, 3);
+                }
+            }
+        });
+
+        test("fast:true leaves the spawned argv unchanged (no fast-mode flag)", {
+            ARRANGE() {
+                const env = makeEnv({ fs: fsContext({ response: "ok" }) });
+                const adapter = new AntigravityAdapter(env.contexts);
+                return { adapter, args: baseArgs({ model: "", fast: true }), env };
+            },
+            async ACT({ adapter, args, env }) {
+                await run(adapter, args, env, successExit);
+                return env;
+            },
+            ASSERTS: {
+                "argv begins with --print"(env) {
+                    Assert.strictEqual(env.script.$spawned[0]!.args[0], "--print");
+                },
+                "the directive at args[1] still references the written prompt file"(env) {
+                    Assert.strictEqual(printDirective(env).includes(env.fs.$writes[0]!.path), true);
+                },
+                "the flag after the directive is --dangerously-skip-permissions"(env) {
+                    Assert.strictEqual(env.script.$spawned[0]!.args[2], "--dangerously-skip-permissions");
+                },
+                "argv has exactly three elements (no fast-mode flag added)"(env) {
                     Assert.strictEqual(env.script.$spawned[0]!.args.length, 3);
                 }
             }

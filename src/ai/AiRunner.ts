@@ -29,6 +29,7 @@ export type RunArgs = Readonly<{
     prompt:string;
     model:string;
     effort:string;
+    fast:boolean;
     resumeSessionId?:string;
     priorSessionUsage?:ToolTokenUsage;
     abortSignal:AbortSignal;
@@ -41,7 +42,7 @@ export type RunResult = Readonly<{
 }>;
 
 export async function run(args:RunArgs):Promise<RunResult> {
-    const { adapter, prompt, model, effort, abortSignal, callbacks, time } = args;
+    const { adapter, prompt, model, effort, fast, abortSignal, callbacks, time } = args;
 
     if (abortSignal.aborted) {
         throw abortError();
@@ -52,7 +53,7 @@ export async function run(args:RunArgs):Promise<RunResult> {
     let firstInvocation = true;
 
     for (;;) {
-        const base = { prompt, model, effort, abortSignal, onUsage: callbacks.onUsage, priorSessionUsage: args.priorSessionUsage };
+        const base = { prompt, model, effort, fast, abortSignal, onUsage: callbacks.onUsage, priorSessionUsage: args.priorSessionUsage };
 
         let invokeArgs:ToolAdapterInvokeArgs;
         if (firstInvocation) {
