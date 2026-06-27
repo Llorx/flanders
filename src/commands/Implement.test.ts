@@ -6439,6 +6439,181 @@ test.describe("Implement detect agent inherits worker triple", test => {
     });
 });
 
+test.describe("Implement threads each role's configured fast into its invocation", test => {
+    // The Claude adapter realizes a fast invocation as `--settings {"fastMode":true}` in the spawned
+    // argv; an invocation whose fast is false carries no such flag. The argv the claude binary is
+    // spawned with is the observable surface that proves which fast value Implement handed the runner
+    // for each role, so these tests assert on that argv rather than on any private state.
+    const FAST_SETTINGS = JSON.stringify({ fastMode: true });
+    function assertFastPresent(args:readonly string[], label:string):void {
+        const idx = args.indexOf("--settings");
+        Assert.ok(idx >= 0, `${label}: --settings should be present`);
+        Assert.strictEqual(args[idx + 1], FAST_SETTINGS, `${label}: --settings value should set fastMode true`);
+    }
+    function assertFastAbsent(args:readonly string[], label:string):void {
+        Assert.ok(!args.includes("--settings"), `${label}: --settings should be absent`);
+    }
+    // Locate a spawn by the model it carries (`--model <model>`), so a per-reviewer assertion is
+    // anchored to that reviewer's identity rather than to a parallel-launch ordering that is not
+    // pinned. Each reviewer in the multi-reviewer test carries a distinct model.
+    function spawnWithModel(spawns:readonly string[][], model:string):readonly string[] {
+        const match = spawns.find(args => {
+            const idx = args.indexOf("--model");
+            return idx >= 0 && args[idx + 1] === model;
+        });
+        Assert.ok(match !== undefined, `a spawn carrying --model ${model} should exist`);
+        return match!;
+    }
+
+    test("worker.fast=true threads to the worker and detect invocations but not the fast=false reviewer", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "", fast: true }, reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }], minimumReviews: 1 };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker output" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "the run completes successfully"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the detect spawn carries the worker's fast settings"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=worker, [2]=reviewer
+                assertFastPresent(claudeSpawnedArgs[0]!, "detect spawn");
+            },
+            "the worker spawn carries the worker's fast settings"({ claudeSpawnedArgs }) {
+                assertFastPresent(claudeSpawnedArgs[1]!, "worker spawn");
+            },
+            "the reviewer spawn carries no fast settings"({ claudeSpawnedArgs }) {
+                assertFastAbsent(claudeSpawnedArgs[2]!, "reviewer spawn");
+            }
+        }
+    });
+
+    test("reviewer.fast=true threads to the reviewer invocation but not the fast=false worker or detect", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "", fast: false }, reviewers: [{ tool: "claude", model: "", effort: "", fast: true, optional: false }], minimumReviews: 1 };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker output" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "the run completes successfully"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the detect spawn carries no fast settings"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=worker, [2]=reviewer
+                assertFastAbsent(claudeSpawnedArgs[0]!, "detect spawn");
+            },
+            "the worker spawn carries no fast settings"({ claudeSpawnedArgs }) {
+                assertFastAbsent(claudeSpawnedArgs[1]!, "worker spawn");
+            },
+            "the reviewer spawn carries the reviewer's fast settings"({ claudeSpawnedArgs }) {
+                assertFastPresent(claudeSpawnedArgs[2]!, "reviewer spawn");
+            }
+        }
+    });
+
+    test("worker.fast=true threads to the resumed worker invocation on a later iteration", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "", fast: true }, reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }], minimumReviews: 1 };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker iter 1", sessionId: "worker-sess-1" });
+            s.claudeQueue.push({ text: "violations", errorLog: "found a problem" });
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (review fails) still runs a post-worker add
+            s.claudeQueue.push({ text: "worker iter 2", sessionId: "worker-sess-1" });
+            s.claudeQueue.push({ text: "review ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "the run completes successfully"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the resumed worker invocation resumes the prior session"({ claudeSpawnedArgs }) {
+                // [0]=detect, [1]=worker iter 1, [2]=reviewer iter 1, [3]=worker iter 2
+                Assert.ok(claudeSpawnedArgs[3]!.includes("--resume"), "worker iter 2 must resume");
+            },
+            "the resumed worker invocation carries the worker's fast settings"({ claudeSpawnedArgs }) {
+                assertFastPresent(claudeSpawnedArgs[3]!, "resumed worker spawn");
+            }
+        }
+    });
+
+    test("each of two claude reviewers receives its own configured fast, not a shared one", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            // Two required claude reviewers with opposite fast values and distinct models. The
+            // distinct models let each reviewer's spawn be located by identity regardless of the
+            // parallel launch order; the opposite fast values catch a regression that reused one
+            // reviewer's fast for every reviewer (reviewer 1 would then mirror reviewer 0).
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "w-model", effort: "", fast: false },
+                reviewers: [
+                    { tool: "claude", model: "r0-model", effort: "", fast: true, optional: false },
+                    { tool: "claude", model: "r1-model", effort: "", fast: false, optional: false }
+                ],
+                minimumReviews: 2
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker output" });
+            s.claudeQueue.push({ text: "reviewer A ok", errorLog: "" });
+            s.claudeQueue.push({ text: "reviewer B ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, claudeSpawnedArgs }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, claudeSpawnedArgs };
+        },
+        ASSERTS: {
+            "the run completes successfully"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the fast=true reviewer's spawn carries the fast settings"({ claudeSpawnedArgs }) {
+                assertFastPresent(spawnWithModel(claudeSpawnedArgs, "r0-model"), "reviewer r0-model spawn");
+            },
+            "the fast=false reviewer's spawn carries no fast settings"({ claudeSpawnedArgs }) {
+                assertFastAbsent(spawnWithModel(claudeSpawnedArgs, "r1-model"), "reviewer r1-model spawn");
+            }
+        }
+    });
+});
+
 test.describe("Implement no prep agent", test => {
     test("under DEFAULT_CONFIG the orchestrator spawns no prep agent and forks no session", {
         ARRANGE() {

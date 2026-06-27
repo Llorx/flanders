@@ -314,7 +314,7 @@ export class Implement {
             .split(Placeholders.BUILD_SCRIPT_PATH).join(ws.buildScript)
             .split(Placeholders.TEST_SCRIPT_PATH).join(ws.testScript)
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList));
-        await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt);
+        await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, this._config!.worker.fast, prompt);
     }
     private _setActivity(activity:Activity):void {
         /* coverage ignore next */ // — Defensive: _setActivity is only called within _runTask which always sets _currentTask.
@@ -528,8 +528,8 @@ export class Implement {
                 prompt = `${prompt}\n\n${linkedReferenceDirective(ws.specFile)}`;
             }
             const { result, capturedOutput } = iteration === 1
-                ? await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, null, this._workerSessionTokens)
-                : await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, prompt, this._currentWorkerSessionId, this._workerSessionTokens);
+                ? await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, this._config!.worker.fast, prompt, null, this._workerSessionTokens)
+                : await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, this._config!.worker.fast, prompt, this._currentWorkerSessionId, this._workerSessionTokens);
             if (result.sessionId !== null && result.sessionId !== this._currentWorkerSessionId) {
                 // A new worker session was established (iteration 1, or a fresh fallback/renegotiation
                 // that abandoned the previous session). The resume baseline restarts from this run's
@@ -784,7 +784,7 @@ export class Implement {
                 };
                 let runResult;
                 try {
-                    runResult = await this._runAiWith(reviewer.tool, reviewer.model, reviewer.effort, prompt, null, callbacks);
+                    runResult = await this._runAiWith(reviewer.tool, reviewer.model, reviewer.effort, reviewer.fast, prompt, null, callbacks);
                 } catch (e) {
                     // A reviewer the round-completion logic intentionally cancelled is marked here:
                     // its in-flight session was disposed, surfacing as the runner's AbortError. The
@@ -878,10 +878,10 @@ export class Implement {
             }
         };
     }
-    private _runAi(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId?:string|null, priorSessionUsage?:ToolTokenUsage) {
-        return this._runAiWith(tool, model, effort, prompt, initialSessionId ?? null, this._defaultRunAiCallbacks(), priorSessionUsage);
+    private _runAi(tool:ToolName, model:string, effort:string, fast:boolean, prompt:string, initialSessionId?:string|null, priorSessionUsage?:ToolTokenUsage) {
+        return this._runAiWith(tool, model, effort, fast, prompt, initialSessionId ?? null, this._defaultRunAiCallbacks(), priorSessionUsage);
     }
-    private async _runAiWith(tool:ToolName, model:string, effort:string, prompt:string, initialSessionId:string|null, callbacks:RunAiCallbacks, priorSessionUsage?:ToolTokenUsage) {
+    private async _runAiWith(tool:ToolName, model:string, effort:string, fast:boolean, prompt:string, initialSessionId:string|null, callbacks:RunAiCallbacks, priorSessionUsage?:ToolTokenUsage) {
         /* coverage ignore next 3 */ // — Defensive: disposed guard; _runAiWith is only called from methods that already checked _disposed.
         if (this._disposed) {
             throw new Error("Implement disposed");
@@ -908,7 +908,7 @@ export class Implement {
             prompt,
             model,
             effort,
-            fast: false, // Provisional: task 4 replaces this with each role's configured fast.
+            fast,
             ...(initialSessionId != null ? { resumeSessionId: initialSessionId } : null),
             ...(priorSessionUsage != null ? { priorSessionUsage } : null),
             onLongWaitStart: callbacks.onLongWaitStart,
