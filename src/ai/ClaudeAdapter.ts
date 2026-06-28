@@ -1,7 +1,8 @@
 import type { SpawnOptions } from "child_process";
 
-import type { ScriptContext, TimeContext, SpawnedProcess } from "../contexts";
+import type { ScriptContext, TimeContext, RandomContext, SpawnedProcess } from "../contexts";
 import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent } from "./ToolAdapter";
+import { synthesizeRateLimitEvent } from "./toolErrorClassification";
 
 const TOOL_INPUT_INLINE_MAX = 120;
 
@@ -58,6 +59,7 @@ type ClaudeNativeEvent = Readonly<{
 export type ClaudeAdapterContexts = Readonly<{
     claude:ScriptContext;
     time:TimeContext;
+    random:RandomContext;
 }>;
 
 export function formatToolInput(input:Readonly<Record<string, unknown>>|undefined):string {
@@ -349,8 +351,15 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
         const subtype = parsed.subtype;
         const message = parsed.error?.message ?? "unknown error";
 
-        if (status === 429) {
-            const info = parsed.rate_limit_info;
+        // A rate-limit signal — the `rate_limit_info` object Claude emits while a limit is in play,
+        // or an HTTP 429 — is a rate-limit regardless of the HTTP status, so it is detected ahead of
+        // the status-based classification below. Use the parseable reset (the overage reset when on
+        // overage, else the standard reset) when present; otherwise synthesize the same 8-to-12-minute
+        // wait the Codex and Antigravity adapters synthesize, through the injected time/random
+        // contexts, so the runner waits it out and the footer surfaces the countdown instead of
+        // holding the working state.
+        const info = parsed.rate_limit_info;
+        if (info || status === 429) {
             if (info) {
                 const target = info.isUsingOverage && typeof info.overageResetsAt === "number"
                     ? info.overageResetsAt
@@ -359,7 +368,7 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
                     return { type: "rate_limit", waitUntilMs: target * 1000 };
                 }
             }
-            return { type: "error", retryable: true, message };
+            return synthesizeRateLimitEvent(this._contexts.time, this._contexts.random);
         }
 
         if (typeof status === "number" && status >= 500) {

@@ -221,9 +221,9 @@ Every Claude invocation ends with exactly one `result` event. The adapter maps i
 
 **When `result.is_error === false`** — emit `{ type: "done" }`.
 
-**When `result.is_error === true`** — the adapter consults `api_error_status` and `subtype`:
+**When `result.is_error === true`** — the adapter first checks for a rate-limit signal; absent one, it consults `api_error_status` and `subtype`:
 
-- `api_error_status === 429` — the adapter parses the rate-limit signal Claude emitted (on the same `result` event or on an adjacent rate-limit field) for an authoritative window-end timestamp. If a timestamp is parseable, emit `{ type: "rate_limit", waitUntilMs: <window-end> }`. If no timestamp is parseable, emit `{ type: "error", retryable: true, message: <result.error.message> }` so the runner falls back to the transient backoff.
+- **A rate-limit signal** — when the `result` carries the rate-limit info object Claude emits while a limit is in play (its `rate_limit_info` field), or `api_error_status === 429`, the failure is a rate-limit regardless of the HTTP status, and the adapter emits a `rate_limit` event. When the info object carries a parseable reset timestamp — the overage reset when the request is on overage, otherwise the standard reset — emit `{ type: "rate_limit", waitUntilMs: <window-end> }` with that instant. Otherwise — the info object carries no parseable reset, or the only signal is a bare 429 with no info object — the adapter synthesizes the wait, the same 8-to-12-minute window the Codex adapter uses (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)): emit `{ type: "rate_limit", waitUntilMs: <now> + R }`, where `R` is drawn uniformly at random from the closed interval of 8 minutes to 12 minutes, both the current time and the random draw obtained through the injected contexts per [src/.spec/rules/external-access-through-contexts.md](/src/.spec/rules/external-access-through-contexts.md), never by calling `Date.now()` or `Math.random()` directly. Either way the failure yields a `rate_limit` event, so the runner waits out the limit and the footer surfaces the rate-limit countdown rather than holding the working state.
 - `api_error_status` is a 5xx number — emit `{ type: "error", retryable: true, message: <result.error.message> }`.
 - `api_error_status === 408` or `api_error_status === 425` — emit `{ type: "error", retryable: true, message: <result.error.message> }`.
 - `api_error_status === null` (transport error / no HTTP response) — emit `{ type: "error", retryable: true, message: <result.error.message> }`.
@@ -263,7 +263,9 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `claude` 
 - The adapter enables the `fastMode` setting when `fast` is `false`.
 - The adapter writes Claude's native output to the user's terminal directly, instead of emitting `output` events and letting the runner forward them.
 - The adapter classifies the retryable / non-retryable decision by parsing `result.error.message` text instead of the structured `is_error` / `api_error_status` / `subtype` fields.
-- The adapter emits a `rate_limit` event without an authoritative `waitUntilMs` parsed from Claude's signal, instead of falling back to a retryable `error`.
+- The adapter gates rate-limit detection on `api_error_status === 429` (or any other HTTP-status check), so a failure whose `rate_limit_info` object signals a limit under a different or absent status is classified as a non-rate-limit error and the footer holds the working state instead of surfacing the countdown.
+- On a rate-limit signal carrying a parseable reset timestamp, the adapter synthesizes an estimated wait instead of using that authoritative window-end.
+- On a rate-limit signal with no parseable reset — including a bare 429 with no `rate_limit_info` object — the adapter falls back to a retryable `error` instead of synthesizing the rate-limit wait; or it synthesizes a wait that falls outside the 8-to-12-minute interval, or computed by calling `Date.now()` / `Math.random()` directly instead of through the injected contexts.
 - The adapter leaks the spawned `claude` process on cancellation.
 - A call site spawns `claude` directly, bypassing the adapter.
 

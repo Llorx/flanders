@@ -837,7 +837,8 @@ export class Implement {
         }
         return new ClaudeAdapter({
             claude: this._contexts.claude,
-            time: this._contexts.time
+            time: this._contexts.time,
+            random: this._contexts.random
         });
     }
     private _defaultRunAiCallbacks():RunAiCallbacks {

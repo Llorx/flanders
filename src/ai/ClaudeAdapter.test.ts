@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import { ClaudeAdapter, ClaudeAdapterContexts, formatToolInput } from "./ClaudeAdapter";
 import type { ToolEvent, ToolAdapterInvokeArgs } from "./ToolAdapter";
-import type { ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
+import type { RandomContext, ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
 
 type SpawnedProcessSpy = SpawnedProcess & {
     $emit(event:"exit", code:number|null, signal?:string|null):void;
@@ -76,17 +76,24 @@ function timeContext():TimeContext {
     };
 }
 
-function makeContexts(overrides?:Partial<{ claude:ReturnType<typeof claudeContext>; time:TimeContext }>):{
+function randomContext(value = 0):RandomContext {
+    return { random() { return value; } };
+}
+
+function makeContexts(overrides?:Partial<{ claude:ReturnType<typeof claudeContext>; time:TimeContext; random:RandomContext }>):{
     contexts:ClaudeAdapterContexts;
     claude:ReturnType<typeof claudeContext>;
     time:TimeContext;
+    random:RandomContext;
 } {
     const claude = overrides?.claude ?? claudeContext();
     const time = overrides?.time ?? timeContext();
+    const random = overrides?.random ?? randomContext();
     return {
-        contexts: { claude, time },
+        contexts: { claude, time, random },
         claude,
-        time
+        time,
+        random
     };
 }
 
@@ -563,8 +570,10 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
-    test("result 429 without parseable resetsAt produces retryable error", {
+    test("result 429 without parseable resetsAt produces a synthesized rate_limit", {
         ARRANGE() {
+            // time.now() = 0 and random() = 0 → the synthesized wait is the lower bound of the
+            // 8-to-12-minute window, so waitUntilMs is exactly 8 * 60_000.
             const { contexts, claude } = makeContexts();
             const adapter = new ClaudeAdapter(contexts);
             const args = baseArgs();
@@ -585,14 +594,18 @@ test.describe("ClaudeAdapter", test => {
             return events;
         },
         ASSERT(result) {
-            const terminal = result.find(e => e.type === "error");
-            Assert.deepStrictEqual(terminal, { type: "error", retryable: true, message: "rate limited" });
+            const terminal = result.find(e => e.type === "rate_limit" || e.type === "error");
+            Assert.deepStrictEqual(terminal, { type: "rate_limit", waitUntilMs: 8 * 60_000 });
         }
     });
 
-    test("result 429 with rate_limit_info but non-numeric resetsAt produces retryable error", {
+    test("result 429 with rate_limit_info but non-numeric resetsAt produces a synthesized rate_limit from the injected contexts", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
+            // A custom clock (now = 1000) and random draw (0.5 → midpoint of the 8-to-12-minute
+            // window = +10 minutes) prove the synthesized waitUntilMs is computed from the injected
+            // time and random contexts: 1000 + (8*60_000 + round(0.5 * 4*60_000)) = 601_000.
+            const time:TimeContext = { now() { return 1000; }, setTimeout() { return { cancel() {} }; } };
+            const { contexts, claude } = makeContexts({ time, random: randomContext(0.5) });
             const adapter = new ClaudeAdapter(contexts);
             const args = baseArgs();
             return { adapter, args, claude };
@@ -613,7 +626,64 @@ test.describe("ClaudeAdapter", test => {
             return events.find(e => e.type === "error" || e.type === "rate_limit");
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: true, message: "rate limited" });
+            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 601_000 });
+        }
+    });
+
+    test("rate_limit_info with a parseable reset under a non-429 status is detected as a rate_limit, not the status error", {
+        ARRANGE() {
+            // The rate-limit JSON drives detection regardless of the HTTP status: a 503 that carries
+            // rate_limit_info is a rate-limit, not a retryable 5xx error. waitUntilMs is the reset.
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "result",
+                is_error: true,
+                api_error_status: 503,
+                error: { message: "rate limited" },
+                rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
+            }) + "\n");
+            proc.$emit("exit", 0);
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return events.find(e => e.type === "error" || e.type === "rate_limit");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 1700000000 * 1000 });
+        }
+    });
+
+    test("rate_limit_info with no parseable reset and no api_error_status is detected as a synthesized rate_limit", {
+        ARRANGE() {
+            // No api_error_status at all: the rate-limit JSON alone drives detection. time.now() = 0
+            // and random() = 0 → the synthesized wait is the 8-minute lower bound of the window.
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "result",
+                is_error: true,
+                error: { message: "rate limited" },
+                rate_limit_info: { status: "rejected" }
+            }) + "\n");
+            proc.$emit("exit", 0);
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return events.find(e => e.type === "error" || e.type === "rate_limit");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 8 * 60_000 });
         }
     });
 
