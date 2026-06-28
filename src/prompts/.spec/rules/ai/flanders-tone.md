@@ -29,7 +29,7 @@ The tone instruction inside each skill artifact body is inlined and self-contain
 
 The tool controls its own output directly, but the worker, the reviewers, and the installed skills generate their own text, so the only way the voice reaches that text is by asking for it where the prompt is built. Fencing the flavor out of code, diagnostics, reviewer violations, and authored artifacts keeps the voice from ever degrading the precision those carry: a reviewer's violation list and a build diagnostic stay exactly as actionable as before, and the flavor lives only in the surrounding narration.
 
-Describing the voice abstractly and naming no sample mannerism is what keeps the voice varied: a concrete example is reliably copied verbatim and crowds out the breadth of the character's manner, yielding monotonous, repeated output instead of the natural variety the voice is meant to carry, so the instruction withholds examples and relies on the agent's own knowledge of how the character speaks.
+Describing the voice abstractly and naming no sample mannerism is what keeps the voice varied: a concrete example is reliably copied verbatim and crowds out the breadth of the character's manner, yielding monotonous, repeated output instead of the natural variety the voice is meant to carry.
 
 ### Failure signals
 

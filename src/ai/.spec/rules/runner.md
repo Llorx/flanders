@@ -73,7 +73,7 @@ The invocation hit a rate-limit signalled by the tool. Field shape:
 
 `rate_limit` is a terminal event: when an adapter emits it, the invocation has ended.
 
-`waitUntilMs` is always in the future relative to the moment the event is emitted. How an adapter derives it — reading the tool's reset field, or synthesizing an estimate when the tool reports a rate-limit without an end time — is pinned by that adapter's own rule (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface), [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)).
+`waitUntilMs` is always in the future relative to the moment the event is emitted. How an adapter derives it is pinned by that adapter's own rule (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface), [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)).
 
 #### `{ type: "done" }`
 
@@ -155,7 +155,7 @@ The user-visible consequence of this rule — that an implement run never pauses
 
 A Flanders AI invocation runs the configured tool in the most permissive access mode its CLI exposes, so the tool can read, write, and execute freely across the project's working tree and reach the resources it needs to complete the task, with no access gate narrowing or denying an operation mid-turn. Each per-tool adapter passes the flag(s) that put its binary in that mode. Flanders runs the worker in the project's own working tree because that tree is the artefact `implement` is producing; the access the adapter grants is full access to that tree, not confinement to a narrower sandbox or to an allow-list of operations.
 
-This obligation is distinct from non-interactivity (see [src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively](/src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively)): non-interactivity removes the human-in-the-loop pause, while maximum access removes the gate that would otherwise restrict what the tool may do once it is running. An adapter that is non-interactive but access-restricted lets an operation the task needs be silently denied instead of running it; granting maximum access is what lets every such operation run to completion.
+This obligation is distinct from non-interactivity (see [src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively](/src/ai/.spec/rules/runner.md#every-ai-adapter-invokes-its-tool-non-interactively)): non-interactivity removes the human-in-the-loop pause, while maximum access removes the gate that would otherwise restrict what the tool may do once it is running.
 
 ### Who this applies to
 

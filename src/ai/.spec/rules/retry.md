@@ -70,7 +70,7 @@ The backoff counter resets to its initial wait the moment a call succeeds. A fut
 
 ## Long waits run as a loop of bounded chunks
 
-Any wait that can plausibly last beyond an hour is implemented as a loop of bounded chunks rather than a single long timer. JavaScript timers are not reliable for arbitrarily long durations, and an absolute clock is subject to drift; chunking re-checks the remaining time after every chunk and keeps the wait correct.
+Any wait that can plausibly last beyond an hour is implemented as a loop of bounded chunks rather than a single long timer.
 
 ### Who this applies to
 

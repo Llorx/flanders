@@ -106,7 +106,7 @@ For each AI tool the user picked for skills, the command writes one skill artifa
 
 When the skills-tool selection names more than one tool, the artifacts for every named tool are written, each into its own tool-specific folder.
 
-The textual obligations a user sees when invoking a skill are pinned by the contract files in `.spec/contracts/ai-skills/`. The internal form of each skill artifact (frontmatter fields, body shape) is an implementation detail; what is pinned is that after a successful `install` run the user is able to invoke `/flanders-spec`, `/flanders-plan`, and `/flanders-work` from inside an AI-tool session of each selected tool whose skills root is the chosen scope.
+The textual obligations a user sees when invoking a skill are pinned by the contract files in `.spec/contracts/ai-skills/`. The internal form of each skill artifact (frontmatter fields, body shape) is an implementation detail (see `Out of scope`).
 
 ## Configuration written
 The command writes the persistent Flanders configuration at the chosen scope, as defined in [.spec/contracts/shared/flanders-config.md](/.spec/contracts/shared/flanders-config.md). Only the answers downstream Flanders commands consume are persisted (worker tool, model, effort, and fast; for each reviewer in the configured order, its tool, model, effort, fast, and whether it is optional; and the minimum number of reviewers that must run to a verdict in each review round). The skills-tool answer is consumed by `install` itself to decide which skill folders to write into and is not persisted to `.flanders/`.

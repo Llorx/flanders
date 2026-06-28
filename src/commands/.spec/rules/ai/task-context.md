@@ -2,7 +2,7 @@
 
 ## The worker's first iteration receives the task and reference content by deterministic script injection
 
-When the orchestrator launches the worker for iteration 1 on a task, it delivers the task's material by deterministic script-side provisioning: the orchestrator itself reads the plan and the referenced files, injects the task text into the prompt, and consolidates the referenced contract and rule content into a single `spec.md` file in the worker's temporary folder that the prompt directs the worker to read in full. The worker is not expected to open the plan file to read the task, nor to locate and open the referenced contract and rule files one by one — the task arrives in the prompt and the reference content arrives consolidated in `spec.md`. This is what spares the worker the token cost of locating and opening each file separately while its context grows with every read.
+When the orchestrator launches the worker for iteration 1 on a task, it delivers the task's material by deterministic script-side provisioning: the orchestrator itself reads the plan and the referenced files, injects the task text into the prompt, and consolidates the referenced contract and rule content into a single `spec.md` file in the worker's temporary folder that the prompt directs the worker to read in full. The worker is not expected to open the plan file to read the task, nor to locate and open the referenced contract and rule files one by one — the task arrives in the prompt and the reference content arrives consolidated in `spec.md`.
 
 ### Who this applies to
 
@@ -67,15 +67,6 @@ The worker's `session_id` is valid only within the current task. It is discarded
 - **Task change.** When moving on to the next task, the previous task's `session_id` is discarded. Each task has its own conversation.
 - **Hard stop by `MAX_ITER`.** When the limit is exceeded and the run ends, no future reuse is appropriate.
 - **Successful task closure.** Once the task is marked done after a valid commit/check, its `session_id` is obsolete.
-
-### Why no context replay
-
-Re-injecting the task text and the contents of referenced contracts/rules on every iteration would:
-
-- Multiply token cost on every iteration past the first, with no qualitative benefit when the session is already loaded.
-- Make the prompt's size proportional to the task text and the number of referenced files even when the worker already has them in context.
-
-The previous-iteration briefing alone is enough to direct the worker to the latest failure; the rest comes either from the resumed session (when available) or from the worker re-reading the project files it needs. This is the policy this rule pins.
 
 ### Failure signals
 

@@ -20,11 +20,6 @@ A line is a malformed-task-line candidate when, and only when, it matches:
 
 A line that matches this candidate pattern but does NOT match the canonical task-line recognizer regex pinned in [src/prompts/.spec/rules/ai/skills/plan.md#the-flanders-plan-validator-confirms-task-line-format-by-exact-matching-the-canonical-recognizer-regex](/src/prompts/.spec/rules/ai/skills/plan.md#the-flanders-plan-validator-confirms-task-line-format-by-exact-matching-the-canonical-recognizer-regex) is a malformed task line: the parser collects it and the `implement` command exits non-zero, naming the offending line. A line that matches the candidate pattern AND the canonical recognizer is a valid task line, not malformed.
 
-## How to apply this rule
-
-- The metrics-object brace `{` immediately after the closing `]` is the sole discriminator that separates a malformed task attempt from ordinary content. A bracketed list item not followed by `{` is never collected as malformed.
-- A markdown link bullet such as `- [rules/x.md](../rules/x.md)` has `]` followed by `(`, so it does not match the candidate pattern and is never reported as malformed, even when its bracketed text resembles a path or a reference.
-
 ## Failure signals
 
 - The parser reports a markdown link bullet (`- [text](url)`) as a malformed checkbox line.
