@@ -141,10 +141,18 @@ export function formatActiveTime(seconds:number):string {
 
 const LIVE_ACTIVITIES = new Set(["implementing", "reviewing", "building", "testing"]);
 
-export function formatHeaderLine(indexLabel:string|null, iteration:number|null, activity:string|null, taskNumber:string|null|undefined, title:string|null, cols:number):string {
+export function formatHeaderLine(indexLabel:string|null, phaseMessage:string|null, iteration:number|null, activity:string|null, taskNumber:string|null|undefined, title:string|null, cols:number):string {
     const segments:Segment[] = [];
     if (indexLabel != null) {
         segments.push({ text: indexLabel, color: CYAN });
+    }
+    // The detection-phase message occupies the slot the per-task fields fill during
+    // work — immediately after the index — and reuses the live-activity magenta. It
+    // is a structured field coloured and width-fitted here on every redraw, never a
+    // precomputed string, per the live-region redraw rule.
+    if (phaseMessage != null) {
+        if (segments.length > 0) segments.push({ text: " " });
+        segments.push({ text: phaseMessage, color: MAGENTA });
     }
     if (iteration != null) {
         if (segments.length > 0) segments.push({ text: " " });
@@ -232,7 +240,9 @@ export function formatMetricsLine(task:MetricsPair|undefined, plan:MetricsPair|u
 }
 
 export function formatSnapshotHeader(indexLabel:string, iteration:number, taskNumber:string|undefined, title:string):string {
-    return formatHeaderLine(indexLabel, iteration, "done", taskNumber, title, Number.MAX_SAFE_INTEGER);
+    // The completion snapshot never carries a detection-phase message, so it passes
+    // null for that field and its rendered output is unchanged by this signature.
+    return formatHeaderLine(indexLabel, null, iteration, "done", taskNumber, title, Number.MAX_SAFE_INTEGER);
 }
 
 export function formatSnapshotMetrics(taskTokens:number, taskSeconds:number, planTokens:number, planSeconds:number):string {

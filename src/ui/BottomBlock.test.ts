@@ -322,6 +322,69 @@ test.describe("BottomBlock", test => {
         }
     });
 
+    test("setHeader with a detection-phase message renders it in magenta immediately after the index field with the per-task fields blank", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.mount();
+            io.reset();
+            return { io, block };
+        },
+        ACT({ io, block }) {
+            block.setHeader({ indexLabel: "0/12", phaseMessage: "preparing build and test scripts" });
+            return io.output;
+        },
+        ASSERTS: {
+            "the header plain text is the index followed by the phase message and nothing else"(output) {
+                const lines = output.split("\n");
+                Assert.strictEqual(stripAnsi(lines[1] ?? ""), "0/12 preparing build and test scripts");
+            },
+            "the index field is cyan"(output) {
+                Assert.ok(output.includes(CYAN + "0/12" + RESET));
+            },
+            "the phase message is magenta"(output) {
+                Assert.ok(output.includes(MAGENTA + "preparing build and test scripts" + RESET));
+            }
+        }
+    });
+
+    test("the detection-phase header recomputes its fit from structured state on resize: truncated at a narrow width, full and magenta after widening", {
+        ARRANGE() {
+            const io = stubIO(10);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.mount();
+            io.reset();
+            return { io, block };
+        },
+        ACT({ io, block }) {
+            block.setHeader({ indexLabel: "0/12", phaseMessage: "preparing build and test scripts" });
+            const narrowOutput = io.output;
+            io.reset();
+            io.setCols(120);
+            io.emitResize();
+            const wideOutput = io.output;
+            return { narrowOutput, wideOutput };
+        },
+        ASSERTS: {
+            "the narrow draw truncates the header to the width with a trailing ellipsis"(result) {
+                const lastDraw = result.narrowOutput.split(CLEAR_SEQ).pop() ?? "";
+                const headerPlain = stripAnsi(lastDraw.split("\n")[1] ?? "");
+                Assert.strictEqual(headerPlain, "0/12 prep…");
+            },
+            "the wide draw after resize restores the full untruncated header"(result) {
+                const lastDraw = result.wideOutput.split(CLEAR_SEQ).pop() ?? "";
+                const headerPlain = stripAnsi(lastDraw.split("\n")[1] ?? "");
+                Assert.strictEqual(headerPlain, "0/12 preparing build and test scripts");
+            },
+            "the wide draw recomputes the magenta phase-message colour from the stored field"(result) {
+                const lastDraw = result.wideOutput.split(CLEAR_SEQ).pop() ?? "";
+                Assert.ok(lastDraw.includes(MAGENTA + "preparing build and test scripts" + RESET));
+            }
+        }
+    });
+
     test("setMetrics with only plan pair redraws with plan present and task absent", {
         ARRANGE() {
             const io = stubIO(100);

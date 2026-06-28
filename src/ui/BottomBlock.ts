@@ -15,6 +15,10 @@ export type Activity = "implementing" | "reviewing" | "building" | "testing";
 
 export type HeaderFields = {
     indexLabel?:string|null;
+    // The build-and-test detection-phase message, shown immediately after the index
+    // while no task is selected. Held as raw data so the header recomputes its colour
+    // and width-fit at render time, never stored as a precomputed string.
+    phaseMessage?:string|null;
     iteration?:number|null;
     activity?:Activity|null;
     taskNumber?:string|null;
@@ -317,6 +321,7 @@ export class BottomBlock {
     private _renderHeader(cols:number):string {
         return formatHeaderLine(
             this._header.indexLabel ?? null,
+            this._header.phaseMessage ?? null,
             this._header.iteration ?? null,
             this._header.activity ?? null,
             this._header.taskNumber ?? null,

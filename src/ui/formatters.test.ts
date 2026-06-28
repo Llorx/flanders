@@ -328,7 +328,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "1/3", iter: 2, activity: "implementing", taskNumber: "3.1", title: "Add feature", cols: 120 };
         },
         ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
         },
         ASSERT(result) {
             Assert.ok(result.includes(MAGENTA + "implementing" + RESET), "activity should be magenta");
@@ -340,7 +340,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "1/1", iter: 1, activity: "reviewing", taskNumber: undefined, title: "T", cols: 120 };
         },
         ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
         },
         ASSERT(result) {
             Assert.ok(result.includes(MAGENTA + "reviewing" + RESET), "reviewing should be magenta");
@@ -352,7 +352,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "1/1", iter: 1, activity: "building", taskNumber: undefined, title: "T", cols: 120 };
         },
         ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
         },
         ASSERT(result) {
             Assert.ok(result.includes(MAGENTA + "building" + RESET), "building should be magenta");
@@ -364,7 +364,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "1/1", iter: 1, activity: "testing", taskNumber: undefined, title: "T", cols: 120 };
         },
         ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
         },
         ASSERT(result) {
             Assert.ok(result.includes(MAGENTA + "testing" + RESET), "testing should be magenta");
@@ -376,7 +376,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "2/5", iter: 3, activity: "done", taskNumber: "7.3", title: "Fix bug", cols: 120 };
         },
         ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
         },
         ASSERT(result) {
             Assert.ok(result.includes(GREEN + "done" + RESET), "done should be green");
@@ -389,7 +389,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "5/12", iter: 2, activity: "implementing", taskNumber: "7.3", title: "Add login page", cols: 120 };
         },
         ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
         },
         ASSERT(result) {
             Assert.ok(result.includes(CYAN + "5/12" + RESET), "index should be cyan");
@@ -406,7 +406,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "1/1", iter: 1, activity: "implementing", taskNumber: undefined as string|undefined, title: "Do the thing", cols: 120 };
         },
         ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
         },
         ASSERT(result) {
             const plain = stripAnsi(result);
@@ -420,7 +420,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "1/1", iter: 1, activity: "building", taskNumber: "" as string|undefined, title: "Build it", cols: 120 };
         },
         ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
         },
         ASSERT(result) {
             const plain = stripAnsi(result);
@@ -435,7 +435,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "1/1", iter: 1, activity: "implementing", taskNumber: undefined as string|undefined, title: "Implement feature A", cols: plain.length };
         },
         ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
         },
         ASSERT(result) {
             const plain = stripAnsi(result);
@@ -449,7 +449,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "1/1", iter: 1, activity: "implementing", taskNumber: undefined as string|undefined, title: "Implement feature A", cols: 20 };
         },
         ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
         },
         ASSERT(result) {
             const plain = stripAnsi(result);
@@ -464,7 +464,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "5/12", iter: 2, activity: "implementing", taskNumber: "7.3", title: "Long title here", cols: 15 };
         },
         ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
         },
         ASSERT(result) {
             const plain = stripAnsi(result);
@@ -488,7 +488,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel, iteration, activity, taskNumber, title, legacy, cols: 200 };
         },
         ACT({ indexLabel, iteration, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iteration, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iteration, activity, taskNumber, title, cols);
         },
         ASSERT(result, { legacy }) {
             Assert.strictEqual(stripAnsi(result), legacy);
@@ -505,7 +505,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel, iteration, activity, title, legacy, cols: 200 };
         },
         ACT({ indexLabel, iteration, activity, title, cols }) {
-            return formatHeaderLine(indexLabel, iteration, activity, undefined, title, cols);
+            return formatHeaderLine(indexLabel, null, iteration, activity, undefined, title, cols);
         },
         ASSERT(result, { legacy }) {
             Assert.strictEqual(stripAnsi(result), legacy);
@@ -517,7 +517,7 @@ test.describe("formatHeaderLine", test => {
             return { cols: 120 };
         },
         ACT({ cols }) {
-            return formatHeaderLine(null, null, null, null, null, cols);
+            return formatHeaderLine(null, null, null, null, null, null, cols);
         },
         ASSERT(result) {
             Assert.strictEqual(result, "");
@@ -529,7 +529,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "0/5", cols: 120 };
         },
         ACT({ indexLabel, cols }) {
-            return formatHeaderLine(indexLabel, null, null, null, null, cols);
+            return formatHeaderLine(indexLabel, null, null, null, null, null, cols);
         },
         ASSERTS: {
             "plain text is just the index label"(result) {
@@ -549,7 +549,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "5/5", cols: 120 };
         },
         ACT({ indexLabel, cols }) {
-            return formatHeaderLine(indexLabel, null, null, null, null, cols);
+            return formatHeaderLine(indexLabel, null, null, null, null, null, cols);
         },
         ASSERTS: {
             "plain text is just the index label"(result) {
@@ -566,7 +566,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "5/12", iter: 2, activity: "implementing", taskNumber: "7.3", title: "Add login page", cols: 120 };
         },
         ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, taskNumber, title, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
         },
         ASSERTS: {
             "plain text matches full header"(result) {
@@ -590,12 +590,45 @@ test.describe("formatHeaderLine", test => {
         }
     });
 
+    test("per-task fields with no phase message return the exact byte-for-byte ANSI output unchanged from before this task", {
+        ARRANGE() {
+            return { indexLabel: "5/12", iter: 2, activity: "implementing", taskNumber: "7.3", title: "Add login page", cols: 120 };
+        },
+        ACT({ indexLabel, iter, activity, taskNumber, title, cols }) {
+            return formatHeaderLine(indexLabel, null, iter, activity, taskNumber, title, cols);
+        },
+        ASSERT(result) {
+            // The full prior rendering: a null phase message must add no segment and no
+            // stray reset, so the bytes equal exactly what the renderer produced before
+            // the phase-message field existed.
+            Assert.strictEqual(
+                result,
+                CYAN + "5/12" + RESET + " " + YELLOW + "iter 2" + RESET + " " + MAGENTA + "implementing" + RESET + " " + GREEN + "7.3" + RESET + " " + "Add login page"
+            );
+        }
+    });
+
+    test("per-task fields with no task number and no phase message return the exact byte-for-byte ANSI output unchanged from before this task", {
+        ARRANGE() {
+            return { indexLabel: "1/1", iter: 1, activity: "implementing", title: "Implement feature A", cols: 200 };
+        },
+        ACT({ indexLabel, iter, activity, title, cols }) {
+            return formatHeaderLine(indexLabel, null, iter, activity, undefined, title, cols);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(
+                result,
+                CYAN + "1/1" + RESET + " " + YELLOW + "iter 1" + RESET + " " + MAGENTA + "implementing" + RESET + " " + "Implement feature A"
+            );
+        }
+    });
+
     test("renders activity without color when not done and not in LIVE_ACTIVITIES", {
         ARRANGE() {
             return { indexLabel: "1/1", iter: 1, activity: "unknown", cols: 120 };
         },
         ACT({ indexLabel, iter, activity, cols }) {
-            return formatHeaderLine(indexLabel, iter, activity, null, null, cols);
+            return formatHeaderLine(indexLabel, null, iter, activity, null, null, cols);
         },
         ASSERTS: {
             "plain text contains the activity"(result) {
@@ -615,7 +648,7 @@ test.describe("formatHeaderLine", test => {
             return { indexLabel: "0/12345", cols: 4 };
         },
         ACT({ indexLabel, cols }) {
-            return formatHeaderLine(indexLabel, null, null, null, null, cols);
+            return formatHeaderLine(indexLabel, null, null, null, null, null, cols);
         },
         ASSERTS: {
             "plain text length equals cols"(result) {
@@ -623,6 +656,66 @@ test.describe("formatHeaderLine", test => {
             },
             "ends with ellipsis"(result) {
                 Assert.ok(stripAnsi(result).endsWith("…"));
+            }
+        }
+    });
+
+    test("renders the detection-phase message in magenta immediately after the index field when no per-task fields are present", {
+        ARRANGE() {
+            return { indexLabel: "0/12", phaseMessage: "preparing build and test scripts", cols: 120 };
+        },
+        ACT({ indexLabel, phaseMessage, cols }) {
+            return formatHeaderLine(indexLabel, phaseMessage, null, null, null, null, cols);
+        },
+        ASSERTS: {
+            "the rendered string is the cyan index, a single space, then the magenta phase message closed by RESET"(result) {
+                Assert.strictEqual(result, CYAN + "0/12" + RESET + " " + MAGENTA + "preparing build and test scripts" + RESET);
+            },
+            "the phase message text is wrapped in magenta"(result) {
+                Assert.ok(result.includes(MAGENTA + "preparing build and test scripts" + RESET));
+            },
+            "the plain text is the index followed by the phase message and nothing else"(result) {
+                Assert.strictEqual(stripAnsi(result), "0/12 preparing build and test scripts");
+            }
+        }
+    });
+
+    test("renders only the magenta phase message with no leading space when the index field is absent", {
+        ARRANGE() {
+            return { phaseMessage: "preparing build and test scripts", cols: 120 };
+        },
+        ACT({ phaseMessage, cols }) {
+            return formatHeaderLine(null, phaseMessage, null, null, null, null, cols);
+        },
+        ASSERTS: {
+            "the rendered string is exactly the magenta phase message closed by RESET"(result) {
+                Assert.strictEqual(result, MAGENTA + "preparing build and test scripts" + RESET);
+            },
+            "the plain text carries no leading space"(result) {
+                Assert.strictEqual(stripAnsi(result), "preparing build and test scripts");
+            }
+        }
+    });
+
+    test("truncates the detection-phase header with a trailing ellipsis at a width too small to hold it", {
+        ARRANGE() {
+            // index "0/12" (4) + space (1) + the 32-char message far exceeds 10 cols, so
+            // the renderer's ladder truncates the line to exactly cols with a trailing
+            // ellipsis, keeping the surviving magenta prefix coloured.
+            return { indexLabel: "0/12", phaseMessage: "preparing build and test scripts", cols: 10 };
+        },
+        ACT({ indexLabel, phaseMessage, cols }) {
+            return formatHeaderLine(indexLabel, phaseMessage, null, null, null, null, cols);
+        },
+        ASSERTS: {
+            "the plain text length equals cols"(result) {
+                Assert.strictEqual(stripAnsi(result).length, 10);
+            },
+            "the exact truncated plain text matches"(result) {
+                Assert.strictEqual(stripAnsi(result), "0/12 prep…");
+            },
+            "the surviving phase-message prefix keeps its magenta colour"(result) {
+                Assert.ok(result.includes(MAGENTA + "prep" + RESET));
             }
         }
     });
