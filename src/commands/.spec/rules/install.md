@@ -236,7 +236,7 @@ After the effort question for the worker or a reviewer, `install` asks whether t
 ### Who this applies to
 
 - **Subject:** the `install` command, on the fast question for the worker and for each reviewer.
-- **Not subject:** any later Flanders command — the persisted `fast` boolean is consumed opaquely by the AI runner and no later command re-derives which models support fast mode. The `codex` and `antigravity` roles are also not subject: their tools have no fast mode, so their `fast` is always `false` and no fast question is asked for them.
+- **Not subject:** any later Flanders command — the persisted `fast` boolean is consumed opaquely by the AI runner and no later command re-derives which models support fast mode. The `codex` role is also not subject: its tool has no fast mode, so its `fast` is always `false` and no fast question is asked for it.
 
 ### Which models support fast mode
 
@@ -248,7 +248,7 @@ These are the Opus 4.8 and Opus 4.7 entries of the `claude` catalog pinned in [s
 
 The fast question is asked for a role only when both hold: the role's tool is `claude`, and the role's selected model — the value resolved from that role's model question, whether picked from the catalog menu or typed into the custom entry (see [src/commands/.spec/rules/install.md#claudes-model-and-effort-lists-include-a-custom-value-entry](/src/commands/.spec/rules/install.md#claudes-model-and-effort-lists-include-a-custom-value-entry)) — is one of the fast-supporting identifiers above. The question is a yes/no single-select rendered through the shared prompt helper (see [src/commands/.spec/rules/install.md#interactive-prompts-go-through-the-shared-prompt-helper](/src/commands/.spec/rules/install.md#interactive-prompts-go-through-the-shared-prompt-helper)), and its default is `no` — fast mode off — because fast mode bills at a higher rate. Selecting yes persists `fast` as `true`; selecting no persists it as `false`.
 
-For every role whose fast question is not asked — a `codex` or `antigravity` role, or a `claude` role whose model does not support fast mode — `fast` is persisted as `false` without asking.
+For every role whose fast question is not asked — a `codex` role, or a `claude` role whose model does not support fast mode — `fast` is persisted as `false` without asking.
 
 ### Flag behavior
 
@@ -256,7 +256,7 @@ The `--worker-fast`, `--reviewer-fast`, and `--reviewer-N-fast` flags are presen
 
 ### Failure signals
 
-- `install` asks the fast question for a `codex` or `antigravity` role, or for a `claude` role whose model does not support fast mode.
+- `install` asks the fast question for a `codex` role, or for a `claude` role whose model does not support fast mode.
 - `install` does not ask the fast question for a `claude` role whose model does support fast mode.
 - `install` persists `fast` as `true` for a role whose tool is not `claude`, or whose model does not support fast mode.
 - The fast question defaults to `yes` instead of `no`.

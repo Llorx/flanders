@@ -553,12 +553,12 @@ test.describe("read", test => {
         }
     });
 
-    test("accepts reviewers[0].fast true paired with a non-claude (antigravity) reviewer tool", {
+    test("accepts reviewers[0].fast true paired with a non-claude (codex) reviewer tool", {
         ARRANGE() {
             const s = stubFs();
             s.files.set("/project/.flanders/config.json", JSON.stringify({
                 worker: { tool: "claude", model: "", effort: "", fast: false },
-                reviewers: [{ tool: "antigravity", model: "Gemini 3.1 Pro (High)", effort: "", fast: true, optional: false }],
+                reviewers: [{ tool: "codex", model: "gpt-5", effort: "", fast: true, optional: false }],
                 minimumReviews: 1
             }));
             return s;

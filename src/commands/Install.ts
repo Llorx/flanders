@@ -796,7 +796,7 @@ export class Install {
     }
     // Resolve a role's fast setting, asked after that role's effort question. The fast question is
     // asked only for a `claude` role whose resolved model supports fast mode (`modelSupportsFastMode`);
-    // every other role — any `codex`/`antigravity` role, or a `claude` role on a model that does not
+    // every other role — any `codex` role, or a `claude` role on a model that does not
     // support fast mode — persists `false` without asking. When the role's fast flag is present, the
     // question is skipped and `fast` is `true`, but only after confirming the role is eligible: a fast
     // flag on a non-`claude` tool or an ineligible model is a usage error naming the offending flag.
