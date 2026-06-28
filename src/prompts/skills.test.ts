@@ -1069,9 +1069,13 @@ Every message you address to the user during the run — your clarifying questio
                 const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
                 Assert.ok(planContentRules.includes("is left for the implementer to resolve against the real code rather than fixed by the planner"), "the Plan content rules list must leave an outcome-neutral internal choice to the implementer");
             },
-            "states an architectural property as a required outcome rather than freezing a code element"(body) {
+            "states an architectural property as a required outcome rather than fixing an internal mechanism"(body) {
                 const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
-                Assert.ok(planContentRules.includes("states that property as a required outcome the acceptance criteria assert rather than freezing a specific code element to reuse or to leave untouched"), "the Plan content rules list must state a needed structural property as a required outcome rather than freezing a code element");
+                Assert.ok(planContentRules.includes("states that property as a required outcome the acceptance criteria assert rather than fixing a specific internal mechanism, whether a code element to reuse or leave untouched or the files and modules its code and tests are placed in"), "the Plan content rules list must state a needed structural property as a required outcome rather than fixing an internal mechanism, including where code and tests are placed");
+            },
+            "names code organization as an internal mechanism left to the implementer"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("how its code and tests are organized across files and modules"), "the Plan content rules list must name code organization as an internal mechanism left to the implementer");
             }
         }
     });
@@ -1160,6 +1164,10 @@ Every message you address to the user during the run — your clarifying questio
             "FAILs a gratuitously frozen internal mechanism"(body) {
                 const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
                 Assert.ok(category4.includes("a task that freezes an internal mechanism that no observable acceptance criterion and no explicitly required architectural property needs is FAIL"), "category 4 must FAIL a gratuitously frozen internal mechanism");
+            },
+            "includes code organization in the internal-mechanism notion"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("how its code and tests are organized across files and modules"), "category 4 must include code organization in the internal-mechanism notion left to the implementer");
             }
         }
     });
