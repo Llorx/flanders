@@ -11,6 +11,7 @@ Hi-diddly-ho, neighbor! I am a Node.js toolkit that helps avoid AI drifting. I w
 - [Configuration](#configuration)
 - [Usage](#usage)
 - [A worked example](#a-worked-example)
+- [Hard stop](#hard-stop)
 
 ## How it works
 
@@ -244,3 +245,13 @@ If you really want the font to be kept at that size, just save the spec, and no 
 ```
 /flanders-work
 ```
+
+## Hard stop
+
+Even the most neighborly run can run out of road. When Flanders can't get a single task past the build, test, and review gates within its five attempts, it doesn't keep flailing away — it calls a **hard stop**: the whole `implement` run ends right there and exits with a non-zero status.
+
+It won't leave you guessing, though. Flanders prints an error that names the task that got stuck — its line number in the plan and its title — and points you at that run's temporary folder. Every other time Flanders exits it tidies that folder away, but on a hard stop it leaves it right where it is, on purpose, so you can have a look.
+
+Inside you'll find the sessions from every attempt on the task: the worker's output, the build and test output, each reviewer's output, and the `error.log` that briefed the final iteration. It's the whole story of what was tried and where each go-round fell short.
+
+And here's the neighborly part — you don't have to untangle it all yourself. Hand that folder to your AI coding tool and just ask it to review the folder and tell you why the run failed. It'll read back through the sessions and walk you through what went wrong, so you can mend the spec, the plan, or the task and send Flanders off to try again.
