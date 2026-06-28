@@ -16,7 +16,7 @@ The validator runs as a subagent — spawned via the AI tool's subagent mechanis
 
 The subagent mechanism is tool-specific. In Claude Code, the host spawns the validator through the `Agent` tool. In Codex CLI, the host spawns it through whatever Codex documents as its subagent surface at the time of the run. The host chooses the mechanism based on the AI tool it is running inside.
 
-The host may fall back to an **inline pass** (running the checks in its own session, without spawning a subagent) only when the subagent invocation is genuinely unavailable or fails. Concretely, an inline fallback is allowed when:
+The host may fall back to an **inline pass** (running the checks in its own session, without spawning a subagent) only when the subagent invocation is genuinely unavailable or fails:
 
 - The AI tool the host is running in does not expose a subagent mechanism (for example, Codex CLI without a documented subagent surface at run time).
 - A subagent invocation returns an error that the host cannot recover from (spawn failure, transport error, environment refusal).

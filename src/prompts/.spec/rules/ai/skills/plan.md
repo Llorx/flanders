@@ -162,6 +162,26 @@ A claim is in scope when it asserts how something behaves at execution time and 
 - The plan's narrative states a runtime-behavior claim as settled and a task depends on it, but the claim is the planner's own untested inference.
 - A task that depends on a behavior another task in the same plan is meant to establish appears before that establishing task.
 
+## `/flanders-plan` prefixes every plan filename with the generation timestamp
+
+The `/flanders-plan` skill artifact body instructs the skill that every plan file it persists into the project's `plans/` folder has a filename beginning with a generation-timestamp prefix of the form `YYYY-MM-DD_HH.MM-`, immediately followed by the descriptive subject and the `.md` extension, so the full filename is `YYYY-MM-DD_HH.MM-<descriptive-subject>.md`. The prefix joins a four-digit year, a two-digit month, and a two-digit day with `-`, then a single `_`, then a two-digit hour on a 24-hour clock and a two-digit minute joined by `.`, then a single `-` before the subject; every numeric component is zero-padded to its fixed width, so the prefix is always the same length and the plan files sort chronologically by name. The timestamp is the machine's local date and time at the moment the plan file is generated, and the portion after the prefix is the descriptive subject that satisfies the descriptive-filename obligation pinned in [.spec/contracts/ai-skills/plan-skill.md § Behavior](/.spec/contracts/ai-skills/plan-skill.md#behavior). The instruction is inlined and self-contained in the skill body, per [src/prompts/.spec/rules/ai/skills/skills-common.md#flanders-skill-artifact-prompts-are-self-contained--no-citations-of-flanders-internal-spec-paths](/src/prompts/.spec/rules/ai/skills/skills-common.md#flanders-skill-artifact-prompts-are-self-contained--no-citations-of-flanders-internal-spec-paths).
+
+### Who this applies to
+
+- **Subject:** the source content that produces the `/flanders-plan` skill artifact body — the prompt text `install` ships — and the `/flanders-plan` skill at runtime, for every plan file it persists into the project's `plans/` folder.
+- **Not subject:** the `implement` command, which reads and updates an existing plan file but does not originate its filename; the completion marker `implement` prepends to a finished plan's filename is pinned in [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md).
+
+### Why
+
+A fixed-width, zero-padded timestamp prefix gives every plan a name that sorts chronologically and stays distinct across runs, so successive plans never collide and the `plans/` folder reads as an ordered history at a glance. Local time is used because the plan is created in the user's own session on their own machine, so the wall-clock the user reads is the one stamped onto the file.
+
+### Failure signals
+
+- The `/flanders-plan` skill body omits the active instruction to prefix every plan filename with the `YYYY-MM-DD_HH.MM-` timestamp.
+- A plan file `/flanders-plan` writes has a name lacking the prefix, or whose numeric components are not zero-padded to their fixed width.
+- A prefix whose date and time are drawn from a clock other than the machine's local time.
+- A plan filename that is only the timestamp prefix with no descriptive subject following it.
+
 ## The /flanders-plan validator audits the plan against five categories
 
 The `/flanders-plan` skill gates its work behind a final validator hosted as [src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way](/src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way) pins. This rule pins the five check categories the validator runs against the persisted plan file. Failure in ANY category is FAIL; the validator must run every check on every invocation and must not stop at the first violation.

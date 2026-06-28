@@ -11,10 +11,7 @@ The user invokes the skill from inside an AI-tool session as:
 
     /flanders-plan [<data>]
 
-The optional `<data>` argument follows the same rule as `/flanders-spec`:
-- Omitted: the skill takes the user's natural-language request inline from the conversation.
-- Supplied and resolves to an existing file path: read and used as input.
-- Supplied and does not resolve to an existing file: used verbatim as inline input.
+The optional `<data>` argument follows the same rule as `/flanders-spec` (see [.spec/contracts/ai-skills/spec-skill.md](/.spec/contracts/ai-skills/spec-skill.md)).
 
 ## Behavior
 The skill's sole deliverable is exactly one markdown plan file inside the project's `plans/` folder. The skill must not write, modify, or delete any source code or any file outside `plans/`. The full write-authority obligation that applies to the project's `.spec/contracts`, `.spec/rules`, and `.spec/flanders` folders and the `plans/` folder is pinned in [.spec/contracts/shared/spec-folder-write-authority.md](/.spec/contracts/shared/spec-folder-write-authority.md).

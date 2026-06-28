@@ -8,7 +8,7 @@ This is a behavior rule in the sense pinned by [.spec/contracts/shared/flanders-
 
 ### Who this applies to
 
-- **Subject:** the `/flanders-spec` skill, on any run whose work creates, modifies, or deletes a file whose target falls under the project-root `.spec/contracts/` tree. Every such run ends with the chat reminder described above.
+- **Subject:** the `/flanders-spec` skill, on any run whose work creates, modifies, or deletes a file whose target falls under the project-root `.spec/contracts/` tree.
 - **Not subject:** a `/flanders-spec` run that touches only `.spec/rules` files, only nested (non-root) `.spec/contracts` files, or otherwise leaves the project-root public contract layer unchanged. The root `README.md` reflects only the project-root public surface, so a run that does not change that surface raises no reminder.
 
 ### Why

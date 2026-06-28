@@ -4,7 +4,7 @@
 Define how the implement command interacts with git: the requirement that the project be a git repository, what is checked before the run starts, how each accepted task is committed, and how a failing commit is handled.
 
 ## Requirement
-The implement command requires the project to be a git repository: `git` must be available on the host (executable on `PATH`) and the command's working directory must be inside a git working tree. Git is not optional and is not toggled by any flag. When the project is not a git repository — `git` is unavailable, or the working directory is not inside a git working tree — the command exits non-zero at startup, before setting up any workspace, with a diagnostic that tells the user the project must be a git repository. There is no mode in which the command runs without git.
+The implement command requires the project to be a git repository: `git` must be available on the host (executable on `PATH`) and the command's working directory must be inside a git working tree. Git is not optional and is not toggled by any flag. When the project is not a git repository — `git` is unavailable, or the working directory is not inside a git working tree — the command exits non-zero at startup, before setting up any workspace, with a diagnostic that tells the user the project must be a git repository.
 
 ## Preflight check
 Before setting up the workspace (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)), the command runs a preflight check:

@@ -1,7 +1,7 @@
 # `/flanders-work` Skill Contract
 
 ## Purpose
-Carry a single, self-contained piece of work from request to reviewed completion in one invocation, without authoring a plan or running the `implement` pipeline. The skill is the lightweight path for small, well-scoped tasks: it implements the user's request directly in the user's own AI-tool session and validates the result through the same build and test gates and the same adversarial review the `implement` command applies, reworking until build, test, and the review are all clean. The skill runs inside the user's own AI-tool session and writes its changes directly into the user's project.
+Carry a single, self-contained piece of work from request to reviewed completion in one invocation, without authoring a plan or running the `implement` pipeline. The skill is the lightweight path for small, well-scoped tasks: it implements the user's request directly and validates the result through the same build and test gates and the same adversarial review the `implement` command applies, reworking until build, test, and the review are all clean. The skill runs inside the user's own AI-tool session and writes its changes directly into the user's project.
 
 ## Provisioning
 The skill becomes available only after the user runs `npx flanders install` (see [.spec/contracts/cli-commands/install.md](/.spec/contracts/cli-commands/install.md)). The skill is installed for each AI tool the user picked at install time (Claude Code, Codex CLI, or both). The invocation form below is the same regardless of which AI tool the user is invoking it from.
@@ -11,10 +11,7 @@ The user invokes the skill from inside an AI-tool session as:
 
     /flanders-work [<data>]
 
-The optional `<data>` argument is interpreted the same way as `/flanders-spec` and `/flanders-plan`:
-- Omitted: the skill takes the user's natural-language request from the conversation.
-- Supplied and resolves to an existing file path: the file's content is read and used as the input.
-- Supplied and does not resolve to an existing file path: the value is used verbatim as the inline input.
+The optional `<data>` argument is interpreted the same way as `/flanders-spec` (see [.spec/contracts/ai-skills/spec-skill.md](/.spec/contracts/ai-skills/spec-skill.md)) and `/flanders-plan`.
 
 ## Behavior
 The skill carries the request through a work-then-validate-then-review cycle:

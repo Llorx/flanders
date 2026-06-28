@@ -66,6 +66,25 @@ A prohibition that fails either condition is not written: a prohibition of a beh
 - A spec enumerates a non-action no competent implementer would perform — the "does not format the disk on install" kind — treating the absence of an absurd behavior as an obligation.
 - The `/flanders-spec` skill artifact body surfaces this obligation only as a post-write check, with no active instruction in its drafting guidance.
 
+## `/flanders-spec` authors specs about the Flanders voice with no example mannerisms
+
+A contract or rule `/flanders-spec` authors whose subject is the Flanders voice describes the voice only in the abstract — what it is, where it applies, how light it is, what language it uses, and what it never touches — and names no concrete example of the character's speech, in any language, English included: no sample greeting, interjection, suffix, catchphrase, or other mannerism. The realization of the voice is left to the reader's own knowledge of how the character speaks, the same way the runtime tone instruction withholds examples per [src/prompts/.spec/rules/ai/flanders-tone.md#flanders-prompts-instruct-the-agent-to-adopt-the-soft-flanders-voice-in-its-user-facing-narration](/src/prompts/.spec/rules/ai/flanders-tone.md#flanders-prompts-instruct-the-agent-to-adopt-the-soft-flanders-voice-in-its-user-facing-narration). The `/flanders-spec` skill artifact body carries this as active drafting guidance, inlined and self-contained per [src/prompts/.spec/rules/ai/skills/skills-common.md#flanders-skill-artifact-prompts-are-self-contained--no-citations-of-flanders-internal-spec-paths](/src/prompts/.spec/rules/ai/skills/skills-common.md#flanders-skill-artifact-prompts-are-self-contained--no-citations-of-flanders-internal-spec-paths).
+
+### Who this applies to
+
+- **Subject:** the source content that produces the `/flanders-spec` skill artifact body — the prompt text `install` ships — and the `/flanders-spec` skill at runtime, when it creates or edits any contract or rule file, anywhere in the project tree, whose subject is the Flanders voice — for example [.spec/contracts/shared/flanders-voice.md](/.spec/contracts/shared/flanders-voice.md) and [src/prompts/.spec/rules/ai/flanders-tone.md](/src/prompts/.spec/rules/ai/flanders-tone.md).
+- **Not subject:** the normative variant strings pinned by [src/.spec/rules/flanders-voice-cli-variants.md](/src/.spec/rules/flanders-voice-cli-variants.md). Those strings are the exact text the CLI must emit — the spec's own normative content — not an illustration of how the voice sounds, so this rule never treats them as examples to omit, trim, or shorten.
+
+### Why
+
+A concrete sample mannerism is reliably copied verbatim and crowds out the breadth of the character's manner, yielding monotonous, repeated output instead of the natural variety the voice carries. Describing the voice abstractly and withholding every example keeps it varied by relying on the reader's own knowledge of how the character speaks; the same reasoning governs the runtime tone instruction, and this rule extends it to the spec corpus that describes the voice.
+
+### Failure signals
+
+- A spec file about the Flanders voice, created or edited by `/flanders-spec`, contains a sample greeting, interjection, suffix, catchphrase, or other example mannerism in any language, English included.
+- The `/flanders-spec` skill body omits the active instruction to withhold voice examples when authoring a spec about the voice.
+- A run removes, trims, or rewrites the pinned variant strings of [src/.spec/rules/flanders-voice-cli-variants.md](/src/.spec/rules/flanders-voice-cli-variants.md) on the mistaken grounds that they are examples, when they are required normative output rather than illustrations.
+
 ## A term rename sweeps the whole corpus by token, not a curated subset
 
 When a `/flanders-spec` run renames, relocates, or removes a term that can recur in spec files beyond the ones it is editing — a folder name, a path segment, a flag, an identifier, a fixed string, or a namespace convention — the skill establishes the full set of files to touch by searching the entire corpus for the old term and triaging every occurrence individually. It does not curate a subset of "relevant" files by judgment and assume that subset is complete; coverage is driven by the token, not by which files the drafter believes are central.

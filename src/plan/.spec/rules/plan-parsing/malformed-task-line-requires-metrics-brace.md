@@ -1,6 +1,6 @@
 # A malformed task line is recognized only when a checkbox bracket is immediately followed by the metrics-object brace
 
-The `implement` command's plan parser distinguishes a malformed task line from ordinary document content by the metrics-object brace. A list item is treated as a malformed-task-line candidate only when, after the list marker, a bracketed token's closing `]` is immediately followed by `{`. A list item whose `]` is not immediately followed by `{` — most commonly a markdown link bullet `- [text](url)`, where `]` is followed by `(` — is ordinary content and is never reported as malformed.
+The `implement` command's plan parser distinguishes a malformed task line from ordinary document content by the metrics-object brace. A list item is treated as a malformed-task-line candidate only when, after the list marker, a bracketed token's closing `]` is immediately followed by `{`. A list item whose `]` is not immediately followed by `{` — most commonly a markdown link bullet `- [text](url)` — is ordinary content and is never reported as malformed.
 
 ## Who this applies to
 
