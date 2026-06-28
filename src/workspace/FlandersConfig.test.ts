@@ -494,6 +494,124 @@ test.describe("read", test => {
         }
     });
 
+    // The reader validates `fast`'s type only and does not enforce the cross-field eligibility
+    // invariant (that `fast` is `true` only for a `claude` role on a fast-capable model). The
+    // following tests pin that the reader accepts `fast:true` paired with a non-`claude` tool or a
+    // non-fast-capable model — a regression that re-added reader-side eligibility enforcement would
+    // make `read` throw and fail these assertions.
+    test("accepts worker.fast true paired with a non-claude (codex) worker tool", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "codex", model: "gpt-5-codex", effort: "high", fast: true },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await read(fs, { projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result!.worker.fast, true);
+        }
+    });
+
+    test("accepts worker.fast true paired with a claude worker on a non-fast-capable model", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "claude-sonnet-4-6", effort: "", fast: true },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await read(fs, { projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result!.worker.fast, true);
+        }
+    });
+
+    test("accepts worker.fast true paired with a claude worker on the empty default model", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "", fast: true },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await read(fs, { projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result!.worker.fast, true);
+        }
+    });
+
+    test("accepts reviewers[0].fast true paired with a non-claude (antigravity) reviewer tool", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [{ tool: "antigravity", model: "Gemini 3.1 Pro (High)", effort: "", fast: true, optional: false }],
+                minimumReviews: 1
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await read(fs, { projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result!.reviewers[0]!.fast, true);
+        }
+    });
+
+    test("accepts reviewers[0].fast true paired with a claude reviewer on a non-fast-capable model", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [{ tool: "claude", model: "claude-opus-4-6", effort: "", fast: true, optional: false }],
+                minimumReviews: 1
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await read(fs, { projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result!.reviewers[0]!.fast, true);
+        }
+    });
+
+    test("accepts fast:true on a claude role whose model supports fast mode", {
+        ARRANGE() {
+            const s = stubFs();
+            s.files.set("/project/.flanders/config.json", JSON.stringify({
+                worker: { tool: "claude", model: "claude-opus-4-8", effort: "high", fast: true },
+                reviewers: [{ tool: "claude", model: "opus[1m]", effort: "", fast: true, optional: false }],
+                minimumReviews: 1
+            }));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await read(fs, { projectRoot: "/project", homeDir: "/home" });
+        },
+        ASSERTS: {
+            "the worker fast:true validates"(result) {
+                Assert.strictEqual(result!.worker.fast, true);
+            },
+            "the reviewer fast:true validates"(result) {
+                Assert.strictEqual(result!.reviewers[0]!.fast, true);
+            }
+        }
+    });
+
     test("throws on non-object JSON (array)", {
         ARRANGE() {
             const s = stubFs();

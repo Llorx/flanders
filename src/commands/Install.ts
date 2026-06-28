@@ -9,6 +9,7 @@ import { probeModelList } from "./InstallModelProbe";
 import type { ModelProbeResult } from "./InstallModelProbe";
 import type { ToolName } from "../ai/ToolAdapter";
 import { TOOL_NAMES } from "../toolNames";
+import { modelSupportsFastMode } from "../fastMode";
 
 export type InstallContexts = Readonly<{
     fs:FsContext;
@@ -68,8 +69,10 @@ export type ResolvedAnswers = Readonly<{
     workerTool?:ToolName;
     workerModel?:string;
     workerEffort?:string;
+    workerFast?:boolean;
     reviewers?:readonly ReviewerFlagAnswers[];
     optionalReviewerIndices?:readonly number[];
+    fastReviewerIndices?:readonly number[];
     reviewerMinimum?:number;
 }>;
 
@@ -248,6 +251,59 @@ const REVIEWER_INDEXED_RE = /^--reviewer-(\d+)-(tool|model|effort)=/;
 
 const REVIEWER_OPTIONAL_INDEXED_RE = /^--reviewer-(\d+)-optional$/;
 
+const REVIEWER_FAST_INDEXED_RE = /^--reviewer-(\d+)-fast$/;
+
+// Validate the `--reviewer-N-fast` flags against the now-known reviewer-list length. A fast flag
+// annotates a reviewer within the list the tool/model/effort flags establish; it never extends that
+// list, so a fast index beyond the list is a usage error naming the offending index. Shared by the
+// parse-time contextual check (when a `--reviewer[-N]-tool/-model/-effort` flag fixed the length) and
+// by the interactive assembly in `_run` (when the length is only known after the `Configure another
+// reviewer?` loop). Returns the diagnostic to reject with, or null when every fast index is within the
+// list. Pinned by `.spec/contracts/cli-commands/install.md`.
+function validateFastFlagsForReviewerCount(fastReviewerIndices:readonly number[]|undefined, reviewerCount:number):string|null {
+    if (fastReviewerIndices !== undefined) {
+        for (const idx of fastReviewerIndices) {
+            if (idx > reviewerCount) {
+                return `Invalid reviewer flag: --reviewer-${idx}-fast references reviewer ${idx}, beyond the configured reviewer list of ${reviewerCount}.\n`;
+            }
+        }
+    }
+    return null;
+}
+
+// The usage-error diagnostic for a fast flag on an ineligible role — its tool is not `claude`, or its
+// `claude` model does not support fast mode. `flagName` is the offending flag (`--worker-fast`,
+// `--reviewer-fast`, or `--reviewer-N-fast`). Shared by the parse-time early rejection and the
+// resolution-time check in `_resolveRoleFast`, so the identical diagnostic is produced wherever the
+// ineligibility is first detected. Callers invoke it only for a role already known ineligible; `model`
+// is read only for a `claude` role. Pinned by `.spec/contracts/cli-commands/install.md`.
+function fastFlagEligibilityError(tool:ToolName, model:string, flagName:string):string {
+    const reason = tool === "claude"
+        ? `the model "${model}" does not support Claude Code fast mode`
+        : `the ${tool} tool has no fast mode`;
+    return `Invalid flag ${flagName}: ${reason}.\n`;
+}
+
+// Decide whether a fast flag is already known invalid from the role's flag-supplied tool and model, for
+// the parse-time early validation the install contract's order-of-validation requires (a flag known
+// invalid is rejected before any interactive prompt). Returns the usage-error diagnostic when the role
+// is definitively ineligible from what the flags already fix — a known non-`claude` tool, or a `claude`
+// tool with a known non-fast-capable model — and null when the tool, or a `claude` role's model, is not
+// yet known (it comes from an interactive or stored answer), in which case eligibility is re-checked at
+// resolution time in `_resolveRoleFast`. Pinned by `.spec/contracts/cli-commands/install.md`.
+function knownFastFlagError(tool:ToolName|undefined, model:string|undefined, flagName:string):string|null {
+    if (tool === undefined) {
+        return null;
+    }
+    if (tool !== "claude") {
+        return fastFlagEligibilityError(tool, "", flagName);
+    }
+    if (model === undefined) {
+        return null;
+    }
+    return modelSupportsFastMode(model) ? null : fastFlagEligibilityError(tool, model, flagName);
+}
+
 // Validate the weighted-review flags against the now-known reviewer-list length. Shared by the
 // parse-time contextual check (when a `--reviewer[-N]-tool/-model/-effort` flag fixed the length)
 // and by the interactive assembly in `_run` (when the length is only known after the
@@ -294,8 +350,10 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
         workerTool?:ToolName;
         workerModel?:string;
         workerEffort?:string;
+        workerFast?:boolean;
         reviewers?:readonly ReviewerFlagAnswers[];
         optionalReviewerIndices?:readonly number[];
+        fastReviewerIndices?:readonly number[];
         reviewerMinimum?:number;
     } = {};
     if (hasProject) answers.scope = "project";
@@ -405,13 +463,49 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
             continue;
         }
         const idx = Number(match[1]);
-        if (idx < 1) {
-            return { ok: false, diagnostic: `Invalid reviewer flag: "${arg}". --reviewer-N-optional requires N >= 1.\n` };
+        if (idx < 2) {
+            return { ok: false, diagnostic: `Invalid reviewer flag: "${arg}". Reviewer 1 uses --reviewer-optional; --reviewer-N-optional requires N >= 2.\n` };
         }
         optionalIndices.add(idx);
     }
     if (optionalIndices.size > 0) {
         answers.optionalReviewerIndices = [...optionalIndices].sort((a, b) => a - b);
+    }
+    // Fast flags. `--worker-fast` is a presence flag enabling fast mode for the worker;
+    // `--reviewer[-N]-fast` are presence flags marking a 1-based reviewer index fast, mirroring the
+    // `--reviewer[-N]-optional` flags. They annotate the list the tool/model/effort flags establish and
+    // never extend it (`rules/install/flag-driven-skip.md`). The fast-index-beyond-list check is
+    // contextual on the reviewer-list length T and runs below only when the tool/model/effort flags
+    // fixed T at parse time; otherwise it is deferred to the interactive assembly. Fast eligibility is
+    // checked here for every role whose tool — and, for a claude role, model — the flags already fix
+    // (`knownFastFlagError`), so a known-invalid fast flag is rejected before any interactive prompt per
+    // the install contract's order-of-validation; a role whose tool or claude-model is still interactive
+    // or stored is re-validated against its resolved values in `_resolveRoleFast`.
+    if (rawArgs.includes("--worker-fast")) {
+        answers.workerFast = true;
+        const workerFastError = knownFastFlagError(answers.workerTool, answers.workerModel, "--worker-fast");
+        if (workerFastError !== null) {
+            return { ok: false, diagnostic: workerFastError };
+        }
+    }
+    const fastIndices = new Set<number>();
+    for (const arg of rawArgs) {
+        if (arg === "--reviewer-fast") {
+            fastIndices.add(1);
+            continue;
+        }
+        const match = arg.match(REVIEWER_FAST_INDEXED_RE);
+        if (match === null) {
+            continue;
+        }
+        const idx = Number(match[1]);
+        if (idx < 2) {
+            return { ok: false, diagnostic: `Invalid reviewer flag: "${arg}". Reviewer 1 uses --reviewer-fast; --reviewer-N-fast requires N >= 2.\n` };
+        }
+        fastIndices.add(idx);
+    }
+    if (fastIndices.size > 0) {
+        answers.fastReviewerIndices = [...fastIndices].sort((a, b) => a - b);
     }
     const minimumRaw = extractFlagValue(rawArgs, "--reviewer-minimum");
     if (minimumRaw !== undefined) {
@@ -428,6 +522,23 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
         const diagnostic = validateWeightedFlagsForReviewerCount(answers.reviewerMinimum, answers.optionalReviewerIndices, answers.reviewers.length);
         if (diagnostic !== null) {
             return { ok: false, diagnostic };
+        }
+        const fastDiagnostic = validateFastFlagsForReviewerCount(answers.fastReviewerIndices, answers.reviewers.length);
+        if (fastDiagnostic !== null) {
+            return { ok: false, diagnostic: fastDiagnostic };
+        }
+        // Fast eligibility of each in-list reviewer whose tool — and, for a claude reviewer, model — the
+        // flags already fix: a known-invalid reviewer fast flag is rejected here, before any prompt. A
+        // reviewer whose tool or claude-model is still interactive/stored defers to `_resolveRoleFast`.
+        if (answers.fastReviewerIndices !== undefined) {
+            for (const idx of answers.fastReviewerIndices) {
+                const supplied = answers.reviewers[idx - 1]!;
+                const flagName = idx === 1 ? "--reviewer-fast" : `--reviewer-${idx}-fast`;
+                const reviewerFastError = knownFastFlagError(supplied.tool, supplied.model, flagName);
+                if (reviewerFastError !== null) {
+                    return { ok: false, diagnostic: reviewerFastError };
+                }
+            }
         }
     }
     return { ok: true, answers };
@@ -733,7 +844,49 @@ export class Install {
             preselect
         );
     }
-    private async _resolveReviewer(idx:number, supplied:ReviewerFlagAnswers|undefined, contexts:InstallContexts, storedReviewer?:FlandersReviewer):Promise<FlandersRole|null> {
+    // Resolve a role's fast setting, asked after that role's effort question. The fast question is
+    // asked only for a `claude` role whose resolved model supports fast mode (`modelSupportsFastMode`);
+    // every other role — any `codex`/`antigravity` role, or a `claude` role on a model that does not
+    // support fast mode — persists `false` without asking. When the role's fast flag is present, the
+    // question is skipped and `fast` is `true`, but only after confirming the role is eligible: a fast
+    // flag on a non-`claude` tool or an ineligible model is a usage error naming the offending flag.
+    // The interactive question is a yes/no single-select through the shared prompt helper whose default
+    // is `no` (fast off, because fast mode bills at a higher rate), seeded from the stored role's `fast`
+    // when a configuration was read. Returns the resolved `fast`, or null on abort/disposal/usage error.
+    // Pinned by `src/commands/.spec/rules/install.md#fast-mode-is-offered-only-for-a-claude-role-whose-model-supports-it`.
+    private async _resolveRoleFast(roleLabel:string, headerLabel:string, tool:ToolName, model:string, fastFlag:boolean, flagName:string, contexts:InstallContexts, storedFast:boolean|undefined):Promise<boolean|null> {
+        const eligible = tool === "claude" && modelSupportsFastMode(model);
+        if (fastFlag) {
+            if (!eligible) {
+                // Reached only when this role's tool or claude-model was interactive or stored, so the
+                // parse-time `knownFastFlagError` could not decide; the diagnostic is identical.
+                contexts.output.writeError(fastFlagEligibilityError(tool, model, flagName));
+                return null;
+            }
+            return true;
+        }
+        if (!eligible) {
+            return false;
+        }
+        const option = await promptChoice(contexts.ask, {
+            header: headerLabel,
+            question: `Should ${roleLabel} run with Claude Code's fast mode enabled, neighbor?`,
+            options: [
+                { label: "no", description: "Standard mode — fast mode off" },
+                { label: "yes", description: "Fast mode — Claude Code's higher-speed, higher-cost configuration" }
+            ],
+            // The default is "no" on a fresh run; a read configuration seeds it from the stored fast.
+            defaultLabel: storedFast === true ? "yes" : "no"
+        });
+        if (!option) {
+            return null;
+        }
+        if (this._disposed) {
+            return null;
+        }
+        return option.label === "yes";
+    }
+    private async _resolveReviewer(idx:number, supplied:ReviewerFlagAnswers|undefined, fastFlag:boolean, contexts:InstallContexts, storedReviewer?:FlandersReviewer):Promise<FlandersRole|null> {
         const ordinal = idx === 1 ? "" : ` ${idx}`;
         const roleLabel = `reviewer${ordinal}`;
         let tool:ToolName;
@@ -781,8 +934,15 @@ export class Install {
         if (effort === null) {
             return null;
         }
-        // Provisional fast: the interactive fast flow and the real per-role value arrive in task 5.
-        return { tool, model, effort, fast: false };
+        // After the effort question, resolve the reviewer's fast setting. The fast flag for this 1-based
+        // index (when present) is re-validated against the now-resolved tool and model, and the question
+        // is asked only when the reviewer is an eligible `claude` role; the stored reviewer's fast seeds
+        // its default.
+        const fast = await this._resolveRoleFast(roleLabel, `Reviewer${ordinal} fast`, tool, model, fastFlag, idx === 1 ? "--reviewer-fast" : `--reviewer-${idx}-fast`, contexts, storedReviewer?.fast);
+        if (fast === null) {
+            return null;
+        }
+        return { tool, model, effort, fast };
     }
     private async _run(rawArgs:readonly string[], options:InstallOptions, contexts:InstallContexts):Promise<number> {
         try {
@@ -903,7 +1063,18 @@ export class Install {
             if (workerEffort === null) {
                 return 1;
             }
+            // After the worker effort question, resolve the worker's fast setting. A present --worker-fast
+            // flag is re-validated against the resolved worker tool and model (a usage error when the tool
+            // is not claude or the model does not support fast mode); otherwise the yes/no fast question is
+            // asked only for an eligible claude role, seeded from the stored worker's fast.
+            const workerFast = await this._resolveRoleFast("the worker", "Worker fast", workerTool, workerModel, answers.workerFast === true, "--worker-fast", contexts, storedConfig?.worker.fast);
+            if (workerFast === null) {
+                return 1;
+            }
             const suppliedReviewers = answers.reviewers;
+            // The 1-based reviewer indices a --reviewer[-N]-fast flag marks fast; consulted as each
+            // reviewer is resolved so the flag skips that reviewer's interactive fast question.
+            const fastReviewerSet = new Set(answers.fastReviewerIndices ?? []);
             // The stored reviewer at each 1-based position seeds that position's prompts; a position
             // beyond the stored list (or with no configuration read) gets undefined and keeps its
             // fresh defaults.
@@ -911,7 +1082,7 @@ export class Install {
             const reviewers:FlandersRole[] = [];
             if (suppliedReviewers && suppliedReviewers.length > 0) {
                 for (let i = 0; i < suppliedReviewers.length; i++) {
-                    const reviewer = await this._resolveReviewer(i + 1, suppliedReviewers[i]!, contexts, storedReviewers?.[i]);
+                    const reviewer = await this._resolveReviewer(i + 1, suppliedReviewers[i]!, fastReviewerSet.has(i + 1), contexts, storedReviewers?.[i]);
                     if (reviewer === null) {
                         return 1;
                     }
@@ -920,7 +1091,7 @@ export class Install {
             } else {
                 let idx = 1;
                 for (;;) {
-                    const reviewer = await this._resolveReviewer(idx, undefined, contexts, storedReviewers?.[idx - 1]);
+                    const reviewer = await this._resolveReviewer(idx, undefined, fastReviewerSet.has(idx), contexts, storedReviewers?.[idx - 1]);
                     if (reviewer === null) {
                         return 1;
                     }
@@ -963,6 +1134,11 @@ export class Install {
                 const diagnostic = validateWeightedFlagsForReviewerCount(answers.reviewerMinimum, answers.optionalReviewerIndices, reviewers.length);
                 if (diagnostic !== null) {
                     contexts.output.writeError(diagnostic);
+                    return 1;
+                }
+                const fastDiagnostic = validateFastFlagsForReviewerCount(answers.fastReviewerIndices, reviewers.length);
+                if (fastDiagnostic !== null) {
+                    contexts.output.writeError(fastDiagnostic);
                     return 1;
                 }
             }
@@ -1088,8 +1264,7 @@ export class Install {
                 return 1;
             }
             const config:FlandersConfig = {
-                // Provisional fast: the interactive fast flow and the real per-role value arrive in task 5.
-                worker: { tool: workerTool, model: workerModel, effort: workerEffort, fast: false },
+                worker: { tool: workerTool, model: workerModel, effort: workerEffort, fast: workerFast },
                 reviewers: reviewerConfigs,
                 minimumReviews
             };

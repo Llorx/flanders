@@ -922,7 +922,7 @@ test.describe("parseInstallFlags weighted-review flags", test => {
         }
     });
 
-    test("--reviewer-0-optional (N < 1) is rejected naming the flag", {
+    test("--reviewer-0-optional (N < 2) is rejected naming the flag", {
         ARRANGE() {
             return { args: ["--reviewer-0-optional"] };
         },
@@ -932,7 +932,22 @@ test.describe("parseInstallFlags weighted-review flags", test => {
         ASSERT(result) {
             Assert.deepStrictEqual(result, {
                 ok: false,
-                diagnostic: "Invalid reviewer flag: \"--reviewer-0-optional\". --reviewer-N-optional requires N >= 1.\n"
+                diagnostic: "Invalid reviewer flag: \"--reviewer-0-optional\". Reviewer 1 uses --reviewer-optional; --reviewer-N-optional requires N >= 2.\n"
+            });
+        }
+    });
+
+    test("--reviewer-1-optional is a usage error: reviewer 1 uses the unindexed --reviewer-optional", {
+        ARRANGE() {
+            return { args: ["--reviewer-1-optional"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid reviewer flag: \"--reviewer-1-optional\". Reviewer 1 uses --reviewer-optional; --reviewer-N-optional requires N >= 2.\n"
             });
         }
     });
@@ -1928,6 +1943,7 @@ test.describe("Install model question", test => {
             };
             s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
             s.askResponses.push([{ picked: [{ label: "Opus 4.8" }] }]); // worker submenu -> Opus 4.8
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // worker fast (Opus 4.8 supports fast mode) -> off
             s.askResponses.push([{ picked: [{ label: "Sonnet" }] }]); // reviewer model -> Sonnet family submenu
             s.askResponses.push([{ picked: [{ label: "Latest Sonnet" }] }]); // reviewer submenu -> Latest Sonnet alias
             return { ...s, spawnCalls };
@@ -1954,8 +1970,10 @@ test.describe("Install model question", test => {
             const s = stubContexts();
             s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
             s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // worker submenu -> Latest Opus alias
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // worker fast (Latest Opus supports fast mode) -> off
             s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer model -> Opus family submenu
             s.askResponses.push([{ picked: [{ label: "Latest Opus [1m context]" }] }]); // reviewer submenu -> Latest Opus 1M alias
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer fast (Latest Opus 1M supports fast mode) -> off
             return s;
         },
         async ACT({ contexts }) {
@@ -2068,6 +2086,7 @@ test.describe("Install model question", test => {
             const capture = captureModelMenu(s);
             s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
             s.askResponses.push([{ picked: [{ label: "Opus 4.8 [1m context]" }] }]); // submenu -> Opus 4.8 1M
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // worker fast (Opus 4.8 1M supports fast mode) -> off
             s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
             return { ...s, capture };
         },
@@ -2242,8 +2261,9 @@ test.describe("Install model question", test => {
             const capture = captureModelMenu(s);
             s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
             s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // worker submenu -> Latest Opus
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // worker fast (Latest Opus supports fast mode) -> off
             s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer model -> Opus family submenu
-            s.askResponses.push([{ picked: [{ label: "Opus 4.6" }] }]); // reviewer submenu -> Opus 4.6
+            s.askResponses.push([{ picked: [{ label: "Opus 4.6" }] }]); // reviewer submenu -> Opus 4.6 (no fast mode)
             return { ...s, capture };
         },
         async ACT({ contexts }) {
@@ -3122,6 +3142,7 @@ test.describe("Install effort question", test => {
             s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
             s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // worker submenu -> a specific curated model
             s.askResponses.push([{ picked: [{ label: "max" }] }]); // worker effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // worker fast (Latest Opus supports fast mode) -> off
             return { ...s, getCapturedEffortOptions: () => capturedEffortOptions };
         },
         async ACT({ contexts }) {
@@ -3724,7 +3745,11 @@ function captureChoiceDefaults(s:ReturnType<typeof stubContexts>) {
         // distinguish repeated prompts (e.g. the "Configure another reviewer?" question asked once per
         // reviewer) that a first-match lookup would collapse.
         allDefaultLabelsFor: (question:string):(string|undefined)[] =>
-            snapshots.filter(x => x.question === question).map(labelOf)
+            snapshots.filter(x => x.question === question).map(labelOf),
+        // The full option-label list offered for the first question matching `question`, in order, or
+        // undefined when that question was not asked. Lets a test assert a prompt's exact option set
+        // (e.g. that a yes/no prompt offers exactly `no` then `yes`).
+        optionsFor: (question:string):readonly string[]|undefined => snapshots.find(x => x.question === question)?.options
     };
 }
 
@@ -4323,6 +4348,7 @@ test.describe("Install reviewer and weighted-review pre-selection from an existi
             s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer 1 model -> Opus family
             s.askResponses.push([{ picked: [{ label: "Opus 4.8" }] }]); // reviewer 1 submenu
             s.askResponses.push([{ picked: [{ label: "high" }] }]); // reviewer 1 effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 fast (Opus 4.8 supports fast mode) -> off
             s.askResponses.push([{ picked: [{ label: "yes" }] }]); // configure another? -> reviewer 2
             s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 2 tool
             s.askResponses.push([{ picked: [{ label: "Best (auto-pick)" }] }]); // reviewer 2 model
@@ -4677,6 +4703,823 @@ test.describe("Install reviewer and weighted-review pre-selection from an existi
                     ],
                     minimumReviews: 1
                 });
+            }
+        }
+    });
+});
+
+test.describe("parseInstallFlags fast flags", test => {
+    test("--worker-fast records workerFast true", {
+        ARRANGE() {
+            return { args: ["--worker-fast"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { ok: true, answers: { workerFast: true } });
+        }
+    });
+
+    test("--reviewer-fast records reviewer index 1 as fast", {
+        ARRANGE() {
+            return { args: ["--reviewer-fast"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { ok: true, answers: { fastReviewerIndices: [1] } });
+        }
+    });
+
+    test("--reviewer-2-fast records reviewer index 2 within a flag-fixed two-reviewer list", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=claude", "--reviewer-2-fast"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: {
+                    reviewers: [{ tool: "claude" }, { tool: "claude" }],
+                    fastReviewerIndices: [2]
+                }
+            });
+        }
+    });
+
+    test("multiple fast reviewer indices are recorded sorted ascending", {
+        ARRANGE() {
+            return { args: ["--reviewer-2-fast", "--reviewer-fast"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { ok: true, answers: { fastReviewerIndices: [1, 2] } });
+        }
+    });
+
+    test("--reviewer-0-fast (N < 2) is a usage error naming the flag", {
+        ARRANGE() {
+            return { args: ["--reviewer-0-fast"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid reviewer flag: \"--reviewer-0-fast\". Reviewer 1 uses --reviewer-fast; --reviewer-N-fast requires N >= 2.\n"
+            });
+        }
+    });
+
+    test("--reviewer-1-fast is a usage error: reviewer 1 uses the unindexed --reviewer-fast", {
+        ARRANGE() {
+            return { args: ["--reviewer-1-fast"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid reviewer flag: \"--reviewer-1-fast\". Reviewer 1 uses --reviewer-fast; --reviewer-N-fast requires N >= 2.\n"
+            });
+        }
+    });
+
+    test("--reviewer-3-fast beyond a flag-fixed single-reviewer list is a usage error naming the index", {
+        ARRANGE() {
+            return { args: ["--reviewer-tool=claude", "--reviewer-3-fast"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: false,
+                diagnostic: "Invalid reviewer flag: --reviewer-3-fast references reviewer 3, beyond the configured reviewer list of 1.\n"
+            });
+        }
+    });
+});
+
+test.describe("Install fast mode (task 5)", test => {
+    test("worker claude + fast-capable model: fast question defaults to no, answering yes persists fast true", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            s.askResponses.push([{ picked: [{ label: "yes" }] }]); // worker fast -> on
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=claude-opus-4-8", "--worker-effort=high", "--reviewer-tool=codex", "--reviewer-model=gpt-5", "--reviewer-effort=medium"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker fast question is asked"(_result, { askedHeaders }) {
+                Assert.ok(askedHeaders.includes("Worker fast"));
+            },
+            "the fast question defaults to no"(_result, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Should the worker run with Claude Code's fast mode enabled, neighbor?"), "no");
+            },
+            "the worker fast question offers exactly the options no then yes"(_result, { cap }) {
+                Assert.deepStrictEqual(cap.optionsFor("Should the worker run with Claude Code's fast mode enabled, neighbor?"), ["no", "yes"]);
+            },
+            "answering yes persists worker.fast true"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.fast, true);
+            }
+        }
+    });
+
+    test("worker claude + fast-capable model: answering no persists fast false", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // worker fast -> off
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=opus", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model=gpt-5", "--reviewer-effort=medium"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "answering no persists worker.fast false"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.fast, false);
+            }
+        }
+    });
+
+    test("worker claude + model that does not support fast mode: no fast question, persists false", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=claude-sonnet-4-6", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model=gpt-5", "--reviewer-effort=medium"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "no fast question is asked"(_result, { askedHeaders }) {
+                Assert.strictEqual(askedHeaders.includes("Worker fast"), false);
+            },
+            "persists worker.fast false"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.fast, false);
+            }
+        }
+    });
+
+    test("worker tool is not claude: no fast question, persists false", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=gpt-5-codex", "--worker-effort=low", "--reviewer-tool=codex", "--reviewer-model=gpt-5", "--reviewer-effort=medium"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "no fast question is asked"(_result, { askedHeaders }) {
+                Assert.strictEqual(askedHeaders.includes("Worker fast"), false);
+            },
+            "persists worker.fast false"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.fast, false);
+            }
+        }
+    });
+
+    test("reviewer claude + fast-capable model: fast question asked, answering yes persists reviewer fast true", {
+        ARRANGE() {
+            const s = stubContexts();
+            const cap = captureChoiceDefaults(s);
+            s.askResponses.push([{ picked: [{ label: "yes" }] }]); // reviewer 1 fast -> on
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=opus", "--reviewer-effort=low"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the reviewer fast question is asked"(_result, { askedHeaders }) {
+                Assert.ok(askedHeaders.includes("Reviewer fast"));
+            },
+            "the reviewer fast question defaults to no"(_result, { cap }) {
+                Assert.strictEqual(cap.defaultLabelFor("Should reviewer run with Claude Code's fast mode enabled, neighbor?"), "no");
+            },
+            "the reviewer fast question offers exactly the options no then yes"(_result, { cap }) {
+                Assert.deepStrictEqual(cap.optionsFor("Should reviewer run with Claude Code's fast mode enabled, neighbor?"), ["no", "yes"]);
+            },
+            "answering yes persists the reviewer's fast true"({ config }) {
+                Assert.ok(config);
+                const reviewer = config.reviewers[0];
+                Assert.ok(reviewer);
+                Assert.strictEqual(reviewer.fast, true);
+            }
+        }
+    });
+
+    test("reviewer claude + fast-capable model: answering no persists reviewer fast false", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 fast -> off
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=claude-opus-4-7", "--reviewer-effort=low"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "answering no persists the reviewer's fast false"({ config }) {
+                Assert.ok(config);
+                const reviewer = config.reviewers[0];
+                Assert.ok(reviewer);
+                Assert.strictEqual(reviewer.fast, false);
+            }
+        }
+    });
+
+    test("reviewer claude + model that does not support fast mode: no fast question, persists false", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=gpt-5-codex", "--worker-effort=low", "--reviewer-tool=claude", "--reviewer-model=claude-sonnet-4-6", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "no reviewer fast question is asked"(_result, { askedHeaders }) {
+                Assert.strictEqual(askedHeaders.includes("Reviewer fast"), false);
+            },
+            "persists the reviewer's fast false"({ config }) {
+                Assert.ok(config);
+                const reviewer = config.reviewers[0];
+                Assert.ok(reviewer);
+                Assert.strictEqual(reviewer.fast, false);
+            }
+        }
+    });
+
+    test("--worker-fast on an eligible worker skips the fast question and persists fast true", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=opus", "--worker-effort=", "--worker-fast", "--reviewer-tool=codex", "--reviewer-model=gpt-5", "--reviewer-effort=medium"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker fast question is not asked"(_result, { askedHeaders }) {
+                Assert.strictEqual(askedHeaders.includes("Worker fast"), false);
+            },
+            "persists worker.fast true"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.fast, true);
+            }
+        }
+    });
+
+    test("--reviewer-fast on an eligible reviewer 1 skips its fast question and persists fast true", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=gpt-5-codex", "--worker-effort=low", "--reviewer-tool=claude", "--reviewer-model=opus", "--reviewer-effort=", "--reviewer-fast"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the reviewer fast question is not asked"(_result, { askedHeaders }) {
+                Assert.strictEqual(askedHeaders.includes("Reviewer fast"), false);
+            },
+            "persists reviewer fast true"({ config }) {
+                Assert.ok(config);
+                const reviewer = config.reviewers[0];
+                Assert.ok(reviewer);
+                Assert.strictEqual(reviewer.fast, true);
+            }
+        }
+    });
+
+    test("--reviewer-2-fast on an eligible reviewer 2 persists its fast true while reviewer 1 stays false", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project", "--skills-tool=claude",
+                "--worker-tool=claude", "--worker-model=", "--worker-effort=",
+                "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort=",
+                "--reviewer-2-tool=claude", "--reviewer-2-model=opus", "--reviewer-2-effort=", "--reviewer-2-fast"
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer 2 fast is true"({ config }) {
+                Assert.ok(config);
+                const reviewer = config.reviewers[1];
+                Assert.ok(reviewer);
+                Assert.strictEqual(reviewer.fast, true);
+            },
+            "reviewer 1 fast stays false"({ config }) {
+                Assert.ok(config);
+                const reviewer = config.reviewers[0];
+                Assert.ok(reviewer);
+                Assert.strictEqual(reviewer.fast, false);
+            }
+        }
+    });
+
+    test("--worker-fast for a non-claude worker exits non-zero naming the flag", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=", "--worker-effort=", "--worker-fast", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the diagnostic names the offending flag"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag --worker-fast: the codex tool has no fast mode.\n");
+            },
+            "no config is written"(_code, { files }) {
+                Assert.strictEqual(files.has("/proj/.flanders/config.json"), false);
+            }
+        }
+    });
+
+    test("--worker-fast for a claude worker on a model without fast mode exits non-zero naming the flag", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=claude-sonnet-4-6", "--worker-effort=", "--worker-fast", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the diagnostic names the flag and the unsupported model"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag --worker-fast: the model \"claude-sonnet-4-6\" does not support Claude Code fast mode.\n");
+            }
+        }
+    });
+
+    test("--worker-fast for a claude worker on the empty default model exits non-zero naming the flag", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--worker-fast", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the diagnostic names the flag and the empty default model"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag --worker-fast: the model \"\" does not support Claude Code fast mode.\n");
+            }
+        }
+    });
+
+    test("--reviewer-fast for a non-claude reviewer exits non-zero naming the flag", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort=", "--reviewer-fast"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the diagnostic names the offending flag"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag --reviewer-fast: the codex tool has no fast mode.\n");
+            }
+        }
+    });
+
+    test("--reviewer-2-fast for a non-claude reviewer 2 exits non-zero naming the indexed flag", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project", "--skills-tool=claude",
+                "--worker-tool=claude", "--worker-model=", "--worker-effort=",
+                "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort=",
+                "--reviewer-2-tool=codex", "--reviewer-2-model=", "--reviewer-2-effort=", "--reviewer-2-fast"
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the diagnostic names the offending indexed flag"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag --reviewer-2-fast: the codex tool has no fast mode.\n");
+            }
+        }
+    });
+
+    test("--reviewer-fast for a claude reviewer on a model without fast mode exits non-zero naming the flag", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=claude-sonnet-4-6", "--reviewer-effort=", "--reviewer-fast"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the diagnostic names the flag and the unsupported model"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag --reviewer-fast: the model \"claude-sonnet-4-6\" does not support Claude Code fast mode.\n");
+            }
+        }
+    });
+
+    test("--reviewer-2-fast for a claude reviewer 2 on a model without fast mode exits non-zero naming the indexed flag", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project", "--skills-tool=claude",
+                "--worker-tool=claude", "--worker-model=", "--worker-effort=",
+                "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort=",
+                "--reviewer-2-tool=claude", "--reviewer-2-model=claude-sonnet-4-6", "--reviewer-2-effort=", "--reviewer-2-fast"
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the diagnostic names the indexed flag and the unsupported model"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag --reviewer-2-fast: the model \"claude-sonnet-4-6\" does not support Claude Code fast mode.\n");
+            }
+        }
+    });
+
+    test("--reviewer-fast for a claude reviewer on the empty default model exits non-zero naming the flag", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort=", "--reviewer-fast"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the diagnostic names the flag and the empty default model"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag --reviewer-fast: the model \"\" does not support Claude Code fast mode.\n");
+            }
+        }
+    });
+
+    test("--reviewer-2-fast for a claude reviewer 2 on the empty default model exits non-zero naming the indexed flag", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project", "--skills-tool=claude",
+                "--worker-tool=claude", "--worker-model=", "--worker-effort=",
+                "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort=",
+                "--reviewer-2-tool=claude", "--reviewer-2-model=", "--reviewer-2-effort=", "--reviewer-2-fast"
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the diagnostic names the indexed flag and the empty default model"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag --reviewer-2-fast: the model \"\" does not support Claude Code fast mode.\n");
+            }
+        }
+    });
+
+    test("--reviewer-3-fast beyond an interactively-built reviewer list exits non-zero naming the index", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // reviewer 1 tool
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer 1 model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // reviewer 1 effort
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // configure another? -> stop at one
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-3-fast"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the diagnostic names the offending index"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid reviewer flag: --reviewer-3-fast references reviewer 3, beyond the configured reviewer list of 1.\n");
+            }
+        }
+    });
+
+    test("--worker-fast for a flag-resolved non-claude worker is rejected before any interactive prompt", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            // --skills-tool is omitted, so it would be the first interactive question; the fast usage
+            // error must fire at parse time, before that prompt is shown.
+            const cmd = new Install(["--project", "--worker-tool=codex", "--worker-fast"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no interactive question was asked"(_code, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, []);
+            },
+            "the diagnostic names the offending flag"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag --worker-fast: the codex tool has no fast mode.\n");
+            }
+        }
+    });
+
+    test("--worker-fast with an interactive worker tool defers eligibility and persists fast true when the resolved role is eligible", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "claude" }] }]); // worker tool (no --worker-tool flag) -> claude
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-model=opus", "--worker-effort=", "--worker-fast", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker fast question is not asked"(_result, { askedHeaders }) {
+                Assert.strictEqual(askedHeaders.includes("Worker fast"), false);
+            },
+            "persists worker.fast true"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.fast, true);
+            }
+        }
+    });
+
+    test("--worker-fast with an interactive worker model resolving to a non-fast-capable model errors at resolution naming the flag", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "Sonnet" }] }]); // worker model -> Sonnet family submenu
+            s.askResponses.push([{ picked: [{ label: "Sonnet 4.6" }] }]); // worker submenu -> Sonnet 4.6 (no fast mode)
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--worker-fast", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code };
+        },
+        ASSERTS: {
+            "exits 1"({ code }) {
+                Assert.strictEqual(code, 1);
+            },
+            "the worker model question was asked before the error"(_result, { askedHeaders }) {
+                Assert.ok(askedHeaders.includes("Worker model"));
+            },
+            "the diagnostic names the flag and the resolved unsupported model"(_result, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag --worker-fast: the model \"claude-sonnet-4-6\" does not support Claude Code fast mode.\n");
+            }
+        }
+    });
+
+    test("--reviewer-fast with an interactive reviewer model resolving to a non-fast-capable model errors at resolution naming the flag", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "Sonnet" }] }]); // reviewer 1 model -> Sonnet family submenu
+            s.askResponses.push([{ picked: [{ label: "Sonnet 4.6" }] }]); // reviewer 1 submenu -> Sonnet 4.6 (no fast mode)
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort=", "--reviewer-fast"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code };
+        },
+        ASSERTS: {
+            "exits 1"({ code }) {
+                Assert.strictEqual(code, 1);
+            },
+            "the reviewer model question was asked before the error"(_result, { askedHeaders }) {
+                Assert.ok(askedHeaders.includes("Reviewer model"));
+            },
+            "the diagnostic names the flag and the resolved unsupported model"(_result, { errors }) {
+                Assert.strictEqual(errors.join(""), "Invalid flag --reviewer-fast: the model \"claude-sonnet-4-6\" does not support Claude Code fast mode.\n");
+            }
+        }
+    });
+
+    test("Ctrl+C during the worker fast question exits non-zero", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [] }]); // worker fast -> Ctrl+C
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=opus", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no config is written"(_code, { files }) {
+                Assert.strictEqual(files.has("/proj/.flanders/config.json"), false);
+            }
+        }
+    });
+
+    test("disposed during the worker fast question returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            let resolvePrompt:((v:readonly AskAnswer[]) => void) | null = null;
+            (s.contexts.ask as { askChoices:typeof s.contexts.ask.askChoices }).askChoices = (questions) => {
+                for (const q of questions) {
+                    s.askedHeaders.push(q.header);
+                }
+                return new Promise<readonly AskAnswer[]>(resolve => {
+                    resolvePrompt = resolve;
+                });
+            };
+            return { ...s, getResolvePrompt: () => resolvePrompt };
+        },
+        async ACT({ contexts, getResolvePrompt }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=opus", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            while (!getResolvePrompt()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolvePrompt()!([{ picked: [{ label: "yes" }] }]);
+            await disposePromise;
+            return await cmd.result();
+        },
+        ASSERT(code) {
+            Assert.strictEqual(code, 1);
+        }
+    });
+
+    test("re-running install at a scope whose stored fast-capable role has fast true pre-selects yes and reproduces fast true", {
+        ARRANGE() {
+            const s = stubContexts();
+            const stored:FlandersConfig = {
+                worker: { tool: "claude", model: "claude-opus-4-8", effort: "high", fast: true },
+                reviewers: [{ tool: "claude", model: "opus", effort: "low", fast: true, optional: false }],
+                minimumReviews: 1
+            };
+            seedProjectConfig(s, stored);
+            // Accept every pre-selected default: pick the option at defaultIndex for each single-select
+            // (failing loudly when a prompt offered no default), recording the worker fast question's
+            // default so the test can assert it pre-selects "yes".
+            const fastDefaults:Record<string, string> = {};
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
+                const answers = questions.map(q => {
+                    s.askedHeaders.push(q.header);
+                    if (q.defaultIndex === undefined) {
+                        throw new Error(`pre-selection gap: question "${q.question}" offered no default`);
+                    }
+                    if (q.header === "Worker fast" || q.header === "Reviewer fast") {
+                        fastDefaults[q.header] = q.options[q.defaultIndex]!.label;
+                    }
+                    return { picked: [q.options[q.defaultIndex]!] };
+                });
+                return Promise.resolve(answers);
+            };
+            return { ...s, stored, fastDefaults };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker fast question pre-selects yes"(_result, { fastDefaults }) {
+                Assert.strictEqual(fastDefaults["Worker fast"], "yes");
+            },
+            "the reviewer fast question pre-selects yes"(_result, { fastDefaults }) {
+                Assert.strictEqual(fastDefaults["Reviewer fast"], "yes");
+            },
+            "accepting the defaults reproduces the stored configuration with fast true"({ config }, { stored }) {
+                Assert.deepStrictEqual(config, stored);
             }
         }
     });
@@ -5099,7 +5942,9 @@ test.describe("Install codex mkdir failure", test => {
 test.describe("Install config persistence (3.7)", test => {
     test("config read back via FlandersConfig.read equals expected literal", {
         ARRANGE() {
-            return stubContexts();
+            const s = stubContexts();
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // worker fast (model opus supports fast mode) -> off
+            return s;
         },
         async ACT({ contexts }) {
             const cmd = new Install(
@@ -5474,6 +6319,7 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
             const s = stubContexts();
             s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer 2 model -> Opus family submenu
             s.askResponses.push([{ picked: [{ label: "Latest Opus" }] }]); // reviewer 2 submenu -> Latest Opus
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 2 fast (Latest Opus supports fast mode) -> off
             // The minimum is asked as a free-text entry; the empty default fixes it to T = 2, so no
             // per-reviewer optional question is asked.
             return s;
@@ -5719,6 +6565,7 @@ test.describe("Install weighted-review collection (2.2)", test => {
         ARRANGE() {
             const s = stubContexts();
             s.askTextResponses.push("1"); // minimum reviews -> 1 (below T = 2, so the optional questions are asked)
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 fast (claude-opus-4-8 supports fast mode) -> off
             s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer 1 optional? -> required
             s.askResponses.push([{ picked: [{ label: "yes" }] }]); // reviewer 2 optional? -> optional
             return s;

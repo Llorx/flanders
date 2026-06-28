@@ -92,6 +92,12 @@ function validateRole(role:Record<string, unknown>, name:string, filePath:string
     if (!("effort" in role) || typeof role["effort"] !== "string") {
         throw new Error(`Malformed config at ${filePath}: missing or invalid field "${name}.effort"`);
     }
+    // `fast`'s type is validated here, but not the cross-field eligibility invariant (that `fast` is
+    // only ever `true` for a `claude` role on a fast-capable model). That invariant is stated by the
+    // file-format rule yet deliberately not reader-enforced — it is enforced at install time, in the
+    // flag validation and interactive gating of `src/commands/Install.ts`, mirroring how the
+    // "antigravity effort is always empty" invariant is stated but not reader-enforced. The reader
+    // therefore accepts any boolean `fast` regardless of this role's tool or model.
     if (!("fast" in role) || typeof role["fast"] !== "boolean") {
         throw new Error(`Malformed config at ${filePath}: missing or invalid field "${name}.fast"`);
     }

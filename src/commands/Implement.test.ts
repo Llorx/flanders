@@ -6469,7 +6469,7 @@ test.describe("Implement threads each role's configured fast into its invocation
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "", fast: true }, reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }], minimumReviews: 1 };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "opus", effort: "", fast: true }, reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect" });
@@ -6504,7 +6504,7 @@ test.describe("Implement threads each role's configured fast into its invocation
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "", fast: false }, reviewers: [{ tool: "claude", model: "", effort: "", fast: true, optional: false }], minimumReviews: 1 };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "", fast: false }, reviewers: [{ tool: "claude", model: "opus", effort: "", fast: true, optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect" });
@@ -6539,7 +6539,7 @@ test.describe("Implement threads each role's configured fast into its invocation
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            const config:FlandersConfig = { worker: { tool: "claude", model: "", effort: "", fast: true }, reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }], minimumReviews: 1 };
+            const config:FlandersConfig = { worker: { tool: "claude", model: "opus", effort: "", fast: true }, reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }], minimumReviews: 1 };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.claudeQueue.push({ text: "detect" });
@@ -6581,7 +6581,7 @@ test.describe("Implement threads each role's configured fast into its invocation
             const config:FlandersConfig = {
                 worker: { tool: "claude", model: "w-model", effort: "", fast: false },
                 reviewers: [
-                    { tool: "claude", model: "r0-model", effort: "", fast: true, optional: false },
+                    { tool: "claude", model: "opus", effort: "", fast: true, optional: false },
                     { tool: "claude", model: "r1-model", effort: "", fast: false, optional: false }
                 ],
                 minimumReviews: 2
@@ -6605,7 +6605,7 @@ test.describe("Implement threads each role's configured fast into its invocation
                 Assert.strictEqual(code, 0);
             },
             "the fast=true reviewer's spawn carries the fast settings"({ claudeSpawnedArgs }) {
-                assertFastPresent(spawnWithModel(claudeSpawnedArgs, "r0-model"), "reviewer r0-model spawn");
+                assertFastPresent(spawnWithModel(claudeSpawnedArgs, "opus"), "reviewer opus spawn");
             },
             "the fast=false reviewer's spawn carries no fast settings"({ claudeSpawnedArgs }) {
                 assertFastAbsent(spawnWithModel(claudeSpawnedArgs, "r1-model"), "reviewer r1-model spawn");
