@@ -8,7 +8,7 @@ No other runner (`node --test`, `jest`, `vitest`, `mocha`, raw `assert` scripts,
 
 ### Running the tests
 
-The canonical invocation when an AI worker (or any caller that consumes the output programmatically) needs to run the suite is `npm test -- --summary` (or `npx aaa --summary` to skip the build step). With `--summary` the runner emits only the final summary block plus, for any failing tests, the test path and the assertion error — and preserves the exit code as always. That is exactly the information needed to decide pass/fail and to act on failures; running without `--summary` produces a verbose per-test tree that has to be filtered away. Combine with `--coverage-target 100` (`npm test -- --coverage-target 100 --summary`) when the 100% coverage floor must also be enforced — the runner exits non-zero on a shortfall, so the threshold check is automatic. See [src/.spec/rules/testing.md#tests-must-reach-100-coverage](/src/.spec/rules/testing.md#tests-must-reach-100-coverage). Plain `npm test` / `npx aaa` (without `--summary`) is reserved for interactive use where the per-test tree is the whole point.
+The canonical invocation when an AI worker (or any caller that consumes the output programmatically) needs to run the suite is `npm test -- --summary` (or `npx aaa --summary` to skip the build step). With `--summary` the runner emits only the final summary block plus, for any failing tests, the test path and the assertion error — and preserves the exit code as always. That is exactly the information needed to decide pass/fail and to act on failures; running without `--summary` produces a verbose per-test tree that has to be filtered away. When the 100% coverage floor must also be enforced, run `npm run test-with-coverage`, which layers `--coverage-target 100 --summary` on the suite so the runner exits non-zero on a shortfall and the threshold check is automatic. See [src/.spec/rules/testing.md#tests-must-reach-100-coverage](/src/.spec/rules/testing.md#tests-must-reach-100-coverage). Plain `npm test` / `npx aaa` (without `--summary`) is reserved for interactive use where the per-test tree is the whole point.
 
 ### Shape of a test
 
@@ -212,10 +212,10 @@ The project targets **100% line and branch coverage** on every file under `src/`
 Run:
 
 ```
-npm test -- --coverage-target 100 --summary
+npm run test-with-coverage
 ```
 
-This invokes the project's `test` script (which builds the debug output and then runs `npx aaa`) and forwards `--coverage-target 100 --summary` to the `aaa` runner. `--coverage-target 100` implies `--coverage` (so coverage collection is automatic) **and** makes the runner exit non-zero when any covered file reports below 100% line or branch coverage — the threshold is enforced by the test run itself, not by reading the report. `--summary` suppresses the per-test live tree so the runner emits only the final summary block, the coverage table, and — when any test or the coverage check fails — the path and assertion error of each failure. That is the exact shape downstream tooling (and you as a worker reading the output) need; running without `--summary` produces a noisy tree that has to be filtered away.
+The `test-with-coverage` script runs the project's `test` script (which builds the debug output and then runs `npx aaa`) with `--coverage-target 100 --summary` forwarded to the `aaa` runner. `--coverage-target 100` implies `--coverage` (so coverage collection is automatic) **and** makes the runner exit non-zero when any covered file reports below 100% line or branch coverage — the threshold is enforced by the test run itself, not by reading the report. `--summary` suppresses the per-test live tree so the runner emits only the final summary block, the coverage table, and — when any test or the coverage check fails — the path and assertion error of each failure. That is the exact shape downstream tooling (and you as a worker reading the output) need; running the suite without `--summary` produces a noisy tree that has to be filtered away.
 
 `node_modules` and test files (`*.test.*`) are excluded by the runner by default — no extra configuration is needed for those.
 
@@ -256,7 +256,7 @@ Every ignore comment must carry a reason directly next to it (on the same line, 
 
 ### Failure signals
 
-- `npm test -- --coverage-target 100 --summary` exits non-zero because the runner's own coverage check rejected the run (any covered file below 100% lines or branches).
+- `npm run test-with-coverage` exits non-zero because the runner's own coverage check rejected the run (any covered file below 100% lines or branches).
 - A worker verifies coverage with `--coverage` alone and relies on eyeballing the table, instead of letting `--coverage-target 100` enforce the floor automatically.
 - A `/* coverage ignore ... */` comment appears with no adjacent reason.
 - An ignore is used to skip business logic rather than a genuinely unreachable defensive branch or an I/O wrapper inside a context implementation.

@@ -22,7 +22,8 @@
     "watch": "npm run clean && npx tsc -p tsconfig.json -watch",
     "build": "npm run clean && npx tsc -p tsconfig.build.json",
     "build-debug": "npm run clean && npx tsc -p tsconfig.json",
-    "test": "npm run build-debug && npx aaa --folder lib --include-files \"\\.test\\.js$\" --exclude-files node_modules --coverage-exclude node_modules"
+    "test": "npm run build-debug && npx aaa --folder lib --include-files \"\\.test\\.js$\" --exclude-files node_modules --coverage-exclude node_modules",
+    "test-with-coverage": "npm test -- --coverage-target 100 --summary"
   },
   "author": "Llorx",
   "license": "MIT",
