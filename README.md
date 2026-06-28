@@ -86,6 +86,8 @@ Run it without flags and Flanders walks you through the setup, asking in this or
 4. **Reviewer configuration** — an ordered list of one or more adversarial reviewers, each with its own tool, model, and effort. You can have any number of reviewers, for example Claude Opus, Claude Sonnet and Codex. You can even duplicate them if you think that one pass is not enough to detect a problem.
 5. **Weighted-review configuration** — when two or more reviewers are configured, the minimum number of reviewers that must run to a verdict, and which reviewers are optional. Optional reviewers will not halt the implementation when they reach a rate limit.
 
+After the effort question, both the worker and each reviewer are also asked whether to enable Claude Code's fast mode — but only when that role's tool is Claude Code and its chosen model supports fast mode. The question defaults to off, since fast mode bills at a higher rate, and your answer is persisted per role in the `.flanders/` configuration.
+
 And if a `.flanders/` configuration already lives at the scope you choose, neighbor, `install` reads it the moment you pick that scope and pre-selects your stored answers as the question defaults. Just press Enter straight through to reproduce your saved configuration just as it was.
 
 ### Flags
@@ -103,6 +105,7 @@ Every question has an equivalent command-line flag, so the whole setup can run w
 - `--worker-tool=<claude|codex>` — which AI tool the `implement` worker uses.
 - `--worker-model=<value>` — model the worker tool invokes; an empty value means "use the tool's default configured model".
 - `--worker-effort=<value>` — reasoning effort the worker tool invokes; an empty value means "use the tool's default configured effort".
+- `--worker-fast` — a presence flag that enables Claude Code's fast mode for the worker; off by default, and valid only for a worker whose tool is `claude` and whose model supports fast mode.
 
 **Reviewers** — an ordered list, where reviewer 1 uses the unindexed names and reviewer `N` (2 or greater) carries the index:
 
@@ -111,6 +114,8 @@ Every question has an equivalent command-line flag, so the whole setup can run w
 - `--reviewer-effort=<value>` / `--reviewer-N-effort=<value>`
 
 The reviewer indices must form a contiguous run starting at reviewer 1. Supplying any reviewer flag fixes the reviewer list to those indices and skips the "configure another reviewer?" prompt.
+
+A presence flag, `--reviewer-fast` / `--reviewer-N-fast`, enables Claude Code's fast mode for that reviewer; off by default, and valid only for a reviewer whose tool is `claude` and whose model supports fast mode. It annotates a reviewer within the established list rather than establishing or extending it, so — unlike the tool, model, and effort flags above — it neither fixes the list nor skips the "configure another reviewer?" prompt.
 
 **Weighted review** — only meaningful with two or more reviewers:
 
