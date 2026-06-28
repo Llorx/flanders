@@ -39,7 +39,9 @@ If the header content does not fit on the available terminal width, the entire l
 
 Each field is colored according to the scheme defined in `Colors`.
 
-Until the plan file has been parsed and validated, the header line's individual fields all render as blank — the row still occupies its line of the block. From the moment the plan is parsed onward, the `Current task index out of total tasks` field shows the total as the denominator: `0/12` before the first task starts, `N/N` when the noop tasks-completed case applies because every task was already complete on startup. The other header fields remain blank until the first task is selected for work. They populate at the start of that task's worker stage — the task index, plan task number, and task title switch to that task, the activity field shows `implementing`, and the `current run iteration` field shows `iter 1`.
+Until the plan file has been parsed and validated, the header line's individual fields all render as blank — the row still occupies its line of the block. From the moment the plan is parsed onward, the `Current task index out of total tasks` field shows the total as the denominator and, as its numerator, the number of tasks already marked complete at startup: `3/12` on a plan with three of its twelve tasks already done, `0/12` on a plan with none done, and `N/N` in the noop tasks-completed case, which is the special case where every task was already complete at startup. The other header fields remain blank until the first task is selected for work, except during the build and test command detection phase described in the next paragraph. They populate at the start of the first task's worker stage — the task index, plan task number, and task title switch to that task, the activity field shows `implementing`, and the `current run iteration` field shows `iter 1`.
+
+During the build and test command detection phase that runs at startup — after the plan has been parsed and the git preflight has passed, and before the iteration loop begins (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)) — the header line shows the `Current task index out of total tasks` field followed by the phase message `preparing build and test scripts`, occupying the region of the line where the per-task fields appear during work. The `current run iteration`, activity, plan task number, and task title fields stay blank throughout this phase, because no task is selected yet. When the iteration loop selects the first task, the header switches to that task's per-task fields as described in the previous paragraph and the phase message is no longer shown.
 
 ## Metrics line content
 The metrics line shows, on a single line, two paired figures separated by a vertical bar:
@@ -136,6 +138,7 @@ Header line fields:
 - The current activity — magenta when it shows one of the four live values (`implementing`, `reviewing`, `building`, `testing`); green when it shows `done` in the per-task completion snapshot.
 - The plan task number (for example, `7.3`) — green.
 - The task title — terminal default color.
+- The `preparing build and test scripts` phase message shown during the build and test command detection phase — the same magenta as the live activity values.
 
 Metrics line fields:
 - The `task` and `plan` labels (including their compact-form variants `t:` and `p:`) — dim.
