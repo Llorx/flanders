@@ -1199,7 +1199,7 @@ export class Install {
             const writtenPaths:string[] = [];
             // Emit each selected tool's skill trio into its own destination, in selection order.
             for (const tool of skillsTools) {
-                const result = await writeSkillArtifacts(contexts.fs, scopeRoot, mode, tool, () => this._disposed);
+                const result = await writeSkillArtifacts(contexts.fs, scopeRoot, tool, () => this._disposed);
                 if (!result.ok) {
                     if (result.diagnostic !== null) {
                         contexts.output.writeError(result.diagnostic);

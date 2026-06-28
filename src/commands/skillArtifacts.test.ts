@@ -34,7 +34,7 @@ test.describe("writeSkillArtifacts claude", test => {
             return stubFs();
         },
         ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "project", "claude", () => false);
+            return writeSkillArtifacts(fs, "/root", "claude", () => false);
         },
         ASSERTS: {
             "returns ok:true with the three SKILL.md paths in skill order"(result) {
@@ -79,7 +79,7 @@ test.describe("writeSkillArtifacts claude", test => {
             return s;
         },
         ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "project", "claude", () => false);
+            return writeSkillArtifacts(fs, "/root", "claude", () => false);
         },
         ASSERTS: {
             "returns the exact offending-path diagnostic"(result) {
@@ -101,7 +101,7 @@ test.describe("writeSkillArtifacts claude", test => {
             return s;
         },
         ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "project", "claude", () => false);
+            return writeSkillArtifacts(fs, "/root", "claude", () => false);
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, {
@@ -118,7 +118,7 @@ test.describe("writeSkillArtifacts claude", test => {
             return { ...stubFs(), isDisposed };
         },
         ACT({ fs, isDisposed }) {
-            return writeSkillArtifacts(fs, "/root", "project", "claude", isDisposed);
+            return writeSkillArtifacts(fs, "/root", "claude", isDisposed);
         },
         ASSERTS: {
             "returns ok:false with a null diagnostic"(result) {
@@ -140,7 +140,7 @@ test.describe("writeSkillArtifacts codex", test => {
             return stubFs();
         },
         ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "project", "codex", () => false);
+            return writeSkillArtifacts(fs, "/root", "codex", () => false);
         },
         ASSERTS: {
             "returns ok:true with the three prompt paths in skill order"(result) {
@@ -183,7 +183,7 @@ test.describe("writeSkillArtifacts codex", test => {
             return s;
         },
         ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "project", "codex", () => false);
+            return writeSkillArtifacts(fs, "/root", "codex", () => false);
         },
         ASSERTS: {
             "returns the exact offending-path diagnostic"(result) {
@@ -205,7 +205,7 @@ test.describe("writeSkillArtifacts codex", test => {
             return s;
         },
         ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "project", "codex", () => false);
+            return writeSkillArtifacts(fs, "/root", "codex", () => false);
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, {
@@ -222,7 +222,7 @@ test.describe("writeSkillArtifacts codex", test => {
             return { ...stubFs(), isDisposed };
         },
         ACT({ fs, isDisposed }) {
-            return writeSkillArtifacts(fs, "/root", "project", "codex", isDisposed);
+            return writeSkillArtifacts(fs, "/root", "codex", isDisposed);
         },
         ASSERTS: {
             "returns ok:false with a null diagnostic"(result) {
@@ -239,7 +239,7 @@ test.describe("writeSkillArtifacts codex", test => {
 });
 
 test.describe("skillArtifactPaths", test => {
-    test("claude project-scope paths use .claude/skills/<name>/SKILL.md", {
+    test("claude paths use .claude/skills/<name>/SKILL.md", {
         ARRANGE() {
             return {
                 expected: [
@@ -250,32 +250,14 @@ test.describe("skillArtifactPaths", test => {
             };
         },
         ACT() {
-            return skillArtifactPaths("/root", "project", "claude");
+            return skillArtifactPaths("/root", "claude");
         },
         ASSERT(result, { expected }) {
             Assert.deepStrictEqual(result, expected);
         }
     });
 
-    test("claude global-scope paths are byte-for-byte identical to project scope (claude ignores the scope discriminator)", {
-        ARRANGE() {
-            return {
-                expected: [
-                    "/root/.claude/skills/flanders-spec/SKILL.md",
-                    "/root/.claude/skills/flanders-plan/SKILL.md",
-                    "/root/.claude/skills/flanders-work/SKILL.md"
-                ]
-            };
-        },
-        ACT() {
-            return skillArtifactPaths("/root", "global", "claude");
-        },
-        ASSERT(result, { expected }) {
-            Assert.deepStrictEqual(result, expected);
-        }
-    });
-
-    test("codex project-scope paths use .codex/prompts/<name>.md", {
+    test("codex paths use .codex/prompts/<name>.md", {
         ARRANGE() {
             return {
                 expected: [
@@ -286,210 +268,10 @@ test.describe("skillArtifactPaths", test => {
             };
         },
         ACT() {
-            return skillArtifactPaths("/root", "project", "codex");
+            return skillArtifactPaths("/root", "codex");
         },
         ASSERT(result, { expected }) {
             Assert.deepStrictEqual(result, expected);
-        }
-    });
-
-    test("codex global-scope paths are byte-for-byte identical to project scope (codex ignores the scope discriminator)", {
-        ARRANGE() {
-            return {
-                expected: [
-                    "/root/.codex/prompts/flanders-spec.md",
-                    "/root/.codex/prompts/flanders-plan.md",
-                    "/root/.codex/prompts/flanders-work.md"
-                ]
-            };
-        },
-        ACT() {
-            return skillArtifactPaths("/root", "global", "codex");
-        },
-        ASSERT(result, { expected }) {
-            Assert.deepStrictEqual(result, expected);
-        }
-    });
-
-    test("antigravity project-scope paths use .agents/skills/<name>/SKILL.md", {
-        ARRANGE() {
-            return {
-                expected: [
-                    "/root/.agents/skills/flanders-spec/SKILL.md",
-                    "/root/.agents/skills/flanders-plan/SKILL.md",
-                    "/root/.agents/skills/flanders-work/SKILL.md"
-                ]
-            };
-        },
-        ACT() {
-            return skillArtifactPaths("/root", "project", "antigravity");
-        },
-        ASSERT(result, { expected }) {
-            Assert.deepStrictEqual(result, expected);
-        }
-    });
-
-    test("antigravity global-scope paths use .gemini/antigravity-cli/skills/<name>/SKILL.md", {
-        ARRANGE() {
-            return {
-                expected: [
-                    "/root/.gemini/antigravity-cli/skills/flanders-spec/SKILL.md",
-                    "/root/.gemini/antigravity-cli/skills/flanders-plan/SKILL.md",
-                    "/root/.gemini/antigravity-cli/skills/flanders-work/SKILL.md"
-                ]
-            };
-        },
-        ACT() {
-            return skillArtifactPaths("/root", "global", "antigravity");
-        },
-        ASSERT(result, { expected }) {
-            Assert.deepStrictEqual(result, expected);
-        }
-    });
-});
-
-test.describe("writeSkillArtifacts antigravity", test => {
-    test("writes the project-scope trio under <scopeRoot>/.agents/skills/<name>/SKILL.md with the full body", {
-        ARRANGE() {
-            return stubFs();
-        },
-        ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "project", "antigravity", () => false);
-        },
-        ASSERTS: {
-            "returns ok:true with the three SKILL.md paths in skill order"(result) {
-                Assert.deepStrictEqual(result, {
-                    ok: true,
-                    writtenPaths: [
-                        "/root/.agents/skills/flanders-spec/SKILL.md",
-                        "/root/.agents/skills/flanders-plan/SKILL.md",
-                        "/root/.agents/skills/flanders-work/SKILL.md"
-                    ]
-                });
-            },
-            "writes the spec body verbatim (the full body, not the frontmatter-stripped codex form)"(_result, { files }) {
-                Assert.strictEqual(files.get("/root/.agents/skills/flanders-spec/SKILL.md"), specSkillBody);
-            },
-            "writes the plan body verbatim"(_result, { files }) {
-                Assert.strictEqual(files.get("/root/.agents/skills/flanders-plan/SKILL.md"), planSkillBody);
-            },
-            "writes the work body verbatim"(_result, { files }) {
-                Assert.strictEqual(files.get("/root/.agents/skills/flanders-work/SKILL.md"), workSkillBody);
-            },
-            "writes exactly three files"(_result, { files }) {
-                Assert.strictEqual(files.size, 3);
-            },
-            "creates each per-skill folder recursively, immediately before writing its SKILL.md, in order"(_result, { ops }) {
-                Assert.deepStrictEqual(ops, [
-                    "mkdir /root/.agents/skills/flanders-spec recursive=true",
-                    "writeFile /root/.agents/skills/flanders-spec/SKILL.md",
-                    "mkdir /root/.agents/skills/flanders-plan recursive=true",
-                    "writeFile /root/.agents/skills/flanders-plan/SKILL.md",
-                    "mkdir /root/.agents/skills/flanders-work recursive=true",
-                    "writeFile /root/.agents/skills/flanders-work/SKILL.md"
-                ]);
-            }
-        }
-    });
-
-    test("writes the global-scope trio under <scopeRoot>/.gemini/antigravity-cli/skills/<name>/SKILL.md with the full body", {
-        ARRANGE() {
-            return stubFs();
-        },
-        ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "global", "antigravity", () => false);
-        },
-        ASSERTS: {
-            "returns ok:true with the three SKILL.md paths in skill order"(result) {
-                Assert.deepStrictEqual(result, {
-                    ok: true,
-                    writtenPaths: [
-                        "/root/.gemini/antigravity-cli/skills/flanders-spec/SKILL.md",
-                        "/root/.gemini/antigravity-cli/skills/flanders-plan/SKILL.md",
-                        "/root/.gemini/antigravity-cli/skills/flanders-work/SKILL.md"
-                    ]
-                });
-            },
-            "writes the spec body verbatim (the full body, not the frontmatter-stripped codex form)"(_result, { files }) {
-                Assert.strictEqual(files.get("/root/.gemini/antigravity-cli/skills/flanders-spec/SKILL.md"), specSkillBody);
-            },
-            "writes the plan body verbatim"(_result, { files }) {
-                Assert.strictEqual(files.get("/root/.gemini/antigravity-cli/skills/flanders-plan/SKILL.md"), planSkillBody);
-            },
-            "writes the work body verbatim"(_result, { files }) {
-                Assert.strictEqual(files.get("/root/.gemini/antigravity-cli/skills/flanders-work/SKILL.md"), workSkillBody);
-            },
-            "creates each per-skill folder recursively, immediately before writing its SKILL.md, in order"(_result, { ops }) {
-                Assert.deepStrictEqual(ops, [
-                    "mkdir /root/.gemini/antigravity-cli/skills/flanders-spec recursive=true",
-                    "writeFile /root/.gemini/antigravity-cli/skills/flanders-spec/SKILL.md",
-                    "mkdir /root/.gemini/antigravity-cli/skills/flanders-plan recursive=true",
-                    "writeFile /root/.gemini/antigravity-cli/skills/flanders-plan/SKILL.md",
-                    "mkdir /root/.gemini/antigravity-cli/skills/flanders-work recursive=true",
-                    "writeFile /root/.gemini/antigravity-cli/skills/flanders-work/SKILL.md"
-                ]);
-            }
-        }
-    });
-
-    test("a mkdir failure returns the exact Cannot create destination diagnostic and writes nothing", {
-        ARRANGE() {
-            const s = stubFs();
-            (s.fs as { mkdir:FsContext["mkdir"] }).mkdir = (p:string) => Promise.reject(new Error(`EACCES: ${p}`));
-            return s;
-        },
-        ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "project", "antigravity", () => false);
-        },
-        ASSERTS: {
-            "returns the exact offending-path diagnostic"(result) {
-                Assert.deepStrictEqual(result, {
-                    ok: false,
-                    diagnostic: "Cannot create destination: /root/.agents/skills/flanders-spec\n"
-                });
-            },
-            "writes no files"(_result, { files }) {
-                Assert.strictEqual(files.size, 0);
-            }
-        }
-    });
-
-    test("a writeFile failure returns the exact Cannot write file diagnostic", {
-        ARRANGE() {
-            const s = stubFs();
-            (s.fs as { writeFile:FsContext["writeFile"] }).writeFile = (p:string) => Promise.reject(new Error(`EACCES: ${p}`));
-            return s;
-        },
-        ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "global", "antigravity", () => false);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, {
-                ok: false,
-                diagnostic: "Cannot write file: /root/.gemini/antigravity-cli/skills/flanders-spec/SKILL.md\n"
-            });
-        }
-    });
-
-    test("disposal mid-write stops further writes and returns ok:false with a null diagnostic", {
-        ARRANGE() {
-            let calls = 0;
-            const isDisposed = () => (++calls) > 1;
-            return { ...stubFs(), isDisposed };
-        },
-        ACT({ fs, isDisposed }) {
-            return writeSkillArtifacts(fs, "/root", "project", "antigravity", isDisposed);
-        },
-        ASSERTS: {
-            "returns ok:false with a null diagnostic"(result) {
-                Assert.deepStrictEqual(result, { ok: false, diagnostic: null });
-            },
-            "writes the first skill before disposal"(_result, { files }) {
-                Assert.ok(files.has("/root/.agents/skills/flanders-spec/SKILL.md"));
-            },
-            "does not write the second skill after disposal"(_result, { files }) {
-                Assert.ok(!files.has("/root/.agents/skills/flanders-plan/SKILL.md"));
-            }
         }
     });
 });
