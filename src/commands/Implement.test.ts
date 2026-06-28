@@ -8,7 +8,7 @@ import type { FlandersConfig } from "../workspace/FlandersConfig";
 import type { SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { HeaderFields, MetricsFields, TerminalLabel, ReviewerEntry } from "../ui/BottomBlock";
-import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, SEPARATOR_GLYPH, formatDateTime, stripAnsi } from "../ui/formatters";
+import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, RESET, SEPARATOR_GLYPH, formatDateTime, stripAnsi } from "../ui/formatters";
 import { workingPool, successPool, hardStopPool, interruptionPool, failurePool, tasksCompletedPool, allTasksCompletedPool } from "../voiceVariants";
 
 // The stub random context returns 0, so the rotating working footer label is
@@ -1197,6 +1197,140 @@ test.describe("Implement intermediate header and metrics states", test => {
             }
         }
     });
+
+    test("the startup index numerator counts every task already complete at startup (3 of 12 done seeds 3/12)", {
+        ARRANGE() {
+            // Twelve tasks with exactly three already done: the seeded numerator must be the full
+            // completed count (3), not a presence flag. A regression computing the numerator as
+            // `tasks.some(t => t.done) ? 1 : 0` would seed "1/12" and fail this, as would the old
+            // hardcoded "0/12".
+            const lines:string[] = [];
+            for (let i = 1; i <= 12; i++) {
+                lines.push(`- [${i <= 3 ? "x" : " "}]{"it":0,"ot":0,"t":0} Task ${i}`);
+            }
+            const threeOfTwelveDone = `# Plan\n\n${lines.join("\n")}\n`;
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, threeOfTwelveDone);
+            // The detect call is left in flight and emits exit only when dispose kills it, so the run
+            // pauses right after the startup header is seeded — the partially-complete plan never has
+            // to drive its nine open tasks — and dispose still settles cleanly.
+            (s.contexts.claude as { spawn:typeof s.contexts.claude.spawn }).spawn = () => {
+                const proc = fakeProcess();
+                const realKill = proc.kill;
+                proc.kill = (signal:"SIGINT"|"SIGTERM") => {
+                    realKill.call(proc, signal);
+                    setImmediate(() => proc.$emit("exit", null));
+                };
+                return proc;
+            };
+            const headerCalls:HeaderFields[] = [];
+            const origSetHeader = BottomBlock.prototype.setHeader;
+            BottomBlock.prototype.setHeader = function(fields:HeaderFields) {
+                headerCalls.push(fields);
+                origSetHeader.call(this, fields);
+            };
+            return { s, headerCalls, origSetHeader };
+        },
+        async ACT({ s, headerCalls, origSetHeader }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+                await flush();
+                const seeded = [...headerCalls];
+                await cmd.dispose();
+                return { seeded };
+            } finally {
+                BottomBlock.prototype.setHeader = origSetHeader;
+            }
+        },
+        ASSERTS: {
+            "the first header seeds the numerator to the count of all completed tasks over the total"({ seeded }) {
+                Assert.ok(seeded.length >= 1, "need at least 1 header call");
+                Assert.strictEqual(seeded[0]!.indexLabel, "3/12");
+            }
+        }
+    });
+
+    test("the detection-phase header message is shown only while build/test detection is in flight, not during the preceding git preflight", {
+        ARRANGE() {
+            // One of two tasks done so the seeded index is the non-trivial 1/2 in both phases.
+            const oneOfTwoDone = '# Plan\n\n- [x]{"it":10,"ot":5,"t":1} Already done one\n- [ ]{"it":0,"ot":0,"t":0} Open task two\n';
+            const gated = gatedGitAndClaudeStub(oneOfTwoDone);
+            // Hold the first git preflight command and the detect AI call, so the header can be
+            // observed while each phase is genuinely in flight.
+            gated.holdGit(1);
+            gated.holdClaude(1);
+            gated.s.claudeQueue.push({ text: "ok" });                        // detect build/test (held)
+            gated.s.claudeQueue.push({ text: "worker" });                    // worker (open task two)
+            gated.s.claudeQueue.push({ text: "reviewer ok", errorLog: "" }); // reviewer (open task two)
+            const headerCalls:HeaderFields[] = [];
+            const origSetHeader = BottomBlock.prototype.setHeader;
+            BottomBlock.prototype.setHeader = function(fields:HeaderFields) {
+                headerCalls.push(fields);
+                origSetHeader.call(this, fields);
+            };
+            return { gated, headerCalls, origSetHeader };
+        },
+        async ACT({ gated, headerCalls, origSetHeader }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, gated.s.contexts);
+                await flush();
+                // First git preflight command (git --version) is held → preflight in flight.
+                const outputDuringPreflight = gated.s.written.join("");
+                const headerCallsDuringPreflight = [...headerCalls];
+                gated.releaseGit(1);
+                await flush();
+                // Preflight finished, detection-phase header set, detect AI call held → detect in flight.
+                const outputDuringDetect = gated.s.written.join("");
+                const headerCallsDuringDetect = [...headerCalls];
+                gated.releaseClaude(1);
+                const code = await cmd.result();
+                await cmd.dispose();
+                return { code, outputDuringPreflight, headerCallsDuringPreflight, outputDuringDetect, headerCallsDuringDetect, headerCalls: [...headerCalls] };
+            } finally {
+                BottomBlock.prototype.setHeader = origSetHeader;
+            }
+        },
+        ASSERTS: {
+            "exits with code 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "during git preflight the header shows the seeded index in cyan"({ outputDuringPreflight }) {
+                Assert.ok(
+                    outputDuringPreflight.includes(CYAN + "1/2" + RESET),
+                    "the seeded index must render during git preflight"
+                );
+            },
+            "during git preflight the phase message has not been rendered"({ outputDuringPreflight }) {
+                Assert.ok(
+                    !outputDuringPreflight.includes("preparing build and test scripts"),
+                    "the phase message must not be shown during the git preflight that precedes detection"
+                );
+            },
+            "during git preflight only the seeded index header has been set, with no phase message"({ headerCallsDuringPreflight }) {
+                Assert.deepStrictEqual(headerCallsDuringPreflight, [{ indexLabel: "1/2" }]);
+            },
+            "during build/test detection the phase message renders in magenta after the index"({ outputDuringDetect }) {
+                Assert.ok(
+                    outputDuringDetect.includes(MAGENTA + "preparing build and test scripts" + RESET),
+                    "the phase message must render in magenta closed by reset while detection is in flight"
+                );
+            },
+            "during build/test detection the last header set is exactly the seeded index plus the phase message, every per-task field blank"({ headerCallsDuringDetect }) {
+                const last = headerCallsDuringDetect[headerCallsDuringDetect.length - 1];
+                Assert.deepStrictEqual(last, { indexLabel: "1/2", phaseMessage: "preparing build and test scripts" });
+            },
+            "across the whole run exactly one header carries the detection phase message"({ headerCalls }) {
+                const withMessage = headerCalls.filter(h => h.phaseMessage != null);
+                Assert.strictEqual(withMessage.length, 1);
+            },
+            "once the first task's worker stage begins the header carries no phase message"({ headerCalls }) {
+                const workerHeader = headerCalls.find(h => h.activity === "implementing");
+                Assert.ok(workerHeader !== undefined, "the worker stage must set an implementing header");
+                Assert.strictEqual(workerHeader!.phaseMessage ?? null, null);
+            }
+        }
+    });
 });
 
 test.describe("Implement completion-message variants", test => {
@@ -1652,6 +1786,88 @@ function gatedClaudeStub(planContent:string) {
     };
 }
 
+// A stub whose git preflight commands and claude AI spawns can each be held open individually so a
+// test can observe live header state while a specific git preflight command, or the detect AI call,
+// is genuinely in flight. Git and claude spawns are counted in independent 1-based sequences;
+// non-git script spawns fall through to the default stub behavior.
+function gatedGitAndClaudeStub(planContent:string) {
+    const s = stubContexts();
+    gitRunQueue(s.gitQueue);
+    s.files.set(PLAN_PATH, planContent);
+    const origScriptSpawn = s.contexts.script.spawn;
+    const holdGit = new Set<number>();
+    const holdClaude = new Set<number>();
+    const gitReleasers = new Map<number, () => void>();
+    const claudeReleasers = new Map<number, () => void>();
+    let gitCount = 0;
+    let claudeCount = 0;
+    (s.contexts.script as any).spawn = (command:string, args:readonly string[], options?:unknown) => {
+        if (command !== "git") {
+            return (origScriptSpawn as any)(command, args, options);
+        }
+        s.gitSpawns.push({ command, args: [...args] });
+        gitCount++;
+        const mySpawn = gitCount;
+        const proc = fakeProcess();
+        const response = s.gitQueue.shift();
+        const emit = () => {
+            if (!response) {
+                proc.$emit("error", new Error("no response in queue"));
+                return;
+            }
+            if (response.stdout) proc.$emitStdout(response.stdout);
+            if (response.stderr) proc.$emitStderr(response.stderr);
+            proc.$emit("exit", response.code);
+        };
+        if (holdGit.has(mySpawn)) {
+            gitReleasers.set(mySpawn, () => setImmediate(emit));
+        } else {
+            setImmediate(emit);
+        }
+        return proc;
+    };
+    (s.contexts.claude as any).spawn = (_command:string, args:readonly string[]) => {
+        s.claudeSpawnedArgs.push([...args]);
+        claudeCount++;
+        const mySpawn = claudeCount;
+        const proc = fakeProcess();
+        const origStdin = proc.stdin!;
+        let capturedPrompt = "";
+        (proc as any).stdin = {
+            write(chunk:string) { origStdin.write(chunk); try { const p = JSON.parse(chunk.trim()); if (p.type === "user" && p.message?.content) { capturedPrompt = p.message.content; s.promptQueue.push(p.message.content); } } catch {} },
+            end() { origStdin.end(); }
+        };
+        const response = s.claudeQueue.shift();
+        const emit = () => {
+            if (!response) {
+                proc.$emit("error", new Error("claude queue exhausted"));
+                return;
+            }
+            if (response.errorLog !== undefined) {
+                s.files.set(targetErrorLogFromPrompt(capturedPrompt), response.errorLog);
+            }
+            if (response.stderr) {
+                proc.$emitStderr(response.stderr);
+            }
+            proc.$emitStdout(claudeResultEvents(response.text, response.inputTokens, response.outputTokens, response.sessionId));
+            proc.$emit("exit", 0);
+        };
+        if (holdClaude.has(mySpawn)) {
+            claudeReleasers.set(mySpawn, () => setImmediate(emit));
+        } else {
+            setImmediate(emit);
+        }
+        return proc;
+    };
+    return {
+        s,
+        holdGit(...spawns:number[]) { for (const n of spawns) holdGit.add(n); },
+        holdClaude(...spawns:number[]) { for (const n of spawns) holdClaude.add(n); },
+        releaseGit(spawn:number) { const r = gitReleasers.get(spawn); if (r) { gitReleasers.delete(spawn); r(); } },
+        releaseClaude(spawn:number) { const r = claudeReleasers.get(spawn); if (r) { claudeReleasers.delete(spawn); r(); } }
+    };
+}
+
 test.describe("Implement rate-limit footer", test => {
     test("footer switches to rate-limit state during AI wait", {
         ARRANGE() {
@@ -1917,8 +2133,13 @@ test.describe("Implement no preparing stage", test => {
             "the Preparing footer label never appears in the output"({ fullOutput }) {
                 Assert.ok(!fullOutput.includes("Preparing"), "no Preparing footer should ever be rendered");
             },
-            "the preparing activity never appears in the header"({ fullOutput }) {
-                Assert.ok(!stripAnsi(fullOutput).includes("preparing"), "no preparing activity should ever be shown");
+            "the only 'preparing' shown is the detection phase message — no prep-stage activity"({ fullOutput }) {
+                // The detection phase legitimately renders "preparing build and test scripts" in the
+                // header. The removed prep stage instead rendered "preparing" as a header activity;
+                // stripping every occurrence of the phase message leaves any such stray "preparing"
+                // behind, so this still trips if a prep activity is reintroduced.
+                const withoutPhaseMessage = stripAnsi(fullOutput).split("preparing build and test scripts").join("");
+                Assert.ok(!withoutPhaseMessage.includes("preparing"), "no prep-stage preparing activity should ever be shown");
             },
             "the footer never enters the preparing state"({ footerKinds }) {
                 Assert.ok(!footerKinds.includes("preparing"), `footer kinds should never include preparing, got: ${footerKinds.join(", ")}`);

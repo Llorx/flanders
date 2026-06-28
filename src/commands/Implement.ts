@@ -215,7 +215,13 @@ export class Implement {
                 this._finalizeBlock("Done");
                 return 0;
             }
-            this._block!.setHeader({ indexLabel: `0/${totalTasks}` });
+            // Seed the header index from the moment the plan is parsed: the numerator is the number
+            // of tasks already complete at startup (the all-complete N/N case returns above), so a
+            // partially-complete plan shows e.g. 3/12 and an untouched one 0/12. The same seeded
+            // label is reused for the detection-phase header below.
+            const completedAtStartup = initialParse.tasks.filter(t => t.done).length;
+            const startupIndexLabel = `${completedAtStartup}/${totalTasks}`;
+            this._block!.setHeader({ indexLabel: startupIndexLabel });
             this._block!.setMetrics({ plan: { tokens: planTotals.it + planTotals.ot, baseSeconds: planTotals.t } });
             const gitAvailable = await isGitAvailable(this._contexts.script, this._contexts.time);
             const insideWorkTree = gitAvailable && await isInsideWorkTree(this._contexts.script, this._contexts.time, this._options.projectRoot);
@@ -236,6 +242,15 @@ export class Implement {
             this._behaviorRuleList = specs.flanders;
             this._workspace = new Workspace(this._contexts.fs, this._contexts.platform);
             const wsPaths = await this._workspace.setup(this._config.reviewers.length);
+            // During the build-and-test detection phase — after the git preflight has passed and
+            // before the iteration loop — the header shows the seeded index followed by the phase
+            // message, with the iteration, activity, task-number and title fields blank (no task is
+            // selected yet). The fields are passed structured, never as a precomputed string, so the
+            // live header recomputes its colour and width-fit on each redraw per
+            // src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state.
+            // The message clears on its own when the first task's worker stage calls _setActivity,
+            // which replaces the whole header with that task's per-task fields.
+            this._block!.setHeader({ indexLabel: startupIndexLabel, phaseMessage: "preparing build and test scripts" });
             await this._detectBuildAndTest(wsPaths);
             /* coverage ignore next 4 */ // — Defensive: disposed guard between async operations.
             if (this._disposed) {
