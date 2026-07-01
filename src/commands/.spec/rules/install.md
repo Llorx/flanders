@@ -150,6 +150,7 @@ When `install` asks the user for a model identifier for the worker or the review
   |---|---|
   | `Latest Sonnet` | `sonnet` |
   | `Latest Sonnet [1m context]` | `sonnet[1m]` |
+  | `Sonnet 5` | `claude-sonnet-5` |
   | `Sonnet 4.6` | `claude-sonnet-4-6` |
   | `Sonnet 4.6 [1m context]` | `claude-sonnet-4-6[1m]` |
   | `Sonnet 4.5` | `claude-sonnet-4-5` |

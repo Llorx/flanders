@@ -180,6 +180,7 @@ const CLAUDE_MODEL_FAMILIES:readonly ModelGroup[] = [
         entries: [
             { label: "Latest Sonnet", value: "sonnet" },
             { label: "Latest Sonnet [1m context]", value: "sonnet[1m]" },
+            { label: "Sonnet 5", value: "claude-sonnet-5" },
             { label: "Sonnet 4.6", value: "claude-sonnet-4-6" },
             { label: "Sonnet 4.6 [1m context]", value: "claude-sonnet-4-6[1m]" },
             { label: "Sonnet 4.5", value: "claude-sonnet-4-5" },

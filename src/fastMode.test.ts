@@ -28,6 +28,7 @@ test.describe("modelSupportsFastMode predicate boundaries", test => {
                 "claude-opus-4-6[1m]",
                 "sonnet",
                 "sonnet[1m]",
+                "claude-sonnet-5",
                 "claude-sonnet-4-6",
                 "claude-sonnet-4-6[1m]",
                 "claude-sonnet-4-5",
@@ -47,7 +48,7 @@ test.describe("modelSupportsFastMode predicate boundaries", test => {
         ASSERT(results) {
             Assert.deepStrictEqual(results, [
                 false, false,
-                false, false, false, false, false, false,
+                false, false, false, false, false, false, false,
                 false, false,
                 false, false,
                 false,

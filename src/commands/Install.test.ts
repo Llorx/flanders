@@ -2137,12 +2137,39 @@ test.describe("Install model question", test => {
             "the Sonnet submenu options are exactly the Sonnet catalog entries then back, in order"(_result, { capture }) {
                 Assert.deepStrictEqual(
                     capture.optionsForQuestion("Which Sonnet model should the worker use?")[0],
-                    ["Latest Sonnet", "Latest Sonnet [1m context]", "Sonnet 4.6", "Sonnet 4.6 [1m context]", "Sonnet 4.5", "Sonnet 4.5 [1m context]", "← back"]
+                    ["Latest Sonnet", "Latest Sonnet [1m context]", "Sonnet 5", "Sonnet 4.6", "Sonnet 4.6 [1m context]", "Sonnet 4.5", "Sonnet 4.5 [1m context]", "← back"]
                 );
             },
             "config worker.model is the full Sonnet 4.5 identifier verbatim"({ config }) {
                 Assert.ok(config);
                 Assert.strictEqual(config.worker.model, "claude-sonnet-4-5");
+            }
+        }
+    });
+
+    test("claude selecting Sonnet 5 persists its full identifier claude-sonnet-5", {
+        ARRANGE() {
+            const s = stubContexts();
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "Sonnet" }] }]); // worker model -> Sonnet family submenu
+            s.askResponses.push([{ picked: [{ label: "Sonnet 5" }] }]); // submenu -> Sonnet 5
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // reviewer model
+            return { ...s, capture };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.model is the full Sonnet 5 identifier verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "claude-sonnet-5");
             }
         }
     });
