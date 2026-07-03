@@ -242,41 +242,29 @@ export const reviewerMethodologyCore = `${citationFreeReviewerMethodology.change
 
 ${citationFreeReviewerMethodology.audit}`;
 
-// The shared Flanders-voice prose. The abstract soft-touch description, the English-only directive,
-// the exclusion list, and the closing live here as the single authoritative source, so a tone fix
-// cannot drift between the agent prompts and the skill bodies. Every surface that carries the voice
-// composes its section from `buildFlandersVoiceSection`: the implement worker and reviewer prompts
-// (via `flandersToneInstruction` below) and the three skill bodies plus the /flanders-work reviewer
-// prompt assembled in skills.ts. See .spec/contracts/shared/flanders-voice.md and
-// src/prompts/.spec/rules/ai/flanders-tone.md.
-const voiceEnglishOnlyDirective =
-    "is English, the character's original language; in any other language, apply no flavor and deliver the message plainly.";
-// The exclusion list, ending at the items every surface shares — machine-read tokens and git commit
-// messages — so the full exclusion set the Flanders-voice rule requires is inlined on every surface.
-// The surface-specific carve-outs (a reviewer's violation entries, a skill's authored artifacts) are
-// appended after this lead through `finalExclusion`.
+// The shared Flanders-voice instruction, kept as the single source so a tone fix cannot drift between
+// the agent prompts and the skill bodies. Every surface composes its section from
+// `buildFlandersVoiceSection`: the implement worker and reviewer prompts (via `flandersToneInstruction`
+// below) and the three skill bodies plus the /flanders-work reviewer prompt assembled in skills.ts.
+// The instruction trusts a capable model to know the voice: it fixes only what would otherwise break —
+// English-only and the technical surfaces the flavor must never touch. See
+// .spec/contracts/shared/flanders-voice.md and src/prompts/.spec/rules/ai/flanders-tone.md.
 const voiceExclusionLead =
-    "The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages";
-const voiceTail = " — all of which stay exact and as actionable as before.";
+    "code, file paths, command lines, diagnostics, machine-read tokens, git commit messages";
 
-// The per-surface parts of the voice section — the only things that legitimately differ between
-// surfaces; the prose above is shared. `subject` is what the flavor is applied to; `languageFraming`
-// names the language each surface must be addressing the user in for the flavor to apply; `finalExclusion`
-// is the surface-specific carve-out appended to the shared exclusion list
-// (where the reviewer's violation-entry carve-out and a skill's authored-artifact carve-out go), each
-// introduced with its own ", or …" connector, or "" when the surface adds none; `trailer` is an
-// optional sentence appended after the tail (where the reviewer's verdict reminder goes).
+// `subject` is what the flavor is applied to; `languageFraming` names the language the surface must be
+// addressing the user in for the flavor to apply; `finalExclusion` is the surface-specific carve-out
+// (a reviewer's violation entries, a skill's authored artifact), introduced with ", and …", or "".
 export interface FlandersVoiceParts {
     subject: string;
     languageFraming: string;
     finalExclusion: string;
-    trailer: string;
 }
 
 export function buildFlandersVoiceSection(parts: FlandersVoiceParts): string {
     return `## Voice
 
-Season ${parts.subject} — with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner, so the voice is a steady, recognizable presence across the whole run rather than a rare flourish, the one exception being a message you address to the user in a language other than English, which is delivered plainly with no touch. Keep it light — typically a single touch per message, never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Apply the flavor only while ${parts.languageFraming} ${voiceEnglishOnlyDirective} ${voiceExclusionLead}${parts.finalExclusion}${voiceTail}${parts.trailer}`;
+Use a light Ned-Flanders touch in ${parts.subject}, only while ${parts.languageFraming} is English — deliver any other language plainly. Keep it out of ${voiceExclusionLead}${parts.finalExclusion}.`;
 }
 
 // The implement worker and reviewer prompts' tone instruction. The reviewer carries one extra
@@ -286,10 +274,7 @@ export function flandersToneInstruction(reviewer: boolean): string {
         subject: "your user-facing narration — the prose you stream as you work",
         languageFraming: "the language you are narrating in",
         finalExclusion: reviewer
-            ? ", or the violation entries you record in your error-log file"
-            : "",
-        trailer: reviewer
-            ? " The flavor never changes how you record your verdict: you still append every violation to your error-log file, an empty file still means a clean pass, and your verdict is never carried by your streamed output or your exit code."
+            ? ", and the violation entries you record in your error-log file"
             : ""
     });
 }

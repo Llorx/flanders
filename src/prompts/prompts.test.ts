@@ -46,19 +46,16 @@ const EXPECTED_REVIEWER_BUILD_TEST_PROHIBITION = "You do not run the build comma
 const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per `rules/ai/agents/evidence/scope-driven-self-audit.md`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (its path relative to the project root), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape are classified by observability: a test-observable absence needs a search-based or recorded-call assertion that confirms zero matches over the observable surface, while a source-text structural absence or semantic-judgment absence is review-adjudicated and must not be guarded by a test that reads source as text. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per `rules/ai/agents/evidence/enumerated-claim-coverage.md`.";
 
 // The Flanders-voice tone instruction the worker and reviewer prompts carry. Composed exactly
-// as the production helper composes it: a shared prose head, a shared tail, and — for the
-// reviewer only — the violation-entry exclusion spliced in before the tail and the verdict
-// reminder appended after it.
+// as the production helper composes it: a shared terse head, plus — for the reviewer only — the
+// violation-entry exclusion spliced in before the closing period.
 const EXPECTED_TONE_PROSE_HEAD =
 `## Voice
 
-Season your user-facing narration — the prose you stream as you work — with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner, so the voice is a steady, recognizable presence across the whole run rather than a rare flourish, the one exception being a message you address to the user in a language other than English, which is delivered plainly with no touch. Keep it light — typically a single touch per message, never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Apply the flavor only while the language you are narrating in is English, the character's original language; in any other language, apply no flavor and deliver the message plainly. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages`;
+Use a light Ned-Flanders touch in your user-facing narration — the prose you stream as you work, only while the language you are narrating in is English — deliver any other language plainly. Keep it out of code, file paths, command lines, diagnostics, machine-read tokens, git commit messages`;
 
-const EXPECTED_TONE_TAIL = " — all of which stay exact and as actionable as before.";
+const EXPECTED_WORKER_TONE = `${EXPECTED_TONE_PROSE_HEAD}.`;
 
-const EXPECTED_WORKER_TONE = `${EXPECTED_TONE_PROSE_HEAD}${EXPECTED_TONE_TAIL}`;
-
-const EXPECTED_REVIEWER_TONE = `${EXPECTED_TONE_PROSE_HEAD}, or the violation entries you record in your error-log file${EXPECTED_TONE_TAIL} The flavor never changes how you record your verdict: you still append every violation to your error-log file, an empty file still means a clean pass, and your verdict is never carried by your streamed output or your exit code.`;
+const EXPECTED_REVIEWER_TONE = `${EXPECTED_TONE_PROSE_HEAD}, and the violation entries you record in your error-log file.`;
 
 function claimClassificationBlock(template: string, endMarker: string) {
     const start = template.indexOf("Classify every claim by ONE question:");
@@ -1810,24 +1807,18 @@ test.describe("prompts – reviewer does not run build or test", test => {
 });
 
 test.describe("prompts – Flanders voice tone instruction", test => {
-    test("the worker prompt carries the soft, language-matched Flanders tone instruction", {
+    test("the worker prompt carries the terse, English-only Flanders tone instruction", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERTS: {
             "carries the worker tone-instruction block verbatim"(template) {
                 Assert.ok(template.includes(EXPECTED_WORKER_TONE));
             },
-            "instructs a soft Ned-Flanders touch in every message, described only in the abstract"(template) {
-                Assert.ok(template.includes("with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner"));
-            },
-            "limits the flavor to a single touch per message"(template) {
-                Assert.ok(template.includes("typically a single touch per message"));
-            },
-            "the lead sentence carries the single plain-delivery exception"(template) {
-                Assert.ok(template.includes("rather than a rare flourish, the one exception being a message you address to the user in a language other than English, which is delivered plainly with no touch."));
+            "instructs a light Ned-Flanders touch, described only in the abstract"(template) {
+                Assert.ok(template.includes("Use a light Ned-Flanders touch in your user-facing narration"));
             },
             "applies the flavor only in English and otherwise delivers plainly"(template) {
-                Assert.ok(template.includes("Apply the flavor only while the language you are narrating in is English, the character's original language; in any other language, apply no flavor and deliver the message plainly."));
+                Assert.ok(template.includes("only while the language you are narrating in is English — deliver any other language plainly"));
             },
             "names no sample greeting exemplar"(template) {
                 Assert.strictEqual(template.includes(`"neighbor"`), false);
@@ -1838,20 +1829,8 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "names no sample suffix exemplar"(template) {
                 Assert.strictEqual(template.includes(`"-diddly-"`), false);
             },
-            "keeps the flavor light — never on every line and never exaggerated"(template) {
-                Assert.ok(template.includes("never on every line and never exaggerated"));
-            },
-            "excludes code, file paths, directory names, command lines, and flag tokens"(template) {
-                Assert.ok(template.includes("it never appears in code, file paths, directory names, command lines, flag or option tokens"));
-            },
-            "excludes the factual content of a diagnostic"(template) {
-                Assert.ok(template.includes("the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it)"));
-            },
-            "excludes machine-read tokens"(template) {
-                Assert.ok(template.includes("any token another part of the tool reads programmatically"));
-            },
-            "excludes git commit messages"(template) {
-                Assert.ok(template.includes("git commit messages"));
+            "keeps the flavor out of code, paths, command lines, diagnostics, machine-read tokens, and commit messages"(template) {
+                Assert.ok(template.includes("Keep it out of code, file paths, command lines, diagnostics, machine-read tokens, git commit messages"));
             }
         }
     });
@@ -1866,21 +1845,18 @@ test.describe("prompts – Flanders voice tone instruction", test => {
         }
     });
 
-    test("the reviewer prompt carries the soft, language-matched Flanders tone instruction with the violation-entry carve-out", {
+    test("the reviewer prompt carries the terse Flanders tone instruction with the violation-entry carve-out", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
             "carries the reviewer tone-instruction block verbatim"(template) {
                 Assert.ok(template.includes(EXPECTED_REVIEWER_TONE));
             },
-            "instructs a soft Ned-Flanders touch in every message, described only in the abstract"(template) {
-                Assert.ok(template.includes("with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner"));
-            },
-            "limits the flavor to a single touch per message"(template) {
-                Assert.ok(template.includes("typically a single touch per message"));
+            "instructs a light Ned-Flanders touch, described only in the abstract"(template) {
+                Assert.ok(template.includes("Use a light Ned-Flanders touch in your user-facing narration"));
             },
             "applies the flavor only in English and otherwise delivers plainly"(template) {
-                Assert.ok(template.includes("Apply the flavor only while the language you are narrating in is English, the character's original language; in any other language, apply no flavor and deliver the message plainly."));
+                Assert.ok(template.includes("only while the language you are narrating in is English — deliver any other language plainly"));
             },
             "names no sample greeting exemplar"(template) {
                 Assert.strictEqual(template.includes(`"neighbor"`), false);
@@ -1892,31 +1868,20 @@ test.describe("prompts – Flanders voice tone instruction", test => {
                 Assert.strictEqual(template.includes(`"-diddly-"`), false);
             },
             "keeps the flavor out of the shared technical surfaces"(template) {
-                Assert.ok(template.includes("it never appears in code, file paths, directory names, command lines, flag or option tokens"));
-                Assert.ok(template.includes("the factual content of a diagnostic or error message"));
-                Assert.ok(template.includes("any token another part of the tool reads programmatically"));
+                Assert.ok(template.includes("Keep it out of code, file paths, command lines, diagnostics, machine-read tokens, git commit messages"));
             },
             "excludes the violation entries it records in its error-log file"(template) {
-                Assert.ok(template.includes(", or the violation entries you record in your error-log file"));
-            },
-            "excludes git commit messages"(template) {
-                Assert.ok(template.includes("git commit messages"));
+                Assert.ok(template.includes(", and the violation entries you record in your error-log file."));
             }
         }
     });
 
-    test("the reviewer tone instruction leaves the error-log verdict mechanics intact and uncontradicted", {
+    test("the reviewer tone instruction leaves the error-log verdict mechanics to the methodology", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
-            "the tone instruction reaffirms append-every-violation to the error-log file"(template) {
-                Assert.ok(template.includes("you still append every violation to your error-log file"));
-            },
-            "the tone instruction reaffirms an empty file means a clean pass"(template) {
-                Assert.ok(template.includes("an empty file still means a clean pass"));
-            },
-            "the tone instruction reaffirms the verdict is never carried by streamed output or exit code"(template) {
-                Assert.ok(template.includes("your verdict is never carried by your streamed output or your exit code"));
+            "the tone instruction no longer restates the verdict mechanics"(template) {
+                Assert.strictEqual(template.includes("The flavor never changes how you record your verdict"), false);
             },
             "the canonical create-empty-file verdict paragraph still survives unchanged"(template) {
                 const start = template.indexOf("When your audit finds no violation");

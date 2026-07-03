@@ -13,28 +13,25 @@ const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9
 // The AI-tool host name that the skill bodies no longer name. Assembled from fragments so the literal token never appears contiguously in this test file, while still letting each describe block assert — case-insensitively, over the public generated body string — that no occurrence of it survives anywhere in that body.
 const REMOVED_HOST_NAME = "Anti" + "gravity";
 
-// The Flanders-voice section each skill body addresses to the user. Reproduced here as a literal —
-// independently of the production helper — so any drift in the shipped wording is caught by an
+// The terse Flanders-voice section each skill body addresses to the user. Reproduced here as a literal
+// — independently of the production helper — so any drift in the shipped wording is caught by an
 // exact-match. The only per-skill difference is the authored-artifact exclusion.
 const SKILL_VOICE_HEAD =
 `## Voice
 
-Season the messages you address to the user — your questions, summaries, warnings, recommendations, and every other text you print in the conversation — with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner, so the voice is a steady, recognizable presence across the whole run rather than a rare flourish, the one exception being a message you address to the user in a language other than English, which is delivered plainly with no touch. Keep it light — typically a single touch per message, never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Apply the flavor only while the resolved interaction language you are addressing the user in is English, the character's original language; in any other language, apply no flavor and deliver the message plainly. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages, or `;
+Use a light Ned-Flanders touch in the messages you address to the user, only while the resolved interaction language you are addressing the user in is English — deliver any other language plainly. Keep it out of code, file paths, command lines, diagnostics, machine-read tokens, git commit messages`;
 
 // The user-facing Flanders-voice section a skill body must carry, with the authored-artifact
 // exclusion the skill is responsible for keeping the flavor out of.
-const SKILL_VOICE_TAIL = " — all of which stay exact and as actionable as before.";
-
 function expectedSkillVoice(authoredArtifactExclusion: string): string {
-    return `${SKILL_VOICE_HEAD}${authoredArtifactExclusion}${SKILL_VOICE_TAIL}`;
+    return `${SKILL_VOICE_HEAD}, and ${authoredArtifactExclusion}.`;
 }
 
-// Slice out the user-facing voice section a skill body carries — anchored on the section opener that
-// is unique to the user-facing voice (the work reviewer's narration tone opens with a different
-// sentence) — so its self-containment can be checked against the body as actually built.
+// Slice out the user-facing voice section a skill body carries — from its unique opener to the end of
+// the exclusion sentence — so its self-containment can be checked against the body as actually built.
 function userFacingVoiceSection(body: string): string {
-    const start = body.indexOf("## Voice\n\nSeason the messages you address to the user");
-    const end = body.indexOf(SKILL_VOICE_TAIL, start) + SKILL_VOICE_TAIL.length;
+    const start = body.indexOf("## Voice\n\nUse a light Ned-Flanders touch in the messages you address to the user");
+    const end = body.indexOf(".", body.indexOf("git commit messages", start)) + 1;
     return body.slice(start, end);
 }
 
@@ -282,7 +279,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.strictEqual(body.includes(`"-diddly-"`), false);
             },
             "the tone instruction excludes machine-read tokens"(body) {
-                Assert.ok(userFacingVoiceSection(body).includes("any token another part of the tool reads programmatically"), "the tone instruction must keep the flavor out of machine-read tokens");
+                Assert.ok(userFacingVoiceSection(body).includes("machine-read tokens"), "the tone instruction must keep the flavor out of machine-read tokens");
             },
             "the tone instruction excludes git commit messages"(body) {
                 Assert.ok(userFacingVoiceSection(body).includes("git commit messages"), "the tone instruction must keep the flavor out of git commit messages");
@@ -1704,7 +1701,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.strictEqual(body.includes(`"-diddly-"`), false);
             },
             "the tone instruction excludes machine-read tokens"(body) {
-                Assert.ok(userFacingVoiceSection(body).includes("any token another part of the tool reads programmatically"), "the tone instruction must keep the flavor out of machine-read tokens");
+                Assert.ok(userFacingVoiceSection(body).includes("machine-read tokens"), "the tone instruction must keep the flavor out of machine-read tokens");
             },
             "the tone instruction excludes git commit messages"(body) {
                 Assert.ok(userFacingVoiceSection(body).includes("git commit messages"), "the tone instruction must keep the flavor out of git commit messages");
@@ -2388,7 +2385,7 @@ test.describe("skills – workSkillBody", test => {
                 Assert.strictEqual(body.includes(`"-diddly-"`), false);
             },
             "the tone instruction excludes machine-read tokens"(body) {
-                Assert.ok(userFacingVoiceSection(body).includes("any token another part of the tool reads programmatically"), "the tone instruction must keep the flavor out of machine-read tokens");
+                Assert.ok(userFacingVoiceSection(body).includes("machine-read tokens"), "the tone instruction must keep the flavor out of machine-read tokens");
             },
             "the tone instruction excludes git commit messages"(body) {
                 Assert.ok(userFacingVoiceSection(body).includes("git commit messages"), "the tone instruction must keep the flavor out of git commit messages");
@@ -2412,10 +2409,11 @@ test.describe("skills – workSkillBody", test => {
                 Assert.ok(body.includes(reviewerTone), "the reviewer-prompt assembly must embed the narration-only tone instruction verbatim");
             },
             "carves the flavor out of machine-read tokens, git commit messages, and the recorded violation entries"(body) {
-                Assert.ok(body.includes("any token another part of the tool reads programmatically, git commit messages, or the violation entries you record in your error-log file"), "the reviewer tone instruction must keep the flavor out of machine-read tokens, git commit messages, and the recorded violation entries");
+                Assert.ok(body.includes("machine-read tokens, git commit messages, and the violation entries you record in your error-log file."), "the reviewer tone instruction must keep the flavor out of machine-read tokens, git commit messages, and the recorded violation entries");
             },
-            "keeps the verdict-file mechanics exact"(body) {
-                Assert.ok(body.includes("The flavor never changes how you record your verdict: you still append every violation to your error-log file, an empty file still means a clean pass, and your verdict is never carried by your streamed output or your exit code."), "the reviewer tone instruction must keep the verdict-file mechanics exact");
+            "keeps the verdict-file mechanics in the methodology, not the tone instruction"(body) {
+                Assert.ok(body.includes("The orchestrator does not parse your output for a verdict token."), "the reviewer-prompt methodology must keep the verdict-file mechanics exact");
+                Assert.strictEqual(body.includes("The flavor never changes how you record your verdict"), false);
             }
         }
     });

@@ -14,10 +14,9 @@ import { buildFlandersVoiceSection, flandersToneInstruction, reviewerMethodology
 // .spec/contracts/ai-skills/interaction-language.md, and src/prompts/.spec/rules/ai/flanders-tone.md.
 function skillVoiceSection(authoredArtifactExclusion: string): string {
     return buildFlandersVoiceSection({
-        subject: "the messages you address to the user — your questions, summaries, warnings, recommendations, and every other text you print in the conversation",
+        subject: "the messages you address to the user",
         languageFraming: "the resolved interaction language you are addressing the user in",
-        finalExclusion: `, or ${authoredArtifactExclusion}`,
-        trailer: ""
+        finalExclusion: `, and ${authoredArtifactExclusion}`
     });
 }
 
