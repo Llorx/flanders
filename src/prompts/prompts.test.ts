@@ -690,6 +690,26 @@ test.describe("prompts – worker – three-section Evidence Report", test => {
             }
         }
     });
+
+    test("the available-list sections state the FAIL consequence once via the conditions, not restated per list", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERTS: {
+            "the Available contracts section does not restate the global-list FAIL consequence"(template) {
+                Assert.strictEqual(template.includes("The reviewer FAILS for any global-list contract"), false);
+            },
+            "the Available rules section does not restate the global-list FAIL consequence"(template) {
+                Assert.strictEqual(template.includes("The reviewer FAILS for any global-list rule"), false);
+            },
+            "the Available behavior rules section does not restate the behavior-rule FAIL consequence"(template) {
+                Assert.strictEqual(template.includes("the reviewer FAILS for any in-scope behavior rule"), false);
+            },
+            "condition 4 is still stated once and emphasized as the top rejection cause"(template) {
+                Assert.ok(template.includes("Condition 4 causes most rejections in practice"));
+                Assert.ok(template.includes("A contract or rule from the global lists below that the reviewer determines should have been applied but was not"));
+            }
+        }
+    });
 });
 
 test.describe("prompts – reviewer", test => {
@@ -1806,8 +1826,8 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "the lead sentence carries the single plain-delivery exception"(template) {
                 Assert.ok(template.includes("rather than a rare flourish, the one exception being a message you address to the user in a language other than English, which is delivered plainly with no touch."));
             },
-            "no longer carries the old occasional cadence"(template) {
-                Assert.strictEqual(template.includes("an occasional, soft Ned-Flanders touch"), false);
+            "applies the flavor only in English and otherwise delivers plainly"(template) {
+                Assert.ok(template.includes("Apply the flavor only while the language you are narrating in is English, the character's original language; in any other language, apply no flavor and deliver the message plainly."));
             },
             "names no sample greeting exemplar"(template) {
                 Assert.strictEqual(template.includes(`"neighbor"`), false);
@@ -1821,25 +1841,7 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "keeps the flavor light — never on every line and never exaggerated"(template) {
                 Assert.ok(template.includes("never on every line and never exaggerated"));
             },
-            "applies the flavor only in English and otherwise delivers plainly"(template) {
-                Assert.ok(template.includes("Apply the flavor only while the language you are narrating in is English, the character's original language; in any other language, apply no flavor and deliver the message plainly."));
-            },
-            "no longer carries the regional-localization directive"(template) {
-                Assert.strictEqual(template.includes("Because an established localization is regional"), false);
-            },
-            "no longer carries the English-language-manner clause"(template) {
-                Assert.strictEqual(template.includes("the flavor never appears as the character's English-language manner"), false);
-            },
-            "no longer conditions plain delivery on a missing localization"(template) {
-                Assert.strictEqual(template.includes("has no established localization of the character"), false);
-            },
-            "no longer carries the original-language-manner in-spirit fallback"(template) {
-                Assert.strictEqual(template.includes("carry the character's original-language manner across in spirit"), false);
-            },
-            "drops the old word-for-word English-origin fallback wording"(template) {
-                Assert.strictEqual(template.includes("use the English-origin Flanders-isms"), false);
-            },
-            "excludes code, file paths, command lines, and flag tokens"(template) {
+            "excludes code, file paths, directory names, command lines, and flag tokens"(template) {
                 Assert.ok(template.includes("it never appears in code, file paths, directory names, command lines, flag or option tokens"));
             },
             "excludes the factual content of a diagnostic"(template) {
@@ -1854,15 +1856,12 @@ test.describe("prompts – Flanders voice tone instruction", test => {
         }
     });
 
-    test("the worker tone instruction omits the reviewer-only carve-outs", {
+    test("the worker tone instruction omits the reviewer-only carve-out", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERTS: {
             "does not exclude the reviewer's recorded violation entries"(template) {
                 Assert.strictEqual(template.includes("the violation entries you record in your error-log file"), false);
-            },
-            "does not carry the reviewer-only verdict reminder"(template) {
-                Assert.strictEqual(template.includes("The flavor never changes how you record your verdict"), false);
             }
         }
     });
@@ -1880,11 +1879,8 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "limits the flavor to a single touch per message"(template) {
                 Assert.ok(template.includes("typically a single touch per message"));
             },
-            "the lead sentence carries the single plain-delivery exception"(template) {
-                Assert.ok(template.includes("rather than a rare flourish, the one exception being a message you address to the user in a language other than English, which is delivered plainly with no touch."));
-            },
-            "no longer carries the old occasional cadence"(template) {
-                Assert.strictEqual(template.includes("an occasional, soft Ned-Flanders touch"), false);
+            "applies the flavor only in English and otherwise delivers plainly"(template) {
+                Assert.ok(template.includes("Apply the flavor only while the language you are narrating in is English, the character's original language; in any other language, apply no flavor and deliver the message plainly."));
             },
             "names no sample greeting exemplar"(template) {
                 Assert.strictEqual(template.includes(`"neighbor"`), false);
@@ -1895,29 +1891,10 @@ test.describe("prompts – Flanders voice tone instruction", test => {
             "names no sample suffix exemplar"(template) {
                 Assert.strictEqual(template.includes(`"-diddly-"`), false);
             },
-            "applies the flavor only in English and otherwise delivers plainly"(template) {
-                Assert.ok(template.includes("Apply the flavor only while the language you are narrating in is English, the character's original language; in any other language, apply no flavor and deliver the message plainly."));
-            },
-            "no longer carries the regional-localization directive"(template) {
-                Assert.strictEqual(template.includes("Because an established localization is regional"), false);
-            },
-            "no longer carries the English-language-manner clause"(template) {
-                Assert.strictEqual(template.includes("the flavor never appears as the character's English-language manner"), false);
-            },
-            "no longer conditions plain delivery on a missing localization"(template) {
-                Assert.strictEqual(template.includes("has no established localization of the character"), false);
-            },
-            "no longer carries the original-language-manner in-spirit fallback"(template) {
-                Assert.strictEqual(template.includes("carry the character's original-language manner across in spirit"), false);
-            },
-            "drops the old word-for-word English-origin fallback wording"(template) {
-                Assert.strictEqual(template.includes("use the English-origin Flanders-isms"), false);
-            },
-            "excludes code, file paths, command lines, and flag tokens"(template) {
+            "keeps the flavor out of the shared technical surfaces"(template) {
                 Assert.ok(template.includes("it never appears in code, file paths, directory names, command lines, flag or option tokens"));
-            },
-            "excludes the factual content of a diagnostic"(template) {
-                Assert.ok(template.includes("the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it)"));
+                Assert.ok(template.includes("the factual content of a diagnostic or error message"));
+                Assert.ok(template.includes("any token another part of the tool reads programmatically"));
             },
             "excludes the violation entries it records in its error-log file"(template) {
                 Assert.ok(template.includes(", or the violation entries you record in your error-log file"));
@@ -1961,7 +1938,7 @@ test.describe("prompts – Flanders voice tone instruction", test => {
                 Assert.strictEqual(core.includes("## Voice"), false);
             },
             "the citation-free core does not carry the tone-instruction prose"(core) {
-                Assert.strictEqual(core.includes("soft Ned-Flanders touch"), false);
+                Assert.strictEqual(core.includes("Ned-Flanders touch"), false);
             }
         }
     });

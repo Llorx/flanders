@@ -243,11 +243,11 @@ export const reviewerMethodologyCore = `${citationFreeReviewerMethodology.change
 ${citationFreeReviewerMethodology.audit}`;
 
 // The shared Flanders-voice prose. The abstract soft-touch description, the English-only directive,
-// the exclusion list, and the closing live here as the single authoritative source, so a
-// tone fix cannot drift between the agent prompts and the skill bodies. Every surface that carries the
-// voice composes its section from `buildFlandersVoiceSection`: the implement worker and reviewer
-// prompts (via `flandersToneInstruction` below) and the three skill bodies plus the /flanders-work
-// reviewer prompt assembled in skills.ts. See .spec/contracts/shared/flanders-voice.md and
+// the exclusion list, and the closing live here as the single authoritative source, so a tone fix
+// cannot drift between the agent prompts and the skill bodies. Every surface that carries the voice
+// composes its section from `buildFlandersVoiceSection`: the implement worker and reviewer prompts
+// (via `flandersToneInstruction` below) and the three skill bodies plus the /flanders-work reviewer
+// prompt assembled in skills.ts. See .spec/contracts/shared/flanders-voice.md and
 // src/prompts/.spec/rules/ai/flanders-tone.md.
 const voiceEnglishOnlyDirective =
     "is English, the character's original language; in any other language, apply no flavor and deliver the message plainly.";
@@ -261,8 +261,8 @@ const voiceTail = " — all of which stay exact and as actionable as before.";
 
 // The per-surface parts of the voice section — the only things that legitimately differ between
 // surfaces; the prose above is shared. `subject` is what the flavor is applied to; `languageFraming`
-// names the language each surface must be addressing the user in for the flavor to apply; `finalExclusion` is the surface-specific
-// carve-out appended to the shared exclusion list
+// names the language each surface must be addressing the user in for the flavor to apply; `finalExclusion`
+// is the surface-specific carve-out appended to the shared exclusion list
 // (where the reviewer's violation-entry carve-out and a skill's authored-artifact carve-out go), each
 // introduced with its own ", or …" connector, or "" when the surface adds none; `trailer` is an
 // optional sentence appended after the tail (where the reviewer's verdict reminder goes).
@@ -279,10 +279,8 @@ export function buildFlandersVoiceSection(parts: FlandersVoiceParts): string {
 Season ${parts.subject} — with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner, so the voice is a steady, recognizable presence across the whole run rather than a rare flourish, the one exception being a message you address to the user in a language other than English, which is delivered plainly with no touch. Keep it light — typically a single touch per message, never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Apply the flavor only while ${parts.languageFraming} ${voiceEnglishOnlyDirective} ${voiceExclusionLead}${parts.finalExclusion}${voiceTail}${parts.trailer}`;
 }
 
-// The implement worker and reviewer prompts' tone instruction. The agents season their streamed
-// narration with the voice while every technical surface stays exact; the reviewer carries two extra
-// carve-outs — the violation entries it records stay exact, and the voice never touches its verdict
-// mechanics.
+// The implement worker and reviewer prompts' tone instruction. The reviewer carries one extra
+// carve-out: the violation entries it records stay exact.
 export function flandersToneInstruction(reviewer: boolean): string {
     return buildFlandersVoiceSection({
         subject: "your user-facing narration — the prose you stream as you work",
@@ -384,19 +382,19 @@ ${flandersToneInstruction(false)}
 
 ## Available contracts
 
-Each path below is the contract's namespace. Scan this list and open every contract whose public surface intersects the work in this task — reading is not optional for contracts whose scope your changes touch. The reviewer FAILS for any global-list contract that should have applied but was not honored, regardless of whether the task linked it.
+Each path below is the contract's namespace. Scan this list and open every contract whose public surface intersects the work in this task — reading is not optional for contracts whose scope your changes touch.
 
 ${Placeholders.CONTRACT_LIST}
 
 ## Available rules
 
-Each path below is the rule's namespace. Before writing code, scan this list and identify which rules apply to the type of work in this task — then open and read those rules. Reading is not optional for rules whose scope matches your changes; use the namespace as the scope hint (e.g., if you modify or add tests, open the applicable rules under a \`testing/\` subfolder; if you touch timers, listeners, controllers, or any async lifecycle, open the rules under a \`disposables/\` subfolder; if you change terminal UI, open the rules under a \`ui/\` subfolder). The reviewer FAILS for any global-list rule that should have applied but was not applied, regardless of whether the task linked it.
+Each path below is the rule's namespace. Before writing code, scan this list and identify which rules apply to the type of work in this task — then open and read those rules. Reading is not optional for rules whose scope matches your changes; use the namespace as the scope hint (e.g., if you modify or add tests, open the applicable rules under a \`testing/\` subfolder; if you touch timers, listeners, controllers, or any async lifecycle, open the rules under a \`disposables/\` subfolder; if you change terminal UI, open the rules under a \`ui/\` subfolder).
 
 ${Placeholders.RULE_LIST}
 
 ## Available behavior rules
 
-Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes you author are named, placed, and organized within the part of the project tree that the rule's \`.spec/flanders\` folder scopes. You must honor every behavior rule whose \`.spec/flanders\` scope encloses the files your changes touch. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them; the reviewer FAILS for any in-scope behavior rule the changes do not honor.
+Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes you author are named, placed, and organized within the part of the project tree that the rule's \`.spec/flanders\` folder scopes. You must honor every behavior rule whose \`.spec/flanders\` scope encloses the files your changes touch. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them.
 
 ${Placeholders.BEHAVIOR_RULE_LIST}`,
 

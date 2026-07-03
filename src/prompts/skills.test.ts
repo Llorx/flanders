@@ -13,19 +13,18 @@ const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9
 // The AI-tool host name that the skill bodies no longer name. Assembled from fragments so the literal token never appears contiguously in this test file, while still letting each describe block assert — case-insensitively, over the public generated body string — that no occurrence of it survives anywhere in that body.
 const REMOVED_HOST_NAME = "Anti" + "gravity";
 
-// The soft Flanders-voice section each skill body addresses to the user. Reproduced here as a
-// literal — independently of the production helper — so any drift in the shipped wording is caught
-// by an exact-match. The only per-skill difference is the authored-artifact exclusion spliced in
-// before the shared tail.
+// The Flanders-voice section each skill body addresses to the user. Reproduced here as a literal —
+// independently of the production helper — so any drift in the shipped wording is caught by an
+// exact-match. The only per-skill difference is the authored-artifact exclusion.
 const SKILL_VOICE_HEAD =
 `## Voice
 
 Season the messages you address to the user — your questions, summaries, warnings, recommendations, and every other text you print in the conversation — with a soft Ned-Flanders touch in every message: a gentle note of the character's warm, folksy, good-natured manner, so the voice is a steady, recognizable presence across the whole run rather than a rare flourish, the one exception being a message you address to the user in a language other than English, which is delivered plainly with no touch. Keep it light — typically a single touch per message, never on every line and never exaggerated — and never let the flavor change the substance, structure, or accuracy of anything you say. Apply the flavor only while the resolved interaction language you are addressing the user in is English, the character's original language; in any other language, apply no flavor and deliver the message plainly. The flavor lives only in flowing prose: it never appears in code, file paths, directory names, command lines, flag or option tokens, the factual content of a diagnostic or error message (the problem described, the path, the line number, and every other datum needed to act on it), any token another part of the tool reads programmatically, git commit messages, or `;
 
-const SKILL_VOICE_TAIL = " — all of which stay exact and as actionable as before.";
-
 // The user-facing Flanders-voice section a skill body must carry, with the authored-artifact
 // exclusion the skill is responsible for keeping the flavor out of.
+const SKILL_VOICE_TAIL = " — all of which stay exact and as actionable as before.";
+
 function expectedSkillVoice(authoredArtifactExclusion: string): string {
     return `${SKILL_VOICE_HEAD}${authoredArtifactExclusion}${SKILL_VOICE_TAIL}`;
 }
@@ -155,6 +154,10 @@ test.describe("skills – planSkillBody", test => {
             },
             "enforces dependency ordering"(body) {
                 Assert.ok(body.includes("depends on another must appear after"), "must enforce dependency ordering");
+            },
+            "states the ordering obligation once, not duplicated as a separate content rule"(body) {
+                const occurrences = body.split("depends on another must appear after the task it depends on").length - 1;
+                Assert.strictEqual(occurrences, 1);
             }
         }
     });
@@ -619,8 +622,9 @@ Every message you address to the user during the run — your clarifying questio
             "describes the re-clarify branch"(body) {
                 Assert.ok(body.includes("re-enter the clarification phase"), "must describe the re-clarify branch");
             },
-            "re-entered clarification carries the batched cadence"(body) {
-                Assert.ok(body.includes("Re-entered clarification follows the same cadence"), "re-entered clarification must carry the batched cadence");
+            "re-entered clarification carries the batched cadence by reference, without restating it"(body) {
+                Assert.ok(body.includes("Re-entered clarification follows the same cadence the clarification phase above defines, scoped to the specific ambiguity at hand and never re-asking decisions the user has already given in this invocation."), "re-entered clarification must carry the batched cadence by referencing the clarification phase above");
+                Assert.strictEqual(body.includes("otherwise asking one question per turn"), false);
             },
             "re-entered clarification drops the no-bundling restriction"(body) {
                 Assert.ok(!body.includes("no bundling"), "re-entered clarification must not restate the no-bundling restriction");
@@ -1347,8 +1351,9 @@ test.describe("skills – specSkillBody", test => {
             "states a behavior rule lives in .spec/flanders folders"(body) {
                 Assert.ok(body.includes("Behavior rules live in \`.spec/flanders\` folders"), "must state a behavior rule lives in .spec/flanders folders");
             },
-            "states a behavior rule is immovable once written unless the user asks"(body) {
-                Assert.ok(body.includes("Behavior rules are immovable once written unless the user explicitly asks for a change."), "must state a behavior rule is immovable once written unless the user asks");
+            "states all three spec kinds are immovable once written unless the user asks"(body) {
+                Assert.ok(body.includes("Contracts, rules, and behavior rules are all immovable once written unless the user explicitly asks for a change."), "must state all three spec kinds are immovable once written unless the user asks");
+                Assert.strictEqual(body.includes("Behavior rules are immovable once written unless the user explicitly asks for a change."), false);
             }
         }
     });
@@ -1761,8 +1766,9 @@ Every message you address to the user during the run — your clarifying questio
             "pins the bounded five-pass loop"(body) {
                 Assert.ok(body.includes("at most FIVE triage-then-fix passes"), "must pin the bounded five-pass triage-then-fix loop");
             },
-            "re-entered clarification carries the batched cadence"(body) {
-                Assert.ok(body.includes("Re-entered clarification follows the same cadence"), "re-entered clarification must carry the batched cadence");
+            "re-entered clarification carries the batched cadence by reference, without restating it"(body) {
+                Assert.ok(body.includes("Re-entered clarification follows the same cadence the clarification phase above defines, scoped to the specific ambiguity at hand and never re-asking decisions the user has already given in this invocation."), "re-entered clarification must carry the batched cadence by referencing the clarification phase above");
+                Assert.strictEqual(body.includes("otherwise asking one question per turn"), false);
             },
             "re-entered clarification drops the no-bundling restriction"(body) {
                 Assert.ok(!body.includes("no bundling"), "re-entered clarification must not restate the no-bundling restriction");
@@ -2407,9 +2413,6 @@ test.describe("skills – workSkillBody", test => {
             },
             "carves the flavor out of machine-read tokens, git commit messages, and the recorded violation entries"(body) {
                 Assert.ok(body.includes("any token another part of the tool reads programmatically, git commit messages, or the violation entries you record in your error-log file"), "the reviewer tone instruction must keep the flavor out of machine-read tokens, git commit messages, and the recorded violation entries");
-            },
-            "carves the flavor out of the recorded violation entries"(body) {
-                Assert.ok(body.includes("or the violation entries you record in your error-log file — all of which stay exact and as actionable as before."), "the reviewer tone instruction must keep the recorded violation entries exact");
             },
             "keeps the verdict-file mechanics exact"(body) {
                 Assert.ok(body.includes("The flavor never changes how you record your verdict: you still append every violation to your error-log file, an empty file still means a clean pass, and your verdict is never carried by your streamed output or your exit code."), "the reviewer tone instruction must keep the verdict-file mechanics exact");
