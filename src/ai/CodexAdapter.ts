@@ -68,18 +68,17 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
     private _sawTurnCompleted = false;
 
     private _receivedAnyEvent = false;
-    private _fallbackAttempted = false;
     private _usedResume = false;
 
     constructor(
         private _args:ToolAdapterInvokeArgs,
         private _contexts:CodexAdapterContexts
     ) {
-        this._start(false);
+        this._start();
     }
 
-    private _start(useExecFallback:boolean):void {
-        const isResume = !useExecFallback && !!this._args.resumeSessionId;
+    private _start():void {
+        const isResume = !!this._args.resumeSessionId;
         this._usedResume = isResume;
 
         const argv = this._buildArgv(isResume);
@@ -129,24 +128,6 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
                 return;
             }
 
-            if (this._usedResume && !this._receivedAnyEvent && !this._fallbackAttempted) {
-                this._fallbackAttempted = true;
-                this._queue.push({
-                    type: "output",
-                    title: "Continuity lost",
-                    subtitle: "",
-                    details: "codex exec resume unavailable in installed CLI"
-                });
-                this._cleanup();
-                this._sawTurnCompleted = false;
-                this._receivedAnyEvent = false;
-                this._usedResume = false;
-                exitResolve?.();
-                this._start(true);
-                this._wake();
-                return;
-            }
-
             if (this._sawTurnCompleted) {
                 this._queue.push({ type: "done" });
             } else if (signal) {
@@ -154,6 +135,12 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
                     type: "error",
                     retryable: true,
                     message: `codex terminated by signal ${signal}`
+                });
+            } else if (this._usedResume && !this._receivedAnyEvent) {
+                this._queue.push({
+                    type: "error",
+                    retryable: false,
+                    message: "codex exec resume unavailable in installed CLI"
                 });
             } else {
                 this._queue.push({
@@ -169,10 +156,10 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
         });
 
         this._abortListener = () => {
+            this._done = true;
             if (this._proc) {
                 this._proc.kill("SIGINT");
             }
-            this._done = true;
             this._wake();
         };
         if (this._args.abortSignal.aborted) {
@@ -233,8 +220,7 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
                 // `turn.completed.usage` is a session-cumulative running total. On a resumed
                 // invocation it already includes every token the session's prior invocations
                 // consumed, so the prior cumulative (priorSessionUsage) is subtracted to report
-                // this invocation's own consumption. A fresh invocation — including the exec
-                // fallback after an unavailable resume — has no baseline to subtract.
+                // this invocation's own consumption. A fresh invocation has no baseline to subtract.
                 const base = this._usedResume ? this._args.priorSessionUsage : undefined;
                 this._args.onUsage({
                     inputTokens: (parsed.usage.input_tokens ?? 0) - (base?.inputTokens ?? 0),

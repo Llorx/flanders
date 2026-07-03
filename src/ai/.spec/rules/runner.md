@@ -16,7 +16,7 @@ Adding a new AI tool to Flanders is a matter of writing a new adapter that imple
 
 Every adapter exposes one invocation function. Its signature, abstractly:
 
-    invoke({ prompt, model, effort, fast, resumeSessionId?, priorSessionUsage?, abortSignal }) → AsyncIterable<ToolEvent>
+    invoke({ prompt, model, effort, fast, resumeSessionId?, priorSessionUsage?, onUsage?, abortSignal }) → AsyncIterable<ToolEvent>
 
 Arguments:
 
@@ -26,13 +26,14 @@ Arguments:
 - `fast` — the `fast` boolean persisted in `.flanders/config.json` per [src/workspace/.spec/rules/flanders-config/file-format.md](/src/workspace/.spec/rules/flanders-config/file-format.md). `true` means the adapter runs the tool with its fast-mode configuration; `false` means it does not. It is meaningful only for a tool that has a fast mode (today `claude`); an adapter whose tool exposes no fast mode receives `false` — the only value the config records for such a tool — and passes no fast-mode setting.
 - `resumeSessionId` — when set, the adapter resumes the previous session with that id (used by [src/commands/.spec/rules/ai/task-context.md#the-worker-resumes-its-captured-session_id-across-iterations-of-the-same-task](/src/commands/.spec/rules/ai/task-context.md#the-worker-resumes-its-captured-session_id-across-iterations-of-the-same-task)). When unset, the adapter starts a fresh invocation.
 - `priorSessionUsage` — the running token totals (`inputTokens` and `outputTokens`) already attributed to the session this invocation resumes, summed across every prior invocation of that same session. It is the baseline an adapter subtracts when its tool's native usage report is a session-cumulative running total, so the usage the adapter surfaces is this invocation's own consumption rather than the session's accumulated total. The Codex adapter subtracts it (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)); the Claude adapter, whose native report is already per-invocation, ignores it (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)). It is meaningful only alongside `resumeSessionId`; on a fresh invocation it is absent and the baseline is zero.
-- `abortSignal` — when the signal triggers, the adapter sends the appropriate termination signal to its spawned process, drains any remaining buffered output, and ends the iterable promptly. The runner waits for the iterable to close; the adapter does not return until the child process has exited.
+- `onUsage` — optional callback the adapter invokes when the tool's native stream reports token usage for the invocation. The callback payload is `{ inputTokens, outputTokens }`, using the per-tool accounting rules below. Token usage is not a `ToolEvent` variant and does not travel through the async iterable; this callback is the single side channel for usage accounting.
+- `abortSignal` — when the signal triggers, the adapter sends the appropriate termination signal to its spawned process, stops consuming the tool stream, awaits the child process termination, and ends the iterable promptly without a terminal event. The runner waits for the iterable to close; the adapter does not return until the child process has exited.
 
 The return value is an async iterable of `ToolEvent`. The runner consumes events as they arrive and reacts to each one according to its type.
 
 ### Event types
 
-There are exactly five `ToolEvent` variants. Adapters must not invent additional variants; the runner must not handle anything outside this set.
+There are exactly five `ToolEvent` variants. Adapters must not invent additional variants; the runner must not handle anything outside this set. Token usage is reported through the `onUsage` callback described above, not by adding a sixth event type or by attaching payload to `done`.
 
 #### `{ type: "output", title, subtitle, details }`
 
@@ -52,7 +53,7 @@ The adapter has observed the tool's `session_id` for this invocation and surface
 
 - `id` — the opaque session identifier string the tool exposed. Never empty.
 
-`session` events are non-terminal. A single invocation emits zero or one `session` event total — once the id is captured, subsequent appearances of the same id by the tool are silently absorbed by the adapter and not re-emitted.
+`session` events are non-terminal. A single invocation emits a `session` event the first time the adapter observes a usable id. Subsequent appearances of the same id by the tool are silently absorbed by the adapter and not re-emitted. If the tool exposes a different usable id later in the same invocation, the adapter treats the new id as authoritative and emits one new `session` event for that id.
 
 #### `{ type: "error", retryable, message }`
 
@@ -83,7 +84,7 @@ The invocation finished successfully. No payload — success is conveyed by reac
 
 ### Terminal event invariant
 
-Every invocation produces exactly one terminal event: one of `error`, `rate_limit`, or `done`. The iterable closes after the terminal event yields. An adapter that closes the iterable without emitting a terminal event is in violation; the runner does not have to handle that case and may assume it never happens.
+Every invocation that is not cancelled produces exactly one terminal event: one of `error`, `rate_limit`, or `done`. The iterable closes after the terminal event yields. When `abortSignal` triggers, the adapter ends the iterable without a terminal event, so the runner can complete cancellation without producing a success, a non-retryable error, or a retry. An adapter that closes the iterable without emitting a terminal event before cancellation is in violation; the runner does not have to handle that case and may assume it never happens.
 
 ### Output channel discipline
 
@@ -103,7 +104,7 @@ Spawned children may inherit a piped stdout/stderr that the adapter reads — th
 - The runner branches on which tool is configured (`if (tool === "claude") ...`) to decide retry behavior, format output, capture session, or schedule waits. The interface is the only contract; per-tool branches inside the runner mean the abstraction leaked.
 - An adapter writes directly to `process.stdout` or `process.stderr` instead of emitting `output` events.
 - An adapter emits more than one terminal event per invocation, or emits a non-terminal event after the terminal one.
-- An adapter emits more than one `session` event per invocation with distinct ids (the tool changed its session id mid-call — the adapter must surface only the latest captured id once, not narrate the change).
+- An adapter re-emits a `session` event for an id it has already surfaced, or ignores a later distinct usable id instead of surfacing the new authoritative id once.
 - An adapter emits a `rate_limit` event with a `waitUntilMs` in the past, defeating the long-wait timer.
 - An adapter emits an `error` whose `retryable` field is decided by re-parsing the `message` from outside the adapter — `retryable` must reflect the adapter's own classification, not the runner's or any caller's.
 - An adapter ignores `abortSignal` and continues consuming the child's output (or leaks the child process) after the runner has cancelled.
@@ -195,7 +196,7 @@ When `resumeSessionId` is supplied, the adapter appends `--resume <resumeSession
 
 ### Native event format
 
-Claude's `stream-json` output is a sequence of newline-delimited JSON objects. The adapter parses each line and routes the object based on its top-level `type`. The relevant event types and their mapping are listed below; every native event Claude emits is either mapped or filtered as documented here.
+Claude's `stream-json` output is a sequence of newline-delimited JSON objects. The adapter parses each line and routes the object based on its top-level `type`. The relevant event types and their mapping are listed below; every native event Claude emits is mapped, retained, or filtered as documented here. A `rate_limit_event` is a relevant native event: when it carries `rate_limit_info`, the adapter retains that object for the invocation and uses it when classifying the terminal `result`.
 
 ### Mapping to `ToolEvent`
 
@@ -223,7 +224,7 @@ Every Claude invocation ends with exactly one `result` event. The adapter maps i
 
 **When `result.is_error === true`** — the adapter first checks for a rate-limit signal; absent one, it consults `api_error_status` and `subtype`:
 
-- **A rate-limit signal** — when the `result` carries the rate-limit info object Claude emits while a limit is in play (its `rate_limit_info` field), or `api_error_status === 429`, the failure is a rate-limit regardless of the HTTP status, and the adapter emits a `rate_limit` event. When the info object carries a parseable reset timestamp — the overage reset when the request is on overage, otherwise the standard reset — emit `{ type: "rate_limit", waitUntilMs: <window-end> }` with that instant. Otherwise — the info object carries no parseable reset, or the only signal is a bare 429 with no info object — the adapter synthesizes the wait, the same 8-to-12-minute window the Codex adapter uses (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)): emit `{ type: "rate_limit", waitUntilMs: <now> + R }`, where `R` is drawn uniformly at random from the closed interval of 8 minutes to 12 minutes, both the current time and the random draw obtained through the injected contexts per [src/.spec/rules/external-access-through-contexts.md](/src/.spec/rules/external-access-through-contexts.md), never by calling `Date.now()` or `Math.random()` directly. Either way the failure yields a `rate_limit` event, so the runner waits out the limit and the footer surfaces the rate-limit countdown rather than holding the working state.
+- **A rate-limit signal** — when the invocation has retained `rate_limit_info` from a prior `rate_limit_event`, or the `result` carries `rate_limit_info`, or `api_error_status === 429`, the failure is a rate-limit regardless of the HTTP status, and the adapter emits a `rate_limit` event. The retained `rate_limit_event.rate_limit_info` is the first source consulted, followed by `result.rate_limit_info`; `api_error_status === 429` is only the fallback signal when no info object was retained or carried by the result. When the chosen info object carries a parseable reset timestamp — the overage reset when the request is on overage, otherwise the standard reset — emit `{ type: "rate_limit", waitUntilMs: <window-end> }` with that instant. Otherwise — the chosen info object carries no parseable reset, or the only signal is a bare 429 with no info object — the adapter synthesizes the wait, the same 8-to-12-minute window the Codex adapter uses (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)): emit `{ type: "rate_limit", waitUntilMs: <now> + R }`, where `R` is drawn uniformly at random from the closed interval of 8 minutes to 12 minutes, both the current time and the random draw obtained through the injected contexts per [src/.spec/rules/external-access-through-contexts.md](/src/.spec/rules/external-access-through-contexts.md), never by calling `Date.now()` or `Math.random()` directly. Either way the failure yields a `rate_limit` event, so the runner waits out the limit and the footer surfaces the rate-limit countdown rather than holding the working state.
 - `api_error_status` is a 5xx number — emit `{ type: "error", retryable: true, message: <result.error.message> }`.
 - `api_error_status === 408` or `api_error_status === 425` — emit `{ type: "error", retryable: true, message: <result.error.message> }`.
 - `api_error_status === null` (transport error / no HTTP response) — emit `{ type: "error", retryable: true, message: <result.error.message> }`.
@@ -233,7 +234,7 @@ Every Claude invocation ends with exactly one `result` event. The adapter maps i
 - `subtype === "error_max_structured_output_retries"` — emit `{ type: "error", retryable: false, message: <result.error.message> }`.
 - Any other shape — emit `{ type: "error", retryable: false, message: <result.error.message> }`. Unknown shapes default to non-retryable so an unrecognized failure mode does not silently mask a bug.
 
-The adapter never inspects `stderr` or the prompt text to decide retryability; the structured `result` event is authoritative.
+The adapter never inspects `stderr` or the prompt text to decide retryability; Claude's structured event stream is authoritative, with the terminal `result` providing the final error shape and any retained `rate_limit_event.rate_limit_info` providing the rate-limit reset when present.
 
 #### Token usage
 
@@ -263,6 +264,7 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `claude` 
 - The adapter enables the `fastMode` setting when `fast` is `false`.
 - The adapter writes Claude's native output to the user's terminal directly, instead of emitting `output` events and letting the runner forward them.
 - The adapter classifies the retryable / non-retryable decision by parsing `result.error.message` text instead of the structured `is_error` / `api_error_status` / `subtype` fields.
+- The adapter filters or discards a Claude `rate_limit_event` carrying `rate_limit_info`, so the later terminal `result` is classified without the authoritative reset information that the stream already exposed.
 - The adapter gates rate-limit detection on `api_error_status === 429` (or any other HTTP-status check), so a failure whose `rate_limit_info` object signals a limit under a different or absent status is classified as a non-rate-limit error and the footer holds the working state instead of surfacing the countdown.
 - On a rate-limit signal carrying a parseable reset timestamp, the adapter synthesizes an estimated wait instead of using that authoritative window-end.
 - On a rate-limit signal with no parseable reset — including a bare 429 with no `rate_limit_info` object — the adapter falls back to a retryable `error` instead of synthesizing the rate-limit wait; or it synthesizes a wait that falls outside the 8-to-12-minute interval, or computed by calling `Date.now()` / `Math.random()` directly instead of through the injected contexts.
@@ -296,7 +298,7 @@ When the configured `effort` is non-empty, the adapter appends `-c model_reasoni
 
 When `resumeSessionId` is supplied, the adapter resumes with the `codex exec resume <resumeSessionId>` subcommand — Codex's non-interactive resume, which lives under `exec` and accepts `--json` — applying the same non-interactive overrides (`-c approval_policy=never`, `-c sandbox_mode=danger-full-access`, `--json`).
 
-When the Codex CLI on the host does not support `codex exec resume` (older version), the adapter falls back to a fresh `codex exec` rather than silently changing semantics. The fallback is surfaced through an `output` event so the user can see that continuity was lost; it does not change the retryability of the call.
+When `resumeSessionId` is supplied and the Codex CLI on the host does not support `codex exec resume` (older version), the adapter emits `{ type: "error", retryable: false, message: <synthesized message describing the unsupported resume capability> }`. The adapter does not fall back to a fresh `codex exec`, because a retry or continuation with `resumeSessionId` must preserve the same conversation rather than opening a new one.
 
 `-c` overrides are repeatable. The adapter emits one `-c key=value` per override and never collapses multiple overrides into a single string.
 
@@ -359,7 +361,7 @@ The adapter acts on whichever of the two failure events arrives first, emits exa
 
 **When the child process exits without having emitted a failure event (`type: "error"` or `type: "turn.failed"`) and without having emitted `type: "turn.completed"`** — the adapter treats the failure as a transport-level retryable error and emits `{ type: "error", retryable: true, message: <synthesized message describing the unexpected exit> }`.
 
-**When the child process exits via a signal** — same treatment: emit `{ type: "error", retryable: true, message: <synthesized message naming the signal> }`.
+**When the child process exits via a signal and `abortSignal` has not triggered** — same treatment: emit `{ type: "error", retryable: true, message: <synthesized message naming the signal> }`.
 
 **When `type: "turn.completed"` is emitted and the child then exits with status 0** — emit `{ type: "done" }`.
 

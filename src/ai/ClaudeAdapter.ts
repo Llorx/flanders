@@ -18,6 +18,17 @@ type ClaudeNativeContentBlock = Readonly<{
     is_error?:boolean;
 }>;
 
+type ClaudeRateLimitInfo = Readonly<{
+    status?:string;
+    resetsAt?:number;
+    rateLimitType?:string;
+    isUsingOverage?:boolean;
+    overageStatus?:string;
+    overageResetsAt?:number;
+    utilization?:number;
+    surpassedThreshold?:number;
+}>;
+
 type ClaudeNativeEvent = Readonly<{
     type?:string;
     subtype?:string;
@@ -44,16 +55,7 @@ type ClaudeNativeEvent = Readonly<{
         cache_creation_input_tokens?:number;
         cache_read_input_tokens?:number;
     }>;
-    rate_limit_info?:Readonly<{
-        status?:string;
-        resetsAt?:number;
-        rateLimitType?:string;
-        isUsingOverage?:boolean;
-        overageStatus?:string;
-        overageResetsAt?:number;
-        utilization?:number;
-        surpassedThreshold?:number;
-    }>;
+    rate_limit_info?:ClaudeRateLimitInfo;
 }>;
 
 export type ClaudeAdapterContexts = Readonly<{
@@ -139,11 +141,11 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
     private _capturedSessionId:string|null = null;
     private _queue:ToolEvent[] = [];
     private _done = false;
-    private _error:Error|null = null;
     private _waitResolve:(() => void)|null = null;
     private _abortListener:(() => void)|null = null;
     private _pendingTerminal:ToolEvent|null = null;
     private _exitPromise:Promise<void>|null = null;
+    private _retainedRateLimitInfo:ClaudeRateLimitInfo|null = null;
 
     constructor(
         private _args:ToolAdapterInvokeArgs,
@@ -189,14 +191,25 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
 
         proc.on("error", (e:unknown) => {
             if (!this._done) {
+                const err = e instanceof Error ? e : new Error(String(e));
                 this._done = true;
-                this._error = e instanceof Error ? e : new Error(String(e));
+                this._queue.push({
+                    type: "error",
+                    retryable: false,
+                    message: (err as { code?:string }).code === "ENOENT"
+                        ? "claude binary not found"
+                        : err.message
+                });
                 this._wake();
             }
             exitResolve?.();
         });
 
-        proc.on("exit", () => {
+        proc.on("exit", (code:number|null, signal:string|null) => {
+            if (this._done) {
+                exitResolve?.();
+                return;
+            }
             if (stderrBuf) {
                 this._queue.push({
                     type: "output",
@@ -209,6 +222,18 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
             if (this._pendingTerminal) {
                 this._queue.push(this._pendingTerminal);
                 this._pendingTerminal = null;
+            } else if (signal) {
+                this._queue.push({
+                    type: "error",
+                    retryable: true,
+                    message: `claude terminated by signal ${signal}`
+                });
+            } else {
+                this._queue.push({
+                    type: "error",
+                    retryable: true,
+                    message: `claude exited unexpectedly (code ${code} signal ${signal})`
+                });
             }
             if (!this._done) {
                 this._done = true;
@@ -218,10 +243,10 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
         });
 
         this._abortListener = () => {
+            this._done = true;
             if (this._proc) {
                 this._proc.kill("SIGINT");
             }
-            this._done = true;
             this._wake();
         };
         if (this._args.abortSignal.aborted) {
@@ -263,6 +288,8 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
     }
 
     private _handleLine(line:string):void {
+        if (this._done) return;
+
         let parsed:ClaudeNativeEvent|null = null;
         try {
             parsed = JSON.parse(line) as ClaudeNativeEvent;
@@ -279,6 +306,10 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
                 this._capturedSessionId = parsed.session_id;
                 this._queue.push({ type: "session", id: parsed.session_id });
             }
+        }
+
+        if (parsed.type === "rate_limit_event" && parsed.rate_limit_info) {
+            this._retainedRateLimitInfo = parsed.rate_limit_info;
         }
 
         if (parsed.type === "assistant" && parsed.message?.content) {
@@ -351,14 +382,12 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
         const subtype = parsed.subtype;
         const message = parsed.error?.message ?? "unknown error";
 
-        // A rate-limit signal — the `rate_limit_info` object Claude emits while a limit is in play,
-        // or an HTTP 429 — is a rate-limit regardless of the HTTP status, so it is detected ahead of
-        // the status-based classification below. Use the parseable reset (the overage reset when on
-        // overage, else the standard reset) when present; otherwise synthesize the same 8-to-12-minute
-        // wait the Codex and Antigravity adapters synthesize, through the injected time/random
-        // contexts, so the runner waits it out and the footer surfaces the countdown instead of
-        // holding the working state.
-        const info = parsed.rate_limit_info;
+        // A rate-limit signal — Claude's earlier `rate_limit_event.rate_limit_info`, the terminal
+        // `result.rate_limit_info`, or an HTTP 429 — is detected ahead of status classification.
+        // Use the parseable reset (the overage reset when on overage, else the standard reset) when
+        // present; otherwise synthesize the same 8-to-12-minute wait the Codex and Antigravity
+        // adapters synthesize through the injected contexts.
+        const info = this._retainedRateLimitInfo ?? parsed.rate_limit_info;
         if (info || status === 429) {
             if (info) {
                 const target = info.isUsingOverage && typeof info.overageResetsAt === "number"
@@ -409,9 +438,6 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
         for (;;) {
             if (this._queue.length > 0) {
                 return { value: this._queue.shift()!, done: false };
-            }
-            if (this._error) {
-                throw this._error;
             }
             if (this._done && this._queue.length === 0) {
                 this._cleanup();

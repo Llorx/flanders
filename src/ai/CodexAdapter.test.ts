@@ -777,7 +777,7 @@ test.describe("CodexAdapter", test => {
             }
         });
 
-        test("after a resume fallback to a fresh exec, usage is reported raw without subtracting the baseline", {
+        test("unsupported resume emits non-retryable error and does not report usage", {
             ARRANGE() {
                 const { contexts, script } = makeContexts();
                 const adapter = new CodexAdapter(contexts);
@@ -792,22 +792,26 @@ test.describe("CodexAdapter", test => {
             async ACT({ adapter, args, script }) {
                 const iterable = adapter.invoke(args);
                 const iter = iterable[Symbol.asyncIterator]();
-                const firstProc = script.$processes[0]!;
-                firstProc.$emit("exit", 1, null);
-                await iter.next();
-                const secondProc = script.$processes[1]!;
-                secondProc.$emitStdout(JSON.stringify({
-                    type: "turn.completed",
-                    usage: { input_tokens: 100, output_tokens: 50 }
-                }) + "\n");
-                secondProc.$emit("exit", 0, null);
+                script.$processes[0]!.$emit("exit", 1, null);
+                const events:ToolEvent[] = [];
                 for (;;) {
                     const r = await iter.next();
                     if (r.done) break;
+                    events.push(r.value);
                 }
+                return events;
             },
-            ASSERT(_result, { captured }) {
-                Assert.deepStrictEqual(captured, [{ inputTokens: 100, outputTokens: 50 }]);
+            ASSERTS: {
+                "emits a non-retryable unsupported-resume error"(result) {
+                    Assert.deepStrictEqual(result, [{
+                        type: "error",
+                        retryable: false,
+                        message: "codex exec resume unavailable in installed CLI"
+                    }]);
+                },
+                "does not report usage from a fresh fallback"(_result, { captured }) {
+                    Assert.deepStrictEqual(captured, []);
+                }
             }
         });
     });
@@ -944,6 +948,25 @@ test.describe("CodexAdapter", test => {
                 const { contexts, script } = makeContexts();
                 const adapter = new CodexAdapter(contexts);
                 const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emit("exit", null, "SIGTERM");
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "error", retryable: true, message: "codex terminated by signal SIGTERM" }
+                ]);
+            }
+        });
+
+        test("resumed signal exit before any event emits retryable signal error", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts();
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs({ resumeSessionId: "thread-1" });
                 return { adapter, args, script };
             },
             async ACT({ adapter, args, script }) {
@@ -1321,7 +1344,7 @@ test.describe("CodexAdapter", test => {
         }
     });
 
-    test("resume fallback emits Continuity lost and retries with exec", {
+    test("unsupported resume emits non-retryable error without fresh exec fallback", {
         ARRANGE() {
             const { contexts, script } = makeContexts();
             const adapter = new CodexAdapter(contexts);
@@ -1334,10 +1357,6 @@ test.describe("CodexAdapter", test => {
             firstProc.$emit("exit", 1, null);
             const events:ToolEvent[] = [];
             const iter = iterable[Symbol.asyncIterator]();
-            const first = await iter.next();
-            if (!first.done) events.push(first.value);
-            const secondProc = script.$processes[1]!;
-            emitTurnCompletedAndExit(secondProc);
             for (;;) {
                 const r = await iter.next();
                 if (r.done) break;
@@ -1346,23 +1365,18 @@ test.describe("CodexAdapter", test => {
             return { events, spawns: script.$spawned };
         },
         ASSERTS: {
-            "first event is Continuity lost output"(result) {
-                Assert.deepStrictEqual(result.events[0], {
-                    type: "output",
-                    title: "Continuity lost",
-                    subtitle: "",
-                    details: "codex exec resume unavailable in installed CLI"
-                });
+            "emits unsupported-resume as non-retryable error"(result) {
+                Assert.deepStrictEqual(result.events, [{
+                    type: "error",
+                    retryable: false,
+                    message: "codex exec resume unavailable in installed CLI"
+                }]);
             },
-            "first spawn uses exec resume subcommand"(result) {
+            "spawn uses exec resume subcommand"(result) {
                 Assert.deepStrictEqual(result.spawns[0]!.args.slice(0, 3), ["exec", "resume", "old-session"]);
             },
-            "second spawn falls back to a fresh exec without resume"(result) {
-                Assert.strictEqual(result.spawns[1]!.args[0], "exec");
-                Assert.strictEqual(result.spawns[1]!.args[1], "--json");
-            },
-            "ends with done"(result) {
-                Assert.deepStrictEqual(result.events[result.events.length - 1], { type: "done" });
+            "does not spawn a fresh exec fallback"(result) {
+                Assert.strictEqual(result.spawns.length, 1);
             }
         }
     });

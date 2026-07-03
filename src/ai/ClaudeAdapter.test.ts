@@ -570,6 +570,127 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
+    test("rate_limit_event before a bare 429 result uses the retained reset timestamp", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "rate_limit_event",
+                rate_limit_info: { status: "rejected", resetsAt: 1700000000, rateLimitType: "five_hour" }
+            }) + "\n");
+            proc.$emitStdout(JSON.stringify({
+                type: "result",
+                is_error: true,
+                api_error_status: 429,
+                error: { message: "rate limited" }
+            }) + "\n");
+            proc.$emit("exit", 0);
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return events.find(e => e.type === "rate_limit");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 1700000000 * 1000 });
+        }
+    });
+
+    test("retained rate_limit_event info takes precedence over result rate_limit_info", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "rate_limit_event",
+                rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
+            }) + "\n");
+            proc.$emitStdout(JSON.stringify({
+                type: "result",
+                is_error: true,
+                api_error_status: 429,
+                error: { message: "rate limited" },
+                rate_limit_info: { status: "rejected", resetsAt: 1800000000 }
+            }) + "\n");
+            proc.$emit("exit", 0);
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return events.find(e => e.type === "rate_limit");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 1700000000 * 1000 });
+        }
+    });
+
+    test("rate_limit_event before a non-429 result uses the retained reset timestamp", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "rate_limit_event",
+                rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
+            }) + "\n");
+            proc.$emitStdout(JSON.stringify({
+                type: "result",
+                is_error: true,
+                api_error_status: 503,
+                error: { message: "service unavailable" }
+            }) + "\n");
+            proc.$emit("exit", 0);
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return events.find(e => e.type === "rate_limit");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 1700000000 * 1000 });
+        }
+    });
+
+    test("rate_limit_event without parseable reset before a status-less result synthesizes rate_limit", {
+        ARRANGE() {
+            const time:TimeContext = { now() { return 1000; }, setTimeout() { return { cancel() {} }; } };
+            const { contexts, claude } = makeContexts({ time, random: randomContext(0.5) });
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "rate_limit_event",
+                rate_limit_info: { status: "rejected" }
+            }) + "\n");
+            proc.$emitStdout(JSON.stringify({
+                type: "result",
+                is_error: true,
+                error: { message: "rate limited" }
+            }) + "\n");
+            proc.$emit("exit", 0);
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return events.find(e => e.type === "rate_limit");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 601_000 });
+        }
+    });
+
     test("result 429 without parseable resetsAt produces a synthesized rate_limit", {
         ARRANGE() {
             // time.now() = 0 and random() = 0 → the synthesized wait is the lower bound of the
@@ -942,6 +1063,36 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
+    test("stdout and stderr emitted after abort are ignored", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const abort = new AbortController();
+            const args = baseArgs({ abortSignal: abort.signal });
+            return { adapter, args, claude, abort };
+        },
+        async ACT({ adapter, args, claude, abort }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            abort.abort();
+            proc.$emitStdout(JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "late" }] } }) + "\n");
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            proc.$emitStderr("late stderr\n");
+            proc.$emit("exit", null);
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return { events, kills: proc.$kills.slice() };
+        },
+        ASSERTS: {
+            "child receives SIGINT exactly once"(result) {
+                Assert.deepStrictEqual(result.kills, ["SIGINT"]);
+            },
+            "post-abort stream data yields no events"(result) {
+                Assert.deepStrictEqual(result.events, []);
+            }
+        }
+    });
+
     test("stderr is forwarded as output event with title stderr", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
@@ -1027,7 +1178,7 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
-    test("process error event propagates as thrown error", {
+    test("process error event emits non-retryable tool error", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
             const adapter = new ClaudeAdapter(contexts);
@@ -1038,16 +1189,38 @@ test.describe("ClaudeAdapter", test => {
             const iterable = adapter.invoke(args);
             const proc = claude.$processes[0]!;
             proc.$emit("error", new Error("spawn failed"));
-            let caught:Error|null = null;
-            try {
-                for await (const _ of iterable) { void _; }
-            } catch (e) {
-                caught = e as Error;
-            }
-            return caught;
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return events;
         },
         ASSERT(result) {
-            Assert.strictEqual(result!.message, "spawn failed");
+            Assert.deepStrictEqual(result, [
+                { type: "error", retryable: false, message: "spawn failed" }
+            ]);
+        }
+    });
+
+    test("process ENOENT emits claude binary not found", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            const err = new Error("spawn claude ENOENT") as Error & { code:string };
+            err.code = "ENOENT";
+            proc.$emit("error", err);
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return events;
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [
+                { type: "error", retryable: false, message: "claude binary not found" }
+            ]);
         }
     });
 
@@ -1219,7 +1392,7 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
-    test("process error with non-Error payload still propagates as Error", {
+    test("process error with non-Error payload emits non-retryable tool error", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
             const adapter = new ClaudeAdapter(contexts);
@@ -1230,20 +1403,18 @@ test.describe("ClaudeAdapter", test => {
             const iterable = adapter.invoke(args);
             const proc = claude.$processes[0]!;
             proc.$emit("error", "string error");
-            let caught:Error|null = null;
-            try {
-                for await (const _ of iterable) { void _; }
-            } catch (e) {
-                caught = e as Error;
-            }
-            return caught;
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return events;
         },
         ASSERT(result) {
-            Assert.strictEqual(result!.message, "string error");
+            Assert.deepStrictEqual(result, [
+                { type: "error", retryable: false, message: "string error" }
+            ]);
         }
     });
 
-    test("process exits without result event emits no terminal tool event", {
+    test("process exits without result event emits retryable error", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
             const adapter = new ClaudeAdapter(contexts);
@@ -1259,7 +1430,31 @@ test.describe("ClaudeAdapter", test => {
             return events;
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, []);
+            Assert.deepStrictEqual(result, [
+                { type: "error", retryable: true, message: "claude exited unexpectedly (code 1 signal null)" }
+            ]);
+        }
+    });
+
+    test("process signal without result event emits retryable signal error", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emit("exit", null, "SIGTERM");
+            const events:ToolEvent[] = [];
+            for await (const e of iterable) events.push(e);
+            return events;
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [
+                { type: "error", retryable: true, message: "claude terminated by signal SIGTERM" }
+            ]);
         }
     });
 
@@ -1417,24 +1612,28 @@ test.describe("ClaudeAdapter", test => {
         async ACT({ adapter, args, claude, abort }) {
             const iterable = adapter.invoke(args);
             const proc = claude.$processes[0]!;
-            let exitEmittedBeforeIterableClosed = false;
-            abort.abort();
-            await new Promise<void>(r => setImmediate(r));
+            let iterableClosed = false;
             const collectPromise = (async () => {
                 for await (const _ of iterable) { void _; }
+                iterableClosed = true;
             })();
             await new Promise<void>(r => setImmediate(r));
+            abort.abort();
+            await new Promise<void>(r => setImmediate(r));
+            const closedBeforeExit = iterableClosed;
             proc.$emit("exit", null);
-            exitEmittedBeforeIterableClosed = true;
             await collectPromise;
-            return { exitEmittedBeforeIterableClosed, kills: proc.$kills.slice() };
+            return { closedBeforeExit, closedAfterExit: iterableClosed, kills: proc.$kills.slice() };
         },
         ASSERTS: {
             "child process was killed"(result) {
                 Assert.deepStrictEqual(result.kills, ["SIGINT"]);
             },
-            "exit was emitted before iterable closed"(result) {
-                Assert.strictEqual(result.exitEmittedBeforeIterableClosed, true);
+            "iterable remained open until child exit"(result) {
+                Assert.strictEqual(result.closedBeforeExit, false);
+            },
+            "iterable closed after child exit"(result) {
+                Assert.strictEqual(result.closedAfterExit, true);
             }
         }
     });
