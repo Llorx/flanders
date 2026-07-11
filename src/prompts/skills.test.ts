@@ -97,6 +97,28 @@ test.describe("skills – planSkillBody", test => {
         }
     });
 
+    test("instructs the generation-timestamp filename prefix", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "pins the full filename shape"(body) {
+                Assert.ok(body.includes("The filename is \`YYYY-MM-DD_HH.MM-<descriptive-subject>.md\`"), "must pin the full filename as the timestamp prefix followed by the descriptive subject");
+            },
+            "spells out the prefix components and separators"(body) {
+                Assert.ok(body.includes("a four-digit year, a two-digit month, and a two-digit day joined by \`-\`, then a single \`_\`, then a two-digit hour on a 24-hour clock and a two-digit minute joined by \`.\`, then a single \`-\`"), "must spell out every prefix component and separator");
+            },
+            "stamps the machine's local time at generation"(body) {
+                Assert.ok(body.includes("the machine's local date and time at the moment the plan file is generated"), "must draw the timestamp from the machine's local clock at generation time");
+            },
+            "zero-pads every numeric component for chronological sorting"(body) {
+                Assert.ok(body.includes("every numeric component is zero-padded to its fixed width, so the prefix always has the same length and plan files sort chronologically by name"), "must require zero-padded fixed-width components so plans sort chronologically");
+            },
+            "keeps the descriptive-subject obligation"(body) {
+                Assert.ok(body.includes("immediately followed by a subject descriptive of the plan's content"), "must keep the descriptive-subject obligation after the prefix");
+            }
+        }
+    });
+
     test("covers checkbox format from plan-file-format contract", {
         ARRANGE() {},
         ACT() { return planSkillBody; },

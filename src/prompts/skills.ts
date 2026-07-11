@@ -49,7 +49,7 @@ The user invokes you as: /flanders-plan [<data>]
 
    The skill itself never writes to any \`.spec/rules\`, \`.spec/contracts\`, or \`.spec/flanders\` folder. Rule creation, when the user elects it, happens through /flanders-spec as a separate, user-initiated act.
 4. **Drafting phase.** Once the clarification phase is complete, persist the plan file directly without presenting a layout summary, a section-by-section draft, or any other pre-write approval step. The user reviews the written plan file after the fact.
-5. Persist exactly one markdown file inside the project's plans/ folder. The filename must be descriptive of the plan's subject.
+5. Persist exactly one markdown file inside the project's plans/ folder. The filename is \`YYYY-MM-DD_HH.MM-<descriptive-subject>.md\`: a generation-timestamp prefix — a four-digit year, a two-digit month, and a two-digit day joined by \`-\`, then a single \`_\`, then a two-digit hour on a 24-hour clock and a two-digit minute joined by \`.\`, then a single \`-\` — immediately followed by a subject descriptive of the plan's content. The timestamp is the machine's local date and time at the moment the plan file is generated, and every numeric component is zero-padded to its fixed width, so the prefix always has the same length and plan files sort chronologically by name.
 6. Upon successful completion, print the summary described in the Summary section below. If the plan cannot be made compliant with the Plan content rules, do not declare complete: surface the issue along with the plan file path to the user in chat.
 
 ## Plan file format
