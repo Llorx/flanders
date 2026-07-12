@@ -80,7 +80,7 @@ The two time figures on the bottom-fixed block's metrics line — the `task` tim
 
 This is the same render-time recompute obligation the waiting countdown carries (see [src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state](/src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state)), applied to the metrics time: the structured state the block holds for each figure is its active-time anchor, not a finished seconds count, so the seconds are derived afresh on each redraw.
 
-While the footer is in its waiting state, the live time counter pauses — the active-time anchor excludes the elapsed wait — so the displayed seconds hold steady through the wait and resume climbing when normal work resumes, matching the contract. The token figures are out of this rule's scope: each changes only when an AI invocation reports new consumption.
+While the footer is in its waiting state, the live time counter pauses — the active-time anchor excludes the elapsed wait — so the displayed seconds hold steady through the wait and resume climbing when normal work resumes, matching the contract. The same exclusion applies during the adversarial review stage whenever no reviewer is in its `running` state: while every reviewer is in `waiting` or has reached its verdict, the active-time anchor excludes the elapsed interval, so the displayed seconds hold steady and resume climbing the moment any reviewer is `running` again (see [.spec/contracts/cli-commands/implement/ui.md](/.spec/contracts/cli-commands/implement/ui.md), `Metrics line content`). The token figures are out of this rule's scope: each changes only when an AI invocation reports new consumption.
 
 This rule governs only what the block renders. The cadence at which the metrics are written back to the plan file is fixed by [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md) (`Task metrics persistence`) and is independent of how often the on-screen counter ticks.
 
@@ -93,6 +93,7 @@ This rule governs only what the block renders. The cadence at which the metrics 
 
 - A setter stores a finished seconds count for the `task` or `plan` time and the block replays it on later redraws, so the on-screen seconds move only when a consumption event arrives instead of climbing once per second on their own.
 - The displayed time keeps advancing during a rate-limit wait, or fails to resume after the wait ends.
+- The displayed time keeps advancing during the adversarial review stage while no reviewer is in its `running` state, or fails to resume once a reviewer is `running` again.
 - The on-screen counter's tick rate is coupled to the plan-file write cadence, so changing one changes the other.
 
 ## The waiting footer state appears only for long retry waits

@@ -127,8 +127,18 @@ export class Implement {
     private _currentIteration = 0;
     private _currentTask:PlanTask|null = null;
     private _taskStartedAt:number = 0;
-    private _taskRateLimitMs:number = 0;
+    // Total milliseconds excluded from the current task's active working time:
+    // completed worker-stage rate-limit waits plus completed review-stage pauses
+    // (spans during which no reviewer was running). Both _activeSeconds() and the
+    // anchor _updateMetrics pushes subtract it, so the persisted `t` and the live
+    // counter exclude the same spans.
+    private _taskExcludedMs:number = 0;
     private _taskRateLimitStartedAt:number|null = null;
+    // The clock value at which the current review-stage pause began — set while no
+    // reviewer is running (every reviewer waiting or at its verdict), null while at
+    // least one runs. Folded into _taskExcludedMs when a reviewer returns to
+    // running or the review stage ends.
+    private _reviewPauseStartedAt:number|null = null;
     private _taskTokens = {it:0, ot:0};
     // Accumulated active seconds of every task in the plan OTHER than the in-progress
     // one, snapshotted at task start (the other tasks' persisted `t` does not change
@@ -342,7 +352,7 @@ export class Implement {
         });
     }
     private _activeSeconds():number {
-        return Math.max(0, Math.floor((this._contexts.time.now() - this._taskStartedAt - this._taskRateLimitMs) / 1000));
+        return Math.max(0, Math.floor((this._contexts.time.now() - this._taskStartedAt - this._taskExcludedMs) / 1000));
     }
     private async _persistMetrics(plan:PlanFile, line:number):Promise<void> {
         try {
@@ -356,11 +366,12 @@ export class Implement {
         if (!this._currentTask || this._taskRateLimitStartedAt !== null) return;
         const planTotals = plan.planTotals();
         // The active-time anchor the block measures the live seconds from: the
-        // in-progress task's start shifted forward by every completed rate-limit
-        // wait, so floor((now - anchorMs)/1000) equals _activeSeconds(). Both pairs
-        // share the anchor; the plan pair adds the other tasks' accumulated active
-        // seconds as its static base, so the two times tick together.
-        const anchorMs = this._taskStartedAt + this._taskRateLimitMs;
+        // in-progress task's start shifted forward by every completed excluded span
+        // (rate-limit waits and review-stage pauses), so floor((now - anchorMs)/1000)
+        // equals _activeSeconds(). Both pairs share the anchor; the plan pair adds
+        // the other tasks' accumulated active seconds as its static base, so the two
+        // times tick together.
+        const anchorMs = this._taskStartedAt + this._taskExcludedMs;
         this._block!.setMetrics({
             task: { tokens: this._taskTokens.it + this._taskTokens.ot, anchorMs, baseSeconds: 0 },
             plan: { tokens: planTotals.it + planTotals.ot, anchorMs, baseSeconds: this._otherTasksSeconds }
@@ -383,8 +394,9 @@ export class Implement {
         this._currentWorkerSessionId = null;
         this._workerSessionTokens = { inputTokens: 0, outputTokens: 0 };
         this._taskStartedAt = this._contexts.time.now();
-        this._taskRateLimitMs = 0;
+        this._taskExcludedMs = 0;
         this._taskRateLimitStartedAt = null;
+        this._reviewPauseStartedAt = null;
         this._taskTokens = {it:0, ot:0};
         // The other tasks' accumulated active time is the plan total minus this
         // task's own persisted `t`; it stays constant while this task runs because
@@ -647,7 +659,29 @@ export class Implement {
             next.endTime = endTime;
         }
         this._reviewerStates[reviewerIdx] = next;
+        this._syncReviewPause();
         this._renderReviewingFooter();
+    }
+    // The review stage advances the task's active time only while at least one
+    // reviewer is running: a span with every reviewer waiting or at its verdict is
+    // excluded, mirroring the worker rate-limit accounting so _activeSeconds() and
+    // the anchor _updateMetrics pushes both leave it out. Re-synced on every
+    // reviewer state transition; an already-open pause keeps its original start.
+    private _syncReviewPause():void {
+        if (this._reviewerStates!.some(r => r.state === "running")) {
+            this._endReviewPause();
+        } else {
+            // A reviewer only leaves `running` from a transition in which it was
+            // running, so the pause is necessarily closed when the last running
+            // reviewer leaves; capturing unconditionally cannot overwrite an open one.
+            this._reviewPauseStartedAt = this._contexts.time.now();
+        }
+    }
+    private _endReviewPause():void {
+        if (this._reviewPauseStartedAt !== null) {
+            this._taskExcludedMs += this._contexts.time.now() - this._reviewPauseStartedAt;
+            this._reviewPauseStartedAt = null;
+        }
     }
     private _renderReviewingFooter():void {
         /* coverage ignore next */ // — Defensive: callers always check that _reviewerStates is populated; _block/finalized guards cover disposal races.
@@ -710,6 +744,10 @@ export class Implement {
                 }
             }));
         await Promise.all(launches);
+        // The stage's reviewer work is over: fold any still-open pause (the span
+        // since the last reviewer left running) so it does not leak into the time
+        // markDone or the next stage measures.
+        this._endReviewPause();
         /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
         if (this._disposed) {
             return false;
@@ -868,7 +906,7 @@ export class Implement {
             },
             onLongWaitEnd: () => {
                 if (this._taskRateLimitStartedAt !== null) {
-                    this._taskRateLimitMs += this._contexts.time.now() - this._taskRateLimitStartedAt;
+                    this._taskExcludedMs += this._contexts.time.now() - this._taskRateLimitStartedAt;
                     this._taskRateLimitStartedAt = null;
                 }
                 if (this._disposed) return;

@@ -2374,6 +2374,136 @@ test.describe("BottomBlock metrics-line live time counter", test => {
         }
     });
 
+    test("the metrics time keeps advancing while a reviewing footer has a running reviewer", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 0 } });
+            time.advance(2000); // two active seconds before the review stage
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            // One reviewer waits while the other runs: the running one keeps the counter live.
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "running" },
+                { tool: "codex", model: "", effort: "", state: "waiting", endTime: 600000 }
+            ];
+            block.setFooter({ kind: "reviewing", reviewers });
+            const atReviewStart = metricsLineOf(io.output);
+            io.reset();
+            time.advance(5000); // spinner ticks redraw the block
+            const duringReview = metricsLineOf(io.output);
+            return { atReviewStart, duringReview };
+        },
+        ASSERTS: {
+            "the metrics time carries its pre-review value of 2s into the review stage"(result) {
+                Assert.strictEqual(result.atReviewStart, "task 100 2s  │  plan 200 2s");
+            },
+            "with a reviewer running the metrics time keeps climbing (2s + 5s = 7s)"(result) {
+                Assert.strictEqual(result.duringReview, "task 100 7s  │  plan 200 7s");
+            }
+        }
+    });
+
+    test("the metrics time freezes while reviewing with no running reviewer and resumes when a reviewer returns to running, excluding the paused span", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 0 } });
+            time.advance(2000); // two active seconds before the review stage
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            // One reviewer already has its verdict and the other is rate-limit
+            // waiting: nothing is running, so the counter pauses.
+            const paused:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "pass" },
+                { tool: "codex", model: "", effort: "", state: "waiting", endTime: 600000 }
+            ];
+            block.setFooter({ kind: "reviewing", reviewers: paused });
+            const atPauseStart = metricsLineOf(io.output);
+            io.reset();
+            time.advance(5000); // the pause elapses; spinner ticks redraw
+            const duringPause = metricsLineOf(io.output);
+            io.reset();
+            const resumed:ReviewerEntry[] = [
+                { tool: "claude", model: "", effort: "", state: "pass" },
+                { tool: "codex", model: "", effort: "", state: "running" }
+            ];
+            block.setFooter({ kind: "reviewing", reviewers: resumed });
+            const onResume = metricsLineOf(io.output);
+            io.reset();
+            time.advance(3000); // three active seconds after the reviewer resumes
+            const afterResume = metricsLineOf(io.output);
+            return { atPauseStart, duringPause, onResume, afterResume };
+        },
+        ASSERTS: {
+            "the metrics time freezes at its pre-review value of 2s when no reviewer is running"(result) {
+                Assert.strictEqual(result.atPauseStart, "task 100 2s  │  plan 200 2s");
+            },
+            "advancing the clock with no running reviewer does not change the metrics time"(result) {
+                Assert.strictEqual(result.duringPause, "task 100 2s  │  plan 200 2s");
+            },
+            "the counter resumes from the paused value of 2s when a reviewer returns to running"(result) {
+                Assert.strictEqual(result.onResume, "task 100 2s  │  plan 200 2s");
+            },
+            "after resuming the counter continues with the paused span excluded (2s + 3s = 5s)"(result) {
+                Assert.strictEqual(result.afterResume, "task 100 5s  │  plan 200 5s");
+            }
+        }
+    });
+
+    test("the metrics pause spans consecutive no-running reviewing pushes, keeping its original freeze point until the footer returns to working", {
+        ARRANGE() {
+            const io = stubIO(120);
+            const time = fakeTime();
+            time.setNow(0);
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 0 } });
+            time.advance(2000); // two active seconds before the review stage
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            const waiting:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "waiting", endTime: 600000 }];
+            block.setFooter({ kind: "reviewing", reviewers: waiting });
+            io.reset();
+            time.advance(4000); // paused span while the only reviewer waits
+            // A second push that still has no running reviewer must keep the pause's
+            // original freeze point rather than re-capturing the clock at 6s.
+            const verdict:ReviewerEntry[] = [{ tool: "claude", model: "", effort: "", state: "pass" }];
+            block.setFooter({ kind: "reviewing", reviewers: verdict });
+            io.reset();
+            time.advance(4000); // paused span while the verdict holds
+            const duringVerdict = metricsLineOf(io.output);
+            io.reset();
+            block.setFooter({ kind: "working" });
+            time.advance(3000); // three active seconds after the stage ends
+            const afterWorking = metricsLineOf(io.output);
+            return { duringVerdict, afterWorking };
+        },
+        ASSERTS: {
+            "the metrics time holds at 2s across both no-running pushes"(result) {
+                Assert.strictEqual(result.duringVerdict, "task 100 2s  │  plan 200 2s");
+            },
+            "back in working the counter resumes from the original freeze point with the whole pause excluded (2s + 3s = 5s)"(result) {
+                Assert.strictEqual(result.afterWorking, "task 100 5s  │  plan 200 5s");
+            }
+        }
+    });
+
     test("after dispose, advancing the clock fires no redraw even with a live metrics anchor and leaves no pending timer", {
         ARRANGE() {
             const io = stubIO(120);

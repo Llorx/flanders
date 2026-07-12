@@ -2547,8 +2547,8 @@ test.describe("Implement per-task token and time metrics", test => {
             Assert.strictEqual(code, 0);
             const plan = s.files.get(COMPLETED_PLAN_PATH)!;
             // detect spawn(1): time→2000. Task starts: _taskStartedAt=2000
-            // worker spawn(2) (rate-limited): time→3000. _enterRateLimit: _taskRateLimitStartedAt=3000
-            // time.advance(10000): time→13000. Rate-limit timer fires, _exitRateLimit: _taskRateLimitMs=10000
+            // worker spawn(2) (rate-limited): time→3000. onLongWaitStart: _taskRateLimitStartedAt=3000
+            // time.advance(10000): time→13000. Rate-limit timer fires, onLongWaitEnd: _taskExcludedMs=10000
             // worker retry spawn(3): time→14000
             // reviewer spawn(4): time→15000
             // active = (15000 - 2000 - 10000) / 1000 = 3
@@ -2675,10 +2675,10 @@ test.describe("Implement per-task token and time metrics", test => {
             // detect (1s) → task starts at 1000
             // worker rate-limited (1s spawn + 5s wait) → 7000
             // worker retry (1s) → 8000
-            // reviewer rate-limited (1s spawn + 3s wait) → 12000  (reviewer wait does NOT freeze metrics time)
-            // reviewer retry (1s) → 13000
-            // active = (13000 - 1000 - 5000) / 1000 = 7 — only the worker rate-limit is subtracted
-            Assert.ok(plan.includes('"t":7}'), `t should exclude only worker rate-limit (reviewer waits do not freeze metrics), got: ${plan}`);
+            // reviewer rate-limited (1s spawn + 3s wait) → 12000 (the sole reviewer waiting = no reviewer running, so the span is excluded)
+            // reviewer retry (1s, reviewer running — counted) → 13000
+            // active = (13000 - 1000 - 5000 - 3000) / 1000 = 4 — the worker rate-limit and the review-stage pause are both subtracted
+            Assert.ok(plan.includes('"t":4}'), `t should exclude the worker rate-limit and the review-stage pause, got: ${plan}`);
         }
     });
 
@@ -7978,7 +7978,7 @@ test.describe("Implement multiple parallel reviewers", test => {
         }
     });
 
-    test("rate-limit on one reviewer: state transitions running→waiting→running→ok, no global waiting, metrics not frozen", {
+    test("rate-limit on one reviewer: state transitions running→waiting→running→ok, no global waiting, metrics time paused while it waits", {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
@@ -8059,14 +8059,14 @@ test.describe("Implement multiple parallel reviewers", test => {
             "exits 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "reviewer rate-limit wait does NOT subtract from t (metrics not frozen)"({}, { s }) {
+            "the sole reviewer's rate-limit wait subtracts from t (no reviewer running pauses the active time)"({}, { s }) {
                 const plan = s.files.get(COMPLETED_PLAN_PATH)!;
                 // detect (1s) → 1000 (task starts here)
                 // worker (1s) → 2000
-                // reviewer rate-limit (1s spawn + 5s wait) → 8000
-                // reviewer retry (1s) → 9000
-                // active = (9000 - 1000 - 0) / 1000 = 8 (reviewer wait is NOT subtracted)
-                Assert.ok(plan.includes('"t":8}'), `t should NOT exclude reviewer rate-limit wait, got: ${plan}`);
+                // reviewer rate-limit (1s spawn + 5s wait) → 8000 (the wait leaves no reviewer running, so its 5s are excluded)
+                // reviewer retry (1s, reviewer running — counted) → 9000
+                // active = (9000 - 1000 - 5000) / 1000 = 3
+                Assert.ok(plan.includes('"t":3}'), `t should exclude the review-stage pause, got: ${plan}`);
             },
             "no global waiting footer state was set during the reviewer rate-limit"({}, { footerCalls }) {
                 Assert.ok(!footerCalls.some(c => c.kind === "waiting"), `expected no global waiting state, got kinds: ${footerCalls.map(c => c.kind).join(", ")}`);
@@ -8636,6 +8636,51 @@ test.describe("Implement weighted-review round completion", test => {
             },
             "the optional reviewer's per-reviewer verdict file is present (it contributed)"({ files }) {
                 Assert.strictEqual(files.has(reviewerErrorLogPath(2)), true);
+            }
+        }
+    });
+
+    test("a span with one reviewer at its verdict and the other waiting is excluded from the persisted t", {
+        ARRANGE() {
+            // R1 reaches its verdict immediately while R0 sits in a usage-limit wait: from
+            // that point no reviewer is running, so the whole 100s wait must not count as
+            // active time. Both reviewers are required, so the round waits R0 out.
+            const { s, time } = weightedReviewStub([
+                [{ rateLimit: 100 }, { verdict: "" }],
+                [{ verdict: "" }]
+            ]);
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "w", effort: "", fast: false },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false },
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false }
+                ],
+                minimumReviews: 2
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker", inputTokens: 50, outputTokens: 25 });
+            return { s, time };
+        },
+        async ACT({ s, time }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+            await flush();
+            time.advance(100000); // R0's wait clears; it reruns and reaches its verdict
+            await flush();
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, files: s.files };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the persisted t excludes the whole no-reviewer-running span"({ files }) {
+                const plan = files.get(COMPLETED_PLAN_PATH)!;
+                // Every spawn responds without advancing the clock, so the only elapsed
+                // time is R0's 100s wait — during which R1 already had its verdict and
+                // R0 was waiting, i.e. no reviewer was running. t must be 0.
+                Assert.ok(plan.includes('[x]{"it":50,"ot":25,"t":0}'), `t should exclude the span with no running reviewer, got: ${plan}`);
             }
         }
     });

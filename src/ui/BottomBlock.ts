@@ -28,10 +28,11 @@ export type HeaderFields = {
 // The structured state the block holds for one metrics pair. The displayed whole
 // seconds are NOT a precomputed count: when `anchorMs` is present the pair is live
 // and its seconds are derived on every redraw as
-// floor((evalNow - anchorMs - <accumulated wait>)/1000) + baseSeconds, where
-// evalNow is the live clock while working/reviewing and the frozen wait-start clock
-// while the footer is waiting. When `anchorMs` is absent the pair is static and
-// shows exactly `baseSeconds` (the pre-task plan total, which must not tick).
+// floor((evalNow - anchorMs - <accumulated pauses>)/1000) + baseSeconds, where
+// evalNow is the live clock while the counter runs and the frozen pause-start clock
+// while it is paused (the footer waiting, or reviewing with no reviewer running).
+// When `anchorMs` is absent the pair is static and shows exactly `baseSeconds`
+// (the pre-task plan total, which must not tick).
 export type MetricsPairFields = {
     tokens:number;
     anchorMs?:number;
@@ -81,14 +82,15 @@ export class BottomBlock {
     private _unsubResize:(() => void)|null = null;
     private _prevLineWidths:readonly number[]|null = null;
     // The clock value at which the metrics-time counter is currently frozen — set
-    // while the footer is in its waiting state, null while it is running. When set,
-    // every redraw evaluates the live metrics pairs against this frozen clock so the
-    // displayed seconds hold steady through the wait.
+    // while the counter is paused (the footer in its waiting state, or in its
+    // reviewing state with no reviewer running), null while it runs. When set,
+    // every redraw evaluates the live metrics pairs against this frozen clock so
+    // the displayed seconds hold steady through the pause.
     private _metricsPausedAtMs:number|null = null;
-    // Total milliseconds of completed waits since the current metrics anchor was
-    // pushed. Subtracted from the live window so the counter resumes after a wait
-    // with the elapsed wait excluded; reset whenever a fresh anchor is set (the
-    // orchestrator's pushed anchor already accounts for completed waits).
+    // Total milliseconds of completed pauses since the current metrics anchor was
+    // pushed. Subtracted from the live window so the counter resumes after a pause
+    // with the paused span excluded; reset whenever a fresh anchor is set (the
+    // orchestrator's pushed anchor already accounts for completed pauses).
     private _metricsPauseAccumMs = 0;
 
     constructor(private _io:BottomBlockIO, private _time:TimeContext, private _random:RandomContext) {}
@@ -124,8 +126,8 @@ export class BottomBlock {
     setMetrics(fields:MetricsFields):void {
         if (this._disposed || this._finalized) return;
         this._metrics = fields;
-        // A fresh anchor already excludes every completed wait (the orchestrator
-        // folds them into the value it pushes), so the block's own wait accumulator
+        // A fresh anchor already excludes every completed pause (the orchestrator
+        // folds them into the value it pushes), so the block's own pause accumulator
         // starts over from this push.
         this._metricsPauseAccumMs = 0;
         if (this._mounted) {
@@ -137,12 +139,19 @@ export class BottomBlock {
     setFooter(state:FooterState):void {
         if (this._disposed || this._finalized) return;
         this._cancelTimers();
-        // Drive the metrics-time freeze from the waiting footer state: entering the
-        // wait captures the clock so the live pairs hold steady through it; leaving
-        // the wait folds its elapsed duration into the pause accumulator so the
-        // counter resumes from where it paused with the wait excluded.
-        if (state.kind === "waiting") {
-            this._metricsPausedAtMs = this._time.now();
+        // Drive the metrics-time freeze from the footer state: the waiting state
+        // pauses the counter, and so does a reviewing state in which no reviewer is
+        // running (every reviewer waiting or at its verdict) — the review stage
+        // advances the counter only while at least one reviewer is running. Entering
+        // a pause captures the clock so the live pairs hold steady through it (a
+        // pause spanning consecutive footer pushes keeps its original capture);
+        // leaving it folds the elapsed span into the pause accumulator so the
+        // counter resumes from where it paused with the paused span excluded.
+        const paused = state.kind === "waiting" || (state.kind === "reviewing" && !state.reviewers.some(r => r.state === "running"));
+        if (paused) {
+            if (this._metricsPausedAtMs === null) {
+                this._metricsPausedAtMs = this._time.now();
+            }
         } else if (this._metricsPausedAtMs !== null) {
             this._metricsPauseAccumMs += this._time.now() - this._metricsPausedAtMs;
             this._metricsPausedAtMs = null;
