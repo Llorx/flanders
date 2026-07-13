@@ -5,10 +5,11 @@ import test from "arrange-act-assert";
 import { TASK_LINE } from "../plan/PlanFile";
 import { flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
 import { REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
-import { planSkillBody, specSkillBody, workSkillBody } from "./skills";
+import { hardStopReviewSkillBody, planSkillBody, specSkillBody, workSkillBody } from "./skills";
+import { stripYamlFrontmatter } from "../commands/skillArtifacts";
 
-// A citation of a flanders-internal spec file: a path under contracts/, rules/, or plans/ that names a specific .md file. Skill bodies ship into arbitrary user projects where those files do not exist, so such a citation must never appear. Shared by the plan-skill and spec-skill self-containedness guards so the pattern has one source of truth.
-const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
+// A citation of a flanders-internal spec file: a path under contracts/, rules/, or plans/ that names a specific .md file. Skill bodies ship into arbitrary user projects where those files do not exist, so such a citation must never appear. The filename may begin with a digit and may contain dots (e.g. a timestamped plan name like plans/2026-07-13_01.47-subject.md), so the name segment allows leading digits and dots as well as letters, dashes, underscores, and nested path slashes. Shared by every skill-body self-containedness guard so the pattern has one source of truth.
+const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z0-9][A-Za-z0-9._/\-]*\.md/;
 
 // The AI-tool host name that the skill bodies no longer name. Assembled from fragments so the literal token never appears contiguously in this test file, while still letting each describe block assert — case-insensitively, over the public generated body string — that no occurrence of it survives anywhere in that body.
 const REMOVED_HOST_NAME = "Anti" + "gravity";
@@ -2509,6 +2510,286 @@ test.describe("skills – workSkillBody", test => {
     test("has no unresolved placeholders or TODOs", {
         ARRANGE() {},
         ACT() { return workSkillBody; },
+        ASSERTS: {
+            "does not contain TODO"(body) {
+                Assert.ok(!body.includes("TODO"), "must not contain TODO");
+            },
+            "does not contain {{ placeholders"(body) {
+                Assert.ok(!body.includes("{{"), "must not contain {{ placeholders");
+            },
+            "does not contain }} placeholders"(body) {
+                Assert.ok(!body.includes("}}"), "must not contain }} placeholders");
+            }
+        }
+    });
+});
+
+test.describe("skills – hardStopReviewSkillBody", test => {
+    test("is a non-empty string beginning with a description frontmatter block that strips away", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "is a string"(body) {
+                Assert.strictEqual(typeof body, "string");
+            },
+            "is non-empty"(body) {
+                Assert.ok(body.length > 0);
+            },
+            "begins with a YAML frontmatter opener"(body) {
+                Assert.ok(body.startsWith("---\n"), "must begin with a YAML frontmatter opener");
+            },
+            "frontmatter carries a description key on its own line"(body) {
+                const frontmatter = body.slice(0, body.indexOf("\n---\n"));
+                Assert.ok(/^description: .+$/m.test(frontmatter), "frontmatter must carry a real description key, on its own line, with a value");
+            },
+            "stripping the frontmatter the delivery-path way actually removes content"(body) {
+                Assert.notStrictEqual(stripYamlFrontmatter(body), body);
+            },
+            "stripping the frontmatter leaves no leading frontmatter block"(body) {
+                Assert.strictEqual(stripYamlFrontmatter(body).trimStart().startsWith("---"), false);
+            },
+            "stripping the frontmatter leaves a non-empty body"(body) {
+                Assert.ok(stripYamlFrontmatter(body).trim().length > 0, "the frontmatter must be followed by a non-empty body");
+            }
+        }
+    });
+
+    test("names no occurrence of the removed AI-tool host, case-insensitively", {
+        ARRANGE() {
+            return { removedHost: REMOVED_HOST_NAME };
+        },
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERT(body, { removedHost }) {
+            Assert.strictEqual(body.toLowerCase().includes(removedHost.toLowerCase()), false);
+        }
+    });
+
+    test("states its purpose: diagnose an implement hard stop and how to relaunch it", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "names the /flanders-hard-stop-review skill"(body) {
+                Assert.ok(body.includes("You are the /flanders-hard-stop-review skill."), "must identify itself as the /flanders-hard-stop-review skill");
+            },
+            "diagnoses why the hard-stopped task never reached a clean iteration"(body) {
+                Assert.ok(body.includes("You diagnose why the hard-stopped task never reached a clean iteration"), "must diagnose why the hard-stopped task never reached a clean iteration");
+            },
+            "recommends the action that lets implement be relaunched to completion"(body) {
+                Assert.ok(body.includes("recommend the concrete action that lets \`implement\` be relaunched so the task completes instead of stopping again"), "must recommend the action that lets implement be relaunched so the task completes");
+            }
+        }
+    });
+
+    test("states the invocation form and the [<data>] semantics", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "states the invocation form /flanders-hard-stop-review [<data>]"(body) {
+                Assert.ok(body.includes("/flanders-hard-stop-review [<data>]"), "must state the invocation form /flanders-hard-stop-review [<data>]");
+            },
+            "names <data> as the preserved hard-stop temporary folder path"(body) {
+                Assert.ok(body.includes("\`<data>\` is the filesystem path of the preserved hard-stop temporary folder"), "must name <data> as the preserved hard-stop temporary folder path");
+            },
+            "an omitted <data> is taken from the conversation"(body) {
+                Assert.ok(body.includes("When \`<data>\` is omitted, take that path from the conversation."), "must take an omitted <data> from the conversation");
+            }
+        }
+    });
+
+    test("instructs the read-only read of the preserved-folder evidence set", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "states the work is read-only"(body) {
+                Assert.ok(body.includes("Your work is read-only, drawing only on the preserved hard-stop temporary folder, the plan file, and the project's spec corpus"), "must state the work is read-only");
+            },
+            "draws on no source outside the preserved folder, plan, and spec corpus"(body) {
+                Assert.ok(body.includes("not the AI tools' own session transcripts"), "must not draw on the AI tools' own session transcripts");
+            },
+            "reads the per-iteration worker, build, test, and reviewer output logs"(body) {
+                Assert.ok(body.includes("its per-iteration worker, build, test, and reviewer output logs"), "must read the per-iteration worker, build, test, and reviewer output logs");
+            },
+            "reads the briefing error.log"(body) {
+                Assert.ok(body.includes("its briefing \`error.log\`"), "must read the briefing error.log");
+            },
+            "reads the consolidated spec.md"(body) {
+                Assert.ok(body.includes("its consolidated \`spec.md\`"), "must read the consolidated spec.md");
+            },
+            "reads each per-reviewer folder's error.log"(body) {
+                Assert.ok(body.includes("each per-reviewer folder's \`error.log\`"), "must read each per-reviewer folder's error.log");
+            },
+            "identifies the hard-stopped task by plan line and title"(body) {
+                Assert.ok(body.includes("identify the task that hard-stopped — its plan-file line number and title"), "must identify the hard-stopped task by plan-file line number and title");
+            },
+            "identifies the plan file the run was implementing"(body) {
+                Assert.ok(body.includes("and the plan file the run was implementing"), "must identify the plan file the run was implementing");
+            },
+            "grounds the analysis in the project's specs"(body) {
+                Assert.ok(body.includes("Ground the analysis in the project's specs"), "must ground the analysis in the project's specs");
+            },
+            "reads the identified plan file and the contracts and rules the hard-stopped task references"(body) {
+                Assert.ok(body.includes("Read the identified plan file and the contracts and rules the hard-stopped task references"), "must read the identified plan file and the contracts and rules the hard-stopped task references");
+            },
+            "consults the wider spec corpus as far as the diagnosis needs"(body) {
+                Assert.ok(body.includes("consulting the wider spec corpus as far as the diagnosis needs"), "must consult the wider spec corpus as far as the diagnosis needs");
+            }
+        }
+    });
+
+    test("classifies the hard stop as complex/transient versus a loop", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "examines how the iterations progressed, what each changed, and how failures evolved"(body) {
+                Assert.ok(body.includes("Examine how the iterations progressed — what each iteration changed and how the recorded failures evolved from one iteration to the next"), "must examine how the iterations progressed, what each iteration changed, and how the recorded failures evolved between iterations");
+            },
+            "the complex/transient case is a task that made real progress across iterations"(body) {
+                Assert.ok(body.includes("The task made real progress across iterations"), "must describe the complex/transient case as real progress across iterations");
+            },
+            "the complex/transient case reflects either a task larger than the cap or a transient failure"(body) {
+                Assert.ok(body.includes("the hard stop reflects a task larger than the iteration cap can finish or a transient failure"), "the complex/transient case must reflect either a task larger than the cap or a transient failure");
+            },
+            "the complex/transient case is carried through by a fresh run or a smaller task"(body) {
+                Assert.ok(body.includes("a fresh run or a smaller task would carry it through"), "the complex/transient case must be carried through by a fresh run or a smaller task");
+            },
+            "the loop case circled the same unresolved failure with no net progress"(body) {
+                Assert.ok(body.includes("The iterations circled the same unresolved failure with no net progress — a loop"), "must describe the loop case as circling the same unresolved failure with no net progress");
+            }
+        }
+    });
+
+    test("maps each cause to its remedy, binding the cause to the skill it selects", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "a transient or progressing failure maps to an unchanged flanders implement re-run"(body) {
+                Assert.ok(body.includes("Re-run \`flanders implement\` unchanged, when the failure was transient or the task was progressing and needs only a fresh iteration budget."), "a transient or progressing failure must map to an unchanged flanders implement re-run");
+            },
+            "plan defects, task splitting, or dependency reordering map to /flanders-plan"(body) {
+                Assert.ok(body.includes("Revise the plan through \`/flanders-plan\`: split the hard-stopped task into smaller tasks, correct acceptance criteria or a task premise the iterations proved wrong, or reorder the task against the dependency it needs."), "plan defects, task splitting, or dependency reordering must map to /flanders-plan");
+            },
+            "a contradictory or ambiguous contract or rule maps to /flanders-spec"(body) {
+                Assert.ok(body.includes("Fix the spec through \`/flanders-spec\`: resolve the contradictory or ambiguous contract or rule that left the task unsatisfiable."), "a contradictory or ambiguous contract or rule must map to /flanders-spec");
+            }
+        }
+    });
+
+    test("states the iteration cap is a fixed non-configurable five and never raised", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "states the per-task iteration cap is a fixed five and is not configurable"(body) {
+                Assert.ok(body.includes("The per-task iteration cap is a fixed five and is not configurable"), "must state the per-task iteration cap is a fixed five and is not configurable");
+            },
+            "the remedy for needing more attempts is a fresh run"(body) {
+                Assert.ok(body.includes("the remedy for a task that needs more attempts is a fresh run"), "must state the remedy for needing more attempts is a fresh run");
+            },
+            "or a task split into smaller tasks"(body) {
+                Assert.ok(body.includes("a task split into smaller tasks"), "must offer splitting into smaller tasks as the remedy");
+            },
+            "never a raised cap"(body) {
+                Assert.ok(body.includes("never a raised cap"), "must state the remedy is never a raised cap");
+            }
+        }
+    });
+
+    test("recommends and launches the next step, or states the re-run command and launches nothing", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "presents the diagnosis in chat"(body) {
+                Assert.ok(body.includes("Present your root-cause finding and recommendation in chat."), "must present the diagnosis in chat");
+            },
+            "offers exactly /flanders-spec, /flanders-plan, or neither"(body) {
+                Assert.ok(body.includes("ask the user which skill to launch to carry out the recommendation: \`/flanders-spec\`, \`/flanders-plan\`, or neither."), "must offer exactly /flanders-spec, /flanders-plan, or neither");
+            },
+            "recommends the skill the selected action points to"(body) {
+                Assert.ok(body.includes("Recommend the skill the action you selected in step 4 points to."), "must recommend the skill the selected action points to");
+            },
+            "choosing one is the condition that launches it in the same session with no <data>"(body) {
+                Assert.ok(body.includes("When the user chooses one, launch it in the same session with no \`<data>\` argument"), "choosing one must be the condition that launches it in the same session with no <data>");
+            },
+            "the launched skill takes the diagnosis from the conversation, uses its own write boundary, and leaves this skill read-only"(body) {
+                Assert.ok(body.includes("It takes the diagnosis from the conversation and operates under its own write boundary; yours remains read-only."), "the launched skill must take the diagnosis from the conversation, operate under its own write boundary, and leave this skill read-only");
+            },
+            "on a re-run remedy states the flanders implement command and launches nothing"(body) {
+                Assert.ok(body.includes("state the \`flanders implement\` command for the user to run and launch nothing"), "on a re-run remedy must state the flanders implement command and launch nothing");
+            },
+            "ends the run when the user declines"(body) {
+                Assert.ok(body.includes("When the user declines, end the run."), "must end the run when the user declines");
+            },
+            "the launch offer comes after the diagnosis is presented"(body) {
+                Assert.ok(body.indexOf("After presenting the diagnosis, ask the user which skill to launch") > body.indexOf("Present your root-cause finding and recommendation in chat."), "the launch offer must come after the diagnosis is presented");
+            }
+        }
+    });
+
+    test("states the write boundary: it authors no file of its own", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "creates, modifies, deletes, and renames no file of its own"(body) {
+                Assert.ok(body.includes("You create, modify, delete, and rename no file of your own"), "must state it creates, modifies, deletes, and renames no file of its own");
+            },
+            "every file change happens only through a skill it launches"(body) {
+                Assert.ok(body.includes("Every file change happens only through a skill you launch, under that skill's own write authority."), "every file change must happen only through a launched skill under that skill's own write authority");
+            }
+        }
+    });
+
+    test("carries the interaction-language obligation resolved to the user's most recent message", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "has interaction language heading"(body) {
+                Assert.ok(body.includes("## Interaction language"), "must have interaction language section");
+            },
+            "the section states every message uses the user's most recent message language"(body) {
+                const section = body.slice(body.indexOf("## Interaction language"), body.indexOf("## Voice"));
+                Assert.ok(section.includes("Every message you address to the user during the run is written in the natural language of the user's most recent message in the conversation."), "the Interaction language section must state that every message the skill addresses to the user uses the language of the user's most recent message");
+            },
+            "the section states the mid-conversation language switch"(body) {
+                const section = body.slice(body.indexOf("## Interaction language"), body.indexOf("## Voice"));
+                Assert.ok(section.includes("every subsequent message you address to the user follows the language of their latest message"), "the Interaction language section must state the mid-conversation language switch");
+            }
+        }
+    });
+
+    test("addresses the user in the soft Flanders voice with no authored-artifact carve-out", {
+        ARRANGE() {
+            return { voice: `${SKILL_VOICE_HEAD}.` };
+        },
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "the complete final Voice section equals the shared head plus a single period"(body, { voice }) {
+                Assert.strictEqual(body.slice(body.indexOf("## Voice")), voice);
+            },
+            "adds no authored-artifact carve-out after the shared exclusion list"(body) {
+                Assert.strictEqual(body.includes("git commit messages, and"), false);
+            },
+            "names no sample greeting exemplar anywhere in the body"(body) {
+                Assert.strictEqual(body.toLowerCase().includes("neighbor"), false);
+            },
+            "names no sample interjection exemplar anywhere in the body"(body) {
+                Assert.strictEqual(body.toLowerCase().includes("okely-dokely"), false);
+            },
+            "names no sample suffix exemplar anywhere in the body"(body) {
+                Assert.strictEqual(body.toLowerCase().includes("-diddly-"), false);
+            }
+        }
+    });
+
+    test("self-contained body: no flanders-internal spec-path citation", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERT(body) {
+            Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(body), false);
+        }
+    });
+
+    test("has no unresolved placeholders or TODOs", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
         ASSERTS: {
             "does not contain TODO"(body) {
                 Assert.ok(!body.includes("TODO"), "must not contain TODO");
