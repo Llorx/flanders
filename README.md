@@ -68,7 +68,7 @@ Flanders installs at one of two scopes, chosen with a pair of mutually exclusive
 
 ### What it writes
 
-For each AI tool you select for skills, `install` writes one skill artifact per Flanders skill (`/flanders-spec`, `/flanders-plan`, and `/flanders-work`) into that tool's skill folder for the chosen scope:
+For each AI tool you select for skills, `install` writes one skill artifact per Flanders skill (`/flanders-spec`, `/flanders-plan`, `/flanders-work`, and `/flanders-hard-stop-review`) into that tool's skill folder for the chosen scope:
 
 | Tool | Project scope | Global scope |
 | --- | --- | --- |
@@ -137,7 +137,7 @@ Updated the lib and itching for the freshest skills, neighbor? Just run:
 flanders update
 ```
 
-`update` takes no flags. It scans the four skill destinations `install` writes to — Claude Code's `.claude/skills/` and `~/.claude/skills/`, and Codex CLI's `.codex/prompts/` and `~/.codex/prompts/` — and wherever it finds at least one Flanders skill artifact already in place, it rewrites the full `/flanders-spec`, `/flanders-plan`, and `/flanders-work` trio there with the current version. A destination where no Flanders skill artifact is present is left untouched, so `update` refreshes the installations you already have and never creates one where you had none.
+`update` takes no flags. It scans the four skill destinations `install` writes to — Claude Code's `.claude/skills/` and `~/.claude/skills/`, and Codex CLI's `.codex/prompts/` and `~/.codex/prompts/` — and wherever it finds at least one Flanders skill artifact already in place, it rewrites the full `/flanders-spec`, `/flanders-plan`, `/flanders-work`, and `/flanders-hard-stop-review` set there with the current version. A destination where no Flanders skill artifact is present is left untouched, so `update` refreshes the installations you already have and never creates one where you had none.
 
 ## Configuration
 
@@ -152,25 +152,31 @@ When a command reads the configuration, a project-scope `.flanders/` always take
 
 ## Usage
 
-With Flanders installed, here's how to put it to work — running plans from the CLI and shaping them with the three skills.
+With Flanders installed, here's how to put it to work — running plans from the CLI and shaping them with the four skills.
 
-### The three skills
+### The four skills
 
 - **`/flanders-spec`** — turns a free-form request into your contracts, rules, and behavior rules, written into the `.spec/contracts`, `.spec/rules`, and `.spec/flanders` folders.
 - **`/flanders-plan`** — derives a single, ordered, specification-aware work plan from your request.
 - **`/flanders-work`** — implements a small, self-contained request directly and gates it through build, test, and a single adversarial review, all in one invocation — no plan file and no commit.
+- **`/flanders-hard-stop-review`** — diagnoses an `implement` hard stop from its preserved temporary folder and recommends how to relaunch `implement` so the stuck task finishes instead of stopping again.
 
-Each skill takes the same optional `<data>` argument:
+The first three skills take the same optional `<data>` argument, and `/flanders-hard-stop-review` takes one too:
 
 ```
 /flanders-spec [<data>]
 /flanders-plan [<data>]
 /flanders-work [<data>]
+/flanders-hard-stop-review [<data>]
 ```
+
+For `/flanders-spec`, `/flanders-plan`, and `/flanders-work`, `<data>` is your request:
 
 - Omit it, and the skill takes your request straight from the conversation.
 - Give it a path to an existing file, and the skill reads that file as the input.
 - Give it any other text, and the skill uses that text verbatim.
+
+For `/flanders-hard-stop-review`, `<data>` is the path of the preserved hard-stop temporary folder to diagnose — omit it, and the skill takes that path from the conversation.
 
 ### Implementing a plan
 
@@ -254,4 +260,4 @@ It won't leave you guessing, though. Flanders prints an error that names the tas
 
 Inside you'll find the sessions from every attempt on the task: the worker's output, the build and test output, each reviewer's output, and the `error.log` that briefed the final iteration. It's the whole story of what was tried and where each go-round fell short.
 
-And here's the neighborly part — you don't have to untangle it all yourself. Hand that folder to your AI coding tool and just ask it to review the folder and tell you why the run failed. It'll read back through the sessions and walk you through what went wrong, so you can mend the spec, the plan, or the task and send Flanders off to try again.
+And here's the neighborly part — you don't have to untangle it all yourself. Invoke **`/flanders-hard-stop-review`** in your AI coding tool and hand it that folder's path, and it reads back through the sessions, tells you why the run failed, and recommends how to relaunch `implement` so the stuck task finishes this time — mending the spec or the plan, or simply running it again.
