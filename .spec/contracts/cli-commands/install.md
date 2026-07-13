@@ -1,7 +1,7 @@
 # `install` Command Contract
 
 ## Purpose
-Configure Flanders for the chosen scope and deliver the Flanders skills (`/flanders-spec`, `/flanders-plan`, and `/flanders-work`) to the user's AI-tool environment(s) so the user can invoke them from inside an AI-tool session. This subcommand is the only way the library publishes those skills to disk and the only way it writes the persistent `.flanders/` configuration consumed by other Flanders commands.
+Configure Flanders for the chosen scope and deliver the Flanders skills (`/flanders-spec`, `/flanders-plan`, `/flanders-work`, and `/flanders-hard-stop-review`) to the user's AI-tool environment(s) so the user can invoke them from inside an AI-tool session. This subcommand is the only way the library publishes those skills to disk and the only way it writes the persistent `.flanders/` configuration consumed by other Flanders commands.
 
 ## Invocation
     npx flanders install [scope-flag] [tool-flag ...] [model-flag ...] [effort-flag ...] [fast-flag ...]
@@ -100,7 +100,7 @@ The skills-tool answer and the scope are not stored in `.flanders/config.json` (
 Accepting every pre-selected default — pressing through the configuration-derived questions without changing any answer — reproduces the stored configuration exactly, so a re-run at the same scope that changes nothing writes back the same `.flanders/config.json`. A question pre-selects a stored answer only when that answer is still among the options the question currently offers. Every question other than the `codex` model question can always offer its stored value: the `claude` model question and the `claude` effort question through their custom entry, the tool questions and the `codex` effort question because a stored value there is always a member of their fixed set, and the minimum through its free-text entry. The `codex` model question offers the models the probe currently returns plus `default configured model`; a stored `codex` model the probe no longer returns is not among its options, so that one question is presented without a pre-selected default and is answered actively.
 
 ## Skills produced
-For each AI tool the user picked for skills, the command writes one skill artifact per Flanders skill (`/flanders-spec`, `/flanders-plan`, `/flanders-work`) into that tool's skill folder for the selected scope:
+For each AI tool the user picked for skills, the command writes one skill artifact per Flanders skill (`/flanders-spec`, `/flanders-plan`, `/flanders-work`, `/flanders-hard-stop-review`) into that tool's skill folder for the selected scope:
 - Claude Code skills are written to `.claude/skills/` (project scope) or `~/.claude/skills/` (global scope), in the directory-plus-`SKILL.md` form Claude Code requires for user-installed skills.
 - Codex CLI prompts are written to `.codex/prompts/` (project scope) or `~/.codex/prompts/` (global scope), in the form Codex CLI requires for user-installed prompts.
 
@@ -135,6 +135,6 @@ The command's interactive prompts and its own status writes carry the Flanders v
 - Unable to produce a skill artifact (e.g., the source content for a skill is missing): exits non-zero with a diagnostic that names the affected skill.
 
 ## Out of scope
-- The exact internal contents of each skill artifact (frontmatter fields, body shape) are implementation choices and are not pinned by this contract. What is pinned is that after a successful `install` run, the user is able to invoke `/flanders-spec`, `/flanders-plan`, and `/flanders-work` from inside an AI-tool session of each selected tool whose skills root is the chosen scope.
+- The exact internal contents of each skill artifact (frontmatter fields, body shape) are implementation choices and are not pinned by this contract. What is pinned is that after a successful `install` run, the user is able to invoke `/flanders-spec`, `/flanders-plan`, `/flanders-work`, and `/flanders-hard-stop-review` from inside an AI-tool session of each selected tool whose skills root is the chosen scope.
 - The exact file names, directory layout, and serialization format inside `.flanders/` are implementation choices. The location per scope, the set of fields persisted, and the read-time precedence are pinned in [.spec/contracts/shared/flanders-config.md](/.spec/contracts/shared/flanders-config.md).
 - Uninstallation: this contract does not define a `flanders uninstall` subcommand. The user removes installed skills and the `.flanders/` folder manually if needed.

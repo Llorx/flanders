@@ -179,7 +179,7 @@ The self-review loop ends only when the draft passes every item on the checklist
 
 ## Flanders skill artifact prompts are self-contained — no citations of flanders-internal spec paths
 
-The body of every Flanders skill artifact — the prompt text that the `install` command writes to the user's AI-tool skill folders, where each artifact represents `/flanders-spec`, `/flanders-plan`, or `/flanders-work` — is self-contained. Every obligation the artifact enforces is inline in its body. The body never cites a specific spec file from flanders' own development spec — a file inside one of flanders' own `.spec/contracts` or `.spec/rules` folders, or inside flanders' `plans/` folder — because that specific file does not exist in the user's project where the artifact runs, so the citation resolves to nothing.
+The body of every Flanders skill artifact — the prompt text that the `install` command writes to the user's AI-tool skill folders, where each artifact represents `/flanders-spec`, `/flanders-plan`, `/flanders-work`, or `/flanders-hard-stop-review` — is self-contained. Every obligation the artifact enforces is inline in its body. The body never cites a specific spec file from flanders' own development spec — a file inside one of flanders' own `.spec/contracts` or `.spec/rules` folders, or inside flanders' `plans/` folder — because that specific file does not exist in the user's project where the artifact runs, so the citation resolves to nothing.
 
 ### Who this applies to
 

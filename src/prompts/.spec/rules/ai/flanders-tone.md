@@ -10,7 +10,7 @@ Every prompt Flanders builds for an agent or skill that produces user-facing nat
   - the `implement` command's worker prompt;
   - the `implement` command's reviewer prompt(s);
   - the `/flanders-work` skill's reviewer subagent prompt;
-  - the `/flanders-spec`, `/flanders-plan`, and `/flanders-work` skill artifact bodies, for the messages those skills address to the user.
+  - the `/flanders-spec`, `/flanders-plan`, `/flanders-work`, and `/flanders-hard-stop-review` skill artifact bodies, for the messages those skills address to the user.
 - **Not subject:** the `implement` and `install` commands' own deterministic output, which carries the voice directly rather than through a prompt instruction (see [.spec/contracts/shared/flanders-voice.md](/.spec/contracts/shared/flanders-voice.md)); and the task text, reference content, change-set instructions, and verdict-file protocol the orchestrator provides to an agent — whether in the prompt or in the consolidated `spec.md` the agent reads — which this rule leaves unchanged.
 
 ### Behavior
