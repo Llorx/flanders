@@ -1198,7 +1198,7 @@ export class Install {
                 ? contexts.platform.homedir()
                 : options.projectRoot;
             const writtenPaths:string[] = [];
-            // Emit each selected tool's skill trio into its own destination, in selection order.
+            // Emit each selected tool's skill set into its own destination, in selection order.
             for (const tool of skillsTools) {
                 const result = await writeSkillArtifacts(contexts.fs, scopeRoot, tool, () => this._disposed);
                 if (!result.ok) {

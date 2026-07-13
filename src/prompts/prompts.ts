@@ -245,7 +245,7 @@ ${citationFreeReviewerMethodology.audit}`;
 // The shared Flanders-voice instruction, kept as the single source so a tone fix cannot drift between
 // the agent prompts and the skill bodies. Every surface composes its section from
 // `buildFlandersVoiceSection`: the implement worker and reviewer prompts (via `flandersToneInstruction`
-// below) and the three skill bodies plus the /flanders-work reviewer prompt assembled in skills.ts.
+// below) and the four skill bodies plus the /flanders-work reviewer prompt assembled in skills.ts.
 // The instruction trusts a capable model to know the voice: it fixes only what would otherwise break —
 // English-only and the technical surfaces the flavor must never touch. See
 // .spec/contracts/shared/flanders-voice.md and src/prompts/.spec/rules/ai/flanders-tone.md.

@@ -5,7 +5,7 @@ import test from "arrange-act-assert";
 import { Update } from "./Update";
 import type { UpdateContexts } from "./Update";
 import { stripYamlFrontmatter } from "./skillArtifacts";
-import { planSkillBody, specSkillBody, workSkillBody } from "../prompts/skills";
+import { planSkillBody, specSkillBody, workSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
 
 function stubContexts() {
     const written:string[] = [];
@@ -67,26 +67,30 @@ function assertMutationsConfinedTo(mutationPaths:readonly string[], allowedDirs:
 const PROJ_CLAUDE = {
     spec: "/proj/.claude/skills/flanders-spec/SKILL.md",
     plan: "/proj/.claude/skills/flanders-plan/SKILL.md",
-    work: "/proj/.claude/skills/flanders-work/SKILL.md"
+    work: "/proj/.claude/skills/flanders-work/SKILL.md",
+    hardStop: "/proj/.claude/skills/flanders-hard-stop-review/SKILL.md"
 };
 const PROJ_CODEX = {
     spec: "/proj/.codex/prompts/flanders-spec.md",
     plan: "/proj/.codex/prompts/flanders-plan.md",
-    work: "/proj/.codex/prompts/flanders-work.md"
+    work: "/proj/.codex/prompts/flanders-work.md",
+    hardStop: "/proj/.codex/prompts/flanders-hard-stop-review.md"
 };
 const HOME_CLAUDE = {
     spec: "/home/testuser/.claude/skills/flanders-spec/SKILL.md",
     plan: "/home/testuser/.claude/skills/flanders-plan/SKILL.md",
-    work: "/home/testuser/.claude/skills/flanders-work/SKILL.md"
+    work: "/home/testuser/.claude/skills/flanders-work/SKILL.md",
+    hardStop: "/home/testuser/.claude/skills/flanders-hard-stop-review/SKILL.md"
 };
 const HOME_CODEX = {
     spec: "/home/testuser/.codex/prompts/flanders-spec.md",
     plan: "/home/testuser/.codex/prompts/flanders-plan.md",
-    work: "/home/testuser/.codex/prompts/flanders-work.md"
+    work: "/home/testuser/.codex/prompts/flanders-work.md",
+    hardStop: "/home/testuser/.codex/prompts/flanders-hard-stop-review.md"
 };
 
 test.describe("Update refresh by scope and tool", test => {
-    test("refreshes a project-scope Claude installation to the full trio", {
+    test("refreshes a project-scope Claude installation to the full set", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PROJ_CLAUDE.spec, "old content");
@@ -111,11 +115,14 @@ test.describe("Update refresh by scope and tool", test => {
             "rewrites the work skill with the current body"(_code, { files }) {
                 Assert.strictEqual(files.get(PROJ_CLAUDE.work), workSkillBody);
             },
-            "writes exactly the three Claude artifacts"(_code, { files }) {
-                Assert.strictEqual(files.size, 3);
+            "rewrites the hard-stop-review skill with the current body"(_code, { files }) {
+                Assert.strictEqual(files.get(PROJ_CLAUDE.hardStop), hardStopReviewSkillBody);
             },
-            "prints exactly the three written paths, one per line, with no blank lines"(_code, { written }) {
-                Assert.strictEqual(written.join(""), [PROJ_CLAUDE.spec, PROJ_CLAUDE.plan, PROJ_CLAUDE.work].map(p => `${p}\n`).join(""));
+            "writes exactly the four Claude artifacts"(_code, { files }) {
+                Assert.strictEqual(files.size, 4);
+            },
+            "prints exactly the four written paths, one per line, with no blank lines"(_code, { written }) {
+                Assert.strictEqual(written.join(""), [PROJ_CLAUDE.spec, PROJ_CLAUDE.plan, PROJ_CLAUDE.work, PROJ_CLAUDE.hardStop].map(p => `${p}\n`).join(""));
             },
             "produces no errors"(_code, { errors }) {
                 Assert.strictEqual(errors.length, 0);
@@ -151,8 +158,11 @@ test.describe("Update refresh by scope and tool", test => {
             "rewrites the work prompt with the stripped body"(_code, { files }) {
                 Assert.strictEqual(files.get(PROJ_CODEX.work), stripYamlFrontmatter(workSkillBody));
             },
-            "writes exactly the three Codex artifacts"(_code, { files }) {
-                Assert.strictEqual(files.size, 3);
+            "rewrites the hard-stop-review prompt with the stripped body"(_code, { files }) {
+                Assert.strictEqual(files.get(PROJ_CODEX.hardStop), stripYamlFrontmatter(hardStopReviewSkillBody));
+            },
+            "writes exactly the four Codex artifacts"(_code, { files }) {
+                Assert.strictEqual(files.size, 4);
             },
             "confines every filesystem mutation to the installed project Codex destination"(_code, { mutationPaths }) {
                 assertMutationsConfinedTo(mutationPaths, [PROJ_CODEX_DIR]);
@@ -185,8 +195,11 @@ test.describe("Update refresh by scope and tool", test => {
             "rewrites the work skill under the home directory"(_code, { files }) {
                 Assert.strictEqual(files.get(HOME_CLAUDE.work), workSkillBody);
             },
-            "writes exactly the three global Claude artifacts"(_code, { files }) {
-                Assert.strictEqual(files.size, 3);
+            "rewrites the hard-stop-review skill under the home directory"(_code, { files }) {
+                Assert.strictEqual(files.get(HOME_CLAUDE.hardStop), hardStopReviewSkillBody);
+            },
+            "writes exactly the four global Claude artifacts"(_code, { files }) {
+                Assert.strictEqual(files.size, 4);
             },
             "confines every filesystem mutation to the installed global Claude destination"(_code, { mutationPaths }) {
                 assertMutationsConfinedTo(mutationPaths, [HOME_CLAUDE_DIR]);
@@ -219,8 +232,11 @@ test.describe("Update refresh by scope and tool", test => {
             "rewrites the work prompt under the home directory"(_code, { files }) {
                 Assert.strictEqual(files.get(HOME_CODEX.work), stripYamlFrontmatter(workSkillBody));
             },
-            "writes exactly the three global Codex artifacts"(_code, { files }) {
-                Assert.strictEqual(files.size, 3);
+            "rewrites the hard-stop-review prompt under the home directory"(_code, { files }) {
+                Assert.strictEqual(files.get(HOME_CODEX.hardStop), stripYamlFrontmatter(hardStopReviewSkillBody));
+            },
+            "writes exactly the four global Codex artifacts"(_code, { files }) {
+                Assert.strictEqual(files.size, 4);
             },
             "confines every filesystem mutation to the installed global Codex destination"(_code, { mutationPaths }) {
                 assertMutationsConfinedTo(mutationPaths, [HOME_CODEX_DIR]);
@@ -245,19 +261,19 @@ test.describe("Update refresh by scope and tool", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "rewrites the Claude trio"(_code, { files }) {
-                Assert.ok(files.has(PROJ_CLAUDE.spec) && files.has(PROJ_CLAUDE.plan) && files.has(PROJ_CLAUDE.work));
+            "rewrites the Claude set"(_code, { files }) {
+                Assert.ok(files.has(PROJ_CLAUDE.spec) && files.has(PROJ_CLAUDE.plan) && files.has(PROJ_CLAUDE.work) && files.has(PROJ_CLAUDE.hardStop));
             },
-            "rewrites the Codex trio"(_code, { files }) {
-                Assert.ok(files.has(PROJ_CODEX.spec) && files.has(PROJ_CODEX.plan) && files.has(PROJ_CODEX.work));
+            "rewrites the Codex set"(_code, { files }) {
+                Assert.ok(files.has(PROJ_CODEX.spec) && files.has(PROJ_CODEX.plan) && files.has(PROJ_CODEX.work) && files.has(PROJ_CODEX.hardStop));
             },
-            "writes exactly the six artifacts across both tools"(_code, { files }) {
-                Assert.strictEqual(files.size, 6);
+            "writes exactly the eight artifacts across both tools"(_code, { files }) {
+                Assert.strictEqual(files.size, 8);
             },
             "prints exactly every written path across both tools, one per line, in order, with no blank lines"(_code, { written }) {
                 Assert.strictEqual(written.join(""), [
-                    PROJ_CLAUDE.spec, PROJ_CLAUDE.plan, PROJ_CLAUDE.work,
-                    PROJ_CODEX.spec, PROJ_CODEX.plan, PROJ_CODEX.work
+                    PROJ_CLAUDE.spec, PROJ_CLAUDE.plan, PROJ_CLAUDE.work, PROJ_CLAUDE.hardStop,
+                    PROJ_CODEX.spec, PROJ_CODEX.plan, PROJ_CODEX.work, PROJ_CODEX.hardStop
                 ].map(p => `${p}\n`).join(""));
             },
             "confines every filesystem mutation to the two installed project destinations"(_code, { mutationPaths }) {
@@ -266,145 +282,66 @@ test.describe("Update refresh by scope and tool", test => {
         }
     });
 
-    test("completes a Claude installation detected via the plan artifact", {
-        ARRANGE() {
-            const s = stubContexts();
-            // Only the plan artifact is present — detection must still find the installation.
-            s.files.set(PROJ_CLAUDE.plan, "old content");
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Update([], { projectRoot: PROJ }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 0"(code) {
-                Assert.strictEqual(code, 0);
+    // The single-artifact detection cases share one arrange/act/assert core: seeding only one of the
+    // four artifacts at a destination must still make `update` detect the installation and refresh the
+    // complete four-artifact set there with the current bodies. Only the destination map, its body
+    // transform (identity for Claude, frontmatter-stripped for Codex), its mutation-boundary directory,
+    // and which artifact is the sole seeded marker vary, so the cases are data over that one shared core
+    // rather than a copy per case (see docs/rules/code-deduplication.md rules 7 and 8).
+    const DETECTION_SKILLS:ReadonlyArray<{ key:"spec"|"plan"|"work"|"hardStop"; body:string }> = [
+        { key: "spec", body: specSkillBody },
+        { key: "plan", body: planSkillBody },
+        { key: "work", body: workSkillBody },
+        { key: "hardStop", body: hardStopReviewSkillBody }
+    ];
+    const DETECTION_CASES:ReadonlyArray<{
+        title:string;
+        dest:Record<"spec"|"plan"|"work"|"hardStop", string>;
+        destDir:string;
+        transform:(body:string) => string;
+        seeded:"spec"|"plan"|"work"|"hardStop";
+    }> = [
+        { title: "completes a project Claude installation detected via the plan artifact alone", dest: PROJ_CLAUDE, destDir: PROJ_CLAUDE_DIR, transform: body => body, seeded: "plan" },
+        { title: "completes a project Claude installation detected via the work artifact alone", dest: PROJ_CLAUDE, destDir: PROJ_CLAUDE_DIR, transform: body => body, seeded: "work" },
+        { title: "completes a project Claude installation detected via the hard-stop-review artifact alone", dest: PROJ_CLAUDE, destDir: PROJ_CLAUDE_DIR, transform: body => body, seeded: "hardStop" },
+        { title: "completes a global Claude installation detected via the hard-stop-review artifact alone", dest: HOME_CLAUDE, destDir: HOME_CLAUDE_DIR, transform: body => body, seeded: "hardStop" },
+        { title: "completes a project Codex installation detected via the plan artifact alone", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, transform: stripYamlFrontmatter, seeded: "plan" },
+        { title: "completes a project Codex installation detected via the work artifact alone", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, transform: stripYamlFrontmatter, seeded: "work" },
+        { title: "completes a project Codex installation detected via the hard-stop-review artifact alone", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, transform: stripYamlFrontmatter, seeded: "hardStop" },
+        { title: "completes a global Codex installation detected via the hard-stop-review artifact alone", dest: HOME_CODEX, destDir: HOME_CODEX_DIR, transform: stripYamlFrontmatter, seeded: "hardStop" }
+    ];
+    for (const detectionCase of DETECTION_CASES) {
+        test(detectionCase.title, {
+            ARRANGE() {
+                const s = stubContexts();
+                // Only one artifact is present — detection must still find the installation.
+                s.files.set(detectionCase.dest[detectionCase.seeded], "old content");
+                return s;
             },
-            "adds the missing spec artifact"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CLAUDE.spec), specSkillBody);
+            async ACT({ contexts }) {
+                const cmd = new Update([], { projectRoot: PROJ }, contexts);
+                const code = await cmd.result();
+                await cmd.dispose();
+                return code;
             },
-            "rewrites the pre-existing plan artifact rather than leaving it stale"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CLAUDE.plan), planSkillBody);
-            },
-            "adds the missing work artifact"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CLAUDE.work), workSkillBody);
-            },
-            "ends holding the complete trio"(_code, { files }) {
-                Assert.strictEqual(files.size, 3);
-            },
-            "confines every filesystem mutation to the installed project Claude destination"(_code, { mutationPaths }) {
-                assertMutationsConfinedTo(mutationPaths, [PROJ_CLAUDE_DIR]);
+            ASSERTS: {
+                "exits with code 0"(code) {
+                    Assert.strictEqual(code, 0);
+                },
+                "refreshes every artifact of the destination with the current body, rewriting the stale seeded one"(_code, { files }) {
+                    for (const skill of DETECTION_SKILLS) {
+                        Assert.strictEqual(files.get(detectionCase.dest[skill.key]), detectionCase.transform(skill.body));
+                    }
+                },
+                "ends holding exactly the four artifacts"(_code, { files }) {
+                    Assert.strictEqual(files.size, 4);
+                },
+                "confines every filesystem mutation to the installed destination"(_code, { mutationPaths }) {
+                    assertMutationsConfinedTo(mutationPaths, [detectionCase.destDir]);
+                }
             }
-        }
-    });
-
-    test("completes a Claude installation detected via the work artifact", {
-        ARRANGE() {
-            const s = stubContexts();
-            // Only the last artifact is present — detection must still find the installation.
-            s.files.set(PROJ_CLAUDE.work, "old content");
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Update([], { projectRoot: PROJ }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 0"(code) {
-                Assert.strictEqual(code, 0);
-            },
-            "adds the missing spec artifact"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CLAUDE.spec), specSkillBody);
-            },
-            "adds the missing plan artifact"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CLAUDE.plan), planSkillBody);
-            },
-            "rewrites the pre-existing work artifact rather than leaving it stale"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CLAUDE.work), workSkillBody);
-            },
-            "ends holding the complete trio"(_code, { files }) {
-                Assert.strictEqual(files.size, 3);
-            },
-            "confines every filesystem mutation to the installed project Claude destination"(_code, { mutationPaths }) {
-                assertMutationsConfinedTo(mutationPaths, [PROJ_CLAUDE_DIR]);
-            }
-        }
-    });
-
-    test("completes a Codex installation detected via the plan artifact", {
-        ARRANGE() {
-            const s = stubContexts();
-            // Only the middle Codex artifact is present — detection must still find the installation.
-            s.files.set(PROJ_CODEX.plan, "old content");
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Update([], { projectRoot: PROJ }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 0"(code) {
-                Assert.strictEqual(code, 0);
-            },
-            "adds the missing spec prompt with the stripped body"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CODEX.spec), stripYamlFrontmatter(specSkillBody));
-            },
-            "rewrites the pre-existing plan prompt rather than leaving it stale"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CODEX.plan), stripYamlFrontmatter(planSkillBody));
-            },
-            "adds the missing work prompt with the stripped body"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CODEX.work), stripYamlFrontmatter(workSkillBody));
-            },
-            "ends holding the complete Codex trio"(_code, { files }) {
-                Assert.strictEqual(files.size, 3);
-            },
-            "confines every filesystem mutation to the installed project Codex destination"(_code, { mutationPaths }) {
-                assertMutationsConfinedTo(mutationPaths, [PROJ_CODEX_DIR]);
-            }
-        }
-    });
-
-    test("completes a Codex installation detected via the work artifact", {
-        ARRANGE() {
-            const s = stubContexts();
-            // Only the last Codex artifact is present — detection must still find the installation.
-            s.files.set(PROJ_CODEX.work, "old content");
-            return s;
-        },
-        async ACT({ contexts }) {
-            const cmd = new Update([], { projectRoot: PROJ }, contexts);
-            const code = await cmd.result();
-            await cmd.dispose();
-            return code;
-        },
-        ASSERTS: {
-            "exits with code 0"(code) {
-                Assert.strictEqual(code, 0);
-            },
-            "adds the missing spec prompt with the stripped body"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CODEX.spec), stripYamlFrontmatter(specSkillBody));
-            },
-            "adds the missing plan prompt with the stripped body"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CODEX.plan), stripYamlFrontmatter(planSkillBody));
-            },
-            "rewrites the pre-existing work prompt rather than leaving it stale"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CODEX.work), stripYamlFrontmatter(workSkillBody));
-            },
-            "ends holding the complete Codex trio"(_code, { files }) {
-                Assert.strictEqual(files.size, 3);
-            },
-            "confines every filesystem mutation to the installed project Codex destination"(_code, { mutationPaths }) {
-                assertMutationsConfinedTo(mutationPaths, [PROJ_CODEX_DIR]);
-            }
-        }
-    });
+        });
+    }
 
     test("refreshes only installed destinations across scopes and tools", {
         ARRANGE() {
@@ -430,21 +367,21 @@ test.describe("Update refresh by scope and tool", test => {
                 Assert.strictEqual(files.get(HOME_CODEX.work), stripYamlFrontmatter(workSkillBody));
             },
             "leaves the uninstalled project Codex destination untouched"(_code, { files }) {
-                Assert.ok(!files.has(PROJ_CODEX.spec) && !files.has(PROJ_CODEX.plan) && !files.has(PROJ_CODEX.work));
+                Assert.ok(!files.has(PROJ_CODEX.spec) && !files.has(PROJ_CODEX.plan) && !files.has(PROJ_CODEX.work) && !files.has(PROJ_CODEX.hardStop));
             },
             "leaves the uninstalled global Claude destination untouched"(_code, { files }) {
-                Assert.ok(!files.has(HOME_CLAUDE.spec) && !files.has(HOME_CLAUDE.plan) && !files.has(HOME_CLAUDE.work));
+                Assert.ok(!files.has(HOME_CLAUDE.spec) && !files.has(HOME_CLAUDE.plan) && !files.has(HOME_CLAUDE.work) && !files.has(HOME_CLAUDE.hardStop));
             },
             "performs no filesystem mutation on either uninstalled destination"(_code, { mutationPaths }) {
                 assertMutationsConfinedTo(mutationPaths, [PROJ_CLAUDE_DIR, HOME_CODEX_DIR]);
             },
-            "writes exactly the six artifacts of the two installed destinations"(_code, { files }) {
-                Assert.strictEqual(files.size, 6);
+            "writes exactly the eight artifacts of the two installed destinations"(_code, { files }) {
+                Assert.strictEqual(files.size, 8);
             },
             "prints exactly every written path across both refreshed destinations, one per line, in order, with no blank lines"(_code, { written }) {
                 Assert.strictEqual(written.join(""), [
-                    PROJ_CLAUDE.spec, PROJ_CLAUDE.plan, PROJ_CLAUDE.work,
-                    HOME_CODEX.spec, HOME_CODEX.plan, HOME_CODEX.work
+                    PROJ_CLAUDE.spec, PROJ_CLAUDE.plan, PROJ_CLAUDE.work, PROJ_CLAUDE.hardStop,
+                    HOME_CODEX.spec, HOME_CODEX.plan, HOME_CODEX.work, HOME_CODEX.hardStop
                 ].map(p => `${p}\n`).join(""));
             }
         }
@@ -501,7 +438,7 @@ test.describe("Update argument validation", test => {
                 Assert.strictEqual(errors.join(""), "The update command takes no arguments.\n");
             },
             "refreshes nothing"(_code, { files }) {
-                // The pre-existing artifact is untouched and no trio is written.
+                // The pre-existing artifact is untouched and no skill set is written.
                 Assert.strictEqual(files.get(PROJ_CLAUDE.spec), "old content");
             },
             "writes nothing to standard output"(_code, { written }) {
@@ -708,8 +645,8 @@ test.describe("Update dispose", test => {
     test("disposed as the final write completes exits non-zero with no success output", {
         ARRANGE() {
             const s = stubContexts();
-            // Only the last scanned destination (home codex) is installed, so its three writes are
-            // the run's last action; disposing after the third write lets writeSkillArtifacts return ok
+            // Only the last scanned destination (home codex) is installed, so its four writes are
+            // the run's last action; disposing after the fourth write lets writeSkillArtifacts return ok
             // before the post-write disposal guard runs.
             s.files.set(HOME_CODEX.spec, "old content");
             let writeCount = 0;
@@ -718,7 +655,7 @@ test.describe("Update dispose", test => {
             (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = async (p, content) => {
                 await origWriteFile(p, content);
                 writeCount++;
-                if (writeCount === 3 && cmdRef) {
+                if (writeCount === 4 && cmdRef) {
                     // Dispose after the final artifact write completes but do NOT await it.
                     void cmdRef.dispose();
                 }
@@ -736,8 +673,8 @@ test.describe("Update dispose", test => {
             "exits with code 1"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "the full trio was written before disposal landed"(_code, { files }) {
-                Assert.ok(files.has(HOME_CODEX.spec) && files.has(HOME_CODEX.plan) && files.has(HOME_CODEX.work));
+            "the full set was written before disposal landed"(_code, { files }) {
+                Assert.ok(files.has(HOME_CODEX.spec) && files.has(HOME_CODEX.plan) && files.has(HOME_CODEX.work) && files.has(HOME_CODEX.hardStop));
             },
             "prints nothing to standard output"(_code, { written }) {
                 Assert.strictEqual(written.length, 0);

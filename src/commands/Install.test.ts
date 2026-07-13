@@ -8,7 +8,7 @@ import { stripYamlFrontmatter } from "./skillArtifacts";
 import type { AskAnswer, ScriptContext, SpawnedProcess } from "../contexts";
 import { read as readConfig } from "../workspace/FlandersConfig";
 import type { FlandersConfig } from "../workspace/FlandersConfig";
-import { planSkillBody, specSkillBody, workSkillBody } from "../prompts/skills";
+import { planSkillBody, specSkillBody, workSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
 
 function stubContexts() {
     const written:string[] = [];
@@ -102,6 +102,9 @@ test.describe("Install --project", test => {
             "creates work skill file"(_code, { files }) {
                 Assert.ok(files.has("/myproject/.claude/skills/flanders-work/SKILL.md"));
             },
+            "creates hard-stop-review skill file"(_code, { files }) {
+                Assert.ok(files.has("/myproject/.claude/skills/flanders-hard-stop-review/SKILL.md"));
+            },
             "spec skill file has correct body"(_code, { files }) {
                 Assert.strictEqual(files.get("/myproject/.claude/skills/flanders-spec/SKILL.md"), specSkillBody);
             },
@@ -111,8 +114,11 @@ test.describe("Install --project", test => {
             "work skill file has correct body"(_code, { files }) {
                 Assert.strictEqual(files.get("/myproject/.claude/skills/flanders-work/SKILL.md"), workSkillBody);
             },
-            "writes exactly 4 files"(_code, { files }) {
-                Assert.strictEqual(files.size, 4);
+            "hard-stop-review skill file has correct body"(_code, { files }) {
+                Assert.strictEqual(files.get("/myproject/.claude/skills/flanders-hard-stop-review/SKILL.md"), hardStopReviewSkillBody);
+            },
+            "writes exactly 5 files"(_code, { files }) {
+                Assert.strictEqual(files.size, 5);
             },
             "writes config.json"(_code, { files }) {
                 Assert.ok(files.has("/myproject/.flanders/config.json"));
@@ -125,6 +131,9 @@ test.describe("Install --project", test => {
             },
             "stdout includes work skill path"(_code, { written }) {
                 Assert.ok(written.join("").includes("/myproject/.claude/skills/flanders-work/SKILL.md"));
+            },
+            "stdout includes hard-stop-review skill path"(_code, { written }) {
+                Assert.ok(written.join("").includes("/myproject/.claude/skills/flanders-hard-stop-review/SKILL.md"));
             },
             "stdout includes config path"(_code, { written }) {
                 Assert.ok(written.join("").includes("/myproject/.flanders/config.json"));
@@ -142,9 +151,9 @@ test.describe("Install --project", test => {
             await cmd.dispose();
         },
         ASSERTS: {
-            "outputs exactly 4 lines"(_, { written }) {
+            "outputs exactly 5 lines"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
-                Assert.strictEqual(lines.length, 4);
+                Assert.strictEqual(lines.length, 5);
             },
             "first line includes spec skill path"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
@@ -158,9 +167,13 @@ test.describe("Install --project", test => {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
                 Assert.ok(lines[2]!.includes("flanders-work/SKILL.md"));
             },
-            "fourth line includes config path"(_, { written }) {
+            "fourth line includes hard-stop-review skill path"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
-                Assert.ok(lines[3]!.includes(".flanders/config.json"));
+                Assert.ok(lines[3]!.includes("flanders-hard-stop-review/SKILL.md"));
+            },
+            "fifth line includes config path"(_, { written }) {
+                const lines = written.join("").split("\n").filter(l => l.length > 0);
+                Assert.ok(lines[4]!.includes(".flanders/config.json"));
             }
         }
     });
@@ -190,14 +203,20 @@ test.describe("Install --global", test => {
             "creates work skill file"(_code, { files }) {
                 Assert.ok(files.has("/home/testuser/.claude/skills/flanders-work/SKILL.md"));
             },
+            "creates hard-stop-review skill file"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.claude/skills/flanders-hard-stop-review/SKILL.md"));
+            },
             "spec skill file has correct body"(_code, { files }) {
                 Assert.strictEqual(files.get("/home/testuser/.claude/skills/flanders-spec/SKILL.md"), specSkillBody);
             },
             "work skill file has correct body"(_code, { files }) {
                 Assert.strictEqual(files.get("/home/testuser/.claude/skills/flanders-work/SKILL.md"), workSkillBody);
             },
-            "writes exactly 4 files"(_code, { files }) {
-                Assert.strictEqual(files.size, 4);
+            "hard-stop-review skill file has correct body"(_code, { files }) {
+                Assert.strictEqual(files.get("/home/testuser/.claude/skills/flanders-hard-stop-review/SKILL.md"), hardStopReviewSkillBody);
+            },
+            "writes exactly 5 files"(_code, { files }) {
+                Assert.strictEqual(files.size, 5);
             },
             "writes config.json under homedir"(_code, { files }) {
                 Assert.ok(files.has("/home/testuser/.flanders/config.json"));
@@ -210,6 +229,9 @@ test.describe("Install --global", test => {
             },
             "stdout includes work skill path"(_code, { written }) {
                 Assert.ok(written.join("").includes("/home/testuser/.claude/skills/flanders-work/SKILL.md"));
+            },
+            "stdout includes hard-stop-review skill path"(_code, { written }) {
+                Assert.ok(written.join("").includes("/home/testuser/.claude/skills/flanders-hard-stop-review/SKILL.md"));
             }
         }
     });
@@ -277,8 +299,11 @@ test.describe("Install interactive prompt", test => {
             "creates work skill file under project"(_code, { files }) {
                 Assert.ok(files.has("/proj/.claude/skills/flanders-work/SKILL.md"));
             },
-            "writes exactly 4 files"(_code, { files }) {
-                Assert.strictEqual(files.size, 4);
+            "creates hard-stop-review skill file under project"(_code, { files }) {
+                Assert.ok(files.has("/proj/.claude/skills/flanders-hard-stop-review/SKILL.md"));
+            },
+            "writes exactly 5 files"(_code, { files }) {
+                Assert.strictEqual(files.size, 5);
             }
         }
     });
@@ -316,8 +341,11 @@ test.describe("Install interactive prompt", test => {
             "creates work skill file under homedir"(_code, { files }) {
                 Assert.ok(files.has("/home/testuser/.claude/skills/flanders-work/SKILL.md"));
             },
-            "writes exactly 4 files"(_code, { files }) {
-                Assert.strictEqual(files.size, 4);
+            "creates hard-stop-review skill file under homedir"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.claude/skills/flanders-hard-stop-review/SKILL.md"));
+            },
+            "writes exactly 5 files"(_code, { files }) {
+                Assert.strictEqual(files.size, 5);
             }
         }
     });
@@ -1211,6 +1239,9 @@ test.describe("Install writes regardless of tool CLI availability", test => {
             "writes the codex work prompt"(_code, { files }) {
                 Assert.ok(files.has("/proj/.codex/prompts/flanders-work.md"));
             },
+            "writes the codex hard-stop-review prompt"(_code, { files }) {
+                Assert.ok(files.has("/proj/.codex/prompts/flanders-hard-stop-review.md"));
+            },
             "writes the flanders config"(_code, { files }) {
                 Assert.ok(files.has("/proj/.flanders/config.json"));
             },
@@ -1420,11 +1451,12 @@ test.describe("Install Flanders voice", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "stdout is exactly the four path lines, each a bare path with no added prose"(_code, { written }) {
+            "stdout is exactly the five path lines, each a bare path with no added prose"(_code, { written }) {
                 Assert.deepStrictEqual(written, [
                     "/proj/.claude/skills/flanders-spec/SKILL.md\n",
                     "/proj/.claude/skills/flanders-plan/SKILL.md\n",
                     "/proj/.claude/skills/flanders-work/SKILL.md\n",
+                    "/proj/.claude/skills/flanders-hard-stop-review/SKILL.md\n",
                     "/proj/.flanders/config.json\n"
                 ]);
             }
@@ -5615,7 +5647,7 @@ test.describe("stripYamlFrontmatter", test => {
 });
 
 test.describe("Install skills-tool=codex", test => {
-    test("writes exactly three Codex prompt files and zero Claude files", {
+    test("writes exactly four Codex prompt files and zero Claude files", {
         ARRANGE() {
             return stubContexts();
         },
@@ -5638,6 +5670,9 @@ test.describe("Install skills-tool=codex", test => {
             "creates flanders-work.md under .codex/prompts"(_code, { files }) {
                 Assert.ok(files.has("/myproject/.codex/prompts/flanders-work.md"));
             },
+            "creates flanders-hard-stop-review.md under .codex/prompts"(_code, { files }) {
+                Assert.ok(files.has("/myproject/.codex/prompts/flanders-hard-stop-review.md"));
+            },
             "flanders-plan.md filename is exactly flanders-plan.md"(_code, { files }) {
                 const paths = [...files.keys()].filter(p => p.includes(".codex/prompts/flanders-plan"));
                 Assert.strictEqual(paths.length, 1);
@@ -5653,12 +5688,17 @@ test.describe("Install skills-tool=codex", test => {
                 Assert.strictEqual(paths.length, 1);
                 Assert.strictEqual(paths[0], "/myproject/.codex/prompts/flanders-work.md");
             },
+            "flanders-hard-stop-review.md filename is exactly flanders-hard-stop-review.md"(_code, { files }) {
+                const paths = [...files.keys()].filter(p => p.includes(".codex/prompts/flanders-hard-stop-review"));
+                Assert.strictEqual(paths.length, 1);
+                Assert.strictEqual(paths[0], "/myproject/.codex/prompts/flanders-hard-stop-review.md");
+            },
             "no files under .claude/skills"(_code, { files }) {
                 const claudePaths = [...files.keys()].filter(p => p.includes(".claude/skills"));
                 Assert.strictEqual(claudePaths.length, 0);
             },
-            "writes exactly 4 files total (3 codex + 1 config)"(_code, { files }) {
-                Assert.strictEqual(files.size, 4);
+            "writes exactly 5 files total (4 codex + 1 config)"(_code, { files }) {
+                Assert.strictEqual(files.size, 5);
             }
         }
     });
@@ -5685,6 +5725,10 @@ test.describe("Install skills-tool=codex", test => {
                 const content = files.get("/proj/.codex/prompts/flanders-work.md")!;
                 Assert.ok(!content.startsWith("---"), "codex artifact must not start with YAML frontmatter");
             },
+            "flanders-hard-stop-review codex artifact does not start with ---"(_, { files }) {
+                const content = files.get("/proj/.codex/prompts/flanders-hard-stop-review.md")!;
+                Assert.ok(!content.startsWith("---"), "codex artifact must not start with YAML frontmatter");
+            },
             "flanders-plan codex artifact equals stripYamlFrontmatter(planSkillBody)"(_, { files }) {
                 const content = files.get("/proj/.codex/prompts/flanders-plan.md")!;
                 Assert.strictEqual(content, stripYamlFrontmatter(planSkillBody));
@@ -5696,6 +5740,10 @@ test.describe("Install skills-tool=codex", test => {
             "flanders-work codex artifact equals stripYamlFrontmatter(workSkillBody)"(_, { files }) {
                 const content = files.get("/proj/.codex/prompts/flanders-work.md")!;
                 Assert.strictEqual(content, stripYamlFrontmatter(workSkillBody));
+            },
+            "flanders-hard-stop-review codex artifact equals stripYamlFrontmatter(hardStopReviewSkillBody)"(_, { files }) {
+                const content = files.get("/proj/.codex/prompts/flanders-hard-stop-review.md")!;
+                Assert.strictEqual(content, stripYamlFrontmatter(hardStopReviewSkillBody));
             }
         }
     });
@@ -5722,13 +5770,16 @@ test.describe("Install skills-tool=codex", test => {
             },
             "creates flanders-work.md under homedir .codex/prompts"(_code, { files }) {
                 Assert.ok(files.has("/home/testuser/.codex/prompts/flanders-work.md"));
+            },
+            "creates flanders-hard-stop-review.md under homedir .codex/prompts"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.codex/prompts/flanders-hard-stop-review.md"));
             }
         }
     });
 });
 
 test.describe("Install skills-tool=both", test => {
-    test("writes six skill files (3 Claude + 3 Codex) plus config", {
+    test("writes eight skill files (4 Claude + 4 Codex) plus config", {
         ARRANGE() {
             return stubContexts();
         },
@@ -5751,6 +5802,9 @@ test.describe("Install skills-tool=both", test => {
             "creates Claude flanders-work SKILL.md"(_code, { files }) {
                 Assert.ok(files.has("/proj/.claude/skills/flanders-work/SKILL.md"));
             },
+            "creates Claude flanders-hard-stop-review SKILL.md"(_code, { files }) {
+                Assert.ok(files.has("/proj/.claude/skills/flanders-hard-stop-review/SKILL.md"));
+            },
             "creates Codex flanders-spec.md"(_code, { files }) {
                 Assert.ok(files.has("/proj/.codex/prompts/flanders-spec.md"));
             },
@@ -5760,8 +5814,11 @@ test.describe("Install skills-tool=both", test => {
             "creates Codex flanders-work.md"(_code, { files }) {
                 Assert.ok(files.has("/proj/.codex/prompts/flanders-work.md"));
             },
-            "writes exactly 7 files total (6 skills + 1 config)"(_code, { files }) {
-                Assert.strictEqual(files.size, 7);
+            "creates Codex flanders-hard-stop-review.md"(_code, { files }) {
+                Assert.ok(files.has("/proj/.codex/prompts/flanders-hard-stop-review.md"));
+            },
+            "writes exactly 9 files total (8 skills + 1 config)"(_code, { files }) {
+                Assert.strictEqual(files.size, 9);
             },
             "Claude artifact has frontmatter"(_code, { files }) {
                 Assert.ok(files.get("/proj/.claude/skills/flanders-spec/SKILL.md")!.startsWith("---\n"));
@@ -5784,19 +5841,20 @@ test.describe("Install skills-tool stdout enumeration", test => {
             await cmd.dispose();
         },
         ASSERTS: {
-            "stdout is exactly the three Codex prompt paths then the config path, one per line in order"(_, { written }) {
+            "stdout is exactly the four Codex prompt paths then the config path, one per line in order"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
                 Assert.deepStrictEqual(lines, [
                     "/proj/.codex/prompts/flanders-spec.md",
                     "/proj/.codex/prompts/flanders-plan.md",
                     "/proj/.codex/prompts/flanders-work.md",
+                    "/proj/.codex/prompts/flanders-hard-stop-review.md",
                     "/proj/.flanders/config.json"
                 ]);
             }
         }
     });
 
-    test("with skills-tool=both, stdout includes all 6 skill paths plus config", {
+    test("with skills-tool=both, stdout includes all 8 skill paths plus config", {
         ARRANGE() {
             return stubContexts();
         },
@@ -5806,15 +5864,17 @@ test.describe("Install skills-tool stdout enumeration", test => {
             await cmd.dispose();
         },
         ASSERTS: {
-            "stdout is exactly the three Claude skill paths, then the three Codex prompt paths, then the config path, one per line in order"(_, { written }) {
+            "stdout is exactly the four Claude skill paths, then the four Codex prompt paths, then the config path, one per line in order"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
                 Assert.deepStrictEqual(lines, [
                     "/proj/.claude/skills/flanders-spec/SKILL.md",
                     "/proj/.claude/skills/flanders-plan/SKILL.md",
                     "/proj/.claude/skills/flanders-work/SKILL.md",
+                    "/proj/.claude/skills/flanders-hard-stop-review/SKILL.md",
                     "/proj/.codex/prompts/flanders-spec.md",
                     "/proj/.codex/prompts/flanders-plan.md",
                     "/proj/.codex/prompts/flanders-work.md",
+                    "/proj/.codex/prompts/flanders-hard-stop-review.md",
                     "/proj/.flanders/config.json"
                 ]);
             }

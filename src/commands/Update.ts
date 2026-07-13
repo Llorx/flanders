@@ -17,7 +17,7 @@ type Destination = Readonly<{ scopeRoot:string; tool:"claude"|"codex" }>;
 // `update` refreshes the Flanders skills already delivered to the user's AI-tool environments. It is
 // non-interactive: it never reads or writes `.flanders/config.json`, asks the user nothing, and uses
 // no prompt helper. It scans the four destinations (the project and home scope roots crossed with the
-// claude and codex tools), rewrites the full skill trio at every destination that already holds at
+// claude and codex tools), rewrites the full skill set at every destination that already holds at
 // least one Flanders skill artifact through the shared `writeSkillArtifacts` emission path, and leaves
 // untouched destinations the user never installed to. With no installation anywhere it points the user
 // at `npx flanders install` and exits non-zero. It is a disposable owner: its only async resource is

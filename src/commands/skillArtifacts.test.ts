@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import { writeSkillArtifacts, skillArtifactPaths, stripYamlFrontmatter } from "./skillArtifacts";
 import type { FsContext } from "../contexts";
-import { planSkillBody, specSkillBody, workSkillBody } from "../prompts/skills";
+import { planSkillBody, specSkillBody, workSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
 
 function stubFs() {
     const files = new Map<string, string>();
@@ -29,7 +29,7 @@ function stubFs() {
 }
 
 test.describe("writeSkillArtifacts claude", test => {
-    test("writes the claude trio under <scopeRoot>/.claude/skills/<name>/SKILL.md", {
+    test("writes the claude set under <scopeRoot>/.claude/skills/<name>/SKILL.md", {
         ARRANGE() {
             return stubFs();
         },
@@ -37,13 +37,14 @@ test.describe("writeSkillArtifacts claude", test => {
             return writeSkillArtifacts(fs, "/root", "claude", () => false);
         },
         ASSERTS: {
-            "returns ok:true with the three SKILL.md paths in skill order"(result) {
+            "returns ok:true with the four SKILL.md paths in skill order"(result) {
                 Assert.deepStrictEqual(result, {
                     ok: true,
                     writtenPaths: [
                         "/root/.claude/skills/flanders-spec/SKILL.md",
                         "/root/.claude/skills/flanders-plan/SKILL.md",
-                        "/root/.claude/skills/flanders-work/SKILL.md"
+                        "/root/.claude/skills/flanders-work/SKILL.md",
+                        "/root/.claude/skills/flanders-hard-stop-review/SKILL.md"
                     ]
                 });
             },
@@ -56,8 +57,11 @@ test.describe("writeSkillArtifacts claude", test => {
             "writes the work body verbatim"(_result, { files }) {
                 Assert.strictEqual(files.get("/root/.claude/skills/flanders-work/SKILL.md"), workSkillBody);
             },
-            "writes exactly three files"(_result, { files }) {
-                Assert.strictEqual(files.size, 3);
+            "writes the hard-stop-review body verbatim"(_result, { files }) {
+                Assert.strictEqual(files.get("/root/.claude/skills/flanders-hard-stop-review/SKILL.md"), hardStopReviewSkillBody);
+            },
+            "writes exactly four files"(_result, { files }) {
+                Assert.strictEqual(files.size, 4);
             },
             "creates each per-skill folder recursively, immediately before writing its SKILL.md, in order"(_result, { ops }) {
                 Assert.deepStrictEqual(ops, [
@@ -66,7 +70,9 @@ test.describe("writeSkillArtifacts claude", test => {
                     "mkdir /root/.claude/skills/flanders-plan recursive=true",
                     "writeFile /root/.claude/skills/flanders-plan/SKILL.md",
                     "mkdir /root/.claude/skills/flanders-work recursive=true",
-                    "writeFile /root/.claude/skills/flanders-work/SKILL.md"
+                    "writeFile /root/.claude/skills/flanders-work/SKILL.md",
+                    "mkdir /root/.claude/skills/flanders-hard-stop-review recursive=true",
+                    "writeFile /root/.claude/skills/flanders-hard-stop-review/SKILL.md"
                 ]);
             }
         }
@@ -135,7 +141,7 @@ test.describe("writeSkillArtifacts claude", test => {
 });
 
 test.describe("writeSkillArtifacts codex", test => {
-    test("writes the codex trio under <scopeRoot>/.codex/prompts/<name>.md with frontmatter stripped", {
+    test("writes the codex set under <scopeRoot>/.codex/prompts/<name>.md with frontmatter stripped", {
         ARRANGE() {
             return stubFs();
         },
@@ -143,13 +149,14 @@ test.describe("writeSkillArtifacts codex", test => {
             return writeSkillArtifacts(fs, "/root", "codex", () => false);
         },
         ASSERTS: {
-            "returns ok:true with the three prompt paths in skill order"(result) {
+            "returns ok:true with the four prompt paths in skill order"(result) {
                 Assert.deepStrictEqual(result, {
                     ok: true,
                     writtenPaths: [
                         "/root/.codex/prompts/flanders-spec.md",
                         "/root/.codex/prompts/flanders-plan.md",
-                        "/root/.codex/prompts/flanders-work.md"
+                        "/root/.codex/prompts/flanders-work.md",
+                        "/root/.codex/prompts/flanders-hard-stop-review.md"
                     ]
                 });
             },
@@ -162,15 +169,19 @@ test.describe("writeSkillArtifacts codex", test => {
             "writes the work body with frontmatter stripped"(_result, { files }) {
                 Assert.strictEqual(files.get("/root/.codex/prompts/flanders-work.md"), stripYamlFrontmatter(workSkillBody));
             },
-            "writes exactly three files"(_result, { files }) {
-                Assert.strictEqual(files.size, 3);
+            "writes the hard-stop-review body with frontmatter stripped"(_result, { files }) {
+                Assert.strictEqual(files.get("/root/.codex/prompts/flanders-hard-stop-review.md"), stripYamlFrontmatter(hardStopReviewSkillBody));
             },
-            "creates the prompts root recursively before writing the three prompts, in order"(_result, { ops }) {
+            "writes exactly four files"(_result, { files }) {
+                Assert.strictEqual(files.size, 4);
+            },
+            "creates the prompts root recursively before writing the four prompts, in order"(_result, { ops }) {
                 Assert.deepStrictEqual(ops, [
                     "mkdir /root/.codex/prompts recursive=true",
                     "writeFile /root/.codex/prompts/flanders-spec.md",
                     "writeFile /root/.codex/prompts/flanders-plan.md",
-                    "writeFile /root/.codex/prompts/flanders-work.md"
+                    "writeFile /root/.codex/prompts/flanders-work.md",
+                    "writeFile /root/.codex/prompts/flanders-hard-stop-review.md"
                 ]);
             }
         }
@@ -245,7 +256,8 @@ test.describe("skillArtifactPaths", test => {
                 expected: [
                     "/root/.claude/skills/flanders-spec/SKILL.md",
                     "/root/.claude/skills/flanders-plan/SKILL.md",
-                    "/root/.claude/skills/flanders-work/SKILL.md"
+                    "/root/.claude/skills/flanders-work/SKILL.md",
+                    "/root/.claude/skills/flanders-hard-stop-review/SKILL.md"
                 ]
             };
         },
@@ -263,7 +275,8 @@ test.describe("skillArtifactPaths", test => {
                 expected: [
                     "/root/.codex/prompts/flanders-spec.md",
                     "/root/.codex/prompts/flanders-plan.md",
-                    "/root/.codex/prompts/flanders-work.md"
+                    "/root/.codex/prompts/flanders-work.md",
+                    "/root/.codex/prompts/flanders-hard-stop-review.md"
                 ]
             };
         },

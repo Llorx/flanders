@@ -1,6 +1,6 @@
 import type { FsContext } from "../contexts";
 import { joinPath } from "../system/fsUtils";
-import { planSkillBody, specSkillBody, workSkillBody } from "../prompts/skills";
+import { planSkillBody, specSkillBody, workSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
 
 type SkillDef = Readonly<{
     name:string;
@@ -10,7 +10,8 @@ type SkillDef = Readonly<{
 export const SKILLS:readonly SkillDef[] = [
     { name: "flanders-spec", body: specSkillBody },
     { name: "flanders-plan", body: planSkillBody },
-    { name: "flanders-work", body: workSkillBody }
+    { name: "flanders-work", body: workSkillBody },
+    { name: "flanders-hard-stop-review", body: hardStopReviewSkillBody }
 ];
 
 // The per-tool subfolders, under a scope root, where each tool keeps its user-installed artifacts.
@@ -50,7 +51,7 @@ export function stripYamlFrontmatter(body:string):string {
     return body.slice(closerIndex + "\n---\n".length);
 }
 
-// The outcome of emitting one tool's skill trio for a destination. On success the caller obtains every
+// The outcome of emitting one tool's skill set for a destination. On success the caller obtains every
 // written path; on failure `diagnostic` carries the exact message to surface (or `null` when the run was
 // disposed mid-write, which stops further writes without surfacing a diagnostic). The caller decides how
 // to react — print the diagnostic, append the paths, and pick the exit code — so this shared emission
@@ -59,11 +60,11 @@ export type WriteSkillArtifactsResult =
     | Readonly<{ ok:true; writtenPaths:readonly string[] }>
     | Readonly<{ ok:false; diagnostic:string|null }>;
 
-// Writes the `claude` directory-plus-`SKILL.md` trio: each skill is written as
+// Writes the `claude` directory-plus-`SKILL.md` set: each skill is written as
 // `<skillsRoot>/<name>/SKILL.md` holding the full skill body, with the per-skill folder created
 // recursively immediately before its `SKILL.md`. `isDisposed` is consulted before each artifact so a
 // mid-write disposal stops further writes.
-async function writeDirectorySkillTrio(fs:FsContext, scopeRoot:string, tool:"claude", isDisposed:() => boolean):Promise<WriteSkillArtifactsResult> {
+async function writeDirectorySkillArtifacts(fs:FsContext, scopeRoot:string, tool:"claude", isDisposed:() => boolean):Promise<WriteSkillArtifactsResult> {
     const skillsRoot = joinPath(scopeRoot, CLAUDE_SKILLS_SUBDIR);
     const writtenPaths:string[] = [];
     for (const skill of SKILLS) {
@@ -87,7 +88,7 @@ async function writeDirectorySkillTrio(fs:FsContext, scopeRoot:string, tool:"cla
     return { ok: true, writtenPaths };
 }
 
-// Writes the given tool's full Flanders skill trio under `scopeRoot`, going through the injected
+// Writes the given tool's full Flanders skill set under `scopeRoot`, going through the injected
 // `FsContext` only. `claude` writes `<scopeRoot>/.claude/skills/<name>/SKILL.md` with the full body,
 // creating each per-skill folder; `codex` writes `<scopeRoot>/.codex/prompts/<name>.md` with the YAML
 // frontmatter stripped. `isDisposed` is consulted before each artifact so a mid-write disposal stops
@@ -121,5 +122,5 @@ export async function writeSkillArtifacts(fs:FsContext, scopeRoot:string, tool:"
         }
         return { ok: true, writtenPaths };
     }
-    return writeDirectorySkillTrio(fs, scopeRoot, tool, isDisposed);
+    return writeDirectorySkillArtifacts(fs, scopeRoot, tool, isDisposed);
 }
