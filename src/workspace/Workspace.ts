@@ -15,6 +15,13 @@ export type WorkspacePaths = Readonly<{
     reviewerOutputLog(iter:number, reviewerIndex:number):string;
     reviewerErrorLog(reviewerIndex:number):string;
     reviewerSpecFile(reviewerIndex:number):string;
+    // Per-iteration, per-stage error logs the hard stop materializes into the main folder. They
+    // carry the `.error.log` suffix so they never collide with the streamed-output `.log` files
+    // above; each records one stage's captured failure for the iteration whose stage failed.
+    buildErrorLog(iter:number):string;
+    testErrorLog(iter:number):string;
+    commitErrorLog(iter:number):string;
+    reviewerErrorLogFor(iter:number, position:number):string;
 }>;
 
 export interface PlatformContext {
@@ -72,7 +79,11 @@ export class Workspace {
             reviewerLog(iter:number) { return joinPath(root, `reviewer.${iter}.log`); },
             reviewerOutputLog(iter:number, reviewerIndex:number) { return joinPath(root, `reviewer.${iter}.${reviewerIndex}.log`); },
             reviewerErrorLog(reviewerIndex:number) { return joinPath(reviewerRoots[reviewerIndex - 1]!, "error.log"); },
-            reviewerSpecFile(reviewerIndex:number) { return joinPath(reviewerRoots[reviewerIndex - 1]!, "spec.md"); }
+            reviewerSpecFile(reviewerIndex:number) { return joinPath(reviewerRoots[reviewerIndex - 1]!, "spec.md"); },
+            buildErrorLog(iter:number) { return joinPath(root, `build.${iter}.error.log`); },
+            testErrorLog(iter:number) { return joinPath(root, `test.${iter}.error.log`); },
+            commitErrorLog(iter:number) { return joinPath(root, `commit.${iter}.error.log`); },
+            reviewerErrorLogFor(iter:number, position:number) { return joinPath(root, `reviewer.${iter}.${position}.error.log`); }
         };
     }
     async errorLogExists():Promise<boolean> {

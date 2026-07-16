@@ -238,6 +238,142 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
     });
 });
 
+test.describe("WorkspacePaths hard-stop per-iteration error-log paths", test => {
+    test("buildErrorLog returns build.<iter>.error.log inside the main root", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            return await ws.setup(0);
+        },
+        ASSERTS: {
+            "iteration 1 path"(paths) {
+                Assert.strictEqual(paths.buildErrorLog(1), paths.root + "/build.1.error.log");
+            },
+            "iteration 3 path"(paths) {
+                Assert.strictEqual(paths.buildErrorLog(3), paths.root + "/build.3.error.log");
+            }
+        }
+    });
+
+    test("testErrorLog returns test.<iter>.error.log inside the main root", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            return await ws.setup(0);
+        },
+        ASSERTS: {
+            "iteration 2 path"(paths) {
+                Assert.strictEqual(paths.testErrorLog(2), paths.root + "/test.2.error.log");
+            },
+            "iteration 5 path"(paths) {
+                Assert.strictEqual(paths.testErrorLog(5), paths.root + "/test.5.error.log");
+            }
+        }
+    });
+
+    test("commitErrorLog returns commit.<iter>.error.log inside the main root", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            return await ws.setup(0);
+        },
+        ASSERTS: {
+            "iteration 1 path"(paths) {
+                Assert.strictEqual(paths.commitErrorLog(1), paths.root + "/commit.1.error.log");
+            },
+            "iteration 4 path"(paths) {
+                Assert.strictEqual(paths.commitErrorLog(4), paths.root + "/commit.4.error.log");
+            }
+        }
+    });
+
+    test("reviewerErrorLogFor returns reviewer.<iter>.<position>.error.log inside the main root", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            return await ws.setup(3);
+        },
+        ASSERTS: {
+            "iter 1 position 1 path"(paths) {
+                Assert.strictEqual(paths.reviewerErrorLogFor(1, 1), paths.root + "/reviewer.1.1.error.log");
+            },
+            "iter 3 position 2 path"(paths) {
+                Assert.strictEqual(paths.reviewerErrorLogFor(3, 2), paths.root + "/reviewer.3.2.error.log");
+            },
+            "different (iter,position) combinations produce different paths"(paths) {
+                const all = new Set([
+                    paths.reviewerErrorLogFor(1, 1),
+                    paths.reviewerErrorLogFor(1, 2),
+                    paths.reviewerErrorLogFor(2, 1),
+                    paths.reviewerErrorLogFor(2, 2)
+                ]);
+                Assert.strictEqual(all.size, 4);
+            }
+        }
+    });
+
+    test("materialized error-log paths do not collide with the streamed-output log paths for the same iteration", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            return await ws.setup(1);
+        },
+        ASSERTS: {
+            "buildErrorLog differs from buildLog"(paths) {
+                Assert.notStrictEqual(paths.buildErrorLog(1), paths.buildLog(1));
+            },
+            "testErrorLog differs from testLog"(paths) {
+                Assert.notStrictEqual(paths.testErrorLog(1), paths.testLog(1));
+            },
+            "reviewerErrorLogFor differs from reviewerOutputLog"(paths) {
+                Assert.notStrictEqual(paths.reviewerErrorLogFor(1, 1), paths.reviewerOutputLog(1, 1));
+            },
+            "all eight (four streamed + four materialized) one-iteration paths are distinct"(paths) {
+                const all = [
+                    paths.workerLog(1),
+                    paths.buildLog(1),
+                    paths.testLog(1),
+                    paths.reviewerOutputLog(1, 1),
+                    paths.buildErrorLog(1),
+                    paths.testErrorLog(1),
+                    paths.commitErrorLog(1),
+                    paths.reviewerErrorLogFor(1, 1)
+                ];
+                Assert.strictEqual(new Set(all).size, 8);
+            }
+        }
+    });
+
+    test("paths() also exposes the materialized error-log path methods", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            await ws.setup(2);
+            return ws.paths();
+        },
+        ASSERTS: {
+            "buildErrorLog path"(paths) {
+                Assert.strictEqual(paths.buildErrorLog(2), paths.root + "/build.2.error.log");
+            },
+            "testErrorLog path"(paths) {
+                Assert.strictEqual(paths.testErrorLog(2), paths.root + "/test.2.error.log");
+            },
+            "commitErrorLog path"(paths) {
+                Assert.strictEqual(paths.commitErrorLog(2), paths.root + "/commit.2.error.log");
+            },
+            "reviewerErrorLogFor path"(paths) {
+                Assert.strictEqual(paths.reviewerErrorLogFor(2, 1), paths.root + "/reviewer.2.1.error.log");
+            }
+        }
+    });
+});
+
 test.describe("Workspace.preserveOnDispose", test => {
     test("dispose without preserveOnDispose removes the main folder (no reviewers)", {
         ARRANGE() {

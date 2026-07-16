@@ -88,6 +88,12 @@ export type ImplementOptions = Readonly<{
 
 type RunningSession = { session:AiSession };
 type RunningScript = { script:ScriptRunner };
+// A per-stage failure retained across a task's iterations and written into the main temporary
+// folder on a hard stop: the destination path the failing stage materializes to, and the captured
+// content to write there. One authoritative shape for every materialized stage — build, test,
+// commit, and each reviewer — so the hard-stop write is a single uniform loop with no per-stage
+// branching.
+type RetainedErrorLog = { path:string; content:string };
 
 // The orchestrator's per-reviewer logical status for the round-completion decision. It is distinct
 // from the UI reviewer state (`running`/`waiting`/`pass`/`fail`): a `done` reviewer renders as `pass` or
@@ -125,6 +131,14 @@ export class Implement {
     private _cancelledReviewers:Set<number> = new Set();
     private _currentIndexLabel = "";
     private _currentIteration = 0;
+    // Per-task retention of each failing iteration's captured stage output as ready-to-write
+    // error-log files (the main-folder path the failure materializes to, plus the captured
+    // content). On a hard stop these are written into the main temporary folder before the briefing
+    // error.log is removed. Reset at the start of every task so 1-based iteration numbers never
+    // collide across tasks. The worker stage and the pre-build staging of the worker's output are
+    // not among the four stages, so neither is retained here; empty-verdict reviewers and reviewers
+    // cancelled at round completion contribute nothing.
+    private _retainedMaterializations:RetainedErrorLog[] = [];
     private _currentTask:PlanTask|null = null;
     private _taskStartedAt:number = 0;
     // Total milliseconds excluded from the current task's active working time:
@@ -398,6 +412,10 @@ export class Implement {
         this._taskRateLimitStartedAt = null;
         this._reviewPauseStartedAt = null;
         this._taskTokens = {it:0, ot:0};
+        // The retained per-iteration failure history is per task: reset it so a hard stop
+        // materializes only this task's iterations and their 1-based counters never collide with a
+        // previously-completed task's.
+        this._retainedMaterializations = [];
         // The other tasks' accumulated active time is the plan total minus this
         // task's own persisted `t`; it stays constant while this task runs because
         // only this task's line is rewritten, so it is snapshotted once here.
@@ -408,7 +426,20 @@ export class Implement {
             iteration++;
             this._currentIteration = iteration;
             if (iteration > MAX_ITER) {
-                this._workspace!.preserveOnDispose();
+                // Materialize the retained per-iteration, per-stage error history into the main
+                // folder and drop the single briefing error.log first, then preserve the workspace,
+                // per the workspace contract. The briefing removal inside the materializer runs only
+                // after every retained file is on disk, so a write failure leaves it in place. A
+                // materialization I/O failure must not bypass the hard-stop outcome: preservation is
+                // guaranteed in the finally, and a rejected write is caught so the task-identifying,
+                // workspace-pointing hard-stop diagnostic and the non-zero return still stand.
+                try {
+                    await this._materializeHardStopErrorLogs();
+                } catch (e) {
+                    this._buffered.writeError(`Hard stop: could not materialize per-iteration error logs: ${this._stringifyError(e)}\n`);
+                } finally {
+                    this._workspace!.preserveOnDispose();
+                }
                 this._buffered.writeError(`Hard stop: task at line ${task.line} ("${task.title}") exceeded ${MAX_ITER} iterations. Inspect logs at ${ws.root}.\n`);
                 return false;
             }
@@ -482,13 +513,17 @@ export class Implement {
             const commitMessage = task.taskNumber ? `${task.taskNumber} ${task.title}` : task.title;
             const addResult = await addAll(this._contexts.script, this._contexts.time, this._gitOutputContext(), this._options.projectRoot);
             if (addResult.code !== 0) {
-                await this._writeErrorLog(ws, `git add -A failed (exit ${addResult.code})\n--- stdout ---\n${addResult.stdout}\n--- stderr ---\n${addResult.stderr}`);
+                const briefing = `git add -A failed (exit ${addResult.code})\n--- stdout ---\n${addResult.stdout}\n--- stderr ---\n${addResult.stderr}`;
+                this._retainedMaterializations.push({ path: ws.commitErrorLog(iteration), content: briefing });
+                await this._writeErrorLog(ws, briefing);
                 await revertCompletion();
                 continue;
             }
             const commitResult = await commit(this._contexts.script, this._contexts.time, this._gitOutputContext(), this._options.projectRoot, commitMessage);
             if (commitResult.code !== 0) {
-                await this._writeErrorLog(ws, `git commit failed (exit ${commitResult.code})\n--- stdout ---\n${commitResult.stdout}\n--- stderr ---\n${commitResult.stderr}`);
+                const briefing = `git commit failed (exit ${commitResult.code})\n--- stdout ---\n${commitResult.stdout}\n--- stderr ---\n${commitResult.stderr}`;
+                this._retainedMaterializations.push({ path: ws.commitErrorLog(iteration), content: briefing });
+                await this._writeErrorLog(ws, briefing);
                 await revertCompletion();
                 continue;
             }
@@ -614,7 +649,9 @@ export class Implement {
         this._updateMetrics(plan);
         await this._writeLog(ws.buildLog(iteration), `--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}`);
         if (result.code !== 0) {
-            await this._writeErrorLog(ws, `build stage failed (exit ${result.code})\n--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}`);
+            const briefing = `build stage failed (exit ${result.code})\n--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}`;
+            this._retainedMaterializations.push({ path: ws.buildErrorLog(iteration), content: briefing });
+            await this._writeErrorLog(ws, briefing);
             return false;
         }
         return true;
@@ -632,7 +669,9 @@ export class Implement {
         this._updateMetrics(plan);
         await this._writeLog(ws.testLog(iteration), `--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}`);
         if (result.code !== 0) {
-            await this._writeErrorLog(ws, `test stage failed (exit ${result.code})\n--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}`);
+            const briefing = `test stage failed (exit ${result.code})\n--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}`;
+            this._retainedMaterializations.push({ path: ws.testErrorLog(iteration), content: briefing });
+            await this._writeErrorLog(ws, briefing);
             return false;
         }
         return true;
@@ -752,19 +791,30 @@ export class Implement {
         if (this._disposed) {
             return false;
         }
+        // Read every reviewer that ran to a verdict, in reviewer order, and retain each non-empty
+        // verdict's own untrimmed text (tagged with its 1-based position) for the hard-stop
+        // materialization. This runs before the failureCaught branch so a completed reviewer's
+        // recorded violations are retained even when a sibling reviewer errored; a reviewer
+        // cancelled at round completion (outcomes[i] === "cancelled") is skipped, so it contributes
+        // nothing, as does an empty-verdict reviewer. Retaining here is additive: perFile still
+        // holds every verdict file in reviewer order and drives the unchanged read-all / concatenate
+        // / trim / test-once aggregate verdict below. Non-empty content only occurs when the stage
+        // fails, so a clean pass retains nothing.
+        const perFile:string[] = [];
+        for (let i = 0; i < reviewers.length; i++) {
+            if (outcomes[i] === "verdict") {
+                const content = await this._workspace!.readReviewerErrorLog(i + 1);
+                perFile.push(content);
+                if (content.trim().length > 0) {
+                    this._retainedMaterializations.push({ path: ws.reviewerErrorLogFor(iteration, i + 1), content });
+                }
+            }
+        }
         if (failureCaught !== null) {
             await this._persistMetrics(plan, task.line);
             this._updateMetrics(plan);
             await this._writeErrorLog(ws, `reviewer stage failed: ${this._stringifyError(failureCaught)}`);
             return false;
-        }
-        // Aggregate only the reviewers that ran to a verdict; a reviewer cancelled at round
-        // completion produced no per-reviewer error file and takes no part in the concatenation.
-        const perFile:string[] = [];
-        for (let i = 0; i < reviewers.length; i++) {
-            if (outcomes[i] === "verdict") {
-                perFile.push(await this._workspace!.readReviewerErrorLog(i + 1));
-            }
         }
         const aggregate = perFile.join("\n").replace(/^\s+|\s+$/g, "");
         if (aggregate.length === 0) {
@@ -1010,6 +1060,19 @@ export class Implement {
     }
     private async _writeErrorLog(ws:WorkspacePaths, content:string):Promise<void> {
         await this._writeLog(ws.errorLog, content);
+    }
+    // Materializes the retained per-iteration, per-stage failure history into the main temporary
+    // folder as one `.error.log` file per failing stage per iteration, then removes the single
+    // briefing error.log. Called once on a hard stop, after preservation is armed. Each write goes
+    // through the filesystem context directly so a failure propagates (unlike the best-effort
+    // _writeLog used for streamed logs); the briefing removal — routed through the Workspace, itself
+    // backed by the FsContext — runs only after every retained file is on disk, so a write failure
+    // leaves the briefing in place rather than dropping it with the history unwritten.
+    private async _materializeHardStopErrorLogs():Promise<void> {
+        for (const { path, content } of this._retainedMaterializations) {
+            await this._contexts.fs.writeFile(path, content);
+        }
+        await this._workspace!.clearErrorLog();
     }
     private _stringifyError(e:unknown):string {
         if (e instanceof Error) {

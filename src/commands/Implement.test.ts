@@ -446,9 +446,12 @@ test.describe("Implement per-iteration logs", test => {
             "exits with code 1"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "hard stop message points to workspace"(_code, { written }) {
-                const allOutput = written.join("");
-                Assert.ok(allOutput.includes(WS_ROOT), "hard stop should point to workspace");
+            "the exact hard-stop diagnostic — task line, title, iteration cap, and workspace path — is printed exactly once as its own write"(_code, { written }) {
+                // The diagnostic reaches the output as a single discrete write (`written` records
+                // one entry per output.write call). Exact-match + count over those discrete calls
+                // fails under any prefix, suffix, reworded, or duplicated emission.
+                const diagnostic = `Hard stop: task at line 3 ("Implement feature A") exceeded 5 iterations. Inspect logs at ${WS_ROOT}.\n`;
+                Assert.deepStrictEqual(written.filter(w => w === diagnostic), [diagnostic]);
             },
             "iteration 5 worker log is preserved"(_code, { files }) {
                 Assert.ok(files.has(WS_ROOT + "/worker.5.log"), "iteration 5 worker log preserved");
@@ -484,6 +487,665 @@ test.describe("Implement per-iteration logs", test => {
             },
             "workspace folder is removed on dispose"(_code, { rmCalls }) {
                 Assert.ok(rmCalls.includes(WS_ROOT), "fs.rm should be called with workspace root on success");
+            }
+        }
+    });
+});
+
+// Collects the main-folder per-iteration, per-stage `.error.log` files the hard stop materializes.
+// The briefing `error.log` is excluded on purpose: it ends with "/error.log", not ".error.log", so
+// it never matches — and the per-reviewer folders live outside WS_ROOT, so their own `error.log`
+// files are excluded by the prefix.
+function materializedErrorLogs(files:Map<string, string>):string[] {
+    return [...files.keys()]
+        .filter(k => k.startsWith(WS_ROOT + "/") && k.endsWith(".error.log"))
+        .sort();
+}
+
+test.describe("Implement hard-stop per-iteration error-log materialization", test => {
+    test("a hard stop whose iterations fail at different stages materializes exactly the matching per-stage error logs", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            // Both scripts present, so every worker-success iteration runs the build and (when build
+            // passes) the test gate.
+            s.files.set(WS_ROOT + "/build.sh", "make");
+            s.files.set(WS_ROOT + "/test.sh", "run-tests");
+            gitActivationQueue(s.gitQueue);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // iter1 post-worker add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // iter2 post-worker add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // iter3 post-worker add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // iter4 post-worker add
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // iter4 commit-stage add
+            s.gitQueue.push({ code: 1, stdout: "", stderr: "commit boom 4\n" });       // iter4 commit — fails
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // iter5 post-worker add
+            s.claudeQueue.push({ text: "ok" });                                        // detect
+            s.claudeQueue.push({ text: "w1" });                                        // iter1 worker
+            s.claudeQueue.push({ text: "w2" });                                        // iter2 worker
+            s.claudeQueue.push({ text: "w3" });                                        // iter3 worker
+            s.claudeQueue.push({ text: "rev3 fail", errorLog: "review violation 3" }); // iter3 reviewer FAIL
+            s.claudeQueue.push({ text: "w4" });                                        // iter4 worker
+            s.claudeQueue.push({ text: "rev4 ok", errorLog: "" });                     // iter4 reviewer PASS
+            s.claudeQueue.push({ text: "w5" });                                        // iter5 worker
+            s.scriptQueue.push({ code: 1, stdout: "build fail 1\n", stderr: "" });     // iter1 build FAIL
+            s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });         // iter2 build ok
+            s.scriptQueue.push({ code: 1, stdout: "test fail 2\n", stderr: "" });      // iter2 test FAIL
+            s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });         // iter3 build ok
+            s.scriptQueue.push({ code: 0, stdout: "test ok\n", stderr: "" });          // iter3 test ok
+            s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });         // iter4 build ok
+            s.scriptQueue.push({ code: 0, stdout: "test ok\n", stderr: "" });          // iter4 test ok
+            s.scriptQueue.push({ code: 1, stdout: "build fail 5\n", stderr: "" });     // iter5 build FAIL
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "build.1.error.log holds iteration 1's captured build-stage failure text"(_code, { files }) {
+                Assert.strictEqual(
+                    files.get(WS_ROOT + "/build.1.error.log"),
+                    "build stage failed (exit 1)\n--- stdout ---\nbuild fail 1\n\n--- stderr ---\n"
+                );
+            },
+            "test.2.error.log holds iteration 2's captured test-stage failure text"(_code, { files }) {
+                Assert.strictEqual(
+                    files.get(WS_ROOT + "/test.2.error.log"),
+                    "test stage failed (exit 1)\n--- stdout ---\ntest fail 2\n\n--- stderr ---\n"
+                );
+            },
+            "reviewer.3.1.error.log holds reviewer 1's own iteration-3 verdict text"(_code, { files }) {
+                Assert.strictEqual(files.get(WS_ROOT + "/reviewer.3.1.error.log"), "review violation 3");
+            },
+            "commit.4.error.log holds iteration 4's captured git failure text"(_code, { files }) {
+                Assert.strictEqual(
+                    files.get(WS_ROOT + "/commit.4.error.log"),
+                    "git commit failed (exit 1)\n--- stdout ---\n\n--- stderr ---\ncommit boom 4\n"
+                );
+            },
+            "build.5.error.log holds iteration 5's captured build-stage failure text"(_code, { files }) {
+                Assert.strictEqual(
+                    files.get(WS_ROOT + "/build.5.error.log"),
+                    "build stage failed (exit 1)\n--- stdout ---\nbuild fail 5\n\n--- stderr ---\n"
+                );
+            },
+            "exactly these five per-stage error logs are materialized (a non-failing stage produces none)"(_code, { files }) {
+                Assert.deepStrictEqual(materializedErrorLogs(files), [
+                    WS_ROOT + "/build.1.error.log",
+                    WS_ROOT + "/build.5.error.log",
+                    WS_ROOT + "/commit.4.error.log",
+                    WS_ROOT + "/reviewer.3.1.error.log",
+                    WS_ROOT + "/test.2.error.log"
+                ]);
+            },
+            "the briefing error.log is removed after materialization"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/error.log"), false);
+            },
+            "the streamed-output per-iteration logs survive alongside the materialized ones"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/build.1.log"), true);
+            },
+            "the workspace is preserved (its root is not removed)"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(WS_ROOT), false);
+            }
+        }
+    });
+
+    test("a hard stop with test-stage failures in several iterations materializes every test.<iteration>.error.log together", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(WS_ROOT + "/build.sh", "make");
+            s.files.set(WS_ROOT + "/test.sh", "run-tests");
+            gitActivationQueue(s.gitQueue);
+            for (let i = 0; i < 5; i++) {
+                s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // post-worker add for each iteration
+            }
+            s.claudeQueue.push({ text: "ok" }); // detect
+            for (let i = 0; i < 5; i++) {
+                s.claudeQueue.push({ text: `w${i + 1}` });                                   // worker
+                s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });           // build ok
+                s.scriptQueue.push({ code: 1, stdout: `test boom ${i + 1}\n`, stderr: "" }); // test FAIL (distinctive per iteration)
+            }
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the iteration-1 and iteration-2 test failures both survive with their exact distinct contents"(_code, { files }) {
+                Assert.deepStrictEqual(
+                    [files.get(WS_ROOT + "/test.1.error.log"), files.get(WS_ROOT + "/test.2.error.log")],
+                    [
+                        "test stage failed (exit 1)\n--- stdout ---\ntest boom 1\n\n--- stderr ---\n",
+                        "test stage failed (exit 1)\n--- stdout ---\ntest boom 2\n\n--- stderr ---\n"
+                    ]
+                );
+            },
+            "every test-stage failure across all five iterations is materialized"(_code, { files }) {
+                Assert.deepStrictEqual(materializedErrorLogs(files), [
+                    WS_ROOT + "/test.1.error.log",
+                    WS_ROOT + "/test.2.error.log",
+                    WS_ROOT + "/test.3.error.log",
+                    WS_ROOT + "/test.4.error.log",
+                    WS_ROOT + "/test.5.error.log"
+                ]);
+            }
+        }
+    });
+
+    test("a review-failing hard stop materializes a file only for the non-empty reviewer at its 1-based position (non-empty is position 2)", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false },
+                    { tool: "codex", model: "", effort: "", fast: false, optional: false }
+                ],
+                minimumReviews: 2
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            gitActivationQueue(s.gitQueue);
+            for (let i = 0; i < 5; i++) {
+                s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // post-worker add for each review-failing iteration
+            }
+            s.claudeQueue.push({ text: "ok" }); // detect
+            for (let i = 0; i < 5; i++) {
+                s.claudeQueue.push({ text: `w${i + 1}` });                                                 // worker
+                s.claudeQueue.push({ text: "rev1 ok", errorLog: "" });                                     // reviewer 1 (position 1) empty PASS
+                // The non-empty verdict is reviewer 2 (position 2), so a position-hardcoding regression
+                // (always writing position 1) is caught; its distinctive surrounding whitespace also
+                // guards the reviewer's own untrimmed text against the aggregate briefing's trimmed form.
+                s.codexQueue.push({ text: "rev2 fail", errorLog: "\n  reviewer two violation  \n" });      // reviewer 2 (position 2) FAIL
+            }
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "reviewer.1.2.error.log holds the non-empty reviewer's exact recorded verdict byte-for-byte, untrimmed"(_code, { files }) {
+                Assert.strictEqual(files.get(WS_ROOT + "/reviewer.1.2.error.log"), "\n  reviewer two violation  \n");
+            },
+            "the empty reviewer at position 1 produces no file for that iteration"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/reviewer.1.1.error.log"), false);
+            },
+            "exactly one position-2 reviewer error log per review-failing iteration is materialized (never position 1)"(_code, { files }) {
+                Assert.deepStrictEqual(materializedErrorLogs(files), [
+                    WS_ROOT + "/reviewer.1.2.error.log",
+                    WS_ROOT + "/reviewer.2.2.error.log",
+                    WS_ROOT + "/reviewer.3.2.error.log",
+                    WS_ROOT + "/reviewer.4.2.error.log",
+                    WS_ROOT + "/reviewer.5.2.error.log"
+                ]);
+            },
+            "the briefing error.log is removed after materialization"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/error.log"), false);
+            }
+        }
+    });
+
+    test("a non-hard-stop run that retained a prior failure still materializes nothing and removes the main and every per-reviewer root", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false },
+                    { tool: "codex", model: "", effort: "", fast: false, optional: false }
+                ],
+                minimumReviews: 2
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(WS_ROOT + "/build.sh", "make");
+            gitRunQueue(s.gitQueue);
+            extraWorkerAdds(s.gitQueue, 1); // iter 1 (build fails) still runs a post-worker add
+            s.claudeQueue.push({ text: "ok" }); // detect
+            s.claudeQueue.push({ text: "w1" }); // iter1 worker (build then fails, so a failure is retained)
+            s.scriptQueue.push({ code: 1, stdout: "boom\n", stderr: "" }); // iter1 build FAIL → retention non-empty
+            s.claudeQueue.push({ text: "w2" }); // iter2 worker
+            s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" }); // iter2 build ok
+            s.claudeQueue.push({ text: "rev1 ok", errorLog: "" }); // iter2 reviewer 1 PASS
+            s.codexQueue.push({ text: "rev2 ok", errorLog: "" });  // iter2 reviewer 2 PASS
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "no per-iteration .error.log file is materialized even though an earlier iteration failed"(_code, { files }) {
+                Assert.deepStrictEqual(materializedErrorLogs(files), []);
+            },
+            "the main temporary root is removed on dispose despite the retained failure history"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(WS_ROOT), true);
+            },
+            "reviewer 1's temporary root is removed on dispose"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(reviewerRoot(1)), true);
+            },
+            "reviewer 2's temporary root is removed on dispose"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(reviewerRoot(2)), true);
+            }
+        }
+    });
+
+    test("a hard stop retains a completed reviewer's verdict even when a sibling reviewer errors that iteration", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false },
+                    { tool: "codex", model: "", effort: "", fast: false, optional: false }
+                ],
+                minimumReviews: 2
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            gitActivationQueue(s.gitQueue);
+            for (let i = 0; i < 5; i++) {
+                s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // post-worker add for each failing iteration
+            }
+            s.claudeQueue.push({ text: "ok" }); // detect
+            for (let i = 0; i < 5; i++) {
+                s.claudeQueue.push({ text: `w${i + 1}` });                                    // worker (claude)
+                s.claudeQueue.push({ text: "rev1 fail", errorLog: "surviving verdict" });     // reviewer 1 (position 1) runs to a non-empty verdict
+                s.codexQueue.push({ text: "", error: true });                                 // reviewer 2 (position 2) errors non-retryably
+            }
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the completed reviewer's verdict is materialized at position 1 for every failing iteration"(_code, { files }) {
+                Assert.deepStrictEqual(materializedErrorLogs(files), [
+                    WS_ROOT + "/reviewer.1.1.error.log",
+                    WS_ROOT + "/reviewer.2.1.error.log",
+                    WS_ROOT + "/reviewer.3.1.error.log",
+                    WS_ROOT + "/reviewer.4.1.error.log",
+                    WS_ROOT + "/reviewer.5.1.error.log"
+                ]);
+            },
+            "the materialized file holds the completed reviewer's exact recorded verdict"(_code, { files }) {
+                Assert.strictEqual(files.get(WS_ROOT + "/reviewer.1.1.error.log"), "surviving verdict");
+            },
+            "the errored sibling at position 2 is never materialized"(_code, { files }) {
+                const pos2 = [...files.keys()].filter(k => /\/reviewer\.\d+\.2\.error\.log$/.test(k));
+                Assert.deepStrictEqual(pos2, []);
+            }
+        }
+    });
+
+    test("a hard stop whose commit stage fails at git add -A materializes commit.<iteration>.error.log with the git failure text", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            gitActivationQueue(s.gitQueue);
+            for (let i = 0; i < 5; i++) {
+                s.gitQueue.push({ code: 0, stdout: "", stderr: "" });                            // post-worker add
+                s.gitQueue.push({ code: 128, stdout: "", stderr: "commit-stage add boom\n" });   // commit-stage git add -A — fails
+            }
+            s.claudeQueue.push({ text: "ok" }); // detect
+            for (let i = 0; i < 5; i++) {
+                s.claudeQueue.push({ text: `w${i + 1}` });                 // worker
+                s.claudeQueue.push({ text: "reviewer ok", errorLog: "" }); // reviewer PASS → reaches commit stage
+            }
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "commit.1.error.log holds the commit-stage git add -A failure text"(_code, { files }) {
+                Assert.strictEqual(
+                    files.get(WS_ROOT + "/commit.1.error.log"),
+                    "git add -A failed (exit 128)\n--- stdout ---\n\n--- stderr ---\ncommit-stage add boom\n"
+                );
+            },
+            "exactly one commit error log per failing iteration is materialized"(_code, { files }) {
+                Assert.deepStrictEqual(materializedErrorLogs(files), [
+                    WS_ROOT + "/commit.1.error.log",
+                    WS_ROOT + "/commit.2.error.log",
+                    WS_ROOT + "/commit.3.error.log",
+                    WS_ROOT + "/commit.4.error.log",
+                    WS_ROOT + "/commit.5.error.log"
+                ]);
+            },
+            "the briefing error.log is removed after materialization"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/error.log"), false);
+            }
+        }
+    });
+
+    test("a review-failing hard stop materializes nothing for a reviewer cancelled at round completion", {
+        ARRANGE() {
+            // R0 required → a non-empty FAIL verdict each iteration (the stage fails and the task
+            // never advances). R1 optional → enters a usage-limit wait that never clears and is
+            // cancelled at round completion each iteration. Five failing iterations hit the hard stop.
+            const { s } = weightedReviewStub([
+                [{ verdict: "boom" }, { verdict: "boom" }, { verdict: "boom" }, { verdict: "boom" }, { verdict: "boom" }],
+                [{ rateLimit: 3600 }, { rateLimit: 3600 }, { rateLimit: 3600 }, { rateLimit: 3600 }, { rateLimit: 3600 }]
+            ]);
+            extraWorkerAdds(s.gitQueue, 2); // 5 review-failing iterations each run a post-worker add; gitRunQueue covers 3
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "w", effort: "", fast: false },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false },
+                    { tool: "claude", model: "", effort: "", fast: false, optional: true }
+                ],
+                minimumReviews: 1
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.claudeQueue.push({ text: "detect" });
+            for (let i = 0; i < 5; i++) {
+                s.claudeQueue.push({ text: `w${i + 1}` });
+            }
+            return { s };
+        },
+        async ACT({ s }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, files: s.files };
+        },
+        ASSERTS: {
+            "exits with code 1"({ code }) {
+                Assert.strictEqual(code, 1);
+            },
+            "the required reviewer at position 1 is materialized for every failing iteration"({ files }) {
+                Assert.deepStrictEqual(materializedErrorLogs(files), [
+                    WS_ROOT + "/reviewer.1.1.error.log",
+                    WS_ROOT + "/reviewer.2.1.error.log",
+                    WS_ROOT + "/reviewer.3.1.error.log",
+                    WS_ROOT + "/reviewer.4.1.error.log",
+                    WS_ROOT + "/reviewer.5.1.error.log"
+                ]);
+            },
+            "the cancelled optional reviewer at position 2 is never materialized"({ files }) {
+                const pos2 = [...files.keys()].filter(k => /\/reviewer\.\d+\.2\.error\.log$/.test(k));
+                Assert.deepStrictEqual(pos2, []);
+            }
+        }
+    });
+
+    test("a two-reviewer hard stop materializes both non-empty reviewers per iteration and leaves spec.md, both per-reviewer folders, and every streamed-output log byte-for-byte unchanged", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false },
+                    { tool: "codex", model: "", effort: "", fast: false, optional: false }
+                ],
+                minimumReviews: 2
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            const plan = planWithLinkedFiles(
+                "[.spec/contracts/hs-c1.md](/.spec/contracts/hs-c1.md)",
+                "[.spec/rules/hs-r1.md](/.spec/rules/hs-r1.md)"
+            );
+            s.files.set(PLAN_PATH, plan);
+            s.files.set("/project/.spec/contracts/hs-c1.md", "HS_CONTRACT_ONE");
+            s.files.set("/project/.spec/rules/hs-r1.md", "HS_RULE_ONE");
+            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
+            s.files.set(WS_ROOT + "/build.sh", "make");
+            s.files.set(WS_ROOT + "/test.sh", "run-tests");
+            // Record the content of the FIRST write to each path. Every non-error-log artifact is
+            // written before the hard stop, so materialization (which runs last) can never be a
+            // path's first write — asserting the final content equals the captured first write
+            // therefore proves materialization did not overwrite it.
+            const firstWrite:Record<string, string> = {};
+            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
+            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
+                if (!(p in firstWrite)) firstWrite[p] = c;
+                return origWriteFile(p, c);
+            };
+            gitActivationQueue(s.gitQueue);
+            for (let i = 0; i < 5; i++) {
+                s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // post-worker add for each review-failing iteration
+            }
+            s.claudeQueue.push({ text: "ok" }); // detect
+            for (let i = 0; i < 5; i++) {
+                s.claudeQueue.push({ text: `worker body ${i + 1}` });                          // worker (distinctive per iteration)
+                s.claudeQueue.push({ text: "rev1 streamed", errorLog: "\n  R1 violation  \n" }); // reviewer 1 (position 1) FAIL, untrimmed
+                s.codexQueue.push({ text: "rev2 streamed", errorLog: "R2 violation" });          // reviewer 2 (position 2) FAIL, distinct
+            }
+            for (let i = 0; i < 5; i++) {
+                s.scriptQueue.push({ code: 0, stdout: `build out ${i + 1}\n`, stderr: "" }); // build ok (distinctive)
+                s.scriptQueue.push({ code: 0, stdout: `test out ${i + 1}\n`, stderr: "" });  // test ok (distinctive)
+            }
+            return { ...s, firstWrite };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "both non-empty reviewers in iteration 1 are materialized at their distinct 1-based positions"(_code, { files }) {
+                Assert.deepStrictEqual(
+                    [files.get(WS_ROOT + "/reviewer.1.1.error.log"), files.get(WS_ROOT + "/reviewer.1.2.error.log")],
+                    ["\n  R1 violation  \n", "R2 violation"]
+                );
+            },
+            "every failing iteration materializes both reviewers — exactly ten position-tagged files"(_code, { files }) {
+                Assert.deepStrictEqual(materializedErrorLogs(files), [
+                    WS_ROOT + "/reviewer.1.1.error.log", WS_ROOT + "/reviewer.1.2.error.log",
+                    WS_ROOT + "/reviewer.2.1.error.log", WS_ROOT + "/reviewer.2.2.error.log",
+                    WS_ROOT + "/reviewer.3.1.error.log", WS_ROOT + "/reviewer.3.2.error.log",
+                    WS_ROOT + "/reviewer.4.1.error.log", WS_ROOT + "/reviewer.4.2.error.log",
+                    WS_ROOT + "/reviewer.5.1.error.log", WS_ROOT + "/reviewer.5.2.error.log"
+                ]);
+            },
+            "the main spec.md is unchanged byte-for-byte from what the worker wrote"(_code, { files, firstWrite }) {
+                Assert.ok(firstWrite[WS_ROOT + "/spec.md"]!.includes("HS_CONTRACT_ONE") && firstWrite[WS_ROOT + "/spec.md"]!.includes("HS_RULE_ONE"), "captured spec.md must be the real consolidated content");
+                Assert.strictEqual(files.get(WS_ROOT + "/spec.md"), firstWrite[WS_ROOT + "/spec.md"]);
+            },
+            "reviewer 1's per-reviewer spec.md is unchanged byte-for-byte"(_code, { files, firstWrite }) {
+                Assert.ok(firstWrite[reviewerRoot(1) + "/spec.md"]!.includes("HS_CONTRACT_ONE") && firstWrite[reviewerRoot(1) + "/spec.md"]!.includes("HS_RULE_ONE"), "captured reviewer-1 spec.md must be the real consolidated content");
+                Assert.strictEqual(files.get(reviewerRoot(1) + "/spec.md"), firstWrite[reviewerRoot(1) + "/spec.md"]);
+            },
+            "reviewer 2's per-reviewer spec.md is unchanged byte-for-byte"(_code, { files, firstWrite }) {
+                Assert.ok(firstWrite[reviewerRoot(2) + "/spec.md"]!.includes("HS_CONTRACT_ONE") && firstWrite[reviewerRoot(2) + "/spec.md"]!.includes("HS_RULE_ONE"), "captured reviewer-2 spec.md must be the real consolidated content");
+                Assert.strictEqual(files.get(reviewerRoot(2) + "/spec.md"), firstWrite[reviewerRoot(2) + "/spec.md"]);
+            },
+            "reviewer 1's own error.log keeps its exact verdict content"(_code, { files }) {
+                Assert.strictEqual(files.get(reviewerErrorLogPath(1)), "\n  R1 violation  \n");
+            },
+            "reviewer 2's own error.log keeps its exact verdict content"(_code, { files }) {
+                Assert.strictEqual(files.get(reviewerErrorLogPath(2)), "R2 violation");
+            },
+            "the iteration-1 worker streamed-output log is unchanged byte-for-byte"(_code, { files, firstWrite }) {
+                Assert.ok(firstWrite[WS_ROOT + "/worker.1.log"]!.includes("worker body 1"), "captured worker log must be the real streamed output");
+                Assert.strictEqual(files.get(WS_ROOT + "/worker.1.log"), firstWrite[WS_ROOT + "/worker.1.log"]);
+            },
+            "the iteration-1 build streamed-output log holds its exact content"(_code, { files }) {
+                Assert.strictEqual(files.get(WS_ROOT + "/build.1.log"), "--- stdout ---\nbuild out 1\n\n--- stderr ---\n");
+            },
+            "the iteration-1 test streamed-output log holds its exact content"(_code, { files }) {
+                Assert.strictEqual(files.get(WS_ROOT + "/test.1.log"), "--- stdout ---\ntest out 1\n\n--- stderr ---\n");
+            },
+            "the iteration-1 reviewer-1 streamed-output log is unchanged byte-for-byte"(_code, { files, firstWrite }) {
+                Assert.ok(firstWrite[WS_ROOT + "/reviewer.1.1.log"]!.includes("Verdict: FAIL R1 violation"), "captured reviewer-1 output log must carry the FAIL verdict");
+                Assert.strictEqual(files.get(WS_ROOT + "/reviewer.1.1.log"), firstWrite[WS_ROOT + "/reviewer.1.1.log"]);
+            },
+            "the iteration-1 reviewer-2 streamed-output log is unchanged byte-for-byte"(_code, { files, firstWrite }) {
+                Assert.ok(firstWrite[WS_ROOT + "/reviewer.1.2.log"]!.includes("Verdict: FAIL R2 violation"), "captured reviewer-2 output log must carry the FAIL verdict");
+                Assert.strictEqual(files.get(WS_ROOT + "/reviewer.1.2.log"), firstWrite[WS_ROOT + "/reviewer.1.2.log"]);
+            }
+        }
+    });
+
+    test("a later materialization write failure leaves the briefing error.log in place — the briefing is dropped only after every retained file is on disk", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(WS_ROOT + "/build.sh", "make");
+            // Five build failures retain build.1..5.error.log in order. Permit the earlier writes but
+            // reject build.3.error.log — a LATER write. If the briefing were deleted before all
+            // retained files are on disk, it would already be gone when build.3 rejects; asserting the
+            // briefing still exists therefore proves the delete happens only after every write. The
+            // briefing (WS_ROOT/error.log) and streamed `.log` writes are not ".error.log", so only
+            // the one materialization write is rejected.
+            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
+            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
+                if (p === WS_ROOT + "/build.3.error.log") {
+                    return Promise.reject(new Error("disk full"));
+                }
+                return origWriteFile(p, c);
+            };
+            gitActivationQueue(s.gitQueue);
+            for (let i = 0; i < 5; i++) {
+                s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // post-worker add before each failing build
+            }
+            s.claudeQueue.push({ text: "ok" }); // detect
+            for (let i = 0; i < 5; i++) {
+                s.claudeQueue.push({ text: `w${i + 1}` });                             // worker
+                s.scriptQueue.push({ code: 1, stdout: `build boom ${i + 1}\n`, stderr: "" }); // build FAIL
+            }
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits non-zero"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the exact hard-stop diagnostic is still emitted exactly once despite the materialization write failure"(_code, { written }) {
+                // Exact-match + count over the discrete output.write calls: the materialization-failure
+                // notice is a distinct write, so it does not match this filter, while a prefix/suffix/
+                // reworded/duplicated main diagnostic would break the count of exactly one.
+                const diagnostic = `Hard stop: task at line 3 ("Implement feature A") exceeded 5 iterations. Inspect logs at ${WS_ROOT}.\n`;
+                Assert.deepStrictEqual(written.filter(w => w === diagnostic), [diagnostic]);
+            },
+            "the terminal outcome is the Hard stop label, not Failed"(_code, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(HARD_STOP_LABEL), "a materialization write failure must still finalize as Hard stop");
+                Assert.ok(!allOutput.includes(FAILED_LABEL), "a materialization write failure must not finalize as Failed");
+            },
+            "the earlier retained files that were written before the failure are on disk with their exact content"(_code, { files }) {
+                Assert.deepStrictEqual(
+                    [files.get(WS_ROOT + "/build.1.error.log"), files.get(WS_ROOT + "/build.2.error.log")],
+                    [
+                        "build stage failed (exit 1)\n--- stdout ---\nbuild boom 1\n\n--- stderr ---\n",
+                        "build stage failed (exit 1)\n--- stdout ---\nbuild boom 2\n\n--- stderr ---\n"
+                    ]
+                );
+            },
+            "the briefing error.log is NOT removed even though earlier retained files were already written"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/error.log"), true);
+            },
+            "the rejected write and every later retained file are absent (the loop stopped at the failure, before the delete)"(_code, { files }) {
+                Assert.deepStrictEqual(
+                    [files.has(WS_ROOT + "/build.3.error.log"), files.has(WS_ROOT + "/build.4.error.log"), files.has(WS_ROOT + "/build.5.error.log")],
+                    [false, false, false]
+                );
+            },
+            "the workspace is preserved despite the write failure"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(WS_ROOT), false);
+            }
+        }
+    });
+});
+
+test.describe("Implement per-reviewer verdict file delete-before", test => {
+    test("each configured reviewer's own error.log is deleted before that reviewer runs, so a stale verdict cannot be read as the reviewer's result", {
+        ARRANGE() {
+            const s = stubContexts();
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false },
+                    { tool: "codex", model: "", effort: "", fast: false, optional: false }
+                ],
+                minimumReviews: 2
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            // Seed a stale non-empty verdict in each independently allocated per-reviewer folder
+            // BEFORE the run. If the orchestrator did not delete each reviewer's error.log before
+            // launching it, the first (non-writing) invocation would find the stale file present and
+            // read it as a FAIL verdict. Because the file is deleted first, that first invocation
+            // instead finds it absent and is relaunched; the relaunch writes an empty (PASS) verdict.
+            s.files.set(reviewerErrorLogPath(1), "STALE reviewer 1 verdict");
+            s.files.set(reviewerErrorLogPath(2), "STALE reviewer 2 verdict");
+            gitRunQueue(s.gitQueue);
+            s.claudeQueue.push({ text: "ok" });                                      // detect
+            s.claudeQueue.push({ text: "worker" });                                  // iter 1 worker
+            s.claudeQueue.push({ text: "reviewer 1 first — writes nothing" });       // reviewer 1 invocation 1: no errorLog → leaves the (deleted) file absent
+            s.claudeQueue.push({ text: "reviewer 1 relaunch", errorLog: "" });       // reviewer 1 invocation 2 (relaunch): empty PASS verdict
+            s.codexQueue.push({ text: "reviewer 2 first — writes nothing" });        // reviewer 2 invocation 1: no errorLog → leaves the (deleted) file absent
+            s.codexQueue.push({ text: "reviewer 2 relaunch", errorLog: "" });        // reviewer 2 invocation 2 (relaunch): empty PASS verdict
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits 0 (the stale verdicts were cleared, so both reviewers relaunched and passed)"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "reviewer 1's stale verdict was deleted before it ran and replaced by its empty relaunch verdict"(_code, { files }) {
+                Assert.strictEqual(files.get(reviewerErrorLogPath(1)), "");
+            },
+            "reviewer 2's stale verdict was deleted before it ran and replaced by its empty relaunch verdict"(_code, { files }) {
+                Assert.strictEqual(files.get(reviewerErrorLogPath(2)), "");
+            },
+            "reviewer 1 was relaunched — its output log records both the first and the relaunch invocation"(_code, { files }) {
+                const log = files.get(WS_ROOT + "/reviewer.1.1.log")!;
+                Assert.ok(log.includes("reviewer 1 first — writes nothing") && log.includes("reviewer 1 relaunch"), `expected both reviewer-1 invocations in the output log, got: ${log}`);
+            },
+            "reviewer 2 was relaunched — its output log records both the first and the relaunch invocation"(_code, { files }) {
+                const log = files.get(WS_ROOT + "/reviewer.1.2.log")!;
+                Assert.ok(log.includes("reviewer 2 first — writes nothing") && log.includes("reviewer 2 relaunch"), `expected both reviewer-2 invocations in the output log, got: ${log}`);
             }
         }
     });
@@ -3903,7 +4565,7 @@ test.describe("Implement commit per task", test => {
 });
 
 test.describe("Implement post-worker staging", test => {
-    test("post-worker git add -A fails every iteration — error.log holds the combined output, no commit, task stays open, hard stop", {
+    test("post-worker git add -A fails every iteration — the pre-build staging is never materialized and the briefing error.log is removed on hard stop, no commit, task stays open", {
         ARRANGE() {
             const s = stubContexts();
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
@@ -3932,11 +4594,12 @@ test.describe("Implement post-worker staging", test => {
             "exits with code 1 after exhausting iterations"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "error.log holds the failed post-worker add's combined stdout/stderr"(_code, { files }) {
-                Assert.strictEqual(
-                    files.get(WS_ROOT + "/error.log"),
-                    "git add -A failed (exit 137)\n--- stdout ---\npost-worker stdout marker\n\n--- stderr ---\npost-worker stderr marker\n"
-                );
+            "the briefing error.log is removed on the hard stop"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/error.log"), false);
+            },
+            "the pre-build staging failure is never materialized (no per-iteration error log)"(_code, { files }) {
+                const materialized = [...files.keys()].filter(k => k.startsWith(WS_ROOT + "/") && k.endsWith(".error.log"));
+                Assert.deepStrictEqual(materialized, []);
             },
             "the task is never marked done"(_code, { files }) {
                 Assert.ok(files.get(PLAN_PATH)!.includes("[ ]"), "task should stay open when post-worker staging never succeeds");
@@ -7008,21 +7671,28 @@ test.describe("Implement worker iter 1 deterministic injection", test => {
             }
             return { ...s, errorLogWrites };
         },
-        async ACT({ contexts, promptQueue, written, errors, rmCalls }) {
+        async ACT({ contexts, promptQueue, written, errors, rmCalls, files }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return { code, promptQueue, output: written.join("") + errors.join(""), rmCalls };
+            return { code, promptQueue, output: written.join("") + errors.join(""), written: [...written], rmCalls, files };
         },
         ASSERTS: {
             "exits non-zero at the iteration cap"({ code }) {
                 Assert.strictEqual(code, 1);
             },
-            "the hard stop is reached by iterating, not by an immediate command abort"({ output }) {
-                Assert.ok(output.includes("Hard stop") && output.includes("exceeded"), `expected the iteration-cap hard-stop message, got: ${output}`);
+            "the hard stop is reached by iterating and prints the exact task-identifying, cap-naming, workspace-pointing diagnostic exactly once"({ written }) {
+                // Exact-match + count over the discrete output.write calls, so a prefixed, suffixed,
+                // reworded, or duplicated diagnostic is caught rather than passing a substring search.
+                const diagnostic = `Hard stop: task at line 3 ("1.1 Task with links") exceeded 5 iterations. Inspect logs at ${WS_ROOT}.\n`;
+                Assert.deepStrictEqual(written.filter(w => w === diagnostic), [diagnostic]);
             },
             "iteration 1 records a worker-stage-failure briefing naming the missing file"(_r, { errorLogWrites }) {
                 Assert.ok(errorLogWrites.some(c => c.includes("worker stage failed") && c.includes("missing.md")), `expected a worker-stage-failure briefing naming the missing file, got: ${JSON.stringify(errorLogWrites)}`);
+            },
+            "no per-iteration .error.log is materialized (worker-stage and reviewer-exception failures are never among the four materialized stages)"({ files }) {
+                const materialized = [...files.keys()].filter(k => k.startsWith(WS_ROOT + "/") && k.endsWith(".error.log"));
+                Assert.deepStrictEqual(materialized, []);
             },
             "the workspace is preserved on the hard stop (not cleaned up as a command abort would)"({ rmCalls }) {
                 Assert.ok(!rmCalls.includes(WS_ROOT), "the hard stop must preserve the workspace");
