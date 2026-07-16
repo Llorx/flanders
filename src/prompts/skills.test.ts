@@ -36,6 +36,13 @@ function userFacingVoiceSection(body: string): string {
     return body.slice(start, end);
 }
 
+// Slice out the /flanders-hard-stop-review body's "Interaction and reasoning language" section — from
+// its heading to the "## Voice" section that follows — so the language-resolution assertions share one
+// extraction rather than repeating the slice.
+function interactionAndReasoningLanguageSection(body: string): string {
+    return body.slice(body.indexOf("## Interaction and reasoning language"), body.indexOf("## Voice"));
+}
+
 test.describe("skills – planSkillBody", test => {
     test("is a non-empty string", {
         ARRANGE() {},
@@ -2607,10 +2614,28 @@ test.describe("skills – hardStopReviewSkillBody", test => {
                 Assert.ok(body.includes("not the AI tools' own session transcripts"), "must not draw on the AI tools' own session transcripts");
             },
             "reads the per-iteration worker, build, test, and reviewer output logs"(body) {
-                Assert.ok(body.includes("its per-iteration worker, build, test, and reviewer output logs"), "must read the per-iteration worker, build, test, and reviewer output logs");
+                Assert.ok(body.includes("per-iteration worker, build, test, and reviewer output logs"), "must read the per-iteration worker, build, test, and reviewer output logs");
             },
-            "reads the briefing error.log"(body) {
-                Assert.ok(body.includes("its briefing \`error.log\`"), "must read the briefing error.log");
+            "names the materialized build error-log pattern"(body) {
+                Assert.ok(body.includes("\`build.<iteration>.error.log\`"), "must name the materialized build.<iteration>.error.log pattern");
+            },
+            "names the materialized test error-log pattern"(body) {
+                Assert.ok(body.includes("\`test.<iteration>.error.log\`"), "must name the materialized test.<iteration>.error.log pattern");
+            },
+            "names the materialized per-reviewer error-log pattern"(body) {
+                Assert.ok(body.includes("\`reviewer.<iteration>.<position>.error.log\`"), "must name the materialized reviewer.<iteration>.<position>.error.log pattern");
+            },
+            "names the materialized commit error-log pattern"(body) {
+                Assert.ok(body.includes("\`commit.<iteration>.error.log\`"), "must name the materialized commit.<iteration>.error.log pattern");
+            },
+            "states the error logs make explicit which stage failed in each iteration and by which reviewer"(body) {
+                Assert.ok(body.includes("making explicit which stage failed in each iteration and by which reviewer"), "must state the per-stage error logs make explicit which stage failed in each iteration and by which reviewer");
+            },
+            "states the single briefing error.log has been removed at the hard stop"(body) {
+                Assert.ok(body.includes("the single briefing \`error.log\` has been removed at the hard stop"), "must state the single briefing error.log has been removed at the hard stop");
+            },
+            "no longer instructs reading a present briefing error.log"(body) {
+                Assert.strictEqual(body.includes("its briefing \`error.log\`"), false);
             },
             "reads the consolidated spec.md"(body) {
                 Assert.ok(body.includes("its consolidated \`spec.md\`"), "must read the consolidated spec.md");
@@ -2737,20 +2762,27 @@ test.describe("skills – hardStopReviewSkillBody", test => {
         }
     });
 
-    test("carries the interaction-language obligation resolved to the user's most recent message", {
-        ARRANGE() {},
+    test("carries the shared interaction-and-reasoning language obligation with the ordered plan-then-spec fallback", {
+        ARRANGE() {
+            // The full resolution priority as one continuous, ordered clause. Asserting the section contains it
+            // verbatim guards both the wording of each tier and their order: any reordering — e.g. the general
+            // most-recent-message resolution moving ahead of the plan/spec fallback — changes the string and fails.
+            const priorityChain = "Resolve it, in order, from the natural language of the user's most recent message when that message carries a determinable natural language; otherwise from the plan file you identify, then the spec corpus you consult; otherwise the general most-recent-message resolution.";
+            return { priorityChain };
+        },
         ACT() { return hardStopReviewSkillBody; },
         ASSERTS: {
-            "has interaction language heading"(body) {
-                Assert.ok(body.includes("## Interaction language"), "must have interaction language section");
+            "has the interaction-and-reasoning language heading"(body) {
+                Assert.ok(body.includes("## Interaction and reasoning language"), "must have the interaction and reasoning language section");
             },
-            "the section states every message uses the user's most recent message language"(body) {
-                const section = body.slice(body.indexOf("## Interaction language"), body.indexOf("## Voice"));
-                Assert.ok(section.includes("Every message you address to the user during the run is written in the natural language of the user's most recent message in the conversation."), "the Interaction language section must state that every message the skill addresses to the user uses the language of the user's most recent message");
+            "reasoning and interaction are one resolved language applied to both throughout the run"(body) {
+                Assert.ok(interactionAndReasoningLanguageSection(body).includes("Use one resolved language for both your reasoning and every message you address to the user, throughout the run."), "the section must state one resolved language covers both reasoning and every user-facing message throughout the run");
             },
-            "the section states the mid-conversation language switch"(body) {
-                const section = body.slice(body.indexOf("## Interaction language"), body.indexOf("## Voice"));
-                Assert.ok(section.includes("every subsequent message you address to the user follows the language of their latest message"), "the Interaction language section must state the mid-conversation language switch");
+            "states the resolution priority chain verbatim, in order"(body, { priorityChain }) {
+                Assert.ok(interactionAndReasoningLanguageSection(body).includes(priorityChain), "the section must state the resolution priority as the user's most recent message, then the plan file, then the spec corpus, then the general resolution — in that exact order");
+            },
+            "follows a mid-conversation language switch the user makes"(body) {
+                Assert.ok(interactionAndReasoningLanguageSection(body).includes("Follow any mid-conversation language switch the user makes."), "the section must state a mid-conversation language switch the user makes is followed");
             }
         }
     });

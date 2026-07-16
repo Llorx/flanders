@@ -543,7 +543,7 @@ The user invokes you as: /flanders-hard-stop-review [<data>]
 
 Your work is read-only, drawing only on the preserved hard-stop temporary folder, the plan file, and the project's spec corpus — not the AI tools' own session transcripts.
 
-1. **Read the preserved evidence.** Read the preserved hard-stop temporary folder: its per-iteration worker, build, test, and reviewer output logs, its briefing \`error.log\`, and its consolidated \`spec.md\`, together with each per-reviewer folder's \`error.log\`. From that evidence identify the task that hard-stopped — its plan-file line number and title — and the plan file the run was implementing.
+1. **Read the preserved evidence.** Read the preserved folder's per-iteration worker, build, test, and reviewer output logs; the per-stage error logs the hard stop materializes — \`build.<iteration>.error.log\`, \`test.<iteration>.error.log\`, \`reviewer.<iteration>.<position>.error.log\`, and \`commit.<iteration>.error.log\` — making explicit which stage failed in each iteration and by which reviewer (the single briefing \`error.log\` has been removed at the hard stop); its consolidated \`spec.md\`; and each per-reviewer folder's \`error.log\`. From that evidence identify the task that hard-stopped — its plan-file line number and title — and the plan file the run was implementing.
 
 2. **Ground the analysis in the project's specs.** Read the identified plan file and the contracts and rules the hard-stopped task references, consulting the wider spec corpus as far as the diagnosis needs.
 
@@ -567,9 +567,9 @@ After presenting the diagnosis, ask the user which skill to launch to carry out 
 
 You create, modify, delete, and rename no file of your own: not code, not a plan file, and no file inside any \`.spec/contracts\`, \`.spec/rules\`, or \`.spec/flanders\` folder. Every file change happens only through a skill you launch, under that skill's own write authority.
 
-## Interaction language
+## Interaction and reasoning language
 
-Every message you address to the user during the run is written in the natural language of the user's most recent message in the conversation. When the user switches the language they write in partway through the interaction, every subsequent message you address to the user follows the language of their latest message.
+Use one resolved language for both your reasoning and every message you address to the user, throughout the run. Resolve it, in order, from the natural language of the user's most recent message when that message carries a determinable natural language; otherwise from the plan file you identify, then the spec corpus you consult; otherwise the general most-recent-message resolution. Follow any mid-conversation language switch the user makes.
 
 ${buildFlandersVoiceSection({
     subject: "the messages you address to the user",
