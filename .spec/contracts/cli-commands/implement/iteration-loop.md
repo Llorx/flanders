@@ -82,7 +82,9 @@ The decision to add the briefing depends only on the iteration counter — there
 ## Hard stop
 Exceeding `MAX_ITER` on any single task ends the entire run. The command prints an error that:
 - Identifies the task by its line number and title.
-- Points at the temporary folder so the user can inspect the per-iteration logs and `error.log`.
+- Points at the temporary folder so the user can inspect the per-iteration logs and the per-iteration, per-stage error logs the hard stop materializes (see [.spec/contracts/cli-commands/implement/workspace.md#hard-stop-per-iteration-error-logs](/.spec/contracts/cli-commands/implement/workspace.md#hard-stop-per-iteration-error-logs)).
+
+Before preserving the folder, the hard stop materializes each failing iteration's per-stage error log and removes the single briefing `error.log`, so the preserved folder records the error history of every iteration rather than only the last (see [.spec/contracts/cli-commands/implement/workspace.md#hard-stop-per-iteration-error-logs](/.spec/contracts/cli-commands/implement/workspace.md#hard-stop-per-iteration-error-logs)).
 
 Unlike every other exit path, the hard stop intentionally preserves the temporary folder on disk so the user can inspect it; the automatic cleanup defined in [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md) is suppressed in this case.
 
