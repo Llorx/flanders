@@ -38,8 +38,12 @@ After presenting the diagnosis, the skill asks the user which skill to launch to
 ## Write boundary
 The skill creates, modifies, deletes, and renames no file: not code, not a plan file, and no file inside any `.spec/contracts`, `.spec/rules`, or `.spec/flanders` folder. Its analysis reads the preserved evidence, the plan, and the spec corpus and reports in chat; every file change happens only through a skill it launches, under that skill's own write authority (see [.spec/contracts/shared/spec-folder-write-authority.md](/.spec/contracts/shared/spec-folder-write-authority.md)).
 
-## Interaction language
-The natural language the skill converses in with the user — its diagnosis, its recommendation, the launch offer, and every other message it prints in chat — is resolved per [.spec/contracts/ai-skills/interaction-language.md](/.spec/contracts/ai-skills/interaction-language.md).
+## Interaction and reasoning language
+The natural language the skill reasons in — its train of thought — and the natural language it converses in with the user — its diagnosis, its recommendation, the launch offer, and every other message it prints in chat — are one and the same resolved language, applied to both throughout the run. That language is resolved in priority order:
+
+1. The general interaction-language resolution (see [.spec/contracts/ai-skills/interaction-language.md](/.spec/contracts/ai-skills/interaction-language.md)): the natural language of the user's most recent message, when that message carries a determinable natural language.
+2. Otherwise — when the user's most recent message carries no determinable natural language, as when the skill is invoked with only the preserved-folder path and no prose — the language the skill infers from the plan file it identifies in step 1 of Behavior; and when that plan reveals no determinable language, the language it infers from the spec corpus it consults in step 2 of Behavior.
+3. Otherwise — when neither the plan nor the spec reveals a determinable language — the general interaction-language resolution above.
 
 ## Out of scope
 - The skill's analysis draws only on the preserved hard-stop temporary folder, the plan file, and the project's spec corpus; it does not read the AI tools' own session transcripts.
