@@ -2141,11 +2141,15 @@ Every message you address to the user during the run — your clarifying questio
             "asks which skill to launch: plan, work, or neither"(body) {
                 Assert.ok(body.includes("which skill to launch next: /flanders-plan, /flanders-work, or neither"), "must ask which skill to launch next, offering plan, work, or neither");
             },
-            "presents the launch question through the question facility as a single multiple-choice question"(body) {
-                Assert.ok(body.includes("Present that choice through the same question facility the clarification phase uses when your AI tool provides one, as a single multiple-choice question"), "must present the launch question through the question facility as a single multiple-choice question when the AI tool provides one");
+            "ends the completion declaration with the launch question as plain chat text"(body) {
+                Assert.ok(body.includes("End the same chat message that carries your completion declaration with that launch question asked as plain chat text"), "must end the completion-declaration message with the launch question as plain chat text");
             },
-            "asks the launch question in chat when no facility exists"(body) {
-                Assert.ok(body.includes("when it provides no such facility, ask it in chat"), "must ask the launch question in chat when the AI tool provides no question facility");
+            "never routes the launch question through the question facility"(body) {
+                Assert.ok(body.includes("never through a facility your AI tool provides for asking questions"), "must state the launch question never goes through the question facility");
+                Assert.strictEqual(body.includes("Present that choice through the same question facility"), false, "must not carry the facility routing for the launch question");
+            },
+            "the report and its question arrive together in one message"(body) {
+                Assert.ok(body.includes("so the report and its question arrive together in one message"), "must state the report and its question arrive together in one message");
             },
             "recommends work for a single small self-contained change"(body) {
                 Assert.ok(body.includes("recommend /flanders-work when the spec describes a single, small, self-contained change"), "must recommend /flanders-work for a single, small, self-contained change");
@@ -2183,7 +2187,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(body.includes("## Chat presentations precede questions"), "must have the Chat presentations precede questions section");
             },
             "names every owed presentation and orders it before the question that follows it"(body) {
-                Assert.ok(body.includes("Print every presentation a step of this skill owes the user in chat — the approach trade-off summaries of the clarification phase, the drafting-phase layout summary, the completion declaration — as its own chat message before the question that follows it"), "must name the trade-off summaries, the layout summary, and the completion declaration as presentations printed as their own chat message before the question that follows them");
+                Assert.ok(body.includes("Print every presentation a step of this skill owes the user in chat — the approach trade-off summaries of the clarification phase, the drafting-phase layout summary — as its own chat message before the question that follows it"), "must name the trade-off summaries and the layout summary as presentations printed as their own chat message before the question that follows them");
             },
             "covers the question facility and the plain-chat question alike"(body) {
                 Assert.ok(body.includes("whether that question goes through a facility your AI tool provides for asking questions or is asked as plain chat text"), "must cover a question put through the AI tool's question facility and a plain chat question alike");
@@ -2892,11 +2896,9 @@ test.describe("skills – hardStopReviewSkillBody", test => {
             "offers exactly /flanders-spec, /flanders-plan, or neither"(body) {
                 Assert.ok(body.includes("ask the user which skill to launch to carry out the recommendation: \`/flanders-spec\`, \`/flanders-plan\`, or neither."), "must offer exactly /flanders-spec, /flanders-plan, or neither");
             },
-            "presents the launch question through the question facility as multiple-choice"(body) {
-                Assert.ok(body.includes("When your AI tool provides a facility for asking the user questions with fixed options, present that choice through it as a multiple-choice question"), "must present the launch question through the question facility as multiple-choice when the AI tool provides one");
-            },
-            "asks the launch question in chat when no facility exists"(body) {
-                Assert.ok(body.includes("when it provides no such facility, ask it in chat"), "must ask the launch question in chat when the AI tool provides no question facility");
+            "the launch question is plain chat text at the end of the diagnosis message"(body) {
+                Assert.ok(body.includes("That question is plain chat text at the end of the diagnosis message, per step 5."), "must state the launch question is plain chat text at the end of the diagnosis message per step 5");
+                Assert.strictEqual(body.includes("present that choice through it as a multiple-choice question"), false, "must not carry the facility routing for the launch question");
             },
             "recommends the skill the selected action points to"(body) {
                 Assert.ok(body.includes("Recommend the skill the action you selected in step 4 points to."), "must recommend the skill the selected action points to");
@@ -2919,28 +2921,25 @@ test.describe("skills – hardStopReviewSkillBody", test => {
         }
     });
 
-    test("delivers the diagnosis as its own chat message before the launch question", {
+    test("ends the diagnosis message with the launch question as plain chat text", {
         ARRANGE() {},
         ACT() { return hardStopReviewSkillBody; },
         ASSERTS: {
-            "prints the diagnosis as its own chat message before the launch question"(body) {
-                Assert.ok(body.includes("Print that diagnosis as its own chat message before the launch question of the next section"), "must print the diagnosis as its own chat message before the launch question of the next section");
+            "ends the diagnosis message with the launch question as plain chat text"(body) {
+                Assert.ok(body.includes("End the same chat message that carries that diagnosis with the launch question of the next section asked as plain chat text"), "must end the diagnosis message with the launch question of the next section as plain chat text");
             },
-            "covers the question facility and the plain-chat question alike"(body) {
-                Assert.ok(body.includes("whether that question goes through a facility your AI tool provides for asking questions or is asked as plain chat text"), "must cover a question put through the AI tool's question facility and a plain chat question alike");
+            "never routes the launch question through the question facility"(body) {
+                Assert.ok(body.includes("never through a facility your AI tool provides for asking questions"), "must state the launch question never goes through the question facility");
             },
-            "the question decides only the choice it asks"(body) {
-                Assert.ok(body.includes("The question decides only the choice it asks"), "must state the question decides only the choice it asks");
-            },
-            "content embedded in the question interaction is not the presentation"(body) {
-                Assert.ok(body.includes("content embedded in the question interaction — its text, its option labels, or its option descriptions — is not the presentation"), "must state that content embedded in the question interaction is not the presentation");
+            "the report and its question arrive together in one message"(body) {
+                Assert.ok(body.includes("so the report and its question arrive together in one message"), "must state the report and its question arrive together in one message");
             },
             "a user-supplied analysis does not waive the presentation"(body) {
                 Assert.ok(body.includes("the user having supplied their own analysis of the same matter does not waive it — state your own finding, where it confirms their account and where it diverges, before asking"), "must state a user-supplied analysis does not waive the presentation and the skill states its own finding before asking");
             },
             "the instruction sits in the diagnosis step, before the launch section"(body) {
-                Assert.ok(body.indexOf("Print that diagnosis as its own chat message") > body.indexOf("Present your root-cause finding and recommendation in chat."), "the instruction must extend the diagnosis-presentation step");
-                Assert.ok(body.indexOf("Print that diagnosis as its own chat message") < body.indexOf("## Recommending and launching the next step"), "the instruction must appear before the Recommending and launching the next step section");
+                Assert.ok(body.indexOf("End the same chat message that carries that diagnosis") > body.indexOf("Present your root-cause finding and recommendation in chat."), "the instruction must extend the diagnosis-presentation step");
+                Assert.ok(body.indexOf("End the same chat message that carries that diagnosis") < body.indexOf("## Recommending and launching the next step"), "the instruction must appear before the Recommending and launching the next step section");
             }
         }
     });

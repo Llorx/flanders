@@ -20,6 +20,10 @@ function skillVoiceSection(authoredArtifactExclusion: string): string {
     });
 }
 
+// The clause the two question-carrying instructions below share, extracted so its wording cannot
+// drift between them.
+const userAnalysisDoesNotWaive = `the user having supplied their own analysis of the same matter does not waive it — state your own finding, where it confirms their account and where it diverges, before asking`;
+
 // The report-before-question instruction each skill body with a user-facing question carries, so the
 // question never absorbs or replaces a presentation the skill owes the user in chat. Shared so the
 // wording cannot drift between the bodies that carry it; only the presentation and the question each
@@ -27,7 +31,16 @@ function skillVoiceSection(authoredArtifactExclusion: string): string {
 // concrete AI tool — so it ships intact into an arbitrary user project. See
 // .spec/contracts/ai-skills/report-before-question.md.
 function reportBeforeQuestionInstruction(presentation: string, question: string): string {
-    return `Print ${presentation} as its own chat message before ${question}, whether that question goes through a facility your AI tool provides for asking questions or is asked as plain chat text. The question decides only the choice it asks: content embedded in the question interaction — its text, its option labels, or its option descriptions — is not the presentation, and the user having supplied their own analysis of the same matter does not waive it — state your own finding, where it confirms their account and where it diverges, before asking.`;
+    return `Print ${presentation} as its own chat message before ${question}, whether that question goes through a facility your AI tool provides for asking questions or is asked as plain chat text. The question decides only the choice it asks: content embedded in the question interaction — its text, its option labels, or its option descriptions — is not the presentation, and ${userAnalysisDoesNotWaive}.`;
+}
+
+// The end-of-run launch-question form the /flanders-spec and /flanders-hard-stop-review bodies
+// carry: the final report's own chat message ends with the launch question as plain chat text, so
+// the report and its question arrive together and the question facility cannot become the carrier
+// that lets the report be skipped. Shared, inlined, and self-contained for the same reasons as
+// above. See .spec/contracts/ai-skills/report-before-question.md.
+function launchQuestionInstruction(report: string, question: string): string {
+    return `End the same chat message that carries ${report} with ${question} asked as plain chat text, never through a facility your AI tool provides for asking questions, so the report and its question arrive together in one message; ${userAnalysisDoesNotWaive}.`;
 }
 
 export const planSkillBody =
@@ -403,13 +416,13 @@ When the loop ends with FAIL after five passes, do not declare complete: surface
 
 Once you have declared the spec complete — the spec files persisted and the final validator returned PASS — offer to continue into the next step in the same session. Make this offer only on successful completion: when the bounded triage-then-fix loop exhausts without a PASS, surface the last FAIL report and stop, and make no such offer.
 
-Ask the user which skill to launch next: /flanders-plan, /flanders-work, or neither. Present that choice through the same question facility the clarification phase uses when your AI tool provides one, as a single multiple-choice question; when it provides no such facility, ask it in chat. Recommend one of them based on the implementation effort the spec you just wrote implies — recommend /flanders-work when the spec describes a single, small, self-contained change, and recommend /flanders-plan when the spec describes larger work that spans multiple obligations or scopes or needs an ordered, multi-step implementation. The user accepts the recommendation, chooses the other skill, or declines.
+Ask the user which skill to launch next: /flanders-plan, /flanders-work, or neither. ${launchQuestionInstruction("your completion declaration", "that launch question")} Recommend one of them based on the implementation effort the spec you just wrote implies — recommend /flanders-work when the spec describes a single, small, self-contained change, and recommend /flanders-plan when the spec describes larger work that spans multiple obligations or scopes or needs an ordered, multi-step implementation. The user accepts the recommendation, chooses the other skill, or declines.
 
 When the user chooses /flanders-plan or /flanders-work, launch it by invoking it in the same session with no <data> argument, so the launched skill takes its input from the conversation — the original request together with the spec you just wrote. The run then proceeds under that skill; launching it leaves your own deliverable and write boundary unchanged, so you write only this run's spec files and never code or a plan file. When the user declines, end the run.
 
 ## Chat presentations precede questions
 
-${reportBeforeQuestionInstruction("every presentation a step of this skill owes the user in chat — the approach trade-off summaries of the clarification phase, the drafting-phase layout summary, the completion declaration —", "the question that follows it")}
+${reportBeforeQuestionInstruction("every presentation a step of this skill owes the user in chat — the approach trade-off summaries of the clarification phase, the drafting-phase layout summary —", "the question that follows it")}
 
 ## Output language
 
@@ -575,11 +588,11 @@ Your work is read-only, drawing only on the preserved hard-stop temporary folder
    - Fix the spec through \`/flanders-spec\`: resolve the contradictory or ambiguous contract or rule that left the task unsatisfiable.
    - A combination of the above, when the evidence shows more than one cause.
 
-5. **Present your root-cause finding and recommendation in chat.** ${reportBeforeQuestionInstruction("that diagnosis", "the launch question of the next section")}
+5. **Present your root-cause finding and recommendation in chat.** ${launchQuestionInstruction("that diagnosis", "the launch question of the next section")}
 
 ## Recommending and launching the next step
 
-After presenting the diagnosis, ask the user which skill to launch to carry out the recommendation: \`/flanders-spec\`, \`/flanders-plan\`, or neither. When your AI tool provides a facility for asking the user questions with fixed options, present that choice through it as a multiple-choice question; when it provides no such facility, ask it in chat. Recommend the skill the action you selected in step 4 points to. When the user chooses one, launch it in the same session with no \`<data>\` argument. It takes the diagnosis from the conversation and operates under its own write boundary; yours remains read-only. When the recommended fix is to re-run \`implement\` unchanged, state the \`flanders implement\` command for the user to run and launch nothing. When the user declines, end the run.
+After presenting the diagnosis, ask the user which skill to launch to carry out the recommendation: \`/flanders-spec\`, \`/flanders-plan\`, or neither. That question is plain chat text at the end of the diagnosis message, per step 5. Recommend the skill the action you selected in step 4 points to. When the user chooses one, launch it in the same session with no \`<data>\` argument. It takes the diagnosis from the conversation and operates under its own write boundary; yours remains read-only. When the recommended fix is to re-run \`implement\` unchanged, state the \`flanders implement\` command for the user to run and launch nothing. When the user declines, end the run.
 
 ## Write boundary
 
