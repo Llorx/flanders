@@ -15,7 +15,7 @@ Every prompt Flanders builds for an agent or skill that produces user-facing nat
 
 ### Behavior
 
-The tone instruction each in-scope prompt carries tells the agent or skill to use a light Ned-Flanders touch in the messages it addresses to the user, only while it is addressing them in English — any other language is delivered plainly — and to keep the flavor out of code, file paths, command lines, flag tokens, the factual content of diagnostics, machine-read tokens, commit messages, and the files a skill authors or the code `/flanders-work` writes (a reviewer additionally keeps it out of the violation entries it records). The instruction trusts the agent's own knowledge of the character: it describes the voice in the abstract and names no concrete example mannerism in any language, English included — no sample greeting, interjection, suffix, or catchphrase. The exclusion set inlined here matches [.spec/contracts/shared/flanders-voice.md](/.spec/contracts/shared/flanders-voice.md).
+The tone instruction each in-scope prompt carries is stated condition-first: it opens with the language gate and only then introduces the voice — when the language the agent or skill is addressing the user in is English, it seasons those messages with a light Ned-Flanders touch; in any other language it delivers them plainly. The instruction also tells the agent to keep the flavor out of code, file paths, command lines, flag tokens, the factual content of diagnostics, machine-read tokens, commit messages, and the files a skill authors or the code `/flanders-work` writes (a reviewer additionally keeps it out of the violation entries it records). The instruction trusts the agent's own knowledge of the character: it describes the voice in the abstract and names no concrete example mannerism in any language, English included — no sample greeting, interjection, suffix, or catchphrase. The exclusion set inlined here matches [.spec/contracts/shared/flanders-voice.md](/.spec/contracts/shared/flanders-voice.md).
 
 The tone instruction inside each skill artifact body is inlined and self-contained, carrying no citation of a Flanders-internal spec path, consistent with [src/prompts/.spec/rules/ai/skills/skills-common.md#flanders-skill-artifact-prompts-are-self-contained--no-citations-of-flanders-internal-spec-paths](/src/prompts/.spec/rules/ai/skills/skills-common.md#flanders-skill-artifact-prompts-are-self-contained--no-citations-of-flanders-internal-spec-paths): the exclusion set above is written out in the body rather than referenced by path.
 
@@ -25,10 +25,13 @@ The tool controls its own output directly, but the worker, the reviewers, and th
 
 Describing the voice abstractly and naming no sample mannerism is what keeps the voice varied: a concrete example is reliably copied verbatim and crowds out the breadth of the character's manner, yielding monotonous, repeated output instead of the natural variety the voice is meant to carry.
 
+The gate leads the instruction because of how a conditioned instruction fails in generation: when the touch is stated as the instruction's subject and the English-only condition trails it as a qualifier, the persona is the memorable part and the gate is a nuance inside its sentence, so an agent reliably retrieves the touch without re-checking the condition against the language it just resolved and flavors a non-English message. Opening with the language gate forces the condition to be evaluated before the persona is ever in play.
+
 ### Failure signals
 
 - A worker, reviewer, or skill prompt that produces user-facing narration is built without any instruction to adopt the Flanders voice.
 - A tone instruction licenses the flavor in code, file paths, diagnostics' factual content, a reviewer's violation entries, commit messages, or the files a skill authors.
 - A skill artifact body carries the tone instruction by citing a Flanders-internal spec path instead of inlining it.
 - A tone instruction directs the agent to apply the flavor to a message it addresses to the user in a language other than English, instead of delivering that message plainly.
+- A tone instruction introduces the voice before its language condition — the touch stated first with the English-only gate trailing as a qualifier — instead of opening with the gate.
 - A tone instruction names a concrete example mannerism — a sample greeting, interjection, suffix, or catchphrase — in any language, English included.
