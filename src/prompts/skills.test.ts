@@ -828,6 +828,9 @@ Every message you address to the user during the run — your clarifying questio
             "falls back to one question per turn without a multi-question facility"(body) {
                 Assert.ok(body.includes("when it provides no such facility, ask one question per turn"), "must fall back to one question per turn when no multi-question facility exists");
             },
+            "phrases bounded-answer questions as multiple-choice through facility and chat alike"(body) {
+                Assert.ok(body.includes("Phrase every question whose answer space is bounded as multiple-choice, through the facility and in chat alike"), "must commit bounded-answer questions to multiple-choice phrasing in both presentation paths");
+            },
             "limits trigger to implementation choice"(body) {
                 Assert.ok(body.includes("implementation choice"), "must mention implementation choice as trigger");
             },
@@ -1348,6 +1351,9 @@ test.describe("skills – specSkillBody", test => {
             },
             "falls back to one question per turn without a multi-question facility"(body) {
                 Assert.ok(body.includes("when it provides no such facility, ask one question per turn"), "must fall back to one question per turn when no multi-question facility exists");
+            },
+            "phrases bounded-answer questions as multiple-choice through facility and chat alike"(body) {
+                Assert.ok(body.includes("Phrase every question whose answer space is bounded as multiple-choice, through the facility and in chat alike"), "must commit bounded-answer questions to multiple-choice phrasing in both presentation paths");
             }
         }
     });
@@ -2065,6 +2071,12 @@ Every message you address to the user during the run — your clarifying questio
             },
             "asks which skill to launch: plan, work, or neither"(body) {
                 Assert.ok(body.includes("which skill to launch next: /flanders-plan, /flanders-work, or neither"), "must ask which skill to launch next, offering plan, work, or neither");
+            },
+            "presents the launch question through the question facility as a single multiple-choice question"(body) {
+                Assert.ok(body.includes("Present that choice through the same question facility the clarification phase uses when your AI tool provides one, as a single multiple-choice question"), "must present the launch question through the question facility as a single multiple-choice question when the AI tool provides one");
+            },
+            "asks the launch question in chat when no facility exists"(body) {
+                Assert.ok(body.includes("when it provides no such facility, ask it in chat"), "must ask the launch question in chat when the AI tool provides no question facility");
             },
             "recommends work for a single small self-contained change"(body) {
                 Assert.ok(body.includes("recommend /flanders-work when the spec describes a single, small, self-contained change"), "must recommend /flanders-work for a single, small, self-contained change");
@@ -2810,6 +2822,12 @@ test.describe("skills – hardStopReviewSkillBody", test => {
             },
             "offers exactly /flanders-spec, /flanders-plan, or neither"(body) {
                 Assert.ok(body.includes("ask the user which skill to launch to carry out the recommendation: \`/flanders-spec\`, \`/flanders-plan\`, or neither."), "must offer exactly /flanders-spec, /flanders-plan, or neither");
+            },
+            "presents the launch question through the question facility as multiple-choice"(body) {
+                Assert.ok(body.includes("When your AI tool provides a facility for asking the user questions with fixed options, present that choice through it as a multiple-choice question"), "must present the launch question through the question facility as multiple-choice when the AI tool provides one");
+            },
+            "asks the launch question in chat when no facility exists"(body) {
+                Assert.ok(body.includes("when it provides no such facility, ask it in chat"), "must ask the launch question in chat when the AI tool provides no question facility");
             },
             "recommends the skill the selected action points to"(body) {
                 Assert.ok(body.includes("Recommend the skill the action you selected in step 4 points to."), "must recommend the skill the selected action points to");
