@@ -176,7 +176,7 @@ The bottom-fixed block is never removed when the command exits. It stays on scre
 
 The only state change at exit is on the footer line. Just before the process exits, the footer's animation and label rotation are stopped, and the label is replaced with a terminal label that names how the command ended. The terminal label is one variant chosen at random from the pool for that outcome, whose membership is pinned by [src/.spec/rules/flanders-voice-cli-variants.md](/src/.spec/rules/flanders-voice-cli-variants.md). The outcomes and their pools are:
 - Success — every termination path that is not an error, including the successful completion of all remaining tasks (the all-tasks-completed message) and the noop case where every task was already complete at startup (the tasks-completed message). The label is one variant from the success pool.
-- Hard stop — a hard stop occurred: the per-task iteration cap was exceeded for some task. The label is one variant from the hard-stop pool.
+- Hard stop — a hard stop occurred: the per-task iteration cap was exceeded for some task, or the worker declared the task structurally impossible via `hard-stop.log` (see [.spec/contracts/cli-commands/implement/iteration-loop.md#hard-stop](/.spec/contracts/cli-commands/implement/iteration-loop.md#hard-stop)). The label is one variant from the hard-stop pool.
 - Interruption — the command received an interruption signal (for example, Ctrl+C). The label is one variant from the interruption pool.
 - Failure — any other failure, including unknown CLI flag, plan validation failure, missing or empty `plans/` folder, and git preflight failure. The label is one variant from the failure pool.
 
