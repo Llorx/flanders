@@ -1363,6 +1363,37 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("validator category 4 renders a per-task granularity verdict", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "renders one verdict line per leaf task, never in aggregate, with its grounding reason"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("Granularity is rendered task by task, never in aggregate: for every leaf task the validator produces one verdict line — sane, too broad, or too narrow — with the reason that grounds it"), "category 4 must render one granularity verdict line per leaf task, never in aggregate, with the reason that grounds it");
+            },
+            "grounds a too-broad verdict in the distinct kinds of work bundled"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("A too-broad verdict names the distinct kinds of work the task bundles that would each need their own AI invocation"), "category 4 must ground a too-broad verdict in the distinct kinds of work the task bundles that each need their own AI invocation");
+            },
+            "grounds a too-narrow verdict in the artificial fragmentation created"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("a too-narrow verdict names the artificial fragmentation the split created"), "category 4 must ground a too-narrow verdict in the artificial fragmentation the split created");
+            },
+            "grounds a sane verdict in the task fitting a single invocation without fragmentation"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("a sane verdict states that the task fits a single AI invocation without artificial fragmentation"), "category 4 must ground a sane verdict in the task fitting a single AI invocation without artificial fragmentation");
+            },
+            "leaves the category incomplete for a leaf task missing its verdict line"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("A leaf task without its verdict line leaves category 4 incomplete"), "category 4 must be left incomplete by a leaf task missing its granularity verdict line");
+            },
+            "treats a summary clause as leaving its tasks unaudited"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("a summary clause that disposes of several tasks at once leaves every task it covers unaudited"), "category 4 must treat a per-task summary clause as leaving every task it covers unaudited");
+            }
+        }
+    });
+
     test("Final validation carries the passing-gate certification-scope statement", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
