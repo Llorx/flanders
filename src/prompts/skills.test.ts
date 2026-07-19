@@ -1332,6 +1332,37 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("validator category 4 inlines the per-reference satisfiability protocol", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "adjudicates each task-reference pair, never in aggregate"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("The satisfiability check in category 4 reaches beyond evidence instruments: a task's acceptance criteria must be satisfiable while honoring every contract and rule the task links, and that audit is never rendered in aggregate. For each leaf task, for each contract and rule the task links, the validator produces, before the pair's verdict"), "category 4 must adjudicate each task-reference pair one by one and never in aggregate");
+            },
+            "requires the constraining obligation quoted verbatim with a none-constrains option"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("(1) the constraining obligation, quoted verbatim — the obligation of that reference that constrains the task's acceptance criteria or the design the task prescribes; when no obligation of the reference constrains them, the record states that explicitly instead"), "category 4 must require the constraining obligation quoted verbatim per pair, with the explicit none-constrains option");
+            },
+            "requires a single-branch verdict per pair"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("(2) a single-branch verdict — satisfiable or FAIL, deciding whether at least one implementation can satisfy the task's acceptance criteria while honoring the quoted obligation and the design the plan prescribes"), "category 4 must require a single-branch verdict per pair over the quoted obligation and the plan's design");
+            },
+            "bans conditional adjudication of a pair"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("An adjudication conditioned on an unresolved question — \"satisfiable under either model\", \"in either case\", or any wording that leaves the question unresolved — is not a verdict: the validator resolves what the reference and the plan's design prescribe and judges that alone"), "category 4 must ban conditional adjudication of a pair and resolve what the reference and design prescribe");
+            },
+            "blocks the category while any pair is unaudited"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("A task-reference pair missing its record is unaudited, and the validator does not report category 4 as passed while any pair is unaudited"), "category 4 must not be reported as passed while any task-reference pair is unaudited");
+            },
+            "treats a summary clause as leaving its pairs unaudited"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("a summary clause that disposes of several pairs at once leaves every pair it covers unaudited"), "category 4 must treat a per-reference summary clause as leaving every pair it covers unaudited");
+            }
+        }
+    });
+
     test("Final validation carries the passing-gate certification-scope statement", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
