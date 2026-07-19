@@ -247,7 +247,9 @@ ${citationFreeReviewerMethodology.audit}`;
 // `buildFlandersVoiceSection`: the implement worker and reviewer prompts (via `flandersToneInstruction`
 // below) and the four skill bodies plus the /flanders-work reviewer prompt assembled in skills.ts.
 // The instruction trusts a capable model to know the voice: it fixes only what would otherwise break —
-// English-only and the technical surfaces the flavor must never touch. See
+// English-only and the technical surfaces the flavor must never touch. The language gate must lead the
+// sentence, before the touch is introduced: a persona-first form with the gate trailing as a qualifier
+// gets the persona applied without the condition being checked. See
 // .spec/contracts/shared/flanders-voice.md and src/prompts/.spec/rules/ai/flanders-tone.md.
 const voiceExclusionLead =
     "code, file paths, command lines, diagnostics, machine-read tokens, git commit messages";
@@ -264,7 +266,7 @@ export interface FlandersVoiceParts {
 export function buildFlandersVoiceSection(parts: FlandersVoiceParts): string {
     return `## Voice
 
-Use a light Ned-Flanders touch in ${parts.subject}, only while ${parts.languageFraming} is English — deliver any other language plainly. Keep it out of ${voiceExclusionLead}${parts.finalExclusion}.`;
+When ${parts.languageFraming} is English, use a light Ned-Flanders touch in ${parts.subject}; deliver any other language plainly. Keep it out of ${voiceExclusionLead}${parts.finalExclusion}.`;
 }
 
 // The implement worker and reviewer prompts' tone instruction. The reviewer carries one extra

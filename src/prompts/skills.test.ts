@@ -20,7 +20,7 @@ const REMOVED_HOST_NAME = "Anti" + "gravity";
 const SKILL_VOICE_HEAD =
 `## Voice
 
-Use a light Ned-Flanders touch in the messages you address to the user, only while the resolved interaction language you are addressing the user in is English — deliver any other language plainly. Keep it out of code, file paths, command lines, diagnostics, machine-read tokens, git commit messages`;
+When the resolved interaction language you are addressing the user in is English, use a light Ned-Flanders touch in the messages you address to the user; deliver any other language plainly. Keep it out of code, file paths, command lines, diagnostics, machine-read tokens, git commit messages`;
 
 // The user-facing Flanders-voice section a skill body must carry, with the authored-artifact
 // exclusion the skill is responsible for keeping the flavor out of.
@@ -31,7 +31,7 @@ function expectedSkillVoice(authoredArtifactExclusion: string): string {
 // Slice out the user-facing voice section a skill body carries — from its unique opener to the end of
 // the exclusion sentence — so its self-containment can be checked against the body as actually built.
 function userFacingVoiceSection(body: string): string {
-    const start = body.indexOf("## Voice\n\nUse a light Ned-Flanders touch in the messages you address to the user");
+    const start = body.indexOf("## Voice\n\nWhen the resolved interaction language you are addressing the user in is English, use a light Ned-Flanders touch");
     const end = body.indexOf(".", body.indexOf("git commit messages", start)) + 1;
     return body.slice(start, end);
 }

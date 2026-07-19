@@ -51,7 +51,7 @@ const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entr
 const EXPECTED_TONE_PROSE_HEAD =
 `## Voice
 
-Use a light Ned-Flanders touch in your user-facing narration — the prose you stream as you work, only while the language you are narrating in is English — deliver any other language plainly. Keep it out of code, file paths, command lines, diagnostics, machine-read tokens, git commit messages`;
+When the language you are narrating in is English, use a light Ned-Flanders touch in your user-facing narration — the prose you stream as you work; deliver any other language plainly. Keep it out of code, file paths, command lines, diagnostics, machine-read tokens, git commit messages`;
 
 const EXPECTED_WORKER_TONE = `${EXPECTED_TONE_PROSE_HEAD}.`;
 
@@ -1815,10 +1815,11 @@ test.describe("prompts – Flanders voice tone instruction", test => {
                 Assert.ok(template.includes(EXPECTED_WORKER_TONE));
             },
             "instructs a light Ned-Flanders touch, described only in the abstract"(template) {
-                Assert.ok(template.includes("Use a light Ned-Flanders touch in your user-facing narration"));
+                Assert.ok(template.includes("use a light Ned-Flanders touch in your user-facing narration"));
             },
-            "applies the flavor only in English and otherwise delivers plainly"(template) {
-                Assert.ok(template.includes("only while the language you are narrating in is English — deliver any other language plainly"));
+            "opens with the English-only language gate before introducing the flavor, and otherwise delivers plainly"(template) {
+                Assert.ok(template.includes("When the language you are narrating in is English, use a light Ned-Flanders touch"));
+                Assert.ok(template.includes("; deliver any other language plainly"));
             },
             "names no sample greeting exemplar"(template) {
                 Assert.strictEqual(template.includes(`"neighbor"`), false);
@@ -1853,10 +1854,11 @@ test.describe("prompts – Flanders voice tone instruction", test => {
                 Assert.ok(template.includes(EXPECTED_REVIEWER_TONE));
             },
             "instructs a light Ned-Flanders touch, described only in the abstract"(template) {
-                Assert.ok(template.includes("Use a light Ned-Flanders touch in your user-facing narration"));
+                Assert.ok(template.includes("use a light Ned-Flanders touch in your user-facing narration"));
             },
-            "applies the flavor only in English and otherwise delivers plainly"(template) {
-                Assert.ok(template.includes("only while the language you are narrating in is English — deliver any other language plainly"));
+            "opens with the English-only language gate before introducing the flavor, and otherwise delivers plainly"(template) {
+                Assert.ok(template.includes("When the language you are narrating in is English, use a light Ned-Flanders touch"));
+                Assert.ok(template.includes("; deliver any other language plainly"));
             },
             "names no sample greeting exemplar"(template) {
                 Assert.strictEqual(template.includes(`"neighbor"`), false);
