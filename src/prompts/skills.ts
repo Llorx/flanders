@@ -562,7 +562,7 @@ export const hardStopReviewSkillBody =
 description: Diagnose a hard stop of the implement command and recommend how to relaunch it so the same task completes.
 ---
 
-You are the /flanders-hard-stop-review skill. When \`flanders implement\` exceeds its per-task iteration cap it ends the run, preserves its temporary folder on disk, and points the user at that folder. You diagnose why the hard-stopped task never reached a clean iteration and recommend the concrete action that lets \`implement\` be relaunched so the task completes instead of stopping again.
+You are the /flanders-hard-stop-review skill. When \`flanders implement\` hard-stops — exceeding its per-task iteration cap, or acting on the worker's own declaration that the task is structurally impossible — it ends the run, preserves its temporary folder on disk, and points the user at that folder. You diagnose why the hard-stopped task never reached a clean iteration and recommend the concrete action that lets \`implement\` be relaunched so the task completes instead of stopping again.
 
 ## Input resolution
 
@@ -574,13 +574,15 @@ The user invokes you as: /flanders-hard-stop-review [<data>]
 
 Your work is read-only, drawing only on the preserved hard-stop temporary folder, the plan file, and the project's spec corpus — not the AI tools' own session transcripts.
 
-1. **Read the preserved evidence.** Read the preserved folder's per-iteration worker, build, test, and reviewer output logs; the per-stage error logs the hard stop materializes — \`build.<iteration>.error.log\`, \`test.<iteration>.error.log\`, \`reviewer.<iteration>.<position>.error.log\`, and \`commit.<iteration>.error.log\` — making explicit which stage failed in each iteration and by which reviewer (the single briefing \`error.log\` has been removed at the hard stop); its consolidated \`spec.md\`; and each per-reviewer folder's \`error.log\`. From that evidence identify the task that hard-stopped — its plan-file line number and title — and the plan file the run was implementing.
+1. **Read the preserved evidence.** Read the preserved folder's per-iteration worker, build, test, and reviewer output logs; the per-stage error logs the hard stop materializes — \`build.<iteration>.error.log\`, \`test.<iteration>.error.log\`, \`reviewer.<iteration>.<position>.error.log\`, and \`commit.<iteration>.error.log\` — making explicit which stage failed in each iteration and by which reviewer (the single briefing \`error.log\` has been removed at the hard stop); the worker-declared \`hard-stop.log\`, when the stop was the worker's own declaration; its consolidated \`spec.md\`; and each per-reviewer folder's \`error.log\`. From that evidence identify the task that hard-stopped — its plan-file line number and title — and the plan file the run was implementing.
 
 2. **Ground the analysis in the project's specs.** Read the identified plan file and the contracts and rules the hard-stopped task references, consulting the wider spec corpus as far as the diagnosis needs.
 
 3. **Classify the hard stop.** Examine how the iterations progressed — what each iteration changed and how the recorded failures evolved from one iteration to the next — and classify the hard stop as one of two cases:
    - The task made real progress across iterations, so the hard stop reflects a task larger than the iteration cap can finish or a transient failure, and a fresh run or a smaller task would carry it through.
    - The iterations circled the same unresolved failure with no net progress — a loop — driven by a cause the next run must remove first: a contradictory or ambiguous contract or rule, an acceptance criterion no implementation can satisfy as written, a task premise about runtime behavior the code does not bear out, a task scoped too large or ordered ahead of a dependency it needs, or a review that keeps re-failing the change for the same reason.
+
+   When the preserved folder carries a worker-declared \`hard-stop.log\`, its declared cause is evidence, not a conclusion: verify the declaration against the iteration history, the plan, and the specs, and classify the stop by what that verification sustains.
 
 4. **Map the cause to the action that removes it:**
    - Re-run \`flanders implement\` unchanged, when the failure was transient or the task was progressing and needs only a fresh iteration budget. The per-task iteration cap is a fixed five and is not configurable, so the remedy for a task that needs more attempts is a fresh run — which resets the per-task iteration counter to zero — or a task split into smaller tasks, and never a raised cap.

@@ -2913,6 +2913,22 @@ test.describe("skills – hardStopReviewSkillBody", test => {
         }
     });
 
+    test("carries the worker-declared hard-stop trigger across purpose, evidence, and classification", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "names both hard-stop triggers in its purpose"(body) {
+                Assert.ok(body.includes("When \`flanders implement\` hard-stops — exceeding its per-task iteration cap, or acting on the worker's own declaration that the task is structurally impossible — it ends the run, preserves its temporary folder on disk, and points the user at that folder."), "the purpose must name both triggers: exceeding the per-task iteration cap and acting on the worker's own declaration that the task is structurally impossible");
+            },
+            "reads the worker-declared hard-stop.log when the stop was the worker's own declaration"(body) {
+                Assert.ok(body.includes("the worker-declared \`hard-stop.log\`, when the stop was the worker's own declaration"), "the evidence step must read the worker-declared hard-stop.log when the stop was the worker's own declaration");
+            },
+            "treats a worker-declared hard-stop.log's cause as evidence to verify, not a conclusion"(body) {
+                Assert.ok(body.includes("When the preserved folder carries a worker-declared \`hard-stop.log\`, its declared cause is evidence, not a conclusion: verify the declaration against the iteration history, the plan, and the specs, and classify the stop by what that verification sustains."), "the classification step must treat a worker-declared hard-stop.log's cause as evidence verified against the iteration history, the plan, and the specs — not accepted as a conclusion");
+            }
+        }
+    });
+
     test("maps each cause to its remedy, binding the cause to the skill it selects", {
         ARRANGE() {},
         ACT() { return hardStopReviewSkillBody; },
