@@ -7,6 +7,10 @@ export type WorkspacePaths = Readonly<{
     testScript:string;
     errorLog:string;
     specFile:string;
+    // The worker-declared `hard-stop.log` in the main folder. The path is always computable; the
+    // file is present only when a worker declared a structural impossibility (see
+    // .spec/contracts/cli-commands/implement/workspace.md and iteration-loop.md#hard-stop).
+    hardStopLog:string;
     prepLog(taskIndex:number):string;
     workerLog(iter:number):string;
     buildLog(iter:number):string;
@@ -72,6 +76,7 @@ export class Workspace {
             testScript: joinPath(root, isWindows ? "test.bat" : "test.sh"),
             errorLog: joinPath(root, "error.log"),
             specFile: joinPath(root, "spec.md"),
+            hardStopLog: joinPath(root, "hard-stop.log"),
             prepLog(taskIndex:number) { return joinPath(root, `prep.${taskIndex}.log`); },
             workerLog(iter:number) { return joinPath(root, `worker.${iter}.log`); },
             buildLog(iter:number) { return joinPath(root, `build.${iter}.log`); },

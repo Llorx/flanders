@@ -127,6 +127,36 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
         }
     });
 
+    test("hardStopLog is a fixed hard-stop.log path inside the main root", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            return await ws.setup(0);
+        },
+        ASSERTS: {
+            "hardStopLog equals the main root joined with hard-stop.log"(paths) {
+                Assert.strictEqual(paths.hardStopLog, paths.root + "/hard-stop.log");
+            },
+            "hardStopLog differs from the briefing errorLog"(paths) {
+                Assert.notStrictEqual(paths.hardStopLog, paths.errorLog);
+            }
+        }
+    });
+
+    test("paths() also exposes hardStopLog inside the main root", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            await ws.setup(0);
+            return ws.paths();
+        },
+        ASSERT(paths) {
+            Assert.strictEqual(paths.hardStopLog, paths.root + "/hard-stop.log");
+        }
+    });
+
     test("per-iteration paths are stable across multiple calls", {
         ARRANGE() {
             return new Workspace(stubFs(), stubPlatform(false));

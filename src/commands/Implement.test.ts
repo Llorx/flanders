@@ -81,7 +81,7 @@ function rateLimitEvent(nowMs:number, retryAfterSeconds:number):string {
     });
 }
 
-type ClaudeResponse = { text:string; inputTokens?:number; outputTokens?:number; sessionId?:string; error?:true; stderr?:string; errorLog?:string };
+type ClaudeResponse = { text:string; inputTokens?:number; outputTokens?:number; sessionId?:string; error?:true; stderr?:string; errorLog?:string; hardStopLog?:string };
 type CodexResponse = { text:string; sessionId?:string; inputTokens?:number; outputTokens?:number; error?:true; errorLog?:string };
 type ScriptResponse = { code:number; stdout:string; stderr:string };
 
@@ -140,6 +140,11 @@ function stubContexts() {
                         if (response.errorLog !== undefined) {
                             const target = targetErrorLogFromPrompt(capturedPrompt);
                             files.set(target, response.errorLog);
+                        }
+                        // Simulate the worker declaring a structural impossibility by leaving a
+                        // `hard-stop.log` in the main folder at the end of its invocation.
+                        if (response.hardStopLog !== undefined) {
+                            files.set(WS_ROOT + "/hard-stop.log", response.hardStopLog);
                         }
                         if (response.stderr) {
                             proc.$emitStderr(response.stderr);
@@ -1088,6 +1093,251 @@ test.describe("Implement hard-stop per-iteration error-log materialization", tes
             },
             "the workspace is preserved despite the write failure"(_code, { rmCalls }) {
                 Assert.strictEqual(rmCalls.includes(WS_ROOT), false);
+            }
+        }
+    });
+});
+
+// The exact worker-declared hard-stop diagnostic the orchestrator prints: it identifies the task by
+// line (3, from PLAN_ONE_TASK) and title, reproduces the declared `hard-stop.log` content between
+// markers, and points at the preserved main folder. Rebuilt independently here so an exact-match
+// assertion trips under any reworded, reordered, truncated, or content-dropping regression.
+function workerDeclaredDiagnostic(declared:string):string {
+    return `Hard stop: task at line 3 ("Implement feature A") declared structurally impossible.\n--- hard-stop.log ---\n${declared}\n--- end hard-stop.log ---\nInspect logs at ${WS_ROOT}.\n`;
+}
+
+test.describe("Implement worker-declared hard stop", test => {
+    test("a worker-declared hard-stop.log stops the run directly: no staging/build/test/review, folder preserved with the declared file, hard-stop terminal label", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            // Both scripts present so "build/test never ran" is observable as the absence of their
+            // streamed-output logs, not merely as skipped-because-missing.
+            s.files.set(WS_ROOT + "/build.sh", "make");
+            s.files.set(WS_ROOT + "/test.sh", "run-tests");
+            // Only the preflight git calls are provisioned: if the run wrongly fell through to the
+            // post-worker `git add -A`, no reply would be queued for it.
+            gitActivationQueue(s.gitQueue);
+            s.claudeQueue.push({ text: "ok" });                                        // detect
+            const declared = "Structural cause: AC2 conflicts with contract workspace.md.\nEvidence: AC2 requires X; the obligation forbids X.\nUnblock: amend the plan to drop AC2.";
+            s.claudeQueue.push({ text: "worker declares impossibility", hardStopLog: declared }); // iter 1 worker → leaves hard-stop.log
+            return { ...s, declared };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run exits non-zero"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the exact worker-declared diagnostic — task line, title, reproduced content, and folder path — is printed exactly once as its own write"(_code, { written, declared }) {
+                const diagnostic = workerDeclaredDiagnostic(declared);
+                Assert.deepStrictEqual(written.filter(w => w === diagnostic), [diagnostic]);
+            },
+            "the declared hard-stop.log survives in the preserved folder"(_code, { files, declared }) {
+                Assert.strictEqual(files.get(WS_ROOT + "/hard-stop.log"), declared);
+            },
+            "the main folder is preserved (its root is not removed)"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(WS_ROOT), false);
+            },
+            "the footer terminal label is from the hard-stop pool, not the failure pool"(_code, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(HARD_STOP_LABEL), "a worker-declared stop must finalize as Hard stop");
+                Assert.ok(!allOutput.includes(FAILED_LABEL), "a worker-declared stop must not finalize as Failed");
+            },
+            "the post-worker git add -A staging never ran"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.some(g => g.args[0] === "add"), false);
+            },
+            "the build stage never ran (no build streamed-output log)"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/build.1.log"), false);
+            },
+            "the test stage never ran (no test streamed-output log)"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/test.1.log"), false);
+            },
+            "the review stage never ran (no reviewer streamed-output log)"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/reviewer.1.1.log"), false);
+            }
+        }
+    });
+
+    test("a worker-declared hard stop after a prior failing iteration materializes that iteration's per-stage error log and drops the briefing", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(WS_ROOT + "/build.sh", "make");
+            gitActivationQueue(s.gitQueue);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // iter1 post-worker add
+            s.claudeQueue.push({ text: "ok" });                                        // detect
+            s.claudeQueue.push({ text: "w1" });                                        // iter1 worker
+            const declared = "Structural cause: the recorded review findings need an out-of-scope redesign.\nEvidence: finding F1 vs the task's declared scope.\nUnblock: split the redesign into its own task.";
+            s.claudeQueue.push({ text: "w2 declares impossibility", hardStopLog: declared }); // iter2 worker → leaves hard-stop.log
+            s.scriptQueue.push({ code: 1, stdout: "build boom 1\n", stderr: "" });     // iter1 build FAIL
+            return { ...s, declared };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run exits non-zero"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "iteration 1's build-stage failure is materialized with its exact captured text"(_code, { files }) {
+                Assert.strictEqual(
+                    files.get(WS_ROOT + "/build.1.error.log"),
+                    "build stage failed (exit 1)\n--- stdout ---\nbuild boom 1\n\n--- stderr ---\n"
+                );
+            },
+            "exactly one per-stage error log is materialized"(_code, { files }) {
+                Assert.deepStrictEqual(materializedErrorLogs(files), [WS_ROOT + "/build.1.error.log"]);
+            },
+            "the single briefing error.log is removed after materialization"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/error.log"), false);
+            },
+            "the declared hard-stop.log survives in the preserved folder"(_code, { files, declared }) {
+                Assert.strictEqual(files.get(WS_ROOT + "/hard-stop.log"), declared);
+            },
+            "the exact worker-declared diagnostic reproducing the declared content is printed exactly once"(_code, { written, declared }) {
+                const diagnostic = workerDeclaredDiagnostic(declared);
+                Assert.deepStrictEqual(written.filter(w => w === diagnostic), [diagnostic]);
+            },
+            "the main folder is preserved (its root is not removed)"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(WS_ROOT), false);
+            }
+        }
+    });
+
+    test("a materialization write failure on a worker-declared hard stop still hard-stops and leaves the briefing in place", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(WS_ROOT + "/build.sh", "make");
+            // Reject the one retained materialization write; every other write (spec.md, streamed
+            // logs, the briefing error.log) passes through. If the outcome were skipped on the I/O
+            // failure, the run would not finalize as a worker-declared hard stop.
+            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
+            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
+                if (p === WS_ROOT + "/build.1.error.log") {
+                    return Promise.reject(new Error("disk full"));
+                }
+                return origWriteFile(p, c);
+            };
+            gitActivationQueue(s.gitQueue);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });                      // iter1 post-worker add
+            s.claudeQueue.push({ text: "ok" });                                        // detect
+            s.claudeQueue.push({ text: "w1" });                                        // iter1 worker
+            const declared = "Structural cause: AC cannot hold under the referenced rule.\nEvidence: AC1 vs the rule's exclusion list.\nUnblock: relax the rule.";
+            s.claudeQueue.push({ text: "w2 declares impossibility", hardStopLog: declared }); // iter2 worker → leaves hard-stop.log
+            s.scriptQueue.push({ code: 1, stdout: "build boom 1\n", stderr: "" });     // iter1 build FAIL
+            return { ...s, declared };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run exits non-zero"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the exact worker-declared diagnostic is still printed exactly once despite the write failure"(_code, { written, declared }) {
+                const diagnostic = workerDeclaredDiagnostic(declared);
+                Assert.deepStrictEqual(written.filter(w => w === diagnostic), [diagnostic]);
+            },
+            "the terminal outcome is the Hard stop label, not Failed"(_code, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(HARD_STOP_LABEL), "a materialization write failure must still finalize as Hard stop");
+                Assert.ok(!allOutput.includes(FAILED_LABEL), "a materialization write failure must not finalize as Failed");
+            },
+            "the briefing error.log is NOT removed because the delete runs only after every retained write succeeds"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/error.log"), true);
+            },
+            "the declared hard-stop.log survives in the preserved folder"(_code, { files, declared }) {
+                Assert.strictEqual(files.get(WS_ROOT + "/hard-stop.log"), declared);
+            },
+            "the main folder is preserved despite the write failure"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(WS_ROOT), false);
+            }
+        }
+    });
+
+    test("with no hard-stop.log the inner loop is unchanged: staging, build, test and review all run and the task is accepted", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(WS_ROOT + "/build.sh", "make");
+            s.files.set(WS_ROOT + "/test.sh", "run-tests");
+            gitRunQueue(s.gitQueue);
+            s.claudeQueue.push({ text: "ok" });                                        // detect
+            s.claudeQueue.push({ text: "worker output" });                             // iter1 worker (no hard-stop.log)
+            s.scriptQueue.push({ code: 0, stdout: "build ok\n", stderr: "" });         // iter1 build
+            s.scriptQueue.push({ code: 0, stdout: "test ok\n", stderr: "" });          // iter1 test
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });                 // iter1 reviewer PASS
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run succeeds"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "no hard-stop.log was ever created"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/hard-stop.log"), false);
+            },
+            "the post-worker git add -A staging ran"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.some(g => g.args[0] === "add"), true);
+            },
+            "the build stage ran (build streamed-output log present)"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/build.1.log"), true);
+            },
+            "the test stage ran (test streamed-output log present)"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/test.1.log"), true);
+            },
+            "the review stage ran (reviewer streamed-output log present)"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/reviewer.1.1.log"), true);
+            },
+            "the commit stage ran (git commit spawned)"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.some(g => g.args[0] === "commit"), true);
+            }
+        }
+    });
+
+    test("the worker prompt names the hard-stop.log path through the injected workspace path, not the raw placeholder", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            gitRunQueue(s.gitQueue);
+            s.claudeQueue.push({ text: "ok" });                                        // detect
+            s.claudeQueue.push({ text: "worker output" });                             // iter1 worker
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });                 // iter1 reviewer PASS
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            // promptQueue: [0]=detect, [1]=worker, [2]=reviewer
+            "the run succeeds"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker prompt carries the real hard-stop.log path in the main folder"(_code, { promptQueue }) {
+                Assert.ok(promptQueue[1]!.includes(WS_ROOT + "/hard-stop.log"), "worker prompt should name the resolved hard-stop.log path");
+            },
+            "the HARD_STOP_LOG_PATH placeholder is substituted"(_code, { promptQueue }) {
+                Assert.ok(!promptQueue[1]!.includes("<HARD_STOP_LOG_PATH>"), "HARD_STOP_LOG_PATH placeholder should be substituted");
             }
         }
     });

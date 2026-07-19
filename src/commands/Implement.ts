@@ -426,21 +426,10 @@ export class Implement {
             iteration++;
             this._currentIteration = iteration;
             if (iteration > MAX_ITER) {
-                // Materialize the retained per-iteration, per-stage error history into the main
-                // folder and drop the single briefing error.log first, then preserve the workspace,
-                // per the workspace contract. The briefing removal inside the materializer runs only
-                // after every retained file is on disk, so a write failure leaves it in place. A
-                // materialization I/O failure must not bypass the hard-stop outcome: preservation is
-                // guaranteed in the finally, and a rejected write is caught so the task-identifying,
-                // workspace-pointing hard-stop diagnostic and the non-zero return still stand.
-                try {
-                    await this._materializeHardStopErrorLogs();
-                } catch (e) {
-                    this._buffered.writeError(`Hard stop: could not materialize per-iteration error logs: ${this._stringifyError(e)}\n`);
-                } finally {
-                    this._workspace!.preserveOnDispose();
-                }
-                this._buffered.writeError(`Hard stop: task at line ${task.line} ("${task.title}") exceeded ${MAX_ITER} iterations. Inspect logs at ${ws.root}.\n`);
+                // Exceeding the iteration cap is one of the two hard-stop triggers: finalize with the
+                // task-identifying, workspace-pointing cap diagnostic (see the Hard stop section of
+                // the iteration-loop contract).
+                await this._hardStop(`Hard stop: task at line ${task.line} ("${task.title}") exceeded ${MAX_ITER} iterations. Inspect logs at ${ws.root}.\n`);
                 return false;
             }
             /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
@@ -455,6 +444,18 @@ export class Implement {
             }
             if (!workerOk) {
                 continue;
+            }
+            // The other hard-stop trigger: the worker declared the task structurally impossible by
+            // leaving a `hard-stop.log` in the main folder. Both the presence check and the content
+            // read go through the injected filesystem context. When present, the run stops directly —
+            // the same finalization the iteration cap runs — so this iteration's staging, build, test
+            // and review never run and the declared `hard-stop.log` survives in the preserved folder.
+            // The diagnostic identifies the task by line and title, reproduces the declared content,
+            // and points at the preserved folder (see iteration-loop.md#hard-stop).
+            if (await this._contexts.fs.exists(ws.hardStopLog)) {
+                const declared = await this._contexts.fs.readFile(ws.hardStopLog);
+                await this._hardStop(`Hard stop: task at line ${task.line} ("${task.title}") declared structurally impossible.\n--- hard-stop.log ---\n${declared}\n--- end hard-stop.log ---\nInspect logs at ${ws.root}.\n`);
+                return false;
             }
             const workerAddResult = await addAll(this._contexts.script, this._contexts.time, this._gitOutputContext(), this._options.projectRoot);
             if (workerAddResult.code !== 0) {
@@ -567,6 +568,7 @@ export class Implement {
             .split(Placeholders.TASK_TEXT).join(taskText)
             .split(Placeholders.BUILD_SCRIPT_PATH).join(ws.buildScript)
             .split(Placeholders.TEST_SCRIPT_PATH).join(ws.testScript)
+            .split(Placeholders.HARD_STOP_LOG_PATH).join(ws.hardStopLog)
             .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
             .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
             .split(Placeholders.BEHAVIOR_RULE_LIST).join(this._formatPathList(this._behaviorRuleList));
@@ -1060,6 +1062,24 @@ export class Implement {
     }
     private async _writeErrorLog(ws:WorkspacePaths, content:string):Promise<void> {
         await this._writeLog(ws.errorLog, content);
+    }
+    // The shared finalization both hard-stop triggers run — exceeding the iteration cap and a
+    // worker-declared `hard-stop.log`. It materializes the retained per-iteration, per-stage error
+    // history into the main folder and drops the single briefing error.log first, then preserves the
+    // workspace, per the workspace contract. The briefing removal inside the materializer runs only
+    // after every retained file is on disk, so a write failure leaves it in place. A materialization
+    // I/O failure must not bypass the hard-stop outcome: preservation is guaranteed in the finally,
+    // and a rejected write is caught so the caller's task-identifying, workspace-pointing diagnostic
+    // and its non-zero return still stand. The trigger-specific diagnostic is passed in.
+    private async _hardStop(diagnostic:string):Promise<void> {
+        try {
+            await this._materializeHardStopErrorLogs();
+        } catch (e) {
+            this._buffered.writeError(`Hard stop: could not materialize per-iteration error logs: ${this._stringifyError(e)}\n`);
+        } finally {
+            this._workspace!.preserveOnDispose();
+        }
+        this._buffered.writeError(diagnostic);
     }
     // Materializes the retained per-iteration, per-stage failure history into the main temporary
     // folder as one `.error.log` file per failing stage per iteration, then removes the single
