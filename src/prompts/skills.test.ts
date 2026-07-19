@@ -1911,6 +1911,41 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("validator checks inline the per-item adjudication protocol", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "validator inputs name the protocol as part of the verbatim text the host inlines"(body) {
+                const inputsSection = body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+                Assert.ok(inputsSection.includes("The verbatim text of the check categories below, together with the per-item adjudication protocol stated alongside them. The host MUST inline these categories and that protocol in the validator's prompt"), "Validator inputs must name the per-item adjudication protocol as part of the verbatim text the host inlines");
+            },
+            "forbids aggregate adjudication and requires one verdict line per applicable item per file"(body) {
+                const checks = body.slice(body.indexOf("### Validator checks"), body.indexOf("### Validator output"));
+                Assert.ok(checks.includes("Every applicable check item is adjudicated per file individually, never in aggregate: for each file under audit, render every applicable check item — each format-and-shape item, each content item, and the non-contradiction category — as its own verdict line, PASS or FAIL, produced from the record the item's kind requires"), "validator checks must forbid aggregate adjudication and require one verdict line per applicable item per file");
+            },
+            "requires presence checks to name the satisfying element"(body) {
+                const checks = body.slice(body.indexOf("### Validator checks"), body.indexOf("### Validator output"));
+                Assert.ok(checks.includes("Presence checks — a check satisfied by an element the file must carry, such as a descriptive filename, an explicit scope-of-enforcement section, atomic rule sections, or cross-references written as markdown links — name or quote the satisfying element, and a FAIL names the missing or malformed element with its file:line"), "validator checks must require presence checks to name or quote the satisfying element");
+            },
+            "requires absence checks to quote the offending passage or commit to a full read"(body) {
+                const checks = body.slice(body.indexOf("### Validator checks"), body.indexOf("### Validator output"));
+                Assert.ok(checks.includes("Absence checks — a check violated by content the file must not carry, such as placeholders, hedge phrasing, historical or migration content, implementation detail in a contract, or an obligation duplicated across files — quote the offending passage with its file:line on FAIL, and on PASS commit that a full read of the file surfaced no occurrence"), "validator checks must require absence checks to quote the offending passage on FAIL and commit to a full read on PASS");
+            },
+            "requires the non-contradiction verdict to name the corpus files read and compared"(body) {
+                const checks = body.slice(body.indexOf("### Validator checks"), body.indexOf("### Validator output"));
+                Assert.ok(checks.includes("The non-contradiction verdict names the corpus files read and compared to reach it — a non-contradiction verdict that names no consulted corpus file is not an adjudication — and a flagged contradiction quotes both sides with their file:line"), "validator checks must require the non-contradiction verdict to name the corpus files consulted and quote both sides of a flagged contradiction");
+            },
+            "bans conditional adjudication and FAILs a genuinely open reading"(body) {
+                const checks = body.slice(body.indexOf("### Validator checks"), body.indexOf("### Validator output"));
+                Assert.ok(checks.includes("A verdict conditioned on an unresolved reading — \"compatible under either reading\", \"fine either way\", or any wording that leaves the reading unresolved — is not a verdict: resolve which reading the corpus text sustains and judge that reading alone; when the audited text genuinely admits both readings, that openness is itself an ambiguous-wording FAIL, never a ground for passing the item"), "validator checks must ban conditional adjudication and FAIL a genuinely open reading");
+            },
+            "blocks a category while any item is unaudited and voids summary clauses"(body) {
+                const checks = body.slice(body.indexOf("### Validator checks"), body.indexOf("### Validator output"));
+                Assert.ok(checks.includes("An item missing the record its kind requires is unaudited, and a category is not reported as passed while any of its items is unaudited; a summary clause that disposes of several items or several files at once leaves everything it covers unaudited"), "validator checks must block a category with unaudited items and treat summary clauses as leaving their items unaudited");
+            }
+        }
+    });
+
     test("Final validation pins validator host as subagent with inline-fallback conditions", {
         ARRANGE() {},
         ACT() { return specSkillBody; },
