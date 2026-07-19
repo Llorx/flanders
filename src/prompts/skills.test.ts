@@ -879,7 +879,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(body.includes("Internally self-consistent — no contradiction between the plan's narrative and its tasks"), "must list the validator self-consistency check");
             },
             "plan-content bullet appears verbatim immediately after the placeholders bullet"(body) {
-                const placeholdersBullet = "- The persisted plan is free of placeholders, contradictions with existing contracts or rules, acceptance criteria that leave a leaf task's observable outcome ambiguous, missing acceptance criteria on leaf tasks, and missing contract or rule links on leaf tasks.";
+                const placeholdersBullet = "- The persisted plan is free of placeholders, contradictions with existing contracts or rules, acceptance criteria that leave a leaf task's observable outcome ambiguous, unsatisfiable acceptance criteria, missing acceptance criteria on leaf tasks, and missing contract or rule links on leaf tasks.";
                 const selfConsistencyBullet = "- The persisted plan is internally self-consistent: its narrative — context, rationale, and any explanatory prose — does not contradict the obligations, verification approach, or any other statement made in its task bodies, and no task contradicts that narrative. Where the prose describes how something is tested or built, it matches what the tasks prescribe.";
                 const lines = body.split("\n");
                 const placeholdersIndex = lines.indexOf(placeholdersBullet);
@@ -1149,6 +1149,33 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("plan content rules classify the evidence instrument as internal mechanism and require satisfiable acceptance criteria", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "names how an outcome is evidenced an internal choice"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("How an outcome is evidenced is such an internal choice too"), "the Plan content rules list must classify how an outcome is evidenced as an internal choice");
+            },
+            "fixes a test instrument only when its recorded interaction is the observable outcome"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("fixes a test instrument — a test double, a recording fake, a specific harness — only when the interaction that instrument records is itself the observable outcome, exercised through a collaboration the plan's design provides"), "the Plan content rules list must permit fixing a test instrument only when its recorded interaction is the observable outcome the design provides");
+            },
+            "requires acceptance criteria be satisfiable with the plan's linked specs and design"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("Every leaf task's acceptance criteria are satisfiable together: at least one implementation satisfies all of them while honoring every contract and rule the plan links and the design the plan itself prescribes"), "the Plan content rules list must require acceptance criteria be satisfiable together with the plan's linked contracts, rules, and design");
+            },
+            "declares unsatisfiable a criterion whose evidence mechanism the design forbids"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("A criterion that prescribes an evidence mechanism whose required structure that design or a canonical rule forbids — for example, asserting the absence of an interaction through a test double on a component the design bars from holding the doubled dependency — is unsatisfiable"), "the Plan content rules list must declare unsatisfiable a criterion whose evidence mechanism the design forbids");
+            },
+            "restates or escalates instead of persisting the unsatisfiable criterion"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("is never persisted: the planner restates it as the observable fact the design's own surface can verify, or escalates the conflict during the clarification phase"), "the Plan content rules list must restate or escalate the unsatisfiable criterion instead of persisting it");
+            }
+        }
+    });
+
     test("validator inputs state the validator reads the source and audits each task against its baseline", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
@@ -1237,6 +1264,33 @@ Every message you address to the user during the run — your clarifying questio
             "includes code organization in the internal-mechanism notion"(body) {
                 const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
                 Assert.ok(category4.includes("how its code and tests are organized across files and modules"), "category 4 must include code organization in the internal-mechanism notion left to the implementer");
+            },
+            "includes the evidence instrument in the internal-mechanism notion"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("how an outcome is evidenced (the test instrument or double that demonstrates it)"), "category 4 must include the evidence instrument in the internal-mechanism notion left to the implementer");
+            }
+        }
+    });
+
+    test("validator category 4 carries the satisfiable-under-the-plan's-design check", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "names the satisfiability check"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("Acceptance criteria are satisfiable under the plan's own design"), "category 4 must name the satisfiability check");
+            },
+            "confirms the prescribed evidence's required structure exists under the design"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("confirm at least one implementation can satisfy it while honoring every contract and rule the plan links and the design the plan prescribes — the structure the prescribed evidence requires exists, or is permitted to exist, under that design"), "category 4 must confirm the prescribed evidence's required structure exists under the plan's design");
+            },
+            "FAILs an evidence mechanism whose required structure the design forbids"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("A criterion whose evidence mechanism requires a structure the plan's design or a canonical rule forbids — non-exhaustively, an assertion of absent interaction observed through a test double on a component the design forbids from holding the doubled dependency — is FAIL"), "category 4 must FAIL a criterion whose evidence mechanism requires a structure the design forbids");
+            },
+            "scopes call-recording doubles to designs that provide the collaboration"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("A call-recording double is legitimate evidence only where the design provides the collaboration it records"), "category 4 must scope call-recording doubles to designs that provide the recorded collaboration");
             }
         }
     });
