@@ -1216,26 +1216,30 @@ test.describe("BottomBlock", test => {
                 Assert.strictEqual(result.afterMount.length, 1);
                 Assert.ok(result.afterMount[0]!.includes(SEP.repeat(10)));
             },
-            "setHeader clears then redraws"(result) {
-                Assert.strictEqual(result.afterSetHeader[0], CLEAR_SEQ);
-                Assert.ok(result.afterSetHeader[1]!.includes(SEP.repeat(10)));
+            "setHeader clears then redraws in a single write"(result) {
+                Assert.strictEqual(result.afterSetHeader.length, 1);
+                Assert.ok(result.afterSetHeader[0]!.startsWith(CLEAR_SEQ));
+                Assert.ok(result.afterSetHeader[0]!.includes(SEP.repeat(10)));
             },
-            "setMetrics clears then redraws"(result) {
-                Assert.strictEqual(result.afterSetMetrics[0], CLEAR_SEQ);
-                Assert.ok(result.afterSetMetrics[1]!.includes(SEP.repeat(10)));
+            "setMetrics clears then redraws in a single write"(result) {
+                Assert.strictEqual(result.afterSetMetrics.length, 1);
+                Assert.ok(result.afterSetMetrics[0]!.startsWith(CLEAR_SEQ));
+                Assert.ok(result.afterSetMetrics[0]!.includes(SEP.repeat(10)));
             },
-            "writeAbove clears, writes text, then redraws"(result) {
-                Assert.strictEqual(result.afterWriteAbove[0], CLEAR_SEQ);
-                Assert.strictEqual(result.afterWriteAbove[1], "line\n");
-                Assert.ok(result.afterWriteAbove[2]!.includes(SEP.repeat(10)));
+            "writeAbove clears, writes text, then redraws in a single write"(result) {
+                Assert.strictEqual(result.afterWriteAbove.length, 1);
+                const write = result.afterWriteAbove[0]!;
+                Assert.ok(write.startsWith(CLEAR_SEQ + "line\n"));
+                Assert.ok(write.indexOf("line\n") < write.indexOf(SEP.repeat(10)));
             },
-            "finalize clears, redraws with terminal label, and ends with newline"(result) {
-                Assert.strictEqual(result.afterFinalize[0], CLEAR_SEQ);
-                const blockDraw = result.afterFinalize[1]!;
+            "finalize clears, redraws with terminal label, and ends with newline in a single write"(result) {
+                Assert.strictEqual(result.afterFinalize.length, 1);
+                const write = result.afterFinalize[0]!;
+                Assert.ok(write.startsWith(CLEAR_SEQ));
                 // At 10 cols the success variant is fitted/truncated through the same
                 // orange-fit path as the working/waiting footers, not emitted raw.
-                Assert.ok(blockDraw.includes(formatTerminalFooter(DONE_LABEL, 10)));
-                Assert.strictEqual(result.afterFinalize[2], "\n");
+                Assert.ok(write.includes(formatTerminalFooter(DONE_LABEL, 10)));
+                Assert.ok(write.endsWith("\n"));
             }
         }
     });
@@ -1617,7 +1621,7 @@ test.describe("BottomBlock", test => {
         }
     });
 
-    test("clearBlock emits exactly \\x1b[3A\\r\\x1b[J once a block has been drawn", {
+    test("the redraw once a block has been drawn opens with exactly \\x1b[3A\\r\\x1b[J and nothing before it", {
         ARRANGE() {
             const io = stubIO(80);
             const time = fakeTime();
@@ -1628,10 +1632,15 @@ test.describe("BottomBlock", test => {
         },
         ACT({ io, block }) {
             block.setHeader({ indexLabel: "1/1" });
-            return io.writes[0];
+            return io.writes[0]!;
         },
-        ASSERT(clearWrite) {
-            Assert.strictEqual(clearWrite, "\x1b[3A\r\x1b[J");
+        ASSERTS: {
+            "the write begins with the canonical three-row clear"(write) {
+                Assert.ok(write.startsWith("\x1b[3A\r\x1b[J"));
+            },
+            "the clear is immediately followed by the redraw's autowrap-off"(write) {
+                Assert.ok(write.slice("\x1b[3A\r\x1b[J".length).startsWith("\x1b[?7l"));
+            }
         }
     });
 
@@ -1659,11 +1668,12 @@ test.describe("BottomBlock", test => {
             return [...io.writes];
         },
         ASSERTS: {
-            "the entire clear is emitted as a single write equal to the reflow-aware cursor-up/erase/re-anchor sequence"(writes) {
-                Assert.strictEqual(writes[0], "\x1b[21A\r\x1b[J\x1b[18B");
+            "the redraw is a single write opening with the reflow-aware cursor-up/erase/re-anchor sequence"(writes) {
+                Assert.strictEqual(writes.length, 1);
+                Assert.ok(writes[0]!.startsWith("\x1b[21A\r\x1b[J\x1b[18B"));
             },
-            "the write immediately after the clear is the block redraw, proving nothing else belongs to the clear"(writes) {
-                Assert.ok(writes[1]!.startsWith("\x1b[?7l"), "redraw begins with autowrap-off");
+            "the block redraw immediately follows the clear inside the same write, proving nothing else belongs to the clear"(writes) {
+                Assert.ok(writes[0]!.slice("\x1b[21A\r\x1b[J\x1b[18B".length).startsWith("\x1b[?7l"), "redraw begins with autowrap-off");
             }
         }
     });
@@ -1698,6 +1708,69 @@ test.describe("BottomBlock", test => {
             "exactly four block lines sit between the autowrap toggles"(write) {
                 const inner = write.slice("\x1b[?7l".length, write.length - "\x1b[?7h".length);
                 Assert.strictEqual(inner.split("\n").length, 4);
+            }
+        }
+    });
+
+    test("every mounted update path emits its clear, content, and redraw as exactly one write, so the terminal never renders an intermediate block-less state", {
+        ARRANGE() {
+            const io = stubIO(80);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            block.setFooter({ kind: "working" });
+            block.mount();
+            io.reset();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            const counts:Record<string, number> = {};
+            const measure = (name:string, update:() => void) => {
+                io.reset();
+                update();
+                counts[name] = io.writes.length;
+            };
+            measure("setHeader", () => block.setHeader({ indexLabel: "1/3" }));
+            measure("setMetrics", () => block.setMetrics({ task: { tokens: 100, baseSeconds: 5 } }));
+            measure("setFooter", () => block.setFooter({ kind: "working" }));
+            measure("writeAbove", () => block.writeAbove("scrolled line\n"));
+            measure("resize", () => { io.setCols(60); io.emitResize(); });
+            measure("animTick", () => time.advance(200));
+            measure("labelTick", () => time.advance(8800));
+            block.setFooter({ kind: "waiting", waitKind: "rate-limit", endTime: time.now() + 120000 });
+            measure("countdownTick", () => time.advance(1000));
+            measure("finalize", () => block.finalize("Done"));
+            return counts;
+        },
+        ASSERTS: {
+            "setHeader is a single write"(counts) {
+                Assert.strictEqual(counts["setHeader"], 1);
+            },
+            "setMetrics is a single write"(counts) {
+                Assert.strictEqual(counts["setMetrics"], 1);
+            },
+            "setFooter is a single write"(counts) {
+                Assert.strictEqual(counts["setFooter"], 1);
+            },
+            "writeAbove is a single write"(counts) {
+                Assert.strictEqual(counts["writeAbove"], 1);
+            },
+            "resize is a single write"(counts) {
+                Assert.strictEqual(counts["resize"], 1);
+            },
+            "an animation tick is a single write"(counts) {
+                Assert.strictEqual(counts["animTick"], 1);
+            },
+            "a label-rotation tick is a single write per fired timer"(counts) {
+                // Advancing from t=200 to the 9-second boundary fires the animation
+                // tick 44 times (t=400 … t=9000) plus the label rotation once; every
+                // fired timer redraws as exactly one write, so 45 writes in total.
+                Assert.strictEqual(counts["labelTick"], 45);
+            },
+            "a countdown tick is a single write"(counts) {
+                Assert.strictEqual(counts["countdownTick"], 1);
+            },
+            "finalize is a single write"(counts) {
+                Assert.strictEqual(counts["finalize"], 1);
             }
         }
     });

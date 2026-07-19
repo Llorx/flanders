@@ -103,10 +103,9 @@ export class BottomBlock {
             this._workingLabel = pickVariant(workingPool, this._random);
         }
         this._unsubResize = this._io.onResize(() => {
-            this._clearBlock();
-            this._drawBlock();
+            this._redraw();
         });
-        this._drawBlock();
+        this._redraw();
         this._startFooterTimer();
     }
 
@@ -118,8 +117,7 @@ export class BottomBlock {
         if (this._disposed || this._finalized) return;
         this._header = fields;
         if (this._mounted) {
-            this._clearBlock();
-            this._drawBlock();
+            this._redraw();
         }
     }
 
@@ -131,8 +129,7 @@ export class BottomBlock {
         // starts over from this push.
         this._metricsPauseAccumMs = 0;
         if (this._mounted) {
-            this._clearBlock();
-            this._drawBlock();
+            this._redraw();
         }
     }
 
@@ -164,8 +161,7 @@ export class BottomBlock {
             this._animFrame = 0;
         }
         if (this._mounted) {
-            this._clearBlock();
-            this._drawBlock();
+            this._redraw();
             this._startFooterTimer();
         }
     }
@@ -176,9 +172,7 @@ export class BottomBlock {
             this._io.write(text);
             return;
         }
-        this._clearBlock();
-        this._io.write(text);
-        this._drawBlock();
+        this._redraw(text);
     }
 
     finalize(label:TerminalLabel):void {
@@ -195,9 +189,7 @@ export class BottomBlock {
             this._unsubResize = null;
         }
         if (this._mounted) {
-            this._clearBlock();
-            this._drawBlock();
-            this._io.write("\n");
+            this._redraw("", "\n");
         }
     }
 
@@ -255,8 +247,7 @@ export class BottomBlock {
             /* coverage ignore next */ // — Defensive: _cancelTimers prevents this callback from firing after dispose/finalize/footer-change.
             if (this._disposed || this._finalized || (this._footer.kind !== "working" && this._footer.kind !== "reviewing")) return;
             this._animFrame = (this._animFrame + 1) % FRAMES.length;
-            this._clearBlock();
-            this._drawBlock();
+            this._redraw();
             this._scheduleAnimTick();
         }, FRAME_MS);
     }
@@ -269,8 +260,7 @@ export class BottomBlock {
             /* coverage ignore next */ // — Defensive: _cancelTimers prevents this callback from firing after dispose/finalize/footer-change.
             if (this._disposed || this._finalized || this._footer.kind !== "working") return;
             this._workingLabel = pickVariant(workingPool, this._random, this._workingLabel);
-            this._clearBlock();
-            this._drawBlock();
+            this._redraw();
             this._scheduleLabelTick();
         }, LABEL_MS);
     }
@@ -280,15 +270,25 @@ export class BottomBlock {
             this._countdownTimer = null;
             /* coverage ignore next */ // — Defensive: _cancelTimers prevents this callback from firing after dispose/finalize/footer-change.
             if (this._disposed || this._finalized || this._footer.kind !== "waiting") return;
-            this._clearBlock();
-            this._drawBlock();
+            this._redraw();
             this._scheduleCountdownTick();
         }, 1000);
     }
 
-    private _clearBlock():void {
-        /* coverage ignore next */ // — Defensive: every caller of _clearBlock is gated by _mounted, and mount() runs _drawBlock (which records _prevLineWidths) before exposing the listeners/setters that can re-enter the clear path, so _prevLineWidths is always non-null here; the guard upholds the spec's "writes nothing before the first draw" obligation.
-        if (!this._prevLineWidths) return;
+    // The single redraw entry point every mounted update goes through — a state
+    // change, an animation tick, a write above the block, a resize, and the
+    // finalize transition. It composes the clear of the previous block, any text
+    // scrolled above, the fresh draw, and any trailing suffix into ONE io.write,
+    // synchronously in the tick that triggered the update. Emitting those pieces
+    // as separate writes lets the terminal render the intermediate state — the
+    // content scrolled with the block absent — as a visible flash.
+    private _redraw(aboveText = "", suffix = ""):void {
+        this._io.write(this._clearString() + aboveText + this._drawString() + suffix);
+    }
+
+    private _clearString():string {
+        // On the first draw there is no previous block, so there is nothing to clear.
+        if (!this._prevLineWidths) return "";
         // The block is drawn with autowrap disabled, so at draw time it is
         // exactly four physical rows. But a terminal that has since shrunk
         // reflows each previously-drawn line that is now wider than the new
@@ -314,17 +314,17 @@ export class BottomBlock {
         if (rows > 4) {
             clear += `\x1b[${rows - 4}B`;
         }
-        this._io.write(clear);
+        return clear;
     }
 
-    private _drawBlock():void {
+    private _drawString():string {
         const cols = Math.max(0, this._io.columns());
         const separator = SEPARATOR_GLYPH.repeat(cols);
         const header = this._renderHeader(cols);
         const metrics = this._renderMetrics(cols);
         const footer = this._renderFooter(cols);
-        this._io.write(AUTOWRAP_OFF + separator + "\n" + header + "\n" + metrics + "\n" + footer + AUTOWRAP_ON);
         this._prevLineWidths = [cols, stripAnsi(header).length, stripAnsi(metrics).length, stripAnsi(footer).length];
+        return AUTOWRAP_OFF + separator + "\n" + header + "\n" + metrics + "\n" + footer + AUTOWRAP_ON;
     }
 
     private _renderHeader(cols:number):string {

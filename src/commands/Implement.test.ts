@@ -451,12 +451,9 @@ test.describe("Implement per-iteration logs", test => {
             "exits with code 1"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "the exact hard-stop diagnostic — task line, title, iteration cap, and workspace path — is printed exactly once as its own write"(_code, { written }) {
-                // The diagnostic reaches the output as a single discrete write (`written` records
-                // one entry per output.write call). Exact-match + count over those discrete calls
-                // fails under any prefix, suffix, reworded, or duplicated emission.
+            "the exact hard-stop diagnostic — task line, title, iteration cap, and workspace path — is printed exactly once inside its own atomic redraw write"(_code, { written }) {
                 const diagnostic = `Hard stop: task at line 3 ("Implement feature A") exceeded 5 iterations. Inspect logs at ${WS_ROOT}.\n`;
-                Assert.deepStrictEqual(written.filter(w => w === diagnostic), [diagnostic]);
+                assertDiagnosticWrittenOnce(written, diagnostic);
             },
             "iteration 5 worker log is preserved"(_code, { files }) {
                 Assert.ok(files.has(WS_ROOT + "/worker.5.log"), "iteration 5 worker log preserved");
@@ -1062,11 +1059,11 @@ test.describe("Implement hard-stop per-iteration error-log materialization", tes
                 Assert.strictEqual(code, 1);
             },
             "the exact hard-stop diagnostic is still emitted exactly once despite the materialization write failure"(_code, { written }) {
-                // Exact-match + count over the discrete output.write calls: the materialization-failure
-                // notice is a distinct write, so it does not match this filter, while a prefix/suffix/
-                // reworded/duplicated main diagnostic would break the count of exactly one.
+                // The materialization-failure notice travels in its own atomic redraw write, so it
+                // does not carry the main diagnostic, while a prefix/suffix/reworded/duplicated
+                // main diagnostic breaks the exact segment match of exactly one carrying write.
                 const diagnostic = `Hard stop: task at line 3 ("Implement feature A") exceeded 5 iterations. Inspect logs at ${WS_ROOT}.\n`;
-                Assert.deepStrictEqual(written.filter(w => w === diagnostic), [diagnostic]);
+                assertDiagnosticWrittenOnce(written, diagnostic);
             },
             "the terminal outcome is the Hard stop label, not Failed"(_code, { written }) {
                 const allOutput = written.join("");
@@ -1133,9 +1130,8 @@ test.describe("Implement worker-declared hard stop", test => {
             "the run exits non-zero"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "the exact worker-declared diagnostic — task line, title, reproduced content, and folder path — is printed exactly once as its own write"(_code, { written, declared }) {
-                const diagnostic = workerDeclaredDiagnostic(declared);
-                Assert.deepStrictEqual(written.filter(w => w === diagnostic), [diagnostic]);
+            "the exact worker-declared diagnostic — task line, title, reproduced content, and folder path — is printed exactly once inside its own atomic redraw write"(_code, { written, declared }) {
+                assertDiagnosticWrittenOnce(written, workerDeclaredDiagnostic(declared));
             },
             "the declared hard-stop.log survives in the preserved folder"(_code, { files, declared }) {
                 Assert.strictEqual(files.get(WS_ROOT + "/hard-stop.log"), declared);
@@ -1203,8 +1199,7 @@ test.describe("Implement worker-declared hard stop", test => {
                 Assert.strictEqual(files.get(WS_ROOT + "/hard-stop.log"), declared);
             },
             "the exact worker-declared diagnostic reproducing the declared content is printed exactly once"(_code, { written, declared }) {
-                const diagnostic = workerDeclaredDiagnostic(declared);
-                Assert.deepStrictEqual(written.filter(w => w === diagnostic), [diagnostic]);
+                assertDiagnosticWrittenOnce(written, workerDeclaredDiagnostic(declared));
             },
             "the main folder is preserved (its root is not removed)"(_code, { rmCalls }) {
                 Assert.strictEqual(rmCalls.includes(WS_ROOT), false);
@@ -1247,8 +1242,7 @@ test.describe("Implement worker-declared hard stop", test => {
                 Assert.strictEqual(code, 1);
             },
             "the exact worker-declared diagnostic is still printed exactly once despite the write failure"(_code, { written, declared }) {
-                const diagnostic = workerDeclaredDiagnostic(declared);
-                Assert.deepStrictEqual(written.filter(w => w === diagnostic), [diagnostic]);
+                assertDiagnosticWrittenOnce(written, workerDeclaredDiagnostic(declared));
             },
             "the terminal outcome is the Hard stop label, not Failed"(_code, { written }) {
                 const allOutput = written.join("");
@@ -1403,6 +1397,28 @@ test.describe("Implement per-reviewer verdict file delete-before", test => {
 
 const CLEAR_SEQ = "\x1b[3A\r\x1b[J";
 const SEP = "─";
+
+// Extracts the above-text segment of an atomic writeAbove redraw write — the text
+// composed between the leading block clear and the block redraw of a single
+// output.write call — or null when the write does not have that shape.
+function writeAboveSegmentOf(write:string):string|null {
+    const clearMatch = /^\x1b\[\d+A\r\x1b\[J(?:\x1b\[\d+B)?/.exec(write);
+    if (!clearMatch) return null;
+    const drawStart = write.indexOf("\x1b[?7l", clearMatch[0].length);
+    if (drawStart === -1) return null;
+    return write.slice(clearMatch[0].length, drawStart);
+}
+
+// Asserts the exact diagnostic reaches the output exactly once, carried inside a
+// single atomic writeAbove redraw write — the block clear, the diagnostic, and the
+// block redraw composed into one output.write call. The diagnostic segment between
+// the clear and the redraw is exact-matched, so a prefixed, suffixed, reworded, or
+// duplicated emission fails rather than passing a substring search.
+function assertDiagnosticWrittenOnce(written:readonly string[], diagnostic:string):void {
+    const carriers = written.filter(w => w.includes(diagnostic));
+    Assert.strictEqual(carriers.length, 1, `expected exactly one write carrying the diagnostic, got ${carriers.length}`);
+    Assert.strictEqual(writeAboveSegmentOf(carriers[0]!), diagnostic, "the diagnostic must be exactly the above-text segment of its atomic redraw write");
+}
 
 test.describe("Implement output routing through BottomBlock", test => {
     test("claude session output appears via writeAbove (preceded by block clear)", {
@@ -1742,12 +1758,8 @@ test.describe("Implement block present on early routes", test => {
             "block separator is present"(_code, { written }) {
                 Assert.ok(written.join("").includes(SEP.repeat(80)));
             },
-            "error text appears via writeAbove (preceded by block clear)"(_code, { written }) {
-                const msg = "Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n";
-                const allOutput = written.join("");
-                Assert.ok(written.includes(msg), "exact unstaged diagnostic should appear in output");
-                const clearIdx = allOutput.lastIndexOf(CLEAR_SEQ, allOutput.indexOf(msg));
-                Assert.ok(clearIdx !== -1, "error should be preceded by block clear");
+            "error text appears via writeAbove inside its own atomic redraw write (preceded by block clear)"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, "Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n");
             }
         }
     });
@@ -1773,10 +1785,7 @@ test.describe("Implement config loading", test => {
                 Assert.strictEqual(code, 1);
             },
             "error output equals the exact literal string"(_code, { written }) {
-                const strippedEntries = written.map(entry => stripAnsi(entry));
-                const diagnosticEntry = strippedEntries.find(entry => entry.includes("Missing Flanders"));
-                Assert.ok(diagnosticEntry !== undefined, "a written entry must contain the diagnostic");
-                Assert.strictEqual(diagnosticEntry, "Missing Flanders configuration. Run 'npx flanders install'.\n");
+                assertDiagnosticWrittenOnce(written, "Missing Flanders configuration. Run 'npx flanders install'.\n");
             },
             "footer shows Failed"(_code, { written }) {
                 const stripped = stripAnsi(written.join(""));
@@ -1973,26 +1982,26 @@ test.describe("Implement ambiguous plan selection", test => {
                 Assert.ok(written.join("").includes(SEP.repeat(80)), "block should be present");
             },
             "header entry equals exact literal naming plansFolder"(_code, { written }) {
-                const stripped = written.map(stripAnsi);
-                const entry = stripped.find(e => e.includes("Multiple plan files found"));
+                const segments = written.map(writeAboveSegmentOf).map(s => s === null ? null : stripAnsi(s));
+                const entry = segments.find(e => e !== null && e.includes("Multiple plan files found"));
                 Assert.ok(entry !== undefined, "a written entry must contain the header");
                 Assert.strictEqual(entry, "Multiple plan files found in /project/plans:\n");
             },
             "plan-a.md is listed as an exact line entry"(_code, { written }) {
-                const stripped = written.map(stripAnsi);
-                const entry = stripped.find(e => e.includes("plan-a.md"));
+                const segments = written.map(writeAboveSegmentOf).map(s => s === null ? null : stripAnsi(s));
+                const entry = segments.find(e => e !== null && e.includes("plan-a.md"));
                 Assert.ok(entry !== undefined, "a written entry must contain plan-a.md");
                 Assert.strictEqual(entry, "  plan-a.md\n");
             },
             "plan-b.md is listed as an exact line entry"(_code, { written }) {
-                const stripped = written.map(stripAnsi);
-                const entry = stripped.find(e => e.includes("plan-b.md"));
+                const segments = written.map(writeAboveSegmentOf).map(s => s === null ? null : stripAnsi(s));
+                const entry = segments.find(e => e !== null && e.includes("plan-b.md"));
                 Assert.ok(entry !== undefined, "a written entry must contain plan-b.md");
                 Assert.strictEqual(entry, "  plan-b.md\n");
             },
             "instruction entry equals exact literal naming the [plan] argument"(_code, { written }) {
-                const stripped = written.map(stripAnsi);
-                const entry = stripped.find(e => e.includes("Re-run"));
+                const segments = written.map(writeAboveSegmentOf).map(s => s === null ? null : stripAnsi(s));
+                const entry = segments.find(e => e !== null && e.includes("Re-run"));
                 Assert.ok(entry !== undefined, "a written entry must contain the instruction");
                 Assert.strictEqual(entry, "Re-run with the chosen plan as the [plan] argument.\n");
             },
@@ -4597,7 +4606,7 @@ test.describe("Implement git preflight", test => {
                 Assert.strictEqual(code, 1);
             },
             "emits the exact unstaged-changes diagnostic"(_code, { written }) {
-                Assert.ok(written.includes("Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n"));
+                assertDiagnosticWrittenOnce(written, "Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n");
             },
             "does not list individual file src/foo.ts"(_code, { written }) {
                 Assert.ok(!written.join("").includes("src/foo.ts"));
@@ -5100,7 +5109,7 @@ test.describe("Implement end-to-end git flow", test => {
                 Assert.strictEqual(code, 1);
             },
             "emits the exact unstaged-changes diagnostic"(_code, { written }) {
-                Assert.ok(written.includes("Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n"));
+                assertDiagnosticWrittenOnce(written, "Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n");
             },
             "does not list individual files"(_code, { written }) {
                 Assert.ok(!written.join("").includes("src/dirty.ts"));
@@ -7932,10 +7941,8 @@ test.describe("Implement worker iter 1 deterministic injection", test => {
                 Assert.strictEqual(code, 1);
             },
             "the hard stop is reached by iterating and prints the exact task-identifying, cap-naming, workspace-pointing diagnostic exactly once"({ written }) {
-                // Exact-match + count over the discrete output.write calls, so a prefixed, suffixed,
-                // reworded, or duplicated diagnostic is caught rather than passing a substring search.
                 const diagnostic = `Hard stop: task at line 3 ("1.1 Task with links") exceeded 5 iterations. Inspect logs at ${WS_ROOT}.\n`;
-                Assert.deepStrictEqual(written.filter(w => w === diagnostic), [diagnostic]);
+                assertDiagnosticWrittenOnce(written, diagnostic);
             },
             "iteration 1 records a worker-stage-failure briefing naming the missing file"(_r, { errorLogWrites }) {
                 Assert.ok(errorLogWrites.some(c => c.includes("worker stage failed") && c.includes("missing.md")), `expected a worker-stage-failure briefing naming the missing file, got: ${JSON.stringify(errorLogWrites)}`);
