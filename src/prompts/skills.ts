@@ -20,6 +20,16 @@ function skillVoiceSection(authoredArtifactExclusion: string): string {
     });
 }
 
+// The report-before-question instruction each skill body with a user-facing question carries, so the
+// question never absorbs or replaces a presentation the skill owes the user in chat. Shared so the
+// wording cannot drift between the bodies that carry it; only the presentation and the question each
+// body names differ. The instruction is inlined and self-contained — it names no spec file and no
+// concrete AI tool — so it ships intact into an arbitrary user project. See
+// .spec/contracts/ai-skills/report-before-question.md.
+function reportBeforeQuestionInstruction(presentation: string, question: string): string {
+    return `Print ${presentation} as its own chat message before ${question}, whether that question goes through a facility your AI tool provides for asking questions or is asked as plain chat text. The question decides only the choice it asks: content embedded in the question interaction — its text, its option labels, or its option descriptions — is not the presentation, and the user having supplied their own analysis of the same matter does not waive it — state your own finding, where it confirms their account and where it diverges, before asking.`;
+}
+
 export const planSkillBody =
 `---
 description: Produce a contract-aware work plan inside the project's plans/ folder.
@@ -395,6 +405,10 @@ Ask the user which skill to launch next: /flanders-plan, /flanders-work, or neit
 
 When the user chooses /flanders-plan or /flanders-work, launch it by invoking it in the same session with no <data> argument, so the launched skill takes its input from the conversation — the original request together with the spec you just wrote. The run then proceeds under that skill; launching it leaves your own deliverable and write boundary unchanged, so you write only this run's spec files and never code or a plan file. When the user declines, end the run.
 
+## Chat presentations precede questions
+
+${reportBeforeQuestionInstruction("every presentation a step of this skill owes the user in chat — the approach trade-off summaries of the clarification phase, the drafting-phase layout summary, the completion declaration —", "the question that follows it")}
+
 ## Output language
 
 Resolve the natural language to write each spec file in by this priority order:
@@ -559,7 +573,7 @@ Your work is read-only, drawing only on the preserved hard-stop temporary folder
    - Fix the spec through \`/flanders-spec\`: resolve the contradictory or ambiguous contract or rule that left the task unsatisfiable.
    - A combination of the above, when the evidence shows more than one cause.
 
-5. **Present your root-cause finding and recommendation in chat.**
+5. **Present your root-cause finding and recommendation in chat.** ${reportBeforeQuestionInstruction("that diagnosis", "the launch question of the next section")}
 
 ## Recommending and launching the next step
 

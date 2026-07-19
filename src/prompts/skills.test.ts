@@ -2093,6 +2093,35 @@ Every message you address to the user during the run — your clarifying questio
             }
         }
     });
+
+    test("delivers every owed chat presentation as its own message before the question that follows it", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "has the Chat presentations precede questions section"(body) {
+                Assert.ok(body.includes("## Chat presentations precede questions"), "must have the Chat presentations precede questions section");
+            },
+            "names every owed presentation and orders it before the question that follows it"(body) {
+                Assert.ok(body.includes("Print every presentation a step of this skill owes the user in chat — the approach trade-off summaries of the clarification phase, the drafting-phase layout summary, the completion declaration — as its own chat message before the question that follows it"), "must name the trade-off summaries, the layout summary, and the completion declaration as presentations printed as their own chat message before the question that follows them");
+            },
+            "covers the question facility and the plain-chat question alike"(body) {
+                Assert.ok(body.includes("whether that question goes through a facility your AI tool provides for asking questions or is asked as plain chat text"), "must cover a question put through the AI tool's question facility and a plain chat question alike");
+            },
+            "the question decides only the choice it asks"(body) {
+                Assert.ok(body.includes("The question decides only the choice it asks"), "must state the question decides only the choice it asks");
+            },
+            "content embedded in the question interaction is not the presentation"(body) {
+                Assert.ok(body.includes("content embedded in the question interaction — its text, its option labels, or its option descriptions — is not the presentation"), "must state that content embedded in the question interaction is not the presentation");
+            },
+            "a user-supplied analysis does not waive the presentation"(body) {
+                Assert.ok(body.includes("the user having supplied their own analysis of the same matter does not waive it — state your own finding, where it confirms their account and where it diverges, before asking"), "must state a user-supplied analysis does not waive the presentation and the skill states its own finding before asking");
+            },
+            "the section appears after Recommending and launching and before Output language"(body) {
+                Assert.ok(body.indexOf("## Chat presentations precede questions") > body.indexOf("## Recommending and launching the next step"), "the section must appear after the Recommending and launching the next step section");
+                Assert.ok(body.indexOf("## Chat presentations precede questions") < body.indexOf("## Output language"), "the section must appear before the Output language section");
+            }
+        }
+    });
 });
 
 test.describe("skills – workSkillBody", test => {
@@ -2799,6 +2828,32 @@ test.describe("skills – hardStopReviewSkillBody", test => {
             },
             "the launch offer comes after the diagnosis is presented"(body) {
                 Assert.ok(body.indexOf("After presenting the diagnosis, ask the user which skill to launch") > body.indexOf("Present your root-cause finding and recommendation in chat."), "the launch offer must come after the diagnosis is presented");
+            }
+        }
+    });
+
+    test("delivers the diagnosis as its own chat message before the launch question", {
+        ARRANGE() {},
+        ACT() { return hardStopReviewSkillBody; },
+        ASSERTS: {
+            "prints the diagnosis as its own chat message before the launch question"(body) {
+                Assert.ok(body.includes("Print that diagnosis as its own chat message before the launch question of the next section"), "must print the diagnosis as its own chat message before the launch question of the next section");
+            },
+            "covers the question facility and the plain-chat question alike"(body) {
+                Assert.ok(body.includes("whether that question goes through a facility your AI tool provides for asking questions or is asked as plain chat text"), "must cover a question put through the AI tool's question facility and a plain chat question alike");
+            },
+            "the question decides only the choice it asks"(body) {
+                Assert.ok(body.includes("The question decides only the choice it asks"), "must state the question decides only the choice it asks");
+            },
+            "content embedded in the question interaction is not the presentation"(body) {
+                Assert.ok(body.includes("content embedded in the question interaction — its text, its option labels, or its option descriptions — is not the presentation"), "must state that content embedded in the question interaction is not the presentation");
+            },
+            "a user-supplied analysis does not waive the presentation"(body) {
+                Assert.ok(body.includes("the user having supplied their own analysis of the same matter does not waive it — state your own finding, where it confirms their account and where it diverges, before asking"), "must state a user-supplied analysis does not waive the presentation and the skill states its own finding before asking");
+            },
+            "the instruction sits in the diagnosis step, before the launch section"(body) {
+                Assert.ok(body.indexOf("Print that diagnosis as its own chat message") > body.indexOf("Present your root-cause finding and recommendation in chat."), "the instruction must extend the diagnosis-presentation step");
+                Assert.ok(body.indexOf("Print that diagnosis as its own chat message") < body.indexOf("## Recommending and launching the next step"), "the instruction must appear before the Recommending and launching the next step section");
             }
         }
     });
