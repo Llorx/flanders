@@ -123,7 +123,7 @@ The `/flanders-spec` skill gates its work behind a final validator hosted as [sr
 
 ### What the validator receives
 
-The host follows [src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way](/src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way) for the shared inputs (artifact paths, canonical listings, output spec, read-only discipline, FAIL loop). On top of those, the host MUST inline the verbatim text of every check category below in the validator's prompt.
+The host follows [src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way](/src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way) for the shared inputs (artifact paths, canonical listings, output spec, read-only discipline, FAIL loop). On top of those, the host MUST inline the verbatim text of every check category below in the validator's prompt, and MUST inline the per-item adjudication protocol verbatim alongside them, per [src/prompts/.spec/rules/ai/skills/spec.md#the-flanders-spec-validator-adjudicates-each-applicable-check-item-per-file-individually](/src/prompts/.spec/rules/ai/skills/spec.md#the-flanders-spec-validator-adjudicates-each-applicable-check-item-per-file-individually).
 
 The canonical listings the host passes are:
 
@@ -138,7 +138,7 @@ When this run renamed, relocated, or removed a term that can recur across the co
 
 ### What the validator must check
 
-The categories below are mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively. Category A applies to each file that landed in a `.spec/contracts` folder; category B applies to each file that landed in a `.spec/rules` folder; category C applies to every file written or updated in the run.
+The categories below are mandatory; failure in any one is a FAIL. Each category is audited independently and violations are enumerated exhaustively. Category A applies to each file that landed in a `.spec/contracts` folder; category B applies to each file that landed in a `.spec/rules` folder; category C applies to every file written or updated in the run. Every applicable check item is adjudicated per file under the per-item protocol pinned in [src/prompts/.spec/rules/ai/skills/spec.md#the-flanders-spec-validator-adjudicates-each-applicable-check-item-per-file-individually](/src/prompts/.spec/rules/ai/skills/spec.md#the-flanders-spec-validator-adjudicates-each-applicable-check-item-per-file-individually).
 
 #### A. Contract artifacts (each file written or updated under a `.spec/contracts` folder)
 
@@ -207,3 +207,37 @@ Out of scope of the validator: verifying that paths referenced by a contract or 
 - The validator applies the contract category set to a file that landed in a `.spec/rules` folder, or the rule category set to a file that landed in a `.spec/contracts` folder, instead of selecting the category set by the file's folder.
 - The validator aggregates the categories into a single judgment instead of auditing each independently and enumerating violations exhaustively.
 - The host packages the validator prompt without inlining the verbatim text of the content-rule categories (A2 and B2), forcing the validator to discover the content obligations by transitive contract reading — which defeats the explicit-categories obligation pinned in [src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way](/src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way).
+
+## The /flanders-spec validator adjudicates each applicable check item per file individually
+
+The check categories of [src/prompts/.spec/rules/ai/skills/spec.md#the-flanders-spec-validator-audits-each-artifact-by-its-folder-against-the-spec-check-categories](/src/prompts/.spec/rules/ai/skills/spec.md#the-flanders-spec-validator-audits-each-artifact-by-its-folder-against-the-spec-check-categories) are never audited in aggregate. For each file under audit, the validator renders every applicable check item — each A1 or B1 format-and-shape item, each A2 or B2 content item, and category C — as its own verdict line, PASS or FAIL, produced from the record the item's kind requires below. A summary clause that disposes of several items or several files at once leaves everything it covers unaudited.
+
+### Who this applies to
+
+- **Subject:** the `/flanders-spec` skill, as the host that packages the validator's prompt — it MUST inline the per-item protocol below verbatim alongside the check categories.
+- **Subject (when running as a subagent):** the validator instance, in producing the per-item records and verdict lines.
+- **Not subject:** the `/flanders-plan` validator — its per-criterion adjudication protocol is pinned in [src/prompts/.spec/rules/ai/skills/plan.md#the-flanders-plan-validator-adjudicates-each-evidence-prescribing-criterion-individually](/src/prompts/.spec/rules/ai/skills/plan.md#the-flanders-plan-validator-adjudicates-each-evidence-prescribing-criterion-individually).
+
+### The per-item protocol
+
+The record a verdict line rests on depends on the item's kind:
+
+1. **Presence checks** — a check satisfied by an element the file must carry (a descriptive filename, an explicit "Who this applies to" section, atomic rule sections, cross-references written as markdown links): the verdict names or quotes the satisfying element; a FAIL names the element that is missing or malformed with its file:line.
+2. **Absence checks** — a check violated by content the file must not carry (placeholders, hedge phrasing, historical or migration content, implementation detail in a contract, an obligation duplicated across files): a FAIL quotes the offending passage with its file:line; a PASS commits that a full read of the file surfaced no occurrence.
+3. **Category C** — the verdict names the corpus files the validator read and compared to reach its non-contradiction judgment; a C verdict that names no consulted corpus file is not an adjudication. A flagged contradiction quotes both sides with their file:line.
+
+A verdict conditioned on an unresolved reading — "compatible under either reading", "fine either way", or any wording that leaves the reading unresolved — is not a verdict: the validator resolves which reading the corpus text sustains and judges that reading alone. When the audited text genuinely admits both readings, that openness is itself an ambiguous-wording FAIL, never a ground for passing the item.
+
+An item missing the record its kind requires is unaudited, and the validator does not report a category as passed while any of that category's items is unaudited.
+
+### Why
+
+An aggregate clause is where the one item that matters disappears: a summary judgment can assert the categories hold without confronting the file that violates one, and a non-contradiction verdict rendered without naming what was read can rest on nothing. Requiring the record per item makes the dodge impossible — the record either supports the verdict or it does not — the same forcing shape the `/flanders-plan` validator applies per criterion in [src/prompts/.spec/rules/ai/skills/plan.md#the-flanders-plan-validator-adjudicates-each-evidence-prescribing-criterion-individually](/src/prompts/.spec/rules/ai/skills/plan.md#the-flanders-plan-validator-adjudicates-each-evidence-prescribing-criterion-individually).
+
+### Failure signals
+
+- The validator audits the check categories as one aggregated statement spanning several items or several files instead of one verdict line per applicable item per file.
+- A presence check passes without naming the satisfying element, or an absence check FAILs without quoting the offending passage.
+- A category C verdict names no corpus file the validator read and compared.
+- An item is adjudicated conditionally — declared to hold under both branches of a reading the validator did not resolve.
+- The validator reports a category as passed while one of its items lacks the record its kind requires.
