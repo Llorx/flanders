@@ -45,6 +45,12 @@ const EXPECTED_REVIEWER_BUILD_TEST_PROHIBITION = "You do not run the build comma
 
 const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per `rules/ai/agents/evidence/scope-driven-self-audit.md`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (its path relative to the project root), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape are classified by observability: a test-observable absence needs a search-based or recorded-call assertion that confirms zero matches over the observable surface, while a source-text structural absence or semantic-judgment absence is review-adjudicated and must not be guarded by a test that reads source as text. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per `rules/ai/agents/evidence/enumerated-claim-coverage.md`.";
 
+// The structural-impossibility hard-stop declaration the worker prompt carries, byte-exact. It
+// names the file path through the `<HARD_STOP_LOG_PATH>` placeholder (wired by the orchestrator),
+// carries both qualifying conditions, the three file-content parts, the end-the-turn order, and
+// the disqualifications. Pinned here so a regression in any part trips the byte-equal assertion.
+const EXPECTED_HARD_STOP_DECLARATION = "If you establish the task cannot reach a clean iteration through any implementation it authorizes — its acceptance criteria cannot be satisfied while honoring a contract or rule the task references or the design the plan prescribes, or closing the recorded review findings requires design decisions or work outside the task's scope — write a `hard-stop.log` file at <HARD_STOP_LOG_PATH> stating the structural cause, the evidence (the criterion and the obligation or design statement in conflict), and the plan or spec change that would unblock the task, then end your turn without further implementation work. Ordinary difficulty, a failing gate, or findings you can still address within the task's scope never qualify.";
+
 // The Flanders-voice tone instruction the worker and reviewer prompts carry. Composed exactly
 // as the production helper composes it: a shared terse head, plus — for the reviewer only — the
 // violation-entry exclusion spliced in before the closing period.
@@ -704,6 +710,55 @@ test.describe("prompts – worker – three-section Evidence Report", test => {
             "condition 4 is still stated once and emphasized as the top rejection cause"(template) {
                 Assert.ok(template.includes("Condition 4 causes most rejections in practice"));
                 Assert.ok(template.includes("A contract or rule from the global lists below that the reviewer determines should have been applied but was not"));
+            }
+        }
+    });
+});
+
+test.describe("prompts – worker – structural-impossibility hard-stop declaration", test => {
+    test("the worker prompt carries the hard-stop declaration instruction byte-equal", {
+        ARRANGE() {},
+        ACT() {
+            const start = prompts.worker.indexOf("If you establish the task cannot reach a clean iteration");
+            const endMarker = "never qualify.";
+            const end = prompts.worker.indexOf(endMarker, start) + endMarker.length;
+            return prompts.worker.substring(start, end);
+        },
+        ASSERT(block) {
+            Assert.strictEqual(block, EXPECTED_HARD_STOP_DECLARATION);
+        }
+    });
+
+    test("the instruction states each of its parts", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERTS: {
+            "names the umbrella qualifying condition"(template) {
+                Assert.ok(template.includes("If you establish the task cannot reach a clean iteration through any implementation it authorizes"));
+            },
+            "carries the unsatisfiable-acceptance-criteria qualifying condition"(template) {
+                Assert.ok(template.includes("its acceptance criteria cannot be satisfied while honoring a contract or rule the task references or the design the plan prescribes"));
+            },
+            "carries the out-of-scope-review-findings qualifying condition"(template) {
+                Assert.ok(template.includes("closing the recorded review findings requires design decisions or work outside the task's scope"));
+            },
+            "names the file path through the placeholder"(template) {
+                Assert.ok(template.includes("write a `hard-stop.log` file at <HARD_STOP_LOG_PATH>"));
+            },
+            "requires the structural-cause file-content part"(template) {
+                Assert.ok(template.includes("stating the structural cause"));
+            },
+            "requires the evidence file-content part"(template) {
+                Assert.ok(template.includes("the evidence (the criterion and the obligation or design statement in conflict)"));
+            },
+            "requires the unblocking plan-or-spec-change file-content part"(template) {
+                Assert.ok(template.includes("the plan or spec change that would unblock the task"));
+            },
+            "orders ending the turn without further implementation work"(template) {
+                Assert.ok(template.includes("then end your turn without further implementation work"));
+            },
+            "carries the disqualifications"(template) {
+                Assert.ok(template.includes("Ordinary difficulty, a failing gate, or findings you can still address within the task's scope never qualify."));
             }
         }
     });

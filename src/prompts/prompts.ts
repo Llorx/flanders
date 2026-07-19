@@ -3,6 +3,7 @@ export const enum Placeholders {
     TASK_TEXT = "<TASK_TEXT>",
     BUILD_SCRIPT_PATH = "<BUILD_SCRIPT_PATH>",
     TEST_SCRIPT_PATH = "<TEST_SCRIPT_PATH>",
+    HARD_STOP_LOG_PATH = "<HARD_STOP_LOG_PATH>",
     ERROR_LOG_PATH = "<ERROR_LOG_PATH>",
     ITERATION = "<ITERATION>",
     CONTRACT_LIST = "<CONTRACT_LIST>",
@@ -335,7 +336,8 @@ Procedure:
 3. If your implementation changes how the project builds or how its tests run, also update the build and test scripts at:
    - Build script: ${Placeholders.BUILD_SCRIPT_PATH}
    - Test script: ${Placeholders.TEST_SCRIPT_PATH}
-4. Before declaring the task complete, write an Evidence Report as the final part of your output. This is a lightweight self-audit scoped to your diff and the task's links; the reviewer audits the full working tree in a separate, heavier pass. The report has three sections, in order. Consult the following rule files for the full framework:
+4. If you establish the task cannot reach a clean iteration through any implementation it authorizes — its acceptance criteria cannot be satisfied while honoring a contract or rule the task references or the design the plan prescribes, or closing the recorded review findings requires design decisions or work outside the task's scope — write a \`hard-stop.log\` file at ${Placeholders.HARD_STOP_LOG_PATH} stating the structural cause, the evidence (the criterion and the obligation or design statement in conflict), and the plan or spec change that would unblock the task, then end your turn without further implementation work. Ordinary difficulty, a failing gate, or findings you can still address within the task's scope never qualify.
+5. Before declaring the task complete, write an Evidence Report as the final part of your output. This is a lightweight self-audit scoped to your diff and the task's links; the reviewer audits the full working tree in a separate, heavier pass. The report has three sections, in order. Consult the following rule files for the full framework:
    - \`rules/ai/agents/evidence-report.md\`
    - \`rules/ai/agents/evidence/claim-evidence-classification.md\`
    - \`rules/ai/agents/evidence/enumerated-claim-coverage.md\`
