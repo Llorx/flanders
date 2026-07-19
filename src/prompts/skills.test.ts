@@ -1298,6 +1298,40 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("validator category 4 inlines the per-criterion adjudication protocol", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "forbids aggregate adjudication and requires per-item enumeration"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("Evidence-prescribing criteria are adjudicated one by one, never in aggregate: enumerate every acceptance criterion that prescribes an evidence instrument — a test double, fake, mock, spy, stub, or specific harness — or that asserts the absence of an interaction, each as its own numbered item, and produce for each item, before its verdict"), "category 4 must forbid aggregate adjudication, enumerate each evidence-prescribing criterion as its own item, and require the records before the item's verdict");
+            },
+            "requires the observed component as the first record"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("(1) the observed component — the code element the prescribed instrument attaches to or observes"), "category 4 must require naming the observed component per item");
+            },
+            "requires the design disposition quoted verbatim with a read-the-source fallback"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("(2) the design disposition, quoted verbatim — the statement, from the plan (the same task's body, another task, or the plan's narrative) or from a linked rule, that provides the observed component with the doubled collaboration or that denies it"), "category 4 must require the quoted design disposition per item, with its plan-or-linked-rule provenance and its provides-or-denies definition");
+                Assert.ok(category4.includes("when neither the plan nor the linked rules state the disposition, establish it by reading the observed component's on-disk source before adjudicating — a disposition is never assumed"), "category 4 must require reading the observed component's source when neither the plan nor the linked rules state the disposition");
+            },
+            "requires a single-branch verdict and bans conditional adjudication"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("(3) a single-branch verdict — satisfiable or FAIL, decided on the disposition established in record 2"), "category 4 must require a single-branch verdict per item");
+                Assert.ok(category4.includes("\"satisfiable whether or not the component holds the dependency\", \"in either case\", or any wording that leaves the branch unresolved — is not a verdict"), "category 4 must ban conditional adjudication as a verdict");
+            },
+            "FAILs a disposition the plan leaves open instead of passing the item"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("when the plan genuinely leaves the disposition open, that openness is itself a FAIL of this category, never a ground for passing the item"), "category 4 must FAIL an open disposition rather than pass the item");
+            },
+            "blocks the category while any enumerated item is unaudited"(body) {
+                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                Assert.ok(category4.includes("An item missing any of the three records is unaudited, and this category is not reported as passed while any enumerated item is unaudited"), "category 4 must not be reported as passed with unaudited items");
+                Assert.ok(category4.includes("a summary clause that disposes of several such criteria at once leaves every criterion it covers unaudited"), "category 4 must treat a summary clause as leaving its criteria unaudited");
+            }
+        }
+    });
+
     test("Final validation carries the passing-gate certification-scope statement", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
