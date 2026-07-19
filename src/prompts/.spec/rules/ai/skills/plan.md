@@ -31,7 +31,7 @@ The planner asks the user only when both of the following are true:
    - **A task-scope ambiguity** the planner cannot reasonably infer — for example, "add tests" without naming the module, "refactor the controller" when there are several candidate controllers and the request gives no signal which one; or
    - **A load-bearing runtime-behavior premise without backing** — a claim about how the terminal, the OS, a library, or the execution environment behaves at run time, which a task's approach depends on, which cannot be confirmed by reading the source, and which no existing contract, rule, existing test, or preceding task in the plan backs (per [src/prompts/.spec/rules/ai/skills/plan.md#flanders-plan-backs-or-escalates-a-runtime-behavior-premise-instead-of-asserting-it-as-fact](/src/prompts/.spec/rules/ai/skills/plan.md#flanders-plan-backs-or-escalates-a-runtime-behavior-premise-instead-of-asserting-it-as-fact)). The planner escalates the premise rather than asserting it as fact.
 
-When this test passes, the question cadence pinned in [.spec/contracts/ai-skills/clarification-question-cadence.md](/.spec/contracts/ai-skills/clarification-question-cadence.md) applies.
+When this test passes, the question cadence pinned in [.spec/contracts/ai-skills/question-cadence.md](/.spec/contracts/ai-skills/question-cadence.md) applies.
 
 ### Failure signals
 
