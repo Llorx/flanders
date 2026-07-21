@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import { TASK_LINE } from "../plan/PlanFile";
 import { flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
-import { COUNTERFACTUAL_REGRESSION_PARAGRAPH, FULL_TEST_BODY_READ_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
+import { COMMENT_ADJUDICATION_PARAGRAPH, COUNTERFACTUAL_REGRESSION_PARAGRAPH, expectedCodeCommentEconomy, FULL_TEST_BODY_READ_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
 import { hardStopReviewSkillBody, planSkillBody, specSkillBody, workSkillBody } from "./skills";
 import { stripYamlFrontmatter } from "../commands/skillArtifacts";
 
@@ -2569,13 +2569,14 @@ test.describe("skills – workSkillBody", test => {
         }
     });
 
-    test("all four citation-free reviewer-core additions stay citation-free", {
+    test("all five citation-free reviewer-core additions stay citation-free", {
         ARRANGE() {
             return {
                 referenced: REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH,
                 coverage: TEST_GUARDED_COVERAGE_SENTENCE,
                 fullBody: FULL_TEST_BODY_READ_PARAGRAPH,
-                counterfactual: COUNTERFACTUAL_REGRESSION_PARAGRAPH
+                counterfactual: COUNTERFACTUAL_REGRESSION_PARAGRAPH,
+                commentAdjudication: COMMENT_ADJUDICATION_PARAGRAPH
             };
         },
         ACT(additions) { return additions; },
@@ -2603,6 +2604,12 @@ test.describe("skills – workSkillBody", test => {
             },
             "the counterfactual regression paragraph contains no .md path at all"({ counterfactual }) {
                 Assert.strictEqual(counterfactual.includes(".md"), false);
+            },
+            "the comment-adjudication paragraph names no flanders-internal spec path"({ commentAdjudication }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(commentAdjudication), false);
+            },
+            "the comment-adjudication paragraph contains no .md path at all"({ commentAdjudication }) {
+                Assert.strictEqual(commentAdjudication.includes(".md"), false);
             }
         }
     });
@@ -2683,6 +2690,52 @@ test.describe("skills – workSkillBody", test => {
             },
             "never governs the language or content of the code produced"(body) {
                 Assert.ok(body.includes("never the language or content of the code you produce"), "must state it never governs the language or content of the code produced");
+            }
+        }
+    });
+
+    test("carries the code-comment discipline byte-equal, routed to the chat report", {
+        ARRANGE() {
+            return { expected: expectedCodeCommentEconomy("the report you give the user in chat") };
+        },
+        ACT() { return workSkillBody; },
+        ASSERTS: {
+            "the block renders byte-equal with the chat-report channel"(body, { expected }) {
+                const start = body.indexOf("Code comments:");
+                const end = body.indexOf("\n\n", start);
+                Assert.strictEqual(body.substring(start, end), expected);
+            },
+            "the discipline sits in the work section, ahead of the build and test gate"(body) {
+                Assert.ok(body.indexOf("Code comments:") > body.indexOf("## Performing the work"), "the discipline must sit inside the work section");
+                Assert.ok(body.indexOf("Code comments:") < body.indexOf("## Build and test"), "the discipline must precede the build and test section");
+            },
+            "the discipline is not routed to the implement worker's Evidence Report"(body) {
+                Assert.strictEqual(body.includes("belong in your Evidence Report"), false);
+            },
+            "the discipline carries no flanders-internal spec-path citation"(body) {
+                const start = body.indexOf("Code comments:");
+                const block = body.substring(start, body.indexOf("\n\n", start));
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(block), false);
+                Assert.strictEqual(block.includes(".md"), false);
+            }
+        }
+    });
+
+    test("the embedded citation-free reviewer core carries the comment-adjudication paragraph", {
+        ARRANGE() {},
+        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "workSkillBody carries the comment-adjudication paragraph verbatim"({ body }) {
+                Assert.ok(body.includes(COMMENT_ADJUDICATION_PARAGRAPH), "workSkillBody must carry the citation-free comment-adjudication paragraph verbatim");
+            },
+            "reviewerMethodologyCore carries the same comment-adjudication paragraph verbatim"({ core }) {
+                Assert.ok(core.includes(COMMENT_ADJUDICATION_PARAGRAPH), "reviewerMethodologyCore must carry the comment-adjudication paragraph verbatim");
+            },
+            "the paragraph confines the reviewer to the comments the change set touched"({ body }) {
+                Assert.ok(body.includes("comments in files the change set does not touch — or that a touched file carried unmodified — are out of scope"), "the paragraph must confine the adjudication to added or modified comments");
+            },
+            "the paragraph exempts a comment a project rule requires"({ body }) {
+                Assert.ok(body.includes("A comment a rule of the project requires at that construct is never a violation"), "the paragraph must exempt a comment a project rule requires");
             }
         }
     });

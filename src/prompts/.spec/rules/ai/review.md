@@ -223,3 +223,29 @@ An LLM reviewer does not reliably honor an instruction to end with a single bare
 - A reviewer prompt does not instruct the reviewer to create an empty file when it finds no violation, so a clean review leaves the file absent and indistinguishable from a reviewer that never ran.
 - A reviewer prompt instructs the reviewer to write a pass confirmation, or any other non-violation content, into the file, so a clean review leaves the file non-empty.
 - A violation entry is not independently actionable — it lacks the `file:line`, the contract or rule path, or the description of what is missing — forcing the next round of work to rediscover the problem.
+
+## Every Flanders adversarial reviewer records a violation for a source comment that argues the change instead of stating a constraint
+
+Every Flanders adversarial reviewer prompt instructs the reviewer to judge the comments the change set adds or modifies, and to record as a violation each one that argues the correctness of the change, cites a contract, rule, plan task, or reviewer finding, or narrates what the code previously did. The reviewer applies the same test the authoring prompt applies, pinned by [src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express](/src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express): a comment earns its place when it states an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong. A comment a rule of the host project requires is never a violation.
+
+### Who this applies to
+
+- **Subject:** the construction of every Flanders adversarial reviewer prompt — the `implement` command's reviewer(s) (see [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md)) and the `/flanders-work` skill's reviewer subagent (see [.spec/contracts/ai-skills/work-skill.md](/.spec/contracts/ai-skills/work-skill.md)) — at the point where the prompt instructs the reviewer what to inspect in the change set, and only for the comments that change set adds or modifies.
+- **Not subject:** comments in files the change set does not touch, and comments a touched file already carried unmodified — the reviewer judges what the work wrote, not the code it inherited. The authoring side of this discipline is pinned by [src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express](/src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express).
+
+### Behavior
+
+1. **Judge each added or modified comment.** For every comment the change set introduces or rewrites, the reviewer decides whether it states something the code cannot show. One that instead defends the diff, cites the obligation behind it, or records what the code used to do is a violation, and the reviewer records it with its `file:line` per [src/prompts/.spec/rules/ai/review.md#every-flanders-adversarial-reviewer-records-its-verdict-by-writing-violations-into-its-error-log-file-never-via-its-output-or-exit-code](/src/prompts/.spec/rules/ai/review.md#every-flanders-adversarial-reviewer-records-its-verdict-by-writing-violations-into-its-error-log-file-never-via-its-output-or-exit-code).
+
+2. **A required comment passes.** A comment a host-project rule mandates at that construct satisfies this check, and the reviewer confirms it rather than flagging it.
+
+### Why
+
+The authoring instruction alone does not survive the loop. The pressure that produces these comments is renewed on every round by the demand that the changes demonstrate compliance, and an instruction carrying no verdict erodes against a standing incentive that does — the agent that annotates its diff is never penalized for it, while the agent that does not risks the FAIL. Putting the comments in the change set among the things the reviewer adjudicates gives the discipline the same footing as every other obligation the reviewer enumerates, so the incentive points the same way the instruction does. Confining the judgment to the comments the work wrote keeps the reviewer from turning every touched file into a cleanup mandate, which would expand each change beyond its own scope.
+
+### Failure signals
+
+- A reviewer prompt does not instruct the reviewer to judge the comments the change set adds or modifies, leaving the authoring instruction unenforced.
+- A reviewer prompt has the reviewer flag a comment that states an external constraint, an invariant, or a consequence the code cannot show.
+- A reviewer prompt has the reviewer flag a comment a host-project rule requires at that construct.
+- A reviewer prompt has the reviewer flag comments in files the change set does not touch, or comments a touched file carried unmodified.

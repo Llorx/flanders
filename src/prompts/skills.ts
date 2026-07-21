@@ -1,5 +1,5 @@
 import { TASK_LINE } from "../plan/PlanFile";
-import { buildFlandersVoiceSection, flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
+import { buildFlandersVoiceSection, codeCommentEconomy, flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
 
 // The user-facing Flanders-voice section each installed skill body carries, so the skill seasons the
 // messages it addresses to the user with the voice on top of the resolved interaction language while
@@ -471,6 +471,8 @@ The user invokes you as: /flanders-work [<data>]
 ## Performing the work
 
 Implement the request directly in this session: edit the project's code and update or extend its tests so the new behavior is covered. Honor every contract, rule, and behavior rule in the project's spec corpus whose scope your changes touch — discovered across the project's \`.spec\` folders (the files under each \`.spec/contracts\` folder are contracts, the files under each \`.spec/rules\` folder are rules, and the files under each \`.spec/flanders\` folder are behavior rules) — whether or not the request names them. A contract or rule whose scope your changes touch is binding even when the request never mentions it; a behavior rule whose \`.spec/flanders\` scope encloses a file you author or change governs how you name, place, and organize that file. Treat the corpus as part of your specification, not optional reading.
+
+${codeCommentEconomy("the report you give the user in chat")}
 
 ## Build and test
 

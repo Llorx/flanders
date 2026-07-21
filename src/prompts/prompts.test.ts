@@ -3,7 +3,7 @@ import * as Assert from "assert";
 import test from "arrange-act-assert";
 
 import { prompts, reviewerMethodologyCore, linkedReferenceDirective } from "./prompts";
-import { COUNTERFACTUAL_REGRESSION_PARAGRAPH, FULL_TEST_BODY_READ_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
+import { COMMENT_ADJUDICATION_PARAGRAPH, COUNTERFACTUAL_REGRESSION_PARAGRAPH, expectedCodeCommentEconomy, FULL_TEST_BODY_READ_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
 
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
 
@@ -1911,13 +1911,30 @@ test.describe("prompts – reviewer – every addition appears identically acros
         }
     });
 
-    test("all four additions carry no flanders-internal spec-path citation", {
+    test("the comment-adjudication paragraph is surface-neutral — the same literal appears in both reviewer surfaces", {
+        ARRANGE() {},
+        ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "the implement reviewer carries the exact fixture literal"({ reviewer }) {
+                Assert.strictEqual(reviewer.includes(COMMENT_ADJUDICATION_PARAGRAPH), true);
+            },
+            "the citation-free core carries the exact same fixture literal"({ core }) {
+                Assert.strictEqual(core.includes(COMMENT_ADJUDICATION_PARAGRAPH), true);
+            },
+            "neither surface carries a divergent surface-specific phrasing of the change-set clause"({ reviewer, core }) {
+                Assert.strictEqual(reviewer.includes("every comment the worker's changes add or modify") || reviewer.includes("every comment the changes under review add or modify") || core.includes("every comment the worker's changes add or modify") || core.includes("every comment the changes under review add or modify"), false);
+            }
+        }
+    });
+
+    test("all five additions carry no flanders-internal spec-path citation", {
         ARRANGE() {
             return {
                 referenced: REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH,
                 coverage: TEST_GUARDED_COVERAGE_SENTENCE,
                 fullBody: FULL_TEST_BODY_READ_PARAGRAPH,
-                counterfactual: COUNTERFACTUAL_REGRESSION_PARAGRAPH
+                counterfactual: COUNTERFACTUAL_REGRESSION_PARAGRAPH,
+                commentAdjudication: COMMENT_ADJUDICATION_PARAGRAPH
             };
         },
         ACT(additions) { return additions; },
@@ -1945,6 +1962,81 @@ test.describe("prompts – reviewer – every addition appears identically acros
             },
             "the counterfactual regression paragraph contains no .md path at all"({ counterfactual }) {
                 Assert.strictEqual(counterfactual.includes(".md"), false);
+            },
+            "the comment-adjudication paragraph matches no internal spec-path citation"({ commentAdjudication }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(commentAdjudication), false);
+            },
+            "the comment-adjudication paragraph contains no .md path at all"({ commentAdjudication }) {
+                Assert.strictEqual(commentAdjudication.includes(".md"), false);
+            }
+        }
+    });
+});
+
+test.describe("prompts – code comment economy", test => {
+    test("the worker prompt carries the code-comment discipline byte-equal, routed to the Evidence Report", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERT(template) {
+            const start = template.indexOf("Code comments:");
+            const end = template.indexOf("\n\n", start);
+            Assert.strictEqual(template.substring(start, end), expectedCodeCommentEconomy("your Evidence Report"));
+        }
+    });
+
+    test("the code-comment discipline pins every obligation it carries", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERTS: {
+            "a comment states only what the code cannot show"(template) {
+                Assert.ok(template.includes("a comment you write states only what the code cannot show — an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong"));
+            },
+            "the correctness argument is routed to the report"(template) {
+                Assert.ok(template.includes("The argument that your change is correct,"));
+            },
+            "every citation target behind the change is routed to the report, behavior rules included"(template) {
+                Assert.ok(template.includes("the criterion, contract, rule, behavior rule, task, or review finding behind it,"));
+            },
+            "the file:line an inspection should target is routed to the report"(template) {
+                Assert.ok(template.includes("the `file:line` you want an inspection to target,"));
+            },
+            "history and pending migration are routed out of the source too"(template) {
+                Assert.ok(template.includes("and what the code used to do or has yet to migrate belong in your Evidence Report, never in the source."));
+            },
+            "a comment a project rule requires is preserved"(template) {
+                Assert.ok(template.includes("Where a rule of the project requires a comment at a construct, you write it."));
+            }
+        }
+    });
+
+    test("the code-comment discipline stays citation-free so the skill body can embed it", {
+        ARRANGE() {},
+        ACT() { return expectedCodeCommentEconomy("the report you give the user in chat"); },
+        ASSERTS: {
+            "it matches no internal spec-path citation"(block) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(block), false);
+            },
+            "it contains no .md path at all"(block) {
+                Assert.strictEqual(block.includes(".md"), false);
+            }
+        }
+    });
+
+    test("no reviewer surface carries the code-authoring discipline, and no authoring surface carries the reviewer's adjudication", {
+        ARRANGE() {},
+        ACT() { return { worker: prompts.worker, reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "the implement reviewer does not instruct it to author comments"({ reviewer }) {
+                Assert.strictEqual(reviewer.includes("Code comments:"), false);
+            },
+            "the citation-free reviewer core does not instruct it to author comments"({ core }) {
+                Assert.strictEqual(core.includes("Code comments:"), false);
+            },
+            "the worker does not carry the reviewer's comment-adjudication paragraph"({ worker }) {
+                Assert.strictEqual(worker.includes(COMMENT_ADJUDICATION_PARAGRAPH), false);
+            },
+            "the worker's discipline is not routed to a reviewer-facing channel"({ worker }) {
+                Assert.strictEqual(worker.includes("belong in the report you give the user in chat"), false);
             }
         }
     });

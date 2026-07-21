@@ -65,6 +65,17 @@ const foregroundBoundary =
 const specFolderWriteBoundary =
 `Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, any \`.spec/flanders\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.`;
 
+// The code-comment discipline handed to every Flanders agent that authors source code: the
+// implement worker and the /flanders-work session. Without it the agent has no channel but a
+// comment for the compliance it is told to demonstrate at a `file:line`, so it defends its diff
+// in the source and the annotations ratchet up every iteration. `channel` names where that
+// justification belongs instead — the only per-surface variation. The text is citation-free so
+// the /flanders-work skill body can embed it intact and still ship self-contained. See
+// src/prompts/.spec/rules/ai/code-comment-economy.md.
+export function codeCommentEconomy(channel:string):string {
+    return `Code comments: a comment you write states only what the code cannot show — an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong. The argument that your change is correct, the criterion, contract, rule, behavior rule, task, or review finding behind it, the \`file:line\` you want an inspection to target, and what the code used to do or has yet to migrate belong in ${channel}, never in the source. Where a rule of the project requires a comment at a construct, you write it.`;
+}
+
 // Citation-free variant of the classification core: the same text as `claimClassificationCore`
 // with the only flanders-internal citation it carries removed, so the surface-agnostic
 // reviewer-methodology core stays citation-free. Both reviewer surfaces use the core without
@@ -134,6 +145,8 @@ ${s.readOnlyParagraph}`;
 Exhaustiveness: do not stop at the first violation. Run every verification you are required to run and every additional check your judgment deems applicable, even after one of them has already produced a FAIL. The five conditions above and the ${s.critProtocolName} are executed in full on every invocation; encountering a violation in one of them does not exempt you from completing the rest. The goal is that a single review produces the complete list of fixes ${s.nextWorker} needs to apply.
 
 Pattern-based violations require occurrence enumeration. When a violation you find is an instance of a pattern (e.g., "this catch block silently swallows the error", "this function lacks the input validation other similar functions perform", "this code path writes directly to stdout instead of using the injected logger", "this constant is duplicated across files"), do not stop at the first cited location. Grep the affected file — and every other file in the same module or test suite where the same pattern could plausibly recur — for every occurrence of the same violation. Enumerate ALL of them in the FAIL message, each as its own independently-actionable entry with its file:line. A FAIL message that cites only a subset of a pattern's occurrences forces the next iteration to rediscover the rest, which directly violates the exhaustiveness contract above.
+
+Comment adjudication. Judge every comment the changes add or modify. A comment earns its place only by stating what the code cannot show — an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong. One that instead argues the change is correct, cites the obligation or review finding behind it, or narrates what the code used to do is a violation, recorded with its \`file:line\`. A comment a rule of the project requires at that construct is never a violation, and comments in files the change set does not touch — or that a touched file carried unmodified — are out of scope.
 
 Referenced-obligation enumeration. Before deciding conditions 2, 3, 4, and 5 are met, enumerate the discrete obligations of each contract and rule in scope — every contract and rule the work references, plus every corpus contract, rule, or behavior rule you judge should have applied — as separate items, and confirm each obligation is actively applied in the changes. A contract or rule that pins more than one discrete obligation — for example a required-exclusion list, a set of required surfaces, or several conditions stated in one section — is never satisfied by confirming the contract or rule "in general": each enumerated obligation is its own item with its own confirmation, and an obligation the changes leave unapplied, or that you never enumerated, is a violation. A reference whose obligations enumerate N discrete facts expands into N items.
 
@@ -368,6 +381,8 @@ Do not flip the task's checkbox in the plan file. Flanders flips the checkbox it
 Git boundary: you must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, \`git rebase\`, \`git merge\`, \`git cherry-pick\`, no edits under \`.git/\`, and no remote git operations (\`fetch\`, \`pull\`, \`push\`). Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed when you need to inspect the repo. Leave your implementation as a dirty working tree — Flanders performs the commit itself once your changes pass build, test, and review. If your task seems to require a git write, stop and explain it in your final message instead of doing it. The full obligation lives in rules/ai/agents/no-git-writes.md.
 
 ${specFolderWriteBoundary}
+
+${codeCommentEconomy("your Evidence Report")}
 
 ${foregroundBoundary}
 
