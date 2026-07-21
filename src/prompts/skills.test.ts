@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import { TASK_LINE } from "../plan/PlanFile";
 import { flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
-import { REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
+import { COUNTERFACTUAL_REGRESSION_PARAGRAPH, FULL_TEST_BODY_READ_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
 import { hardStopReviewSkillBody, planSkillBody, specSkillBody, workSkillBody } from "./skills";
 import { stripYamlFrontmatter } from "../commands/skillArtifacts";
 
@@ -2522,11 +2522,60 @@ test.describe("skills – workSkillBody", test => {
         }
     });
 
-    test("both citation-free reviewer-core additions stay citation-free", {
+    test("the embedded citation-free reviewer core carries the full test-body read requirement", {
+        ARRANGE() {},
+        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "workSkillBody carries the full test-body read paragraph verbatim"({ body }) {
+                Assert.ok(body.includes(FULL_TEST_BODY_READ_PARAGRAPH), "workSkillBody must carry the citation-free full test-body read paragraph verbatim");
+            },
+            "reviewerMethodologyCore carries the same full test-body read paragraph verbatim"({ core }) {
+                Assert.ok(core.includes(FULL_TEST_BODY_READ_PARAGRAPH), "reviewerMethodologyCore must carry the full test-body read paragraph verbatim");
+            },
+            "the paragraph names the fixture and setup the test builds"({ body }) {
+                Assert.ok(body.includes("the fixture and setup it builds"), "the full test-body read paragraph must name the fixture and setup the test builds");
+            },
+            "the paragraph names the concrete inputs the test drives"({ body }) {
+                Assert.ok(body.includes("the concrete inputs it drives"), "the full test-body read paragraph must name the concrete inputs the test drives");
+            },
+            "the paragraph rejects accepting a test from its name, a search hit, a citation, or a fixture-less assertion list"({ body }) {
+                Assert.ok(body.includes("A test is never accepted from its name, a search hit showing it exists, a citation of it, or an assertion list read without the fixture that produces the asserted state."), "the full test-body read paragraph must reject accepting a test from its name, a search hit, a citation, or a fixture-less assertion list");
+            }
+        }
+    });
+
+    test("the embedded citation-free reviewer core carries the counterfactual regression requirement", {
+        ARRANGE() {},
+        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "workSkillBody carries the counterfactual regression paragraph verbatim"({ body }) {
+                Assert.ok(body.includes(COUNTERFACTUAL_REGRESSION_PARAGRAPH), "workSkillBody must carry the citation-free counterfactual regression paragraph verbatim");
+            },
+            "reviewerMethodologyCore carries the same counterfactual regression paragraph verbatim"({ core }) {
+                Assert.ok(core.includes(COUNTERFACTUAL_REGRESSION_PARAGRAPH), "reviewerMethodologyCore must carry the counterfactual regression paragraph verbatim");
+            },
+            "the paragraph defines the regression as the least-effort violating implementation change"({ body }) {
+                Assert.ok(body.includes("the least-effort implementation change that violates what it requires"), "the counterfactual regression paragraph must define the regression as the least-effort violating implementation change");
+            },
+            "the paragraph requires tracing it against the inputs the test actually drives"({ body }) {
+                Assert.ok(body.includes("evaluated against the inputs the test actually drives, would fail under it"), "the counterfactual regression paragraph must require tracing against the inputs the test actually drives");
+            },
+            "the paragraph denies guarding status to a fixture that coincides with the default or fallback"({ body }) {
+                Assert.ok(body.includes("A fixture whose expected outcome coincides with what the implementation would produce while ignoring the tested input, taking the fallback path, or applying the default does not guard the element, whatever its assertions enumerate"), "the counterfactual regression paragraph must deny guarding status to a fixture that coincides with the default or fallback");
+            },
+            "the paragraph treats a surviving regression as a violation recorded with regression, file:line, and fixture property"({ body }) {
+                Assert.ok(body.includes("a regression that survives the test is a violation, recorded with the surviving regression, the test's `file:line`, and the fixture property that lets it pass."), "the counterfactual regression paragraph must treat a surviving regression as a violation recorded with regression, file:line, and fixture property");
+            }
+        }
+    });
+
+    test("all four citation-free reviewer-core additions stay citation-free", {
         ARRANGE() {
             return {
                 referenced: REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH,
-                coverage: TEST_GUARDED_COVERAGE_SENTENCE
+                coverage: TEST_GUARDED_COVERAGE_SENTENCE,
+                fullBody: FULL_TEST_BODY_READ_PARAGRAPH,
+                counterfactual: COUNTERFACTUAL_REGRESSION_PARAGRAPH
             };
         },
         ACT(additions) { return additions; },
@@ -2542,6 +2591,18 @@ test.describe("skills – workSkillBody", test => {
             },
             "the test-guarded coverage sentence contains no .md path at all"({ coverage }) {
                 Assert.strictEqual(coverage.includes(".md"), false);
+            },
+            "the full test-body read paragraph names no flanders-internal spec path"({ fullBody }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(fullBody), false);
+            },
+            "the full test-body read paragraph contains no .md path at all"({ fullBody }) {
+                Assert.strictEqual(fullBody.includes(".md"), false);
+            },
+            "the counterfactual regression paragraph names no flanders-internal spec path"({ counterfactual }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(counterfactual), false);
+            },
+            "the counterfactual regression paragraph contains no .md path at all"({ counterfactual }) {
+                Assert.strictEqual(counterfactual.includes(".md"), false);
             }
         }
     });

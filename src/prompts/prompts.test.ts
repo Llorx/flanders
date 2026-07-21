@@ -3,7 +3,7 @@ import * as Assert from "assert";
 import test from "arrange-act-assert";
 
 import { prompts, reviewerMethodologyCore, linkedReferenceDirective } from "./prompts";
-import { REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
+import { COUNTERFACTUAL_REGRESSION_PARAGRAPH, FULL_TEST_BODY_READ_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
 
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
 
@@ -1706,7 +1706,147 @@ test.describe("prompts – reviewer – test-guarded coverage requirement", test
     });
 });
 
-test.describe("prompts – reviewer – both additions appear identically across surfaces and stay citation-free", test => {
+test.describe("prompts – reviewer – full test-body read requirement", test => {
+    test("the implement reviewer carries the full test-body read paragraph verbatim", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERT(reviewer) {
+            Assert.ok(reviewer.includes(FULL_TEST_BODY_READ_PARAGRAPH));
+        }
+    });
+
+    test("the citation-free core carries the same full test-body read paragraph verbatim", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERT(core) {
+            Assert.ok(core.includes(FULL_TEST_BODY_READ_PARAGRAPH));
+        }
+    });
+
+    test("the implement reviewer enumerates each discrete full-body read fact", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "requires reading the complete body of every accepted test"(reviewer) {
+                Assert.ok(reviewer.includes("Read the complete body of every test you accept as evidence"));
+            },
+            "names the fixture and setup the test builds as part of that body"(reviewer) {
+                Assert.ok(reviewer.includes("the fixture and setup it builds"));
+            },
+            "names the concrete inputs the test drives as part of that body"(reviewer) {
+                Assert.ok(reviewer.includes("the concrete inputs it drives"));
+            },
+            "names every assertion the test makes as part of that body"(reviewer) {
+                Assert.ok(reviewer.includes("and every assertion it makes"));
+            },
+            "rejects accepting a test from its name, a search hit, a citation, or a fixture-less assertion list"(reviewer) {
+                Assert.ok(reviewer.includes("A test is never accepted from its name, a search hit showing it exists, a citation of it, or an assertion list read without the fixture that produces the asserted state."));
+            }
+        }
+    });
+
+    test("the worker prompt does not carry the reviewer-only full test-body read paragraph", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERT(worker) {
+            Assert.strictEqual(worker.includes("Read the complete body of every test you accept as evidence"), false);
+        }
+    });
+});
+
+test.describe("prompts – reviewer – counterfactual regression requirement", test => {
+    test("the implement reviewer carries the counterfactual regression paragraph verbatim", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERT(reviewer) {
+            Assert.ok(reviewer.includes(COUNTERFACTUAL_REGRESSION_PARAGRAPH));
+        }
+    });
+
+    test("the citation-free core carries the same counterfactual regression paragraph verbatim", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERT(core) {
+            Assert.ok(core.includes(COUNTERFACTUAL_REGRESSION_PARAGRAPH));
+        }
+    });
+
+    test("the implement reviewer enumerates each discrete counterfactual fact", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "requires constructing the simplest plausible regression per accepted test"(reviewer) {
+                Assert.ok(reviewer.includes("For each test you accept, construct the simplest plausible regression of the element"));
+            },
+            "defines that regression as the least-effort violating implementation change"(reviewer) {
+                Assert.ok(reviewer.includes("the least-effort implementation change that violates what it requires"));
+            },
+            "requires tracing it against the inputs the test actually drives"(reviewer) {
+                Assert.ok(reviewer.includes("evaluated against the inputs the test actually drives, would fail under it"));
+            },
+            "confirms the element only when the assertions would fail"(reviewer) {
+                Assert.ok(reviewer.includes("Confirm the element only when they would."));
+            },
+            "denies guarding status to a fixture that coincides with the default or fallback"(reviewer) {
+                Assert.ok(reviewer.includes("A fixture whose expected outcome coincides with what the implementation would produce while ignoring the tested input, taking the fallback path, or applying the default does not guard the element, whatever its assertions enumerate"));
+            },
+            "treats a surviving regression as a violation recorded with regression, file:line, and fixture property"(reviewer) {
+                Assert.ok(reviewer.includes("a regression that survives the test is a violation, recorded with the surviving regression, the test's `file:line`, and the fixture property that lets it pass."));
+            }
+        }
+    });
+
+    test("the worker prompt does not carry the reviewer-only counterfactual regression paragraph", {
+        ARRANGE() {},
+        ACT() { return prompts.worker; },
+        ASSERT(worker) {
+            Assert.strictEqual(worker.includes("For each test you accept, construct the simplest plausible regression of the element"), false);
+        }
+    });
+});
+
+test.describe("prompts – reviewer – the test-adjudication paragraphs sit inside the verification protocol", test => {
+    test("the full test-body read paragraph sits after the coverage sentence and before the taxonomy", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "appears after the test-guarded coverage sentence"(reviewer) {
+                Assert.ok(reviewer.indexOf(FULL_TEST_BODY_READ_PARAGRAPH) > reviewer.indexOf(TEST_GUARDED_COVERAGE_SENTENCE));
+            },
+            "appears before the classification taxonomy"(reviewer) {
+                Assert.ok(reviewer.indexOf(FULL_TEST_BODY_READ_PARAGRAPH) < reviewer.indexOf("Classify every claim by ONE question:"));
+            }
+        }
+    });
+
+    test("the counterfactual paragraph follows the full test-body read paragraph and precedes the taxonomy", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "appears after the full test-body read paragraph"(reviewer) {
+                Assert.ok(reviewer.indexOf(COUNTERFACTUAL_REGRESSION_PARAGRAPH) > reviewer.indexOf(FULL_TEST_BODY_READ_PARAGRAPH));
+            },
+            "appears before the classification taxonomy"(reviewer) {
+                Assert.ok(reviewer.indexOf(COUNTERFACTUAL_REGRESSION_PARAGRAPH) < reviewer.indexOf("Classify every claim by ONE question:"));
+            }
+        }
+    });
+
+    test("the citation-free core orders the two paragraphs the same way", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERTS: {
+            "the full test-body read paragraph follows the coverage sentence"(core) {
+                Assert.ok(core.indexOf(FULL_TEST_BODY_READ_PARAGRAPH) > core.indexOf(TEST_GUARDED_COVERAGE_SENTENCE));
+            },
+            "the counterfactual paragraph follows the full test-body read paragraph"(core) {
+                Assert.ok(core.indexOf(COUNTERFACTUAL_REGRESSION_PARAGRAPH) > core.indexOf(FULL_TEST_BODY_READ_PARAGRAPH));
+            }
+        }
+    });
+});
+
+test.describe("prompts – reviewer – every addition appears identically across surfaces and stays citation-free", test => {
     test("the referenced-obligation paragraph is surface-neutral — the same literal appears in both reviewer surfaces", {
         ARRANGE() {},
         ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
@@ -1739,11 +1879,45 @@ test.describe("prompts – reviewer – both additions appear identically across
         }
     });
 
-    test("both additions carry no flanders-internal spec-path citation", {
+    test("the full test-body read paragraph is surface-neutral — the same literal appears in both reviewer surfaces", {
+        ARRANGE() {},
+        ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "the implement reviewer carries the exact fixture literal"({ reviewer }) {
+                Assert.strictEqual(reviewer.includes(FULL_TEST_BODY_READ_PARAGRAPH), true);
+            },
+            "the citation-free core carries the exact same fixture literal"({ core }) {
+                Assert.strictEqual(core.includes(FULL_TEST_BODY_READ_PARAGRAPH), true);
+            },
+            "neither surface carries a divergent surface-specific phrasing of the read clause"({ reviewer, core }) {
+                Assert.strictEqual(reviewer.includes("every test the worker cites as evidence") || core.includes("every test the worker cites as evidence"), false);
+            }
+        }
+    });
+
+    test("the counterfactual regression paragraph is surface-neutral — the same literal appears in both reviewer surfaces", {
+        ARRANGE() {},
+        ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "the implement reviewer carries the exact fixture literal"({ reviewer }) {
+                Assert.strictEqual(reviewer.includes(COUNTERFACTUAL_REGRESSION_PARAGRAPH), true);
+            },
+            "the citation-free core carries the exact same fixture literal"({ core }) {
+                Assert.strictEqual(core.includes(COUNTERFACTUAL_REGRESSION_PARAGRAPH), true);
+            },
+            "neither surface carries a divergent surface-specific phrasing of the criterion clause"({ reviewer, core }) {
+                Assert.strictEqual(reviewer.includes("the simplest plausible regression of the criterion") || core.includes("the simplest plausible regression of the criterion"), false);
+            }
+        }
+    });
+
+    test("all four additions carry no flanders-internal spec-path citation", {
         ARRANGE() {
             return {
                 referenced: REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH,
-                coverage: TEST_GUARDED_COVERAGE_SENTENCE
+                coverage: TEST_GUARDED_COVERAGE_SENTENCE,
+                fullBody: FULL_TEST_BODY_READ_PARAGRAPH,
+                counterfactual: COUNTERFACTUAL_REGRESSION_PARAGRAPH
             };
         },
         ACT(additions) { return additions; },
@@ -1759,6 +1933,18 @@ test.describe("prompts – reviewer – both additions appear identically across
             },
             "the test-guarded coverage sentence contains no .md path at all"({ coverage }) {
                 Assert.strictEqual(coverage.includes(".md"), false);
+            },
+            "the full test-body read paragraph matches no internal spec-path citation"({ fullBody }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(fullBody), false);
+            },
+            "the full test-body read paragraph contains no .md path at all"({ fullBody }) {
+                Assert.strictEqual(fullBody.includes(".md"), false);
+            },
+            "the counterfactual regression paragraph matches no internal spec-path citation"({ counterfactual }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(counterfactual), false);
+            },
+            "the counterfactual regression paragraph contains no .md path at all"({ counterfactual }) {
+                Assert.strictEqual(counterfactual.includes(".md"), false);
             }
         }
     });
