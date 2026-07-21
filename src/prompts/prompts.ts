@@ -65,15 +65,13 @@ const foregroundBoundary =
 const specFolderWriteBoundary =
 `Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, any \`.spec/flanders\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.`;
 
-// The code-comment discipline handed to every Flanders agent that authors source code: the
-// implement worker and the /flanders-work session. Without it the agent has no channel but a
-// comment for the compliance it is told to demonstrate at a `file:line`, so it defends its diff
-// in the source and the annotations ratchet up every iteration. `channel` names where that
-// justification belongs instead — the only per-surface variation. The text is citation-free so
-// the /flanders-work skill body can embed it intact and still ship self-contained. See
-// src/prompts/.spec/rules/ai/code-comment-economy.md.
+// Both prompts that author source code write under adversarial review that demands visible
+// compliance at a named `file:line`; without an alternative the only channel they have for that is a
+// comment in the diff, so `channel` names where the justification goes instead. The text stays
+// citation-free so the skill body can embed it and still ship into a project with no flanders spec
+// files.
 export function codeCommentEconomy(channel:string):string {
-    return `Code comments: a comment you write states only what the code cannot show — an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong. The argument that your change is correct, the criterion, contract, rule, behavior rule, task, or review finding behind it, the \`file:line\` you want an inspection to target, and what the code used to do or has yet to migrate belong in ${channel}, never in the source. Where a rule of the project requires a comment at a construct, you write it.`;
+    return `Code comments: before you write a comment explaining the code, try to make the code itself say it — a clearer name, a type that carries the constraint, a construct extracted so its name replaces the explanation — and comment only where none of those expresses it, reaching no further than the code your change already writes or modifies. A comment you write states only what the code cannot show — an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong. The argument that your change is correct, the criterion, contract, rule, behavior rule, task, or review finding behind it, the \`file:line\` you want an inspection to target, and what the code used to do or has yet to migrate belong in ${channel}, never in the source. Where a rule of the project requires a comment at a construct, you write it.`;
 }
 
 // Citation-free variant of the classification core: the same text as `claimClassificationCore`

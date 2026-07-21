@@ -35,3 +35,33 @@ The agent writes under adversarial review, and it is told the changes must demon
 - A prompt in scope states the discipline but names no channel for the justification it displaces, so the agent has nowhere to put the argument the review still demands.
 - A prompt in scope states the discipline in terms that would suppress a comment a host-project rule requires.
 - A prompt in scope allows the source to narrate what the code used to do or what remains to migrate.
+
+## Flanders' code-authoring prompts instruct the agent to make the code carry the meaning before it reaches for a comment
+
+Every Flanders prompt through which an agent authors source code in the host project instructs that agent that when the code it is writing would need a comment to be understood, it first tries to make the code itself carry that meaning — a name that states what a value or function is, a type that makes the constraint unrepresentable, a construct extracted so its name replaces the explanation — and writes the comment only where none of those can express it. This is the step ahead of [src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express](/src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express): that obligation governs what a comment carries once one is warranted, and this one decides whether one is warranted at all.
+
+### Who this applies to
+
+- **Subject:** the construction of the Flanders prompts through which an agent authors source code in the host project — the `implement` command's worker prompt (see [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md)) and the `/flanders-work` skill artifact body in its work-and-rework role (see [.spec/contracts/ai-skills/work-skill.md](/.spec/contracts/ai-skills/work-skill.md)) — at the point where the prompt instructs the agent how to write the code.
+- **Not subject:** every Flanders adversarial reviewer prompt and the build-and-test detection agent prompt, and the `/flanders-spec`, `/flanders-plan`, and `/flanders-hard-stop-review` skill bodies, none of which author source code in the host project.
+- **Not subject:** code the change would not otherwise author or modify. The attempt to express the meaning in code reaches only as far as the change already reaches.
+
+### Behavior
+
+The prompt instructs the agent that, in the code it writes:
+
+1. **The code is tried first.** When the agent is about to write a comment that explains what the code does or why it is shaped as it is, it first asks whether a clearer name, a type that carries the constraint, or an extracted construct would convey that meaning, and applies the one that does.
+
+2. **The comment carries what the code cannot.** Where no naming, typing, or extraction expresses it — an external constraint, a platform quirk, an invariant the type system cannot hold — the agent writes the comment.
+
+3. **The attempt stays inside the change.** The agent applies this to the code the change authors or modifies, and leaves surrounding code as it stands rather than restructuring it to remove a comment.
+
+### Why
+
+A comment that explains the code is a symptom: the code did not say what it meant, and the prose compensates. Compensating leaves two artifacts that must be kept in step, and the prose is the one that rots — it survives edits to the code it describes and then misleads the next reader with authority it no longer has. Making the code carry the meaning removes the second artifact entirely and puts the explanation where the compiler and the reader both see it. Ordering this attempt ahead of the comment-content test also stops that test from being satisfied the cheap way: an agent that only asks whether a comment is permitted writes a permitted comment at the place where a better name would have left nothing to write, and the content test alone never catches that, because the comment it produces is honest about a genuine obscurity the agent chose not to remove. Bounding the attempt to the code the change already touches keeps a comment from pulling a refactor of its surroundings into an unrelated diff.
+
+### Failure signals
+
+- A prompt in scope instructs the agent what a comment may contain but never has it consider whether a clearer name, a type, or an extracted construct would remove the need for one.
+- A prompt in scope has the agent explain in prose what a rename or an extraction would have made evident in the code.
+- A prompt in scope licenses the agent to restructure code the change does not otherwise author or modify in order to remove a comment.

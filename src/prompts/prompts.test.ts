@@ -1988,8 +1988,20 @@ test.describe("prompts – code comment economy", test => {
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERTS: {
+            "the code is tried before the comment is written"(template) {
+                Assert.ok(template.includes("before you write a comment explaining the code, try to make the code itself say it"));
+            },
+            "the three ways of making the code say it are named"(template) {
+                Assert.ok(template.includes("a clearer name, a type that carries the constraint, a construct extracted so its name replaces the explanation"));
+            },
+            "the comment is written only where none of those expresses it"(template) {
+                Assert.ok(template.includes("and comment only where none of those expresses it,"));
+            },
+            "the attempt reaches no further than the code the change touches"(template) {
+                Assert.ok(template.includes("reaching no further than the code your change already writes or modifies."));
+            },
             "a comment states only what the code cannot show"(template) {
-                Assert.ok(template.includes("a comment you write states only what the code cannot show — an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong"));
+                Assert.ok(template.includes("A comment you write states only what the code cannot show — an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong"));
             },
             "the correctness argument is routed to the report"(template) {
                 Assert.ok(template.includes("The argument that your change is correct,"));
