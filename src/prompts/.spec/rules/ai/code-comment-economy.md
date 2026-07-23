@@ -2,7 +2,7 @@
 
 ## Flanders' code-authoring prompts instruct the agent that a source comment carries only what the code cannot express
 
-Every Flanders prompt through which an agent authors source code in the host project instructs that agent to write a comment only where the comment states something the code itself cannot show — an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong. The argument that a change is correct, the citation of the contract, rule, plan task, or reviewer finding behind it, and the `file:line` an inspection should target belong to the agent's own reporting channel — the Evidence Report for the `implement` worker, pinned by [src/commands/.spec/rules/ai/evidence.md#adversarially-reviewed-subagents-self-audit-via-an-evidence-report](/src/commands/.spec/rules/ai/evidence.md#adversarially-reviewed-subagents-self-audit-via-an-evidence-report), and the account the `/flanders-work` session renders to its reviewer and to the user. A comment describes the code as it now stands, so what the code previously did, what a change replaced, and what remains to migrate are not comment content. Where a rule of the host project requires a comment, that comment is required content and this instruction never displaces it.
+Every Flanders prompt through which an agent authors source code in the host project instructs that agent to write a comment only where the comment states something the code itself cannot show — an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong. The argument that a change is correct, the citation of the contract, rule, plan task, or reviewer finding behind it, and the `file:line` an inspection should target belong to the agent's own reporting channel — the Evidence Report for the `implement` worker, pinned by [src/commands/.spec/rules/ai/evidence.md#adversarially-reviewed-subagents-self-audit-via-an-evidence-report](/src/commands/.spec/rules/ai/evidence.md#adversarially-reviewed-subagents-self-audit-via-an-evidence-report), and the account the `/flanders-work` session renders to its reviewer and to the user. A comment describes the code as it now stands, so what the code previously did, what a change replaced, and what remains to migrate are not comment content. Where a rule of the host project requires a comment, the content that rule requires is required content this instruction never displaces; any further content the same comment carries beyond what the rule requires is held to the standard this instruction sets for any comment.
 
 This is the third member of the economy set Flanders pins: [src/prompts/.spec/rules/ai/prompt-wording-economy.md#every-prompt-flanders-authors-is-worded-economically](/src/prompts/.spec/rules/ai/prompt-wording-economy.md#every-prompt-flanders-authors-is-worded-economically) governs the economy of a prompt's own wording, [src/prompts/.spec/rules/ai/skills/skills-common.md#the-flanders-spec-and-flanders-plan-skill-bodies-instruct-economy-of-files-and-words](/src/prompts/.spec/rules/ai/skills/skills-common.md#the-flanders-spec-and-flanders-plan-skill-bodies-instruct-economy-of-files-and-words) governs the economy of the documents a content skill produces, and this rule governs the economy of the code Flanders' agents author.
 
@@ -22,7 +22,7 @@ The prompt instructs the agent that, in the code it writes:
 
 3. **A comment records the present.** The comment describes the code as it now stands; what the code used to do, what the change replaced, and what is not yet migrated stay out of the source.
 
-4. **A comment a project rule requires is required content.** Where a rule of the host project mandates a comment at a construct, the agent writes it, and this discipline neither removes it nor argues against it.
+4. **The content a project rule requires is required content.** Where a rule of the host project mandates a comment at a construct, the agent writes the content that rule requires, and this discipline neither removes nor argues against that required content; any further content the agent adds to the same comment is held to the standard the items above set for any comment.
 
 ### Why
 
@@ -33,7 +33,7 @@ The agent writes under adversarial review, and it is told the changes must demon
 - A prompt in scope carries no instruction about what a comment may contain, leaving the agent to infer from the review conditions that the source is where compliance is demonstrated.
 - A prompt in scope instructs the agent to justify, prove, or demonstrate its work in the code it writes, or to leave a citation trail in the source for the reviewer to follow.
 - A prompt in scope states the discipline but names no channel for the justification it displaces, so the agent has nowhere to put the argument the review still demands.
-- A prompt in scope states the discipline in terms that would suppress a comment a host-project rule requires.
+- A prompt in scope states the discipline in terms that would suppress the content a host-project rule requires at a construct.
 - A prompt in scope allows the source to narrate what the code used to do or what remains to migrate.
 
 ## Flanders' code-authoring prompts instruct the agent to make the code carry the meaning before it reaches for a comment

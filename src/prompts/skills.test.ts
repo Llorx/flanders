@@ -2734,8 +2734,8 @@ test.describe("skills – workSkillBody", test => {
             "the paragraph confines the reviewer to the comments the change set touched"({ body }) {
                 Assert.ok(body.includes("comments in files the change set does not touch — or that a touched file carried unmodified — are out of scope"), "the paragraph must confine the adjudication to added or modified comments");
             },
-            "the paragraph exempts a comment a project rule requires"({ body }) {
-                Assert.ok(body.includes("A comment a rule of the project requires at that construct is never a violation"), "the paragraph must exempt a comment a project rule requires");
+            "the paragraph exempts only the content a project rule requires and judges the rest"({ body }) {
+                Assert.ok(body.includes("The content a rule of the project requires at that construct is never a violation, and any further content the same comment carries beyond what the rule requires is judged by the same test as any other comment"), "the paragraph must exempt only the required content and judge any further content the comment carries");
             }
         }
     });

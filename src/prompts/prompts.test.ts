@@ -2015,8 +2015,8 @@ test.describe("prompts – code comment economy", test => {
             "history and pending migration are routed out of the source too"(template) {
                 Assert.ok(template.includes("and what the code used to do or has yet to migrate belong in your Evidence Report, never in the source."));
             },
-            "a comment a project rule requires is preserved"(template) {
-                Assert.ok(template.includes("Where a rule of the project requires a comment at a construct, you write it."));
+            "the content a project rule requires is written and the rest is held to the standard"(template) {
+                Assert.ok(template.includes("Where a rule of the project requires a comment at a construct, you write the content it requires; the rest of that comment meets the same standard as any other."));
             }
         }
     });

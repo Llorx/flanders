@@ -226,7 +226,7 @@ An LLM reviewer does not reliably honor an instruction to end with a single bare
 
 ## Every Flanders adversarial reviewer records a violation for a source comment that argues the change instead of stating a constraint
 
-Every Flanders adversarial reviewer prompt instructs the reviewer to judge the comments the change set adds or modifies, and to record as a violation each one that argues the correctness of the change, cites a contract, rule, plan task, or reviewer finding, or narrates what the code previously did. The reviewer applies the same test the authoring prompt applies, pinned by [src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express](/src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express): a comment earns its place when it states an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong. A comment a rule of the host project requires is never a violation.
+Every Flanders adversarial reviewer prompt instructs the reviewer to judge the comments the change set adds or modifies, and to record as a violation each one that argues the correctness of the change, cites a contract, rule, plan task, or reviewer finding, or narrates what the code previously did. The reviewer applies the same test the authoring prompt applies, pinned by [src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express](/src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express): a comment earns its place when it states an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong. The content a rule of the host project requires at that construct is never a violation, and any further content the same comment carries beyond what the rule requires is judged by the same test as any other comment.
 
 ### Who this applies to
 
@@ -237,7 +237,7 @@ Every Flanders adversarial reviewer prompt instructs the reviewer to judge the c
 
 1. **Judge each added or modified comment.** For every comment the change set introduces or rewrites, the reviewer decides whether it states something the code cannot show. One that instead defends the diff, cites the obligation behind it, or records what the code used to do is a violation, and the reviewer records it with its `file:line` per [src/prompts/.spec/rules/ai/review.md#every-flanders-adversarial-reviewer-records-its-verdict-by-writing-violations-into-its-error-log-file-never-via-its-output-or-exit-code](/src/prompts/.spec/rules/ai/review.md#every-flanders-adversarial-reviewer-records-its-verdict-by-writing-violations-into-its-error-log-file-never-via-its-output-or-exit-code).
 
-2. **A required comment passes.** A comment a host-project rule mandates at that construct satisfies this check, and the reviewer confirms it rather than flagging it.
+2. **Required content passes; the rest is judged.** The content a host-project rule mandates at that construct satisfies this check, and the reviewer confirms it rather than flagging it; any further content the same comment carries beyond what the rule mandates is judged by the test in item 1 like any other comment, and flagged when it fails that test.
 
 ### Why
 
@@ -247,5 +247,6 @@ The authoring instruction alone does not survive the loop. The pressure that pro
 
 - A reviewer prompt does not instruct the reviewer to judge the comments the change set adds or modifies, leaving the authoring instruction unenforced.
 - A reviewer prompt has the reviewer flag a comment that states an external constraint, an invariant, or a consequence the code cannot show.
-- A reviewer prompt has the reviewer flag a comment a host-project rule requires at that construct.
+- A reviewer prompt has the reviewer flag the content a host-project rule requires at that construct.
+- A reviewer prompt has the reviewer treat content a comment carries beyond what a host-project rule requires as immune from the test in item 1, leaving that further content unjudged.
 - A reviewer prompt has the reviewer flag comments in files the change set does not touch, or comments a touched file carried unmodified.
