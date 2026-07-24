@@ -294,7 +294,7 @@ The prompt is then written to the spawned process's stdin and the stdin is close
 
 When the configured `model` is non-empty, the adapter appends `-m <model>`. When it is the empty string, the flag is not passed.
 
-When the configured `effort` is non-empty, the adapter appends `-c model_reasoning_effort=<effort>`. Values follow what Codex documents at the time of the run (today: `minimal`, `low`, `medium`, `high`, `xhigh`). When the configured `effort` is the empty string, the override is not passed.
+When the configured `effort` is non-empty, the adapter appends `-c model_reasoning_effort=<effort>`, passing the configured value verbatim without validating it against any effort set. When the configured `effort` is the empty string, the override is not passed.
 
 When `resumeSessionId` is supplied, the adapter resumes with the `codex exec resume <resumeSessionId>` subcommand — Codex's non-interactive resume, which lives under `exec` and accepts `--json` — applying the same non-interactive overrides (`-c approval_policy=never`, `-c sandbox_mode=danger-full-access`, `--json`).
 
