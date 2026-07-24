@@ -124,7 +124,7 @@ test.describe("probeModelList", test => {
             return await probeModelList(script);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { kind: "list", models: ["gpt-5-codex", "gpt-4.1", "o3"] });
+            Assert.deepStrictEqual(result, { kind: "list", models: [{ slug: "gpt-5-codex", efforts: [] }, { slug: "gpt-4.1", efforts: [] }, { slug: "o3", efforts: [] }] });
         }
     });
 
@@ -139,7 +139,7 @@ test.describe("probeModelList", test => {
             return await probeModelList(script);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { kind: "list", models: ["visible-a", "visible-b"] });
+            Assert.deepStrictEqual(result, { kind: "list", models: [{ slug: "visible-a", efforts: [] }, { slug: "visible-b", efforts: [] }] });
         }
     });
 
@@ -394,7 +394,7 @@ test.describe("probeModelList", test => {
             return await probeModelList(script);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { kind: "list", models: ["a"] });
+            Assert.deepStrictEqual(result, { kind: "list", models: [{ slug: "a", efforts: [] }] });
         }
     });
 
@@ -409,7 +409,7 @@ test.describe("probeModelList", test => {
             return await probeModelList(script);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { kind: "list", models: ["gpt-x"] });
+            Assert.deepStrictEqual(result, { kind: "list", models: [{ slug: "gpt-x", efforts: [] }] });
         }
     });
 
@@ -610,7 +610,55 @@ test.describe("probeModelList", test => {
             return await probeModelList(script);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { kind: "list", models: ["buf-model"] });
+            Assert.deepStrictEqual(result, { kind: "list", models: [{ slug: "buf-model", efforts: [] }] });
         }
     });
+
+    test("codex parses each listed model's supported_reasoning_levels into its own effort list in payload order", {
+        ARRANGE() {
+            return makeProbeStub({
+                stdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list","supported_reasoning_levels":[{"effort":"xhigh"},{"effort":"low"},{"effort":"high"}]},{"slug":"gpt-4.1","visibility":"list","supported_reasoning_levels":[{"effort":"medium"}]}]}',
+                exitCode: 0
+            });
+        },
+        async ACT({ script }) {
+            return await probeModelList(script);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                kind: "list",
+                models: [
+                    { slug: "gpt-5-codex", efforts: ["xhigh", "low", "high"] },
+                    { slug: "gpt-4.1", efforts: ["medium"] }
+                ]
+            });
+        }
+    });
+
+    const EMPTY_EFFORT_CASES:readonly { name:string; levels:string }[] = [
+        { name: "without a supported_reasoning_levels field", levels: "" },
+        { name: "whose supported_reasoning_levels is not an array", levels: ',"supported_reasoning_levels":"low"' },
+        { name: "whose supported_reasoning_levels carries a non-object element", levels: ',"supported_reasoning_levels":["low"]' },
+        { name: "whose supported_reasoning_levels carries a null element", levels: ',"supported_reasoning_levels":[null]' },
+        { name: "whose supported_reasoning_levels carries an array element", levels: ',"supported_reasoning_levels":[["low"]]' },
+        { name: "whose supported_reasoning_levels carries an element with a non-string effort", levels: ',"supported_reasoning_levels":[{"effort":123}]' },
+        { name: "whose supported_reasoning_levels carries an element that omits effort", levels: ',"supported_reasoning_levels":[{}]' },
+        { name: "whose supported_reasoning_levels carries a valid element followed by an invalid one", levels: ',"supported_reasoning_levels":[{"effort":"low"},null]' }
+    ];
+    for (const { name, levels } of EMPTY_EFFORT_CASES) {
+        test(`codex list-visible model ${name} is listed with an empty effort list`, {
+            ARRANGE() {
+                return makeProbeStub({
+                    stdout: `{"models":[{"slug":"gpt-5-codex","visibility":"list"${levels}}]}`,
+                    exitCode: 0
+                });
+            },
+            async ACT({ script }) {
+                return await probeModelList(script);
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, { kind: "list", models: [{ slug: "gpt-5-codex", efforts: [] }] });
+            }
+        });
+    }
 });

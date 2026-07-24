@@ -2409,11 +2409,11 @@ test.describe("Install model question", test => {
         }
     });
 
-    test("codex tool with successful probe uses askChoice with three options", {
+    test("codex tool with a successful probe renders the model list as the slugs then the synthetic default, with no effort levels leaking in", {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list"},{"slug":"gpt-4.1","visibility":"list"}]}',
+                probeStdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list","supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}]},{"slug":"gpt-4.1","visibility":"list","supported_reasoning_levels":[{"effort":"medium"}]}]}',
                 probeExitCode: 0
             });
             let capturedOptions:readonly { label:string; description?:string }[] = [];
@@ -2444,17 +2444,11 @@ test.describe("Install model question", test => {
             "Worker model header is present"(_code, { askedHeaders }) {
                 Assert.ok(askedHeaders.includes("Worker model"));
             },
-            "presents exactly 3 options"(_code, { getCapturedOptions }) {
-                Assert.strictEqual(getCapturedOptions().length, 3);
-            },
-            "first option is gpt-5-codex"(_code, { getCapturedOptions }) {
-                Assert.strictEqual(getCapturedOptions()[0]!.label, "gpt-5-codex");
-            },
-            "second option is gpt-4.1"(_code, { getCapturedOptions }) {
-                Assert.strictEqual(getCapturedOptions()[1]!.label, "gpt-4.1");
-            },
-            "third option is the synthetic entry"(_code, { getCapturedOptions }) {
-                Assert.strictEqual(getCapturedOptions()[2]!.label, "default configured model");
+            "the model list is exactly the two slugs then the synthetic default, each a bare label with no description"(_code, { getCapturedOptions }) {
+                Assert.deepStrictEqual(
+                    getCapturedOptions(),
+                    [{ label: "gpt-5-codex" }, { label: "gpt-4.1" }, { label: "default configured model" }]
+                );
             }
         }
     });

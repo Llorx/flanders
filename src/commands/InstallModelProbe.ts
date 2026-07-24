@@ -1,7 +1,9 @@
 import type { ScriptContext, SpawnedProcess } from "../contexts";
 
+export type ProbeModel = Readonly<{ slug:string; efforts:readonly string[] }>;
+
 export type ModelProbeResult =
-    | Readonly<{ kind:"list"; models:readonly string[] }>
+    | Readonly<{ kind:"list"; models:readonly ProbeModel[] }>
     | Readonly<{ kind:"no-list" }>
     | Readonly<{ kind:"not-started"; reason:string }>;
 
@@ -20,6 +22,24 @@ function isCommandNotFound(combinedOutput:string):boolean {
     return COMMAND_NOT_FOUND_MARKERS.some(marker => lower.includes(marker));
 }
 
+function isRecord(value:unknown):value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseEfforts(value:unknown):readonly string[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    const efforts:string[] = [];
+    for (const level of value) {
+        if (!isRecord(level) || typeof level.effort !== "string") {
+            return [];
+        }
+        efforts.push(level.effort);
+    }
+    return efforts;
+}
+
 // Interpret captured stdout as Codex's `codex debug models` catalog. Returns the list/no-list result
 // when stdout is a JSON object of the expected `{"models":[{"slug":"…","visibility":"…"}, …]}` shape —
 // at least one `"list"`-visible entry yields the list, the same shape with none means `codex` ran and
@@ -35,30 +55,29 @@ function parseModelCatalog(stdout:string):Exclude<ModelProbeResult, { kind:"not-
     } catch {
         return null;
     }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    if (!isRecord(parsed)) {
         return null;
     }
-    const models = (parsed as Record<string, unknown>).models;
+    const models = parsed.models;
     if (!Array.isArray(models)) {
         return null;
     }
-    const slugs:string[] = [];
+    const listed:ProbeModel[] = [];
     for (const entry of models) {
-        if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        if (!isRecord(entry)) {
             return null;
         }
-        const record = entry as Record<string, unknown>;
-        if (typeof record.slug !== "string" || typeof record.visibility !== "string") {
+        if (typeof entry.slug !== "string" || typeof entry.visibility !== "string") {
             return null;
         }
-        if (record.visibility === "list") {
-            slugs.push(record.slug);
+        if (entry.visibility === "list") {
+            listed.push({ slug: entry.slug, efforts: parseEfforts(entry.supported_reasoning_levels) });
         }
     }
-    if (slugs.length === 0) {
+    if (listed.length === 0) {
         return { kind: "no-list" };
     }
-    return { kind: "list", models: slugs };
+    return { kind: "list", models: listed };
 }
 
 export function probeModelList(script:ScriptContext):Promise<ModelProbeResult> {

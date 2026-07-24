@@ -719,7 +719,7 @@ export class Install {
         }
         const probeResult = this._modelProbeCache.get(tool)!;
         if (probeResult.kind === "list") {
-            const options:ChoiceOption[] = probeResult.models.map(m => ({ label: m }));
+            const options:ChoiceOption[] = probeResult.models.map(m => ({ label: m.slug }));
             options.push({ label: "default configured model" });
             // Pre-select the probe entry reproducing the stored model, or the synthetic default
             // entry for the empty string. A stored model the probe no longer returns is left
@@ -728,7 +728,7 @@ export class Install {
             if (preselect !== undefined) {
                 if (preselect === "") {
                     modelDefaultLabel = "default configured model";
-                } else if (probeResult.models.includes(preselect)) {
+                } else if (probeResult.models.some(m => m.slug === preselect)) {
                     modelDefaultLabel = preselect;
                 }
             }
