@@ -6,11 +6,20 @@ Provide a single function that `implement` uses to invoke an AI tool for any rol
 ## Interface
 Callers pass in the AI tool to invoke, the model to use (or the "default configured model" marker for "do not pass an explicit model"), a prompt, and any additional invocation options. The runner returns either:
 - The AI's result, once the tool has responded successfully.
-- A rejection with an unknown-error reason, when the failure is not retryable.
+- A rejection with an unknown-error reason, when the failure is not retryable and is not a login failure.
+- A rejection marked as a fatal authentication/login failure, when the tool reports that it is not logged in (see `Fatal authentication failure` below).
+
+The caller can tell the fatal authentication failure apart from an ordinary non-retryable rejection, so it can end the whole run on the former while handling the latter per its role.
 
 The runner does not read the Flanders configuration on its own. Resolving which tool and model to use for a given invocation — for example, looking up the worker's configured tool from `.flanders/` (see [.spec/contracts/shared/flanders-config.md](/.spec/contracts/shared/flanders-config.md)) — is the caller's responsibility.
 
 When the invocation reports a retryable error, the runner absorbs it: it waits and re-invokes the same tool with the same prompt and options, repeating until the call either succeeds or fails with a non-retryable error. A caller never has to handle retryable errors itself. What counts as retryable for a given tool is determined by the transient-error surface that tool documents; the precise detection is implementation.
+
+## Fatal authentication failure
+
+When the invoked tool reports that it is not logged in — its credentials are missing or expired, whichever tool is configured — the runner classifies the failure as a fatal authentication/login failure rather than a retryable or ordinary non-retryable error. A login failure never clears by waiting, so the runner does not retry it: it surfaces it to the caller immediately, marked so the caller can distinguish it from an ordinary non-retryable rejection.
+
+This classification is a property of the runner, identical for every invocation routed through it whatever the caller's role — the worker, each adversarial reviewer, or the build/test detect agent — and identical whenever it occurs, whether on the first invocation of a run or once a session's credentials expire partway through. A caller that receives this fatal failure ends the whole run; the run-ending behavior of `implement` is defined in [.spec/contracts/cli-commands/implement/iteration-loop.md#hard-stop](/.spec/contracts/cli-commands/implement/iteration-loop.md#hard-stop).
 
 ## Cancellation
 While the runner is waiting between retries, the surrounding command may be interrupted by the user. In that case the wait must abort promptly so the program can shut down without forcing the user to wait out the full sleep.
@@ -32,5 +41,5 @@ This is the source the live UI draws the wait countdown from: the worker stage's
 
 ## Contract for callers
 - Call sites inside `implement` must not implement their own retry detection or retry logic. The runner is the single source of truth for that behavior.
-- Call sites receive either a successful result or a non-retryable error — or, when a call site cancels an in-flight invocation itself (per `Cancellation` above), no result at all. They do not need to inspect the error to decide whether to retry.
+- Call sites receive either a successful result, an ordinary non-retryable error, or a fatal authentication/login failure (see `Fatal authentication failure` above) — or, when a call site cancels an in-flight invocation itself (per `Cancellation` above), no result at all. They do not need to inspect the error to decide whether to retry; they do distinguish the fatal authentication failure from an ordinary non-retryable error, because the former ends the whole run whatever the call site's role.
 - Call sites do not branch on which AI tool was passed when handling the result. Any tool-specific behavior is encapsulated inside the runner.

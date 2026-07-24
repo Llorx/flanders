@@ -16,9 +16,9 @@ When the adapter emits its terminal event, the runner reacts as follows:
 - `{ type: "done" }` — the runner returns success to the caller.
 - `{ type: "rate_limit", waitUntilMs }` — the runner waits until `waitUntilMs` per [src/ai/.spec/rules/retry.md#long-waits-run-as-a-loop-of-bounded-chunks](/src/ai/.spec/rules/retry.md#long-waits-run-as-a-loop-of-bounded-chunks) (chunked when the wait exceeds an hour), then re-invokes the same adapter with the same arguments, reusing the captured `session_id` per [src/ai/.spec/rules/retry.md#retries-reuse-the-interrupted-calls-session_id](/src/ai/.spec/rules/retry.md#retries-reuse-the-interrupted-calls-session_id).
 - `{ type: "error", retryable: true, message }` — the runner waits per [src/ai/.spec/rules/retry.md#transient-retries-use-exponential-backoff-capped-at-one-minute](/src/ai/.spec/rules/retry.md#transient-retries-use-exponential-backoff-capped-at-one-minute) (exponential backoff capped at one minute), then re-invokes the same adapter with the same arguments, reusing the captured `session_id`.
-- `{ type: "error", retryable: false, message }` — the runner stops, surfaces the error to the caller as a non-retryable failure, and does not re-invoke. The `message` is what the caller sees and what is logged to `error.log`.
+- `{ type: "error", retryable: false, message }` — the runner stops, surfaces the error to the caller, and does not re-invoke. The `message` is what the caller sees and what is logged to `error.log`. The runner preserves the event's `fatal` marker (see [src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface](/src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface)) when it surfaces the failure: a `fatal: false` error is an ordinary non-retryable failure, while a `fatal: true` error is a fatal authentication/login failure the caller must treat as run-ending per [src/ai/.spec/contracts/ai-runner.md](/src/ai/.spec/contracts/ai-runner.md). The retry decision is identical for both — the runner never re-invokes on either — so `fatal` changes only how the failure is surfaced, not whether it is retried.
 
-The cycle continues indefinitely on retryable failures: there is no maximum retry count. Only `done` or a non-retryable `error` ends the runner's loop for a given call.
+The cycle continues indefinitely on retryable failures: there is no maximum retry count. Only `done` or a non-retryable `error` — fatal or not — ends the runner's loop for a given call.
 
 ### The `retryable` boolean is authoritative
 
@@ -39,6 +39,7 @@ Adding a new AI tool means writing a new adapter rule that includes its own mapp
 - The runner adds tool-specific detection on top of the events it receives (for example, "if the configured tool is Claude and the message contains '503', retry even when the adapter marked the error non-retryable").
 - The runner conflates the two terminal failure shapes — applying the transient backoff to a `rate_limit` event, or applying the rate-limit wait to a plain `error retryable=true`.
 - The runner retries after a non-retryable `error` because "transient failures are bounded by some other counter anyway".
+- The runner retries a `fatal` error, or drops its `fatal` marker when surfacing it, so the caller receives an ordinary non-retryable failure and the run never hard-stops on the login failure.
 - The runner re-invokes the adapter with arguments different from the original invocation (different prompt, different model, different effort, missing `resumeSessionId`, or a changed `priorSessionUsage` baseline), instead of re-issuing the exact same call.
 - The runner gives up after a finite retry count, propagating a retryable failure that should have been absorbed.
 
