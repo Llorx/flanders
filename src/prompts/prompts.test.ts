@@ -3,7 +3,7 @@ import * as Assert from "assert";
 import test from "arrange-act-assert";
 
 import { prompts, reviewerMethodologyCore, linkedReferenceDirective } from "./prompts";
-import { COMMENT_ADJUDICATION_PARAGRAPH, COUNTERFACTUAL_REGRESSION_PARAGRAPH, expectedCodeCommentEconomy, FULL_TEST_BODY_READ_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
+import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
 
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
 
@@ -33,16 +33,6 @@ const EXPECTED_CLAIM_CLASSIFICATION = `${EXPECTED_CLAIM_CLASSIFICATION_CORE}
 
 ${EXPECTED_WORKER_TOOLCHAIN_RERUN_STEP}`;
 
-// The citation-free core the shared reviewer-methodology core embeds: the canonical core with
-// its single flanders-internal citation removed.
-const EXPECTED_CLAIM_CLASSIFICATION_CORE_CITATION_FREE = EXPECTED_CLAIM_CLASSIFICATION_CORE.replace(
-    " per `rules/testing/assert-via-public-surface.md`",
-    ""
-);
-
-// The surface-neutral build/test prohibition every Flanders adversarial reviewer carries.
-const EXPECTED_REVIEWER_BUILD_TEST_PROHIBITION = "You do not run the build command or the test command to establish any of this — not directly, not through the project's package manager, and not through any wrapper. By the time you review, the build and test gates have already passed against the changes under review, so you rely on that already-green result instead of producing it again: you confirm a toolchain-guarded claim by naming the automated failure — a build, type, link, lint, or runtime failure — that a regression would trigger, and you confirm a test-guarded claim by naming the asserting test whose assertion a regression would trip. The only commands you run are the read-only git operations that derive the change set.";
-
 const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per `rules/ai/agents/evidence/scope-driven-self-audit.md`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (its path relative to the project root), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape are classified by observability: a test-observable absence needs a search-based or recorded-call assertion that confirms zero matches over the observable surface, while a source-text structural absence or semantic-judgment absence is review-adjudicated and must not be guarded by a test that reads source as text. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per `rules/ai/agents/evidence/enumerated-claim-coverage.md`.";
 
 // The structural-impossibility hard-stop declaration the worker prompt carries, byte-exact. It
@@ -66,16 +56,6 @@ const EXPECTED_REVIEWER_TONE = `${EXPECTED_TONE_PROSE_HEAD}, and the violation e
 function claimClassificationBlock(template: string, endMarker: string) {
     const start = template.indexOf("Classify every claim by ONE question:");
     const end = template.indexOf(endMarker, start);
-    return template.substring(start, end);
-}
-
-// Extract just the classification core (the three branches, the observability paragraph, and
-// the N-independent-facts paragraph) from any prompt that embeds it, stopping at the shared
-// closing sentence so neither the worker-only step nor the reviewer prohibition is included.
-function claimClassificationCoreBlock(template: string) {
-    const start = template.indexOf("Classify every claim by ONE question:");
-    const endMarker = "An enumerated-minimum guard list is a floor, never a ceiling.";
-    const end = template.indexOf(endMarker, start) + endMarker.length;
     return template.substring(start, end);
 }
 
@@ -882,90 +862,79 @@ test.describe("prompts – reviewer", test => {
     });
 });
 
-test.describe("prompts – reviewer – acceptance-criteria classification taxonomy", test => {
-    test("contains the three classification branches", {
+test.describe("prompts – reviewer – test-methodology-agnostic verification", test => {
+    test("carries no regression-signal claim taxonomy", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
-            "regression-signal question"(template) {
-                Assert.ok(template.includes("what kind of signal would soundly observe a plausible regression of the claim?"));
+            "no toolchain-guarded branch, in any casing"(template) {
+                Assert.strictEqual(template.toLowerCase().includes("toolchain-guarded"), false);
             },
-            "toolchain-guarded branch is named"(template) {
-                Assert.ok(template.includes("**Toolchain-guarded**"));
+            "no test-guarded branch, in any casing"(template) {
+                Assert.strictEqual(template.toLowerCase().includes("test-guarded"), false);
             },
-            "toolchain-guarded branch includes linter signal"(template) {
-                Assert.ok(template.includes("a linter or other static-analysis error from a checker the project actually runs"));
+            "no review-adjudicated branch, in any casing"(template) {
+                Assert.strictEqual(template.toLowerCase().includes("review-adjudicated"), false);
             },
-            "test-guarded branch is named"(template) {
-                Assert.ok(template.includes("**Test-guarded**"));
+            "no classify-every-claim opener"(template) {
+                Assert.strictEqual(template.includes("Classify every claim by ONE question"), false);
             },
-            "test-guarded branch cites the public behavioral surface rule"(template) {
-                Assert.ok(template.includes("public behavioral surface a test may inspect per `rules/testing/assert-via-public-surface.md`"));
+            "no regression-signal question"(template) {
+                Assert.strictEqual(template.includes("regression-signal question"), false);
             },
-            "review-adjudicated branch is named"(template) {
-                Assert.ok(template.includes("**Review-adjudicated**"));
+            "no classification-by-observability guidance"(template) {
+                Assert.strictEqual(template.includes("classified by observability"), false);
             },
-            "review-adjudicated branch covers source-text and semantic properties"(template) {
-                Assert.ok(template.includes("Source-text structural invariants and semantic-judgment properties are verified by the adversarial reviewer's per-iteration inspection of the working tree."));
-            },
-            "review-adjudicated branch forbids source-reading tests"(template) {
-                Assert.ok(template.includes("Do not fabricate a test that reads the module's own source as text to guard such a claim."));
-            },
-            "N-facts-need-N-guards rule"(template) {
-                Assert.ok(template.includes("needs N independent guards"));
+            "no evidence-type-by-classification step"(template) {
+                Assert.strictEqual(template.includes("evidence of the type that classification requires"), false);
             }
         }
     });
 
-    test("shares the classification core with the worker but carries it without the worker-only step", {
+    test("carries no test-adjudication methodology of its own", {
         ARRANGE() {},
-        ACT() {
-            return {
-                workerCore: claimClassificationCoreBlock(prompts.worker),
-                reviewerCore: claimClassificationCoreBlock(prompts.reviewer),
-                methodologyCore: claimClassificationCoreBlock(reviewerMethodologyCore)
-            };
-        },
+        ACT() { return prompts.reviewer; },
         ASSERTS: {
-            "worker core is byte-equal to the canonical citation-bearing core"(cores) {
-                Assert.strictEqual(cores.workerCore, EXPECTED_CLAIM_CLASSIFICATION_CORE);
+            "no test-coverage adequacy sentence"(template) {
+                Assert.strictEqual(template.includes("cover every case and every fact"), false);
             },
-            "reviewer core is byte-equal to the canonical citation-bearing core"(cores) {
-                Assert.strictEqual(cores.reviewerCore, EXPECTED_CLAIM_CLASSIFICATION_CORE);
+            "no full test-body read paragraph"(template) {
+                Assert.strictEqual(template.includes("Read the complete body of every test"), false);
             },
-            "methodology core is the canonical core with the citation stripped"(cores) {
-                Assert.strictEqual(cores.methodologyCore, EXPECTED_CLAIM_CLASSIFICATION_CORE_CITATION_FREE);
-            },
-            "reviewer core matches the worker core"(cores) {
-                Assert.strictEqual(cores.reviewerCore, cores.workerCore);
+            "no counterfactual regression construction"(template) {
+                Assert.strictEqual(template.includes("construct the simplest plausible regression"), false);
             }
         }
     });
 
-    test("old reviewer category list is removed", {
+    test("the verification protocol enumerates and confirms each criterion without classifying it", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
-            "no old automated-signal yes branch"(template) {
-                Assert.strictEqual(template.includes("the toolchain already guards the claim"), false);
+            "keeps the mandatory protocol heading"(template) {
+                Assert.ok(template.includes("Acceptance-criteria verification protocol (mandatory before deciding PASS on condition 1):"));
             },
-            "no old no-implicit-guard no branch"(template) {
-                Assert.strictEqual(template.includes("the claim has no implicit guard"), false);
+            "step a enumerates every criterion and expands N independent facts into N items"(template) {
+                Assert.ok(template.includes("a. Enumerate every acceptance criterion in the task as a separate numbered item, explicitly in your reasoning; an item that enumerates N independent facts expands into N items."));
             },
-            "no old always-test-guard shapes sentence"(template) {
-                Assert.strictEqual(template.includes("Four shapes that always fall in the no-implicit-guard branch"), false);
+            "step b confirms the working-tree changes satisfy each item and makes an unsatisfied item a violation"(template) {
+                Assert.ok(template.includes("b. For each enumerated item, confirm the worker's working-tree changes actually satisfy it. An item left unsatisfied is a violation, never waved through on \"the code looks right\"."));
+            }
+        }
+    });
+
+    test("affirms the reviewer applies no test standard of its own", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "carries the no-own-test-standard sentence verbatim"(template) {
+                Assert.ok(template.includes(NO_OWN_TEST_STANDARD_SENTENCE));
             },
-            "no old verified-by-inspection-never-satisfies sentence"(template) {
-                Assert.strictEqual(template.includes("\"verified by inspection\" never satisfies"), false);
+            "requires a test, assertion, or regression guard only where a contract or rule in scope requires one"(template) {
+                Assert.ok(template.includes("you require a test, a particular assertion, or a regression guard for an enumerated item only where a contract or rule in scope requires one"));
             },
-            "no 'Observable behavior (e.g.,'"(template) {
-                Assert.strictEqual(template.includes("Observable behavior (e.g.,"), false);
-            },
-            "no 'Structural / API surface'"(template) {
-                Assert.strictEqual(template.includes("Structural / API surface"), false);
-            },
-            "no 'Negative scope (e.g.,'"(template) {
-                Assert.strictEqual(template.includes("Negative scope (e.g.,"), false);
+            "then enforces that requirement as any other rule"(template) {
+                Assert.ok(template.includes("you then enforce that requirement as you enforce any other rule under conditions 3 and 4."));
             }
         }
     });
@@ -983,50 +952,21 @@ test.describe("prompts – reviewer – acceptance-criteria classification taxon
         }
     });
 
-    test("contains no spec-path citations", {
+    test("contains no evidence-classification spec-path citations", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
             "no criterion-evidence-classification"(template) {
                 Assert.strictEqual(template.includes("criterion-evidence-classification"), false);
             },
+            "no claim-evidence-classification"(template) {
+                Assert.strictEqual(template.includes("claim-evidence-classification"), false);
+            },
             "no enumerated-criterion-coverage"(template) {
                 Assert.strictEqual(template.includes("enumerated-criterion-coverage"), false);
-            }
-        }
-    });
-
-    test("contains the claim-flavored distinctive text", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERT(template) {
-            Assert.ok(template.includes("every claim by ONE question"));
-        }
-    });
-
-    test("does not contain old criterion-flavored distinctive text", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERT(template) {
-            Assert.strictEqual(template.includes("every acceptance criterion by ONE question"), false);
-        }
-    });
-
-    test("special shape guidance is classified by observability", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERTS: {
-            "the four shape labels are named together"(template) {
-                Assert.ok(template.includes("Literal content, absence of a pattern, order, and count are classified by observability."));
             },
-            "public-surface shapes are test-guarded"(template) {
-                Assert.ok(template.includes("When the property is observable through the public surface, it is test-guarded"));
-            },
-            "source-text shapes are review-adjudicated"(template) {
-                Assert.ok(template.includes("When the property is observable only by reading the subject's source as text, it is review-adjudicated."));
-            },
-            "semantic-judgment properties are review-adjudicated"(template) {
-                Assert.ok(template.includes("Semantic-judgment properties are always review-adjudicated."));
+            "no assert-via-public-surface citation"(template) {
+                Assert.strictEqual(template.includes("assert-via-public-surface"), false);
             }
         }
     });
@@ -1089,27 +1029,35 @@ test.describe("prompts – reviewer – three-section claim checklist", test => 
         }
     });
 
-    test("references rules/ai/agents/evidence-report.md", {
+    test("frames the checklist as an internal audit, not an emitted deliverable", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERT(template) {
-            Assert.ok(template.includes("rules/ai/agents/evidence-report.md"));
+            Assert.ok(template.includes("The checklist is your internal audit framework for discovering violations; it is not a deliverable you emit as final output."));
         }
     });
 
-    test("references rules/ai/agents/evidence/claim-evidence-classification.md", {
+    test("the acceptance-criterion section numbers each criterion and defers to the verification protocol", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERT(template) {
-            Assert.ok(template.includes("rules/ai/agents/evidence/claim-evidence-classification.md"));
+            Assert.ok(template.includes("Number each acceptance criterion as AC<n> and confirm it per the acceptance-criteria verification protocol above."));
         }
     });
 
-    test("references rules/ai/agents/evidence/enumerated-claim-coverage.md", {
+    test("the checklist is self-contained — cites no evidence rule path", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
-        ASSERT(template) {
-            Assert.ok(template.includes("rules/ai/agents/evidence/enumerated-claim-coverage.md"));
+        ASSERTS: {
+            "no evidence-report rule citation"(template) {
+                Assert.strictEqual(template.includes("rules/ai/agents/evidence-report.md"), false);
+            },
+            "no claim-evidence-classification rule citation"(template) {
+                Assert.strictEqual(template.includes("rules/ai/agents/evidence/claim-evidence-classification.md"), false);
+            },
+            "no enumerated-claim-coverage rule citation"(template) {
+                Assert.strictEqual(template.includes("rules/ai/agents/evidence/enumerated-claim-coverage.md"), false);
+            }
         }
     });
 
@@ -1136,6 +1084,9 @@ test.describe("prompts – reviewer – three-section claim checklist", test => 
             "contains adversarial header"(template) {
                 Assert.ok(template.includes("Your job is adversarial: find why the working-tree changes FAIL"));
             },
+            "keeps the exhaustiveness instruction"(template) {
+                Assert.ok(template.includes("Exhaustiveness: do not stop at the first violation."));
+            },
             "contains five numbered conditions"(template) {
                 const blockStart = template.indexOf("You MUST check all five conditions below");
                 const blockEnd = template.indexOf("Exhaustiveness:", blockStart);
@@ -1149,6 +1100,18 @@ test.describe("prompts – reviewer – three-section claim checklist", test => 
                 const block = template.substring(blockStart, blockEnd);
                 Assert.ok(block.includes("A behavior rule from the behavior-rule list above whose `.spec/flanders` scope encloses the files the working-tree changes touch is not honored by the changes"));
             }
+        }
+    });
+
+    test("the five FAIL conditions are byte-equal to the expected task-framed block", {
+        ARRANGE() {
+            return { expected: expectedReviewerFailConditions("the task", "The task spec is not satisfied.") };
+        },
+        ACT() {
+            return reviewerFailConditionsBlock(prompts.reviewer);
+        },
+        ASSERT(block, { expected }) {
+            Assert.strictEqual(block, expected);
         }
     });
 
@@ -1264,20 +1227,11 @@ test.describe("prompts – reviewer – empty change set judged against HEAD", t
             "instructs judging acceptance criteria against the committed working tree at HEAD"(template) {
                 Assert.ok(template.includes("Judge each acceptance criterion against the committed working tree at `HEAD`"));
             },
-            "states evidence is drawn per each criterion's classification"(template) {
-                Assert.ok(template.includes("drawing the evidence each criterion's classification requires"));
-            },
-            "names the toolchain-guarded HEAD evidence source"(template) {
-                Assert.ok(template.includes("for a toolchain-guarded criterion, the automated signal the project already runs"));
-            },
-            "names the test-guarded HEAD evidence source"(template) {
-                Assert.ok(template.includes("for a test-guarded criterion, an existing passing test whose assertion a regression would trip"));
-            },
-            "names the review-adjudicated HEAD evidence source"(template) {
-                Assert.ok(template.includes("for a review-adjudicated criterion, your inspection of the full working tree at `HEAD`"));
+            "names the HEAD evidence sources — already-passed gates, an existing test, or full-tree inspection"(template) {
+                Assert.ok(template.includes("through the build and test gates that already passed before this review, an existing test whose assertion a regression would trip, or your own inspection of the full working tree at `HEAD`, as the criterion allows"));
             },
             "forbids requiring evidence to originate from an uncommitted diff"(template) {
-                Assert.ok(template.includes("You must not require a criterion's evidence to originate from an uncommitted diff"));
+                Assert.ok(template.includes("and do not require its evidence to originate from an uncommitted diff"));
             },
             "states the verdict follows from the criteria not from the diff's size"(template) {
                 Assert.ok(template.includes("The verdict follows from the criteria, not from the diff's size"));
@@ -1292,7 +1246,7 @@ test.describe("prompts – reviewer – empty change set judged against HEAD", t
                 Assert.ok(template.includes("when every acceptance criterion is satisfied at `HEAD`"));
             },
             "limits recorded violations to criteria genuinely unsatisfied at HEAD"(template) {
-                Assert.ok(template.includes("record a violation only for an acceptance criterion, contract, or rule that is genuinely unsatisfied at `HEAD`"));
+                Assert.ok(template.includes("record a violation only for a genuinely unsatisfied criterion, contract, or rule at `HEAD`"));
             },
             "cites the empty-change-set rule"(template) {
                 Assert.ok(template.includes("rules/ai/review/reviewer-empty-change-set-judged-against-head.md"));
@@ -1450,22 +1404,8 @@ test.describe("prompts – reviewer – relocated reviewer citations", test => {
     test("retains the implement-specific citations that were not relocated", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
-        ASSERTS: {
-            "still cites no-git-writes"(template) {
-                Assert.ok(template.includes("rules/ai/agents/no-git-writes.md"));
-            },
-            "still cites the evidence-report checklist rule"(template) {
-                Assert.ok(template.includes("rules/ai/agents/evidence-report.md"));
-            },
-            "still cites the claim-evidence-classification rule"(template) {
-                Assert.ok(template.includes("rules/ai/agents/evidence/claim-evidence-classification.md"));
-            },
-            "still cites the enumerated-claim-coverage rule"(template) {
-                Assert.ok(template.includes("rules/ai/agents/evidence/enumerated-claim-coverage.md"));
-            },
-            "still cites assert-via-public-surface inside the implement claim taxonomy"(template) {
-                Assert.ok(template.includes("rules/testing/assert-via-public-surface.md"));
-            }
+        ASSERT(template) {
+            Assert.ok(template.includes("rules/ai/agents/no-git-writes.md"));
         }
     });
 });
@@ -1546,8 +1486,57 @@ test.describe("reviewerMethodologyCore", test => {
             "demands pattern-occurrence enumeration"(core) {
                 Assert.ok(core.includes("Pattern-based violations require occurrence enumeration"));
             },
-            "classifies each element by the regression-signal question"(core) {
-                Assert.ok(core.includes("what kind of signal would soundly observe a plausible regression of the claim?"));
+            "enumerates every spec element as its own item, expanding N independent facts into N items"(core) {
+                Assert.ok(core.includes("a. Enumerate every spec element in the spec under review as a separate numbered item, explicitly in your reasoning; an item that enumerates N independent facts expands into N items."));
+            },
+            "confirms each enumerated item is satisfied and makes an unsatisfied item a violation"(core) {
+                Assert.ok(core.includes("b. For each enumerated item, confirm the changes under review actually satisfy it. An item left unsatisfied is a violation, never waved through on \"the code looks right\"."));
+            }
+        }
+    });
+
+    test("the five FAIL conditions are byte-equal to the expected spec-under-review block", {
+        ARRANGE() {
+            return { expected: expectedReviewerFailConditions("the spec under review", "The spec under review is not satisfied.") };
+        },
+        ACT() {
+            return reviewerFailConditionsBlock(reviewerMethodologyCore);
+        },
+        ASSERT(block, { expected }) {
+            Assert.strictEqual(block, expected);
+        }
+    });
+
+    test("is test-methodology-agnostic — carries no claim taxonomy and no test-adjudication methodology", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERTS: {
+            "no toolchain-guarded branch, in any casing"(core) {
+                Assert.strictEqual(core.toLowerCase().includes("toolchain-guarded"), false);
+            },
+            "no test-guarded branch, in any casing"(core) {
+                Assert.strictEqual(core.toLowerCase().includes("test-guarded"), false);
+            },
+            "no review-adjudicated branch, in any casing"(core) {
+                Assert.strictEqual(core.toLowerCase().includes("review-adjudicated"), false);
+            },
+            "no classify-every-claim opener"(core) {
+                Assert.strictEqual(core.includes("Classify every claim by ONE question"), false);
+            },
+            "no regression-signal question"(core) {
+                Assert.strictEqual(core.includes("regression-signal question"), false);
+            },
+            "no evidence-type-by-classification step"(core) {
+                Assert.strictEqual(core.includes("evidence of the type that classification requires"), false);
+            },
+            "no test-coverage adequacy sentence"(core) {
+                Assert.strictEqual(core.includes("cover every case and every fact"), false);
+            },
+            "no full test-body read paragraph"(core) {
+                Assert.strictEqual(core.includes("Read the complete body of every test"), false);
+            },
+            "no counterfactual regression construction"(core) {
+                Assert.strictEqual(core.includes("construct the simplest plausible regression"), false);
             }
         }
     });
@@ -1651,201 +1640,6 @@ test.describe("prompts – reviewer – referenced-obligation enumeration", test
     });
 });
 
-test.describe("prompts – reviewer – test-guarded coverage requirement", test => {
-    test("the implement reviewer carries the test-guarded coverage sentence verbatim", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERT(reviewer) {
-            Assert.ok(reviewer.includes(TEST_GUARDED_COVERAGE_SENTENCE));
-        }
-    });
-
-    test("the citation-free core carries the same test-guarded coverage sentence verbatim", {
-        ARRANGE() {},
-        ACT() { return reviewerMethodologyCore; },
-        ASSERT(core) {
-            Assert.ok(core.includes(TEST_GUARDED_COVERAGE_SENTENCE));
-        }
-    });
-
-    test("the implement reviewer enumerates each discrete test-guarded coverage fact", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERTS: {
-            "requires the named test's assertions to cover every case and every fact"(reviewer) {
-                Assert.ok(reviewer.includes("classified test-guarded is confirmed satisfied only when the named test's assertions cover every case and every fact the element requires"));
-            },
-            "states the existence of a test is not enough"(reviewer) {
-                Assert.ok(reviewer.includes("the existence of a test for the element is not enough"));
-            },
-            "treats a left-unguarded required case as a violation never waved through by inspection"(reviewer) {
-                Assert.ok(reviewer.includes("while leaving a required case unguarded does not satisfy it — the uncovered case is a violation, never waved through as holding \"by inspection\"."));
-            }
-        }
-    });
-
-    test("the test-guarded coverage sentence sits inside the verification protocol, before the classification taxonomy", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERTS: {
-            "appears after the acceptance-criteria verification protocol heading"(reviewer) {
-                Assert.ok(reviewer.indexOf("A spec element classified test-guarded is confirmed satisfied only when") > reviewer.indexOf("Acceptance-criteria verification protocol (mandatory before deciding PASS on condition 1):"));
-            },
-            "appears before the classification taxonomy"(reviewer) {
-                Assert.ok(reviewer.indexOf("A spec element classified test-guarded is confirmed satisfied only when") < reviewer.indexOf("Classify every claim by ONE question:"));
-            }
-        }
-    });
-
-    test("the worker prompt does not carry the reviewer-only test-guarded coverage sentence", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERT(worker) {
-            Assert.strictEqual(worker.includes("classified test-guarded is confirmed satisfied only when the named test's assertions"), false);
-        }
-    });
-});
-
-test.describe("prompts – reviewer – full test-body read requirement", test => {
-    test("the implement reviewer carries the full test-body read paragraph verbatim", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERT(reviewer) {
-            Assert.ok(reviewer.includes(FULL_TEST_BODY_READ_PARAGRAPH));
-        }
-    });
-
-    test("the citation-free core carries the same full test-body read paragraph verbatim", {
-        ARRANGE() {},
-        ACT() { return reviewerMethodologyCore; },
-        ASSERT(core) {
-            Assert.ok(core.includes(FULL_TEST_BODY_READ_PARAGRAPH));
-        }
-    });
-
-    test("the implement reviewer enumerates each discrete full-body read fact", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERTS: {
-            "requires reading the complete body of every accepted test"(reviewer) {
-                Assert.ok(reviewer.includes("Read the complete body of every test you accept as evidence"));
-            },
-            "names the fixture and setup the test builds as part of that body"(reviewer) {
-                Assert.ok(reviewer.includes("the fixture and setup it builds"));
-            },
-            "names the concrete inputs the test drives as part of that body"(reviewer) {
-                Assert.ok(reviewer.includes("the concrete inputs it drives"));
-            },
-            "names every assertion the test makes as part of that body"(reviewer) {
-                Assert.ok(reviewer.includes("and every assertion it makes"));
-            },
-            "rejects accepting a test from its name, a search hit, a citation, or a fixture-less assertion list"(reviewer) {
-                Assert.ok(reviewer.includes("A test is never accepted from its name, a search hit showing it exists, a citation of it, or an assertion list read without the fixture that produces the asserted state."));
-            }
-        }
-    });
-
-    test("the worker prompt does not carry the reviewer-only full test-body read paragraph", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERT(worker) {
-            Assert.strictEqual(worker.includes("Read the complete body of every test you accept as evidence"), false);
-        }
-    });
-});
-
-test.describe("prompts – reviewer – counterfactual regression requirement", test => {
-    test("the implement reviewer carries the counterfactual regression paragraph verbatim", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERT(reviewer) {
-            Assert.ok(reviewer.includes(COUNTERFACTUAL_REGRESSION_PARAGRAPH));
-        }
-    });
-
-    test("the citation-free core carries the same counterfactual regression paragraph verbatim", {
-        ARRANGE() {},
-        ACT() { return reviewerMethodologyCore; },
-        ASSERT(core) {
-            Assert.ok(core.includes(COUNTERFACTUAL_REGRESSION_PARAGRAPH));
-        }
-    });
-
-    test("the implement reviewer enumerates each discrete counterfactual fact", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERTS: {
-            "requires constructing the simplest plausible regression per accepted test"(reviewer) {
-                Assert.ok(reviewer.includes("For each test you accept, construct the simplest plausible regression of the element"));
-            },
-            "defines that regression as the least-effort violating implementation change"(reviewer) {
-                Assert.ok(reviewer.includes("the least-effort implementation change that violates what it requires"));
-            },
-            "requires tracing it against the inputs the test actually drives"(reviewer) {
-                Assert.ok(reviewer.includes("evaluated against the inputs the test actually drives, would fail under it"));
-            },
-            "confirms the element only when the assertions would fail"(reviewer) {
-                Assert.ok(reviewer.includes("Confirm the element only when they would."));
-            },
-            "denies guarding status to a fixture that coincides with the default or fallback"(reviewer) {
-                Assert.ok(reviewer.includes("A fixture whose expected outcome coincides with what the implementation would produce while ignoring the tested input, taking the fallback path, or applying the default does not guard the element, whatever its assertions enumerate"));
-            },
-            "treats a surviving regression as a violation recorded with regression, file:line, and fixture property"(reviewer) {
-                Assert.ok(reviewer.includes("a regression that survives the test is a violation, recorded with the surviving regression, the test's `file:line`, and the fixture property that lets it pass."));
-            }
-        }
-    });
-
-    test("the worker prompt does not carry the reviewer-only counterfactual regression paragraph", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERT(worker) {
-            Assert.strictEqual(worker.includes("For each test you accept, construct the simplest plausible regression of the element"), false);
-        }
-    });
-});
-
-test.describe("prompts – reviewer – the test-adjudication paragraphs sit inside the verification protocol", test => {
-    test("the full test-body read paragraph sits after the coverage sentence and before the taxonomy", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERTS: {
-            "appears after the test-guarded coverage sentence"(reviewer) {
-                Assert.ok(reviewer.indexOf(FULL_TEST_BODY_READ_PARAGRAPH) > reviewer.indexOf(TEST_GUARDED_COVERAGE_SENTENCE));
-            },
-            "appears before the classification taxonomy"(reviewer) {
-                Assert.ok(reviewer.indexOf(FULL_TEST_BODY_READ_PARAGRAPH) < reviewer.indexOf("Classify every claim by ONE question:"));
-            }
-        }
-    });
-
-    test("the counterfactual paragraph follows the full test-body read paragraph and precedes the taxonomy", {
-        ARRANGE() {},
-        ACT() { return prompts.reviewer; },
-        ASSERTS: {
-            "appears after the full test-body read paragraph"(reviewer) {
-                Assert.ok(reviewer.indexOf(COUNTERFACTUAL_REGRESSION_PARAGRAPH) > reviewer.indexOf(FULL_TEST_BODY_READ_PARAGRAPH));
-            },
-            "appears before the classification taxonomy"(reviewer) {
-                Assert.ok(reviewer.indexOf(COUNTERFACTUAL_REGRESSION_PARAGRAPH) < reviewer.indexOf("Classify every claim by ONE question:"));
-            }
-        }
-    });
-
-    test("the citation-free core orders the two paragraphs the same way", {
-        ARRANGE() {},
-        ACT() { return reviewerMethodologyCore; },
-        ASSERTS: {
-            "the full test-body read paragraph follows the coverage sentence"(core) {
-                Assert.ok(core.indexOf(FULL_TEST_BODY_READ_PARAGRAPH) > core.indexOf(TEST_GUARDED_COVERAGE_SENTENCE));
-            },
-            "the counterfactual paragraph follows the full test-body read paragraph"(core) {
-                Assert.ok(core.indexOf(COUNTERFACTUAL_REGRESSION_PARAGRAPH) > core.indexOf(FULL_TEST_BODY_READ_PARAGRAPH));
-            }
-        }
-    });
-});
-
 test.describe("prompts – reviewer – every addition appears identically across surfaces and stays citation-free", test => {
     test("the referenced-obligation paragraph is surface-neutral — the same literal appears in both reviewer surfaces", {
         ARRANGE() {},
@@ -1863,50 +1657,34 @@ test.describe("prompts – reviewer – every addition appears identically acros
         }
     });
 
-    test("the test-guarded coverage sentence is surface-neutral — the same literal appears in both reviewer surfaces", {
+    test("the no-own-test-standard sentence is surface-neutral — the same literal appears in both reviewer surfaces", {
         ARRANGE() {},
         ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
         ASSERTS: {
             "the implement reviewer carries the exact fixture literal"({ reviewer }) {
-                Assert.strictEqual(reviewer.includes(TEST_GUARDED_COVERAGE_SENTENCE), true);
+                Assert.strictEqual(reviewer.includes(NO_OWN_TEST_STANDARD_SENTENCE), true);
             },
             "the citation-free core carries the exact same fixture literal"({ core }) {
-                Assert.strictEqual(core.includes(TEST_GUARDED_COVERAGE_SENTENCE), true);
+                Assert.strictEqual(core.includes(NO_OWN_TEST_STANDARD_SENTENCE), true);
             },
-            "neither surface carries a divergent surface-specific phrasing of the coverage clause"({ reviewer, core }) {
-                Assert.strictEqual(reviewer.includes("the criterion requires") || core.includes("the criterion requires"), false);
+            "neither surface carries a divergent surface-specific phrasing of the standard clause"({ reviewer, core }) {
+                Assert.strictEqual(reviewer.includes("for a criterion only where a contract or rule in scope") || core.includes("for a spec element only where a contract or rule in scope"), false);
             }
         }
     });
 
-    test("the full test-body read paragraph is surface-neutral — the same literal appears in both reviewer surfaces", {
+    test("the non-execution paragraph is surface-neutral — the same literal appears in both reviewer surfaces", {
         ARRANGE() {},
         ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
         ASSERTS: {
             "the implement reviewer carries the exact fixture literal"({ reviewer }) {
-                Assert.strictEqual(reviewer.includes(FULL_TEST_BODY_READ_PARAGRAPH), true);
+                Assert.strictEqual(reviewer.includes(NON_EXECUTION_PARAGRAPH), true);
             },
             "the citation-free core carries the exact same fixture literal"({ core }) {
-                Assert.strictEqual(core.includes(FULL_TEST_BODY_READ_PARAGRAPH), true);
+                Assert.strictEqual(core.includes(NON_EXECUTION_PARAGRAPH), true);
             },
-            "neither surface carries a divergent surface-specific phrasing of the read clause"({ reviewer, core }) {
-                Assert.strictEqual(reviewer.includes("every test the worker cites as evidence") || core.includes("every test the worker cites as evidence"), false);
-            }
-        }
-    });
-
-    test("the counterfactual regression paragraph is surface-neutral — the same literal appears in both reviewer surfaces", {
-        ARRANGE() {},
-        ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
-        ASSERTS: {
-            "the implement reviewer carries the exact fixture literal"({ reviewer }) {
-                Assert.strictEqual(reviewer.includes(COUNTERFACTUAL_REGRESSION_PARAGRAPH), true);
-            },
-            "the citation-free core carries the exact same fixture literal"({ core }) {
-                Assert.strictEqual(core.includes(COUNTERFACTUAL_REGRESSION_PARAGRAPH), true);
-            },
-            "neither surface carries a divergent surface-specific phrasing of the criterion clause"({ reviewer, core }) {
-                Assert.strictEqual(reviewer.includes("the simplest plausible regression of the criterion") || core.includes("the simplest plausible regression of the criterion"), false);
+            "neither surface carries a divergent surface-specific phrasing of the gates clause"({ reviewer, core }) {
+                Assert.strictEqual(reviewer.includes("the worker's build and test gates") || core.includes("the session's build and test gates"), false);
             }
         }
     });
@@ -1927,14 +1705,13 @@ test.describe("prompts – reviewer – every addition appears identically acros
         }
     });
 
-    test("all five additions carry no flanders-internal spec-path citation", {
+    test("all four additions carry no flanders-internal spec-path citation", {
         ARRANGE() {
             return {
                 referenced: REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH,
-                coverage: TEST_GUARDED_COVERAGE_SENTENCE,
-                fullBody: FULL_TEST_BODY_READ_PARAGRAPH,
-                counterfactual: COUNTERFACTUAL_REGRESSION_PARAGRAPH,
-                commentAdjudication: COMMENT_ADJUDICATION_PARAGRAPH
+                commentAdjudication: COMMENT_ADJUDICATION_PARAGRAPH,
+                noOwnStandard: NO_OWN_TEST_STANDARD_SENTENCE,
+                nonExecution: NON_EXECUTION_PARAGRAPH
             };
         },
         ACT(additions) { return additions; },
@@ -1945,29 +1722,23 @@ test.describe("prompts – reviewer – every addition appears identically acros
             "the referenced-obligation paragraph contains no .md path at all"({ referenced }) {
                 Assert.strictEqual(referenced.includes(".md"), false);
             },
-            "the test-guarded coverage sentence matches no internal spec-path citation"({ coverage }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(coverage), false);
-            },
-            "the test-guarded coverage sentence contains no .md path at all"({ coverage }) {
-                Assert.strictEqual(coverage.includes(".md"), false);
-            },
-            "the full test-body read paragraph matches no internal spec-path citation"({ fullBody }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(fullBody), false);
-            },
-            "the full test-body read paragraph contains no .md path at all"({ fullBody }) {
-                Assert.strictEqual(fullBody.includes(".md"), false);
-            },
-            "the counterfactual regression paragraph matches no internal spec-path citation"({ counterfactual }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(counterfactual), false);
-            },
-            "the counterfactual regression paragraph contains no .md path at all"({ counterfactual }) {
-                Assert.strictEqual(counterfactual.includes(".md"), false);
-            },
             "the comment-adjudication paragraph matches no internal spec-path citation"({ commentAdjudication }) {
                 Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(commentAdjudication), false);
             },
             "the comment-adjudication paragraph contains no .md path at all"({ commentAdjudication }) {
                 Assert.strictEqual(commentAdjudication.includes(".md"), false);
+            },
+            "the no-own-test-standard sentence matches no internal spec-path citation"({ noOwnStandard }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(noOwnStandard), false);
+            },
+            "the no-own-test-standard sentence contains no .md path at all"({ noOwnStandard }) {
+                Assert.strictEqual(noOwnStandard.includes(".md"), false);
+            },
+            "the non-execution paragraph matches no internal spec-path citation"({ nonExecution }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(nonExecution), false);
+            },
+            "the non-execution paragraph contains no .md path at all"({ nonExecution }) {
+                Assert.strictEqual(nonExecution.includes(".md"), false);
             }
         }
     });
@@ -2055,34 +1826,37 @@ test.describe("prompts – code comment economy", test => {
 });
 
 test.describe("prompts – reviewer does not run build or test", test => {
-    test("prompts.reviewer carries the surface-neutral build/test prohibition", {
+    test("prompts.reviewer carries the surface-neutral non-execution paragraph", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
-            "contains the prohibition paragraph verbatim"(reviewer) {
-                Assert.ok(reviewer.includes(EXPECTED_REVIEWER_BUILD_TEST_PROHIBITION));
+            "contains the non-execution paragraph verbatim"(reviewer) {
+                Assert.ok(reviewer.includes(NON_EXECUTION_PARAGRAPH));
             },
-            "states it runs no build or test command via any of the three channels"(reviewer) {
-                Assert.ok(reviewer.includes("You do not run the build command or the test command to establish any of this — not directly, not through the project's package manager, and not through any wrapper."));
+            "states it makes no edit and runs no file-generating operation"(reviewer) {
+                Assert.ok(reviewer.includes("You are inspection-only: you make no edit and run no operation that generates files."));
             },
-            "confirms a toolchain-guarded claim by naming the automated failure"(reviewer) {
-                Assert.ok(reviewer.includes("you confirm a toolchain-guarded claim by naming the automated failure"));
+            "states compiling and testing generate files, so it runs neither via any of the three channels"(reviewer) {
+                Assert.ok(reviewer.includes("Compiling the project and running its tests both generate files, so you run neither the build command nor the test command — not directly, not through the project's package manager, and not through any wrapper."));
             },
-            "confirms a test-guarded claim by naming the asserting test a regression would trip"(reviewer) {
-                Assert.ok(reviewer.includes("you confirm a test-guarded claim by naming the asserting test whose assertion a regression would trip"));
+            "assumes the build succeeded and the tests passed because the gates already ran against the changes"(reviewer) {
+                Assert.ok(reviewer.includes("The build and test gates already passed against these changes before this review started, so you take the build as succeeding and the tests as passing without running them"));
             },
-            "relies on the build and test gates that already passed before the review"(reviewer) {
-                Assert.ok(reviewer.includes("the build and test gates have already passed against the changes under review, so you rely on that already-green result"));
+            "confirms a gate-catchable claim by naming the already-passed gate or test"(reviewer) {
+                Assert.ok(reviewer.includes("you confirm a claim one of those gates would catch by naming that already-passed gate or test instead of executing it"));
+            },
+            "runs only the read-only git operations that derive the change set"(reviewer) {
+                Assert.ok(reviewer.includes("The only commands you run are the read-only git operations that derive the change set."));
             }
         }
     });
 
-    test("reviewerMethodologyCore states the same prohibition, citation-free", {
+    test("reviewerMethodologyCore states the same non-execution paragraph, citation-free", {
         ARRANGE() {},
         ACT() { return reviewerMethodologyCore; },
         ASSERTS: {
-            "contains the prohibition paragraph verbatim"(core) {
-                Assert.ok(core.includes(EXPECTED_REVIEWER_BUILD_TEST_PROHIBITION));
+            "contains the non-execution paragraph verbatim"(core) {
+                Assert.ok(core.includes(NON_EXECUTION_PARAGRAPH));
             },
             "carries no flanders-internal spec-path citation"(core) {
                 Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(core), false);

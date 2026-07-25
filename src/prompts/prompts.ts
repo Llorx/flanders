@@ -26,11 +26,9 @@ export function linkedReferenceDirective(specPath:string):string {
 The full content of every contract and rule this task references has been consolidated into the file at ${specPath}. Read that file in full, from beginning to end, in as few passes as possible — ideally a single read — before you start.`;
 }
 
-// The classification core handed to every Flanders subagent that grades a claim. It is the
-// three branches plus the observability paragraph and the N-independent-facts paragraph, and
-// nothing more: the worker-only closing step lives in `workerToolchainRerunStep` so it never
-// reaches a reviewer surface.
-const claimClassificationCore =
+// The claim-classification taxonomy the worker prompt embeds in its Evidence Report
+// instructions. Worker-only: no reviewer surface embeds a claim taxonomy.
+const claimClassification =
 `Classify every claim by ONE question: what kind of signal would soundly observe a plausible regression of the claim? Place the claim in exactly one of these three branches, and name the concrete observer the branch requires — an automated failure, an asserting test, or reviewer inspection.
 
 - **Toolchain-guarded** — a plausible regression triggers an automated failure signal WITHOUT any new test being added: a build error, a type error, a linker error, a linter or other static-analysis error from a checker the project actually runs, an existing test failing, or a runtime crash on a code path the test suite already exercises. The evidence is a \`file:line\` citation in the change plus the name of the automated failure a regression would trigger. A linter signal qualifies only when the project actually runs that linter as part of its build or test flow.
@@ -39,20 +37,9 @@ const claimClassificationCore =
 
 Literal content, absence of a pattern, order, and count are classified by observability. When the property is observable through the public surface, it is test-guarded and needs an exact-match, zero-match or recorded-call, positional, or counting assertion that would fail under the regression. When the property is observable only by reading the subject's source as text, it is review-adjudicated. Semantic-judgment properties are always review-adjudicated.
 
-A claim that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") needs N independent guards; evidence covering only K of N facts (K < N) leaves the uncovered facts unguarded even when they currently hold. An enumerated-minimum guard list is a floor, never a ceiling.`;
+A claim that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") needs N independent guards; evidence covering only K of N facts (K < N) leaves the uncovered facts unguarded even when they currently hold. An enumerated-minimum guard list is a floor, never a ceiling.
 
-// The worker-only closing step of the classification taxonomy. Only the worker produces the
-// work and runs the toolchain, so only the worker is told to strengthen a too-weak assertion
-// and re-run. No adversarial reviewer runs build or test — it confirms toolchain- and
-// test-guarded claims by naming the signal — so this sentence is kept out of the taxonomy
-// handed to either reviewer surface (see rules/ai/review/reviewer-does-not-run-build-or-test.md).
-const workerToolchainRerunStep =
-`When a test-guarded regression argument cannot be soundly constructed — the asserting call would still pass under a regression the claim forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
-
-// The full worker-facing taxonomy: the classification core followed by the worker-only step.
-const claimClassification = `${claimClassificationCore}
-
-${workerToolchainRerunStep}`;
+When a test-guarded regression argument cannot be soundly constructed — the asserting call would still pass under a regression the claim forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
 
 const foregroundBoundary =
 `Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example \`run_in_background: true\`), shell-level detachment (a trailing \`&\`, \`nohup\`, \`setsid\`, \`disown\`, \`start\`, \`Start-Process\`, \`Start-Job\`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.`;
@@ -73,16 +60,6 @@ const specFolderWriteBoundary =
 export function codeCommentEconomy(channel:string):string {
     return `Code comments: before you write a comment explaining the code, try to make the code itself say it — a clearer name, a type that carries the constraint, a construct extracted so its name replaces the explanation — and comment only where none of those expresses it, reaching no further than the code your change already writes or modifies. A comment you write states only what the code cannot show — an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong. The argument that your change is correct, the criterion, contract, rule, behavior rule, task, or review finding behind it, the \`file:line\` you want an inspection to target, and what the code used to do or has yet to migrate belong in ${channel}, never in the source. Where a rule of the project requires a comment at a construct, you write the content it requires; the rest of that comment meets the same standard as any other.`;
 }
-
-// Citation-free variant of the classification core: the same text as `claimClassificationCore`
-// with the only flanders-internal citation it carries removed, so the surface-agnostic
-// reviewer-methodology core stays citation-free. Both reviewer surfaces use the core without
-// the worker-only step: the implement reviewer keeps the citation-bearing `claimClassificationCore`,
-// and the shared citation-free core uses this one.
-const claimClassificationCitationFree = claimClassificationCore.replace(
-    " per `rules/testing/assert-via-public-surface.md`",
-    ""
-);
 
 // The surface-specific framing and citations a Flanders adversarial reviewer prompt weaves
 // into the shared methodology. Every field is the only thing that differs between surfaces:
@@ -105,9 +82,6 @@ export interface ReviewerMethodologySurface {
     nextWorker: string;
     critProtocolHeading: string;
     ownerChangesEvidence: string;
-    taxonomy: string;
-    reviewProtocolIntro: string;
-    ownerChangesShort: string;
     errorLogPath: string;
     nextWorkerActor: string;
     errorLogPlain: string;
@@ -127,7 +101,7 @@ export function buildReviewerMethodology(s: ReviewerMethodologySurface): { chang
 
 3. **Read content the right way per file kind.** For tracked modifications, inspect content with \`git diff\` (and \`git diff --cached\` for staged hunks). For untracked created files — which \`git diff\` does not surface — read the file directly from disk. A created file is never left uninspected on the grounds that \`git diff\` showed nothing for it.
 
-When the enumerated change set is empty — \`git status --porcelain\` reports no files and both the unstaged and staged diffs are empty — the empty change set is not, on its own, a failure. You must not record a violation for the sole reason that ${s.ownerProducedNoDiff} this cycle; an absent diff is the expected shape of an idempotent re-application of already-committed work. Judge each ${s.critRef} against the committed working tree at \`HEAD\`, drawing the evidence each ${s.critRefShort}'s classification requires: for a toolchain-guarded ${s.critRefShort}, the automated signal the project already runs; for a test-guarded ${s.critRefShort}, an existing passing test whose assertion a regression would trip; for a review-adjudicated ${s.critRefShort}, your inspection of the full working tree at \`HEAD\`. You must not require a ${s.critRefShort}'s evidence to originate from an uncommitted diff. The verdict follows from the ${s.critRefShortPlural}, not from the diff's size: pass the ${s.passObject} — creating your per-reviewer ${s.errorLogInline} empty as your final act — when every ${s.critRef} is satisfied at \`HEAD\`, and record a violation only for an ${s.critRef}, contract, or rule that is genuinely unsatisfied at \`HEAD\`.${s.emptyChangeSetCitation}
+When the enumerated change set is empty — \`git status --porcelain\` reports no files and both the unstaged and staged diffs are empty — the empty change set is not, on its own, a failure. You must not record a violation for the sole reason that ${s.ownerProducedNoDiff} this cycle; an absent diff is the expected shape of an idempotent re-application of already-committed work. Judge each ${s.critRef} against the committed working tree at \`HEAD\` — through the build and test gates that already passed before this review, an existing test whose assertion a regression would trip, or your own inspection of the full working tree at \`HEAD\`, as the ${s.critRefShort} allows — and do not require its evidence to originate from an uncommitted diff. The verdict follows from the ${s.critRefShortPlural}, not from the diff's size: pass the ${s.passObject} — creating your per-reviewer ${s.errorLogInline} empty as your final act — when every ${s.critRef} is satisfied at \`HEAD\`, and record a violation only for a genuinely unsatisfied ${s.critRefShort}, contract, or rule at \`HEAD\`.${s.emptyChangeSetCitation}
 
 ${s.readOnlyParagraph}`;
 
@@ -150,27 +124,23 @@ Referenced-obligation enumeration. Before deciding conditions 2, 3, 4, and 5 are
 
 ${s.critProtocolHeading} (mandatory before deciding PASS on condition 1):
 
-a. Enumerate every ${s.critRef} in ${s.specRef} as a separate numbered item. Do this enumeration explicitly in your reasoning — do not skip it even if the code "looks right".
+a. Enumerate every ${s.critRef} in ${s.specRef} as a separate numbered item, explicitly in your reasoning; an item that enumerates N independent facts expands into N items.
 
-b. For each enumerated ${s.critRefShort}, classify it by the regression-signal question and confirm ${s.ownerChangesEvidence} carry evidence of the type that classification requires. A ${s.critRefShort} lacking that evidence is FAIL. A spec element classified test-guarded is confirmed satisfied only when the named test's assertions cover every case and every fact the element requires: the existence of a test for the element is not enough, and a test that asserts some of the element's cases while leaving a required case unguarded does not satisfy it — the uncovered case is a violation, never waved through as holding "by inspection".
+b. For each enumerated item, confirm ${s.ownerChangesEvidence} actually satisfy it. An item left unsatisfied is a violation, never waved through on "the code looks right".
 
-Read the complete body of every test you accept as evidence — the fixture and setup it builds, the concrete inputs it drives, and every assertion it makes. A test is never accepted from its name, a search hit showing it exists, a citation of it, or an assertion list read without the fixture that produces the asserted state.
+You apply no test-adequacy, coverage, or regression standard of your own: you require a test, a particular assertion, or a regression guard for an enumerated item only where a contract or rule in scope requires one, and you then enforce that requirement as you enforce any other rule under conditions 3 and 4.
 
-For each test you accept, construct the simplest plausible regression of the element — the least-effort implementation change that violates what it requires — and trace whether the test's assertions, evaluated against the inputs the test actually drives, would fail under it. Confirm the element only when they would. A fixture whose expected outcome coincides with what the implementation would produce while ignoring the tested input, taking the fallback path, or applying the default does not guard the element, whatever its assertions enumerate; a regression that survives the test is a violation, recorded with the surviving regression, the test's \`file:line\`, and the fixture property that lets it pass.
-
-${s.taxonomy}
-
-You do not run the build command or the test command to establish any of this — not directly, not through the project's package manager, and not through any wrapper. By the time you review, the build and test gates have already passed against the changes under review, so you rely on that already-green result instead of producing it again: you confirm a toolchain-guarded claim by naming the automated failure — a build, type, link, lint, or runtime failure — that a regression would trigger, and you confirm a test-guarded claim by naming the asserting test whose assertion a regression would trip. The only commands you run are the read-only git operations that derive the change set.
+You are inspection-only: you make no edit and run no operation that generates files. Compiling the project and running its tests both generate files, so you run neither the build command nor the test command — not directly, not through the project's package manager, and not through any wrapper. The build and test gates already passed against these changes before this review started, so you take the build as succeeding and the tests as passing without running them, and you confirm a claim one of those gates would catch by naming that already-passed gate or test instead of executing it. The only commands you run are the read-only git operations that derive the change set.
 
 ## Review protocol
 
-${s.reviewProtocolIntro}
+Use the three-section claim checklist to audit the full working tree. The checklist is your internal audit framework for discovering violations; it is not a deliverable you emit as final output.
 
 The three sections of the internal audit, in order:
 
 **Acceptance-criterion claims**
 
-Number each ${s.critRef} as AC<n> and classify it by the regression-signal question. Confirm ${s.ownerChangesShort} carry evidence of the type that classification requires. A ${s.critRefShort} lacking that evidence is a violation.
+Number each ${s.critRef} as AC<n> and confirm it per the ${s.critProtocolName} above.
 
 **Rule claims**
 
@@ -214,9 +184,6 @@ const implementReviewerSurface: ReviewerMethodologySurface = {
     nextWorker: "the next worker",
     critProtocolHeading: "Acceptance-criteria verification protocol",
     ownerChangesEvidence: "the worker's working-tree changes",
-    taxonomy: claimClassificationCore,
-    reviewProtocolIntro: "Use the three-section claim checklist to audit the full working tree — applying `rules/ai/agents/evidence-report.md` as a checklist structure, the classification framework from `rules/ai/agents/evidence/claim-evidence-classification.md`, and the N-fact-coverage discipline from `rules/ai/agents/evidence/enumerated-claim-coverage.md` to every claim. The checklist is your internal audit framework for discovering violations; it is not a deliverable you emit as final output.",
-    ownerChangesShort: "the worker's changes",
     errorLogPath: `\`${Placeholders.ERROR_LOG_PATH}\``,
     nextWorkerActor: "the next iteration's worker",
     errorLogPlain: "`error.log`"
@@ -242,9 +209,6 @@ const citationFreeReviewerSurface: ReviewerMethodologySurface = {
     nextWorker: "the next round of work",
     critProtocolHeading: "Spec-verification protocol",
     ownerChangesEvidence: "the changes under review",
-    taxonomy: claimClassificationCitationFree,
-    reviewProtocolIntro: "Use the three-section claim checklist to audit the full working tree, applying the claim-evidence classification framework and the N-fact-coverage discipline to every claim. The checklist is your internal audit framework for discovering violations; it is not a deliverable you emit as final output.",
-    ownerChangesShort: "the changes under review",
     errorLogPath: "the error-log file",
     nextWorkerActor: "the next round of work",
     errorLogPlain: "the error-log file"

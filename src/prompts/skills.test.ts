@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import { TASK_LINE } from "../plan/PlanFile";
 import { flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
-import { COMMENT_ADJUDICATION_PARAGRAPH, COUNTERFACTUAL_REGRESSION_PARAGRAPH, expectedCodeCommentEconomy, FULL_TEST_BODY_READ_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, TEST_GUARDED_COVERAGE_SENTENCE } from "./reviewerMethodology.fixtures";
+import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
 import { hardStopReviewSkillBody, planSkillBody, specSkillBody, workSkillBody } from "./skills";
 import { stripYamlFrontmatter } from "../commands/skillArtifacts";
 
@@ -2481,6 +2481,18 @@ test.describe("skills – workSkillBody", test => {
         }
     });
 
+    test("the embedded reviewer core carries the five FAIL conditions byte-equal to the expected block", {
+        ARRANGE() {
+            return { expected: expectedReviewerFailConditions("the spec under review", "The spec under review is not satisfied.") };
+        },
+        ACT() {
+            return reviewerFailConditionsBlock(workSkillBody);
+        },
+        ASSERT(block, { expected }) {
+            Assert.strictEqual(block, expected);
+        }
+    });
+
     test("the embedded citation-free reviewer core carries the referenced-obligation enumeration paragraph", {
         ARRANGE() {},
         ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
@@ -2503,80 +2515,104 @@ test.describe("skills – workSkillBody", test => {
         }
     });
 
-    test("the embedded citation-free reviewer core carries the test-guarded coverage requirement", {
+    test("the embedded citation-free reviewer core is test-methodology-agnostic", {
         ARRANGE() {},
         ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
         ASSERTS: {
-            "workSkillBody carries the test-guarded coverage sentence verbatim"({ body }) {
-                Assert.ok(body.includes(TEST_GUARDED_COVERAGE_SENTENCE), "workSkillBody must carry the citation-free test-guarded coverage sentence verbatim");
+            "workSkillBody carries no toolchain-guarded branch, in any casing"({ body }) {
+                Assert.strictEqual(body.toLowerCase().includes("toolchain-guarded"), false);
             },
-            "reviewerMethodologyCore carries the same test-guarded coverage sentence verbatim"({ core }) {
-                Assert.ok(core.includes(TEST_GUARDED_COVERAGE_SENTENCE), "reviewerMethodologyCore must carry the test-guarded coverage sentence verbatim");
+            "workSkillBody carries no test-guarded branch, in any casing"({ body }) {
+                Assert.strictEqual(body.toLowerCase().includes("test-guarded"), false);
             },
-            "the sentence states the existence of a test is not enough"({ body }) {
-                Assert.ok(body.includes("the existence of a test for the element is not enough"), "the test-guarded coverage sentence must state the existence of a test is not enough");
+            "workSkillBody carries no review-adjudicated branch, in any casing"({ body }) {
+                Assert.strictEqual(body.toLowerCase().includes("review-adjudicated"), false);
             },
-            "the sentence treats a left-unguarded required case as a violation never waved through by inspection"({ body }) {
-                Assert.ok(body.includes("while leaving a required case unguarded does not satisfy it — the uncovered case is a violation, never waved through as holding \"by inspection\"."), "the test-guarded coverage sentence must treat a left-unguarded required case as a violation never waved through by inspection");
+            "workSkillBody carries no classify-every-claim opener"({ body }) {
+                Assert.strictEqual(body.includes("Classify every claim by ONE question"), false);
+            },
+            "workSkillBody carries no regression-signal question"({ body }) {
+                Assert.strictEqual(body.includes("regression-signal question"), false);
+            },
+            "workSkillBody carries no test-coverage adequacy sentence"({ body }) {
+                Assert.strictEqual(body.includes("cover every case and every fact"), false);
+            },
+            "workSkillBody carries no full test-body read paragraph"({ body }) {
+                Assert.strictEqual(body.includes("Read the complete body of every test"), false);
+            },
+            "workSkillBody carries no counterfactual regression construction"({ body }) {
+                Assert.strictEqual(body.includes("construct the simplest plausible regression"), false);
+            },
+            "reviewerMethodologyCore carries none of the taxonomy branches, in any casing"({ core }) {
+                Assert.strictEqual(core.toLowerCase().includes("toolchain-guarded") || core.toLowerCase().includes("test-guarded") || core.toLowerCase().includes("review-adjudicated"), false);
             }
         }
     });
 
-    test("the embedded citation-free reviewer core carries the full test-body read requirement", {
+    test("the embedded citation-free reviewer core carries the agnostic spec-verification protocol", {
         ARRANGE() {},
         ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
         ASSERTS: {
-            "workSkillBody carries the full test-body read paragraph verbatim"({ body }) {
-                Assert.ok(body.includes(FULL_TEST_BODY_READ_PARAGRAPH), "workSkillBody must carry the citation-free full test-body read paragraph verbatim");
+            "workSkillBody enumerates every spec element as its own item, expanding N independent facts into N items"({ body }) {
+                Assert.ok(body.includes("a. Enumerate every spec element in the spec under review as a separate numbered item, explicitly in your reasoning; an item that enumerates N independent facts expands into N items."), "workSkillBody must enumerate every spec element as its own item and expand N independent facts into N items");
             },
-            "reviewerMethodologyCore carries the same full test-body read paragraph verbatim"({ core }) {
-                Assert.ok(core.includes(FULL_TEST_BODY_READ_PARAGRAPH), "reviewerMethodologyCore must carry the full test-body read paragraph verbatim");
+            "workSkillBody confirms each enumerated item is satisfied and makes an unsatisfied item a violation"({ body }) {
+                Assert.ok(body.includes("b. For each enumerated item, confirm the changes under review actually satisfy it. An item left unsatisfied is a violation, never waved through on \"the code looks right\"."), "workSkillBody must confirm each enumerated item against the changes under review and treat an unsatisfied item as a violation");
             },
-            "the paragraph names the fixture and setup the test builds"({ body }) {
-                Assert.ok(body.includes("the fixture and setup it builds"), "the full test-body read paragraph must name the fixture and setup the test builds");
-            },
-            "the paragraph names the concrete inputs the test drives"({ body }) {
-                Assert.ok(body.includes("the concrete inputs it drives"), "the full test-body read paragraph must name the concrete inputs the test drives");
-            },
-            "the paragraph rejects accepting a test from its name, a search hit, a citation, or a fixture-less assertion list"({ body }) {
-                Assert.ok(body.includes("A test is never accepted from its name, a search hit showing it exists, a citation of it, or an assertion list read without the fixture that produces the asserted state."), "the full test-body read paragraph must reject accepting a test from its name, a search hit, a citation, or a fixture-less assertion list");
+            "reviewerMethodologyCore carries the same spec-verification steps"({ core }) {
+                Assert.ok(core.includes("a. Enumerate every spec element in the spec under review as a separate numbered item, explicitly in your reasoning; an item that enumerates N independent facts expands into N items.") && core.includes("b. For each enumerated item, confirm the changes under review actually satisfy it. An item left unsatisfied is a violation, never waved through on \"the code looks right\"."), "reviewerMethodologyCore must carry the same enumerate-and-confirm spec-verification steps");
             }
         }
     });
 
-    test("the embedded citation-free reviewer core carries the counterfactual regression requirement", {
+    test("the embedded citation-free reviewer core affirms no test standard of the reviewer's own", {
         ARRANGE() {},
         ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
         ASSERTS: {
-            "workSkillBody carries the counterfactual regression paragraph verbatim"({ body }) {
-                Assert.ok(body.includes(COUNTERFACTUAL_REGRESSION_PARAGRAPH), "workSkillBody must carry the citation-free counterfactual regression paragraph verbatim");
+            "workSkillBody carries the no-own-test-standard sentence verbatim"({ body }) {
+                Assert.ok(body.includes(NO_OWN_TEST_STANDARD_SENTENCE), "workSkillBody must carry the no-own-test-standard sentence verbatim");
             },
-            "reviewerMethodologyCore carries the same counterfactual regression paragraph verbatim"({ core }) {
-                Assert.ok(core.includes(COUNTERFACTUAL_REGRESSION_PARAGRAPH), "reviewerMethodologyCore must carry the counterfactual regression paragraph verbatim");
-            },
-            "the paragraph defines the regression as the least-effort violating implementation change"({ body }) {
-                Assert.ok(body.includes("the least-effort implementation change that violates what it requires"), "the counterfactual regression paragraph must define the regression as the least-effort violating implementation change");
-            },
-            "the paragraph requires tracing it against the inputs the test actually drives"({ body }) {
-                Assert.ok(body.includes("evaluated against the inputs the test actually drives, would fail under it"), "the counterfactual regression paragraph must require tracing against the inputs the test actually drives");
-            },
-            "the paragraph denies guarding status to a fixture that coincides with the default or fallback"({ body }) {
-                Assert.ok(body.includes("A fixture whose expected outcome coincides with what the implementation would produce while ignoring the tested input, taking the fallback path, or applying the default does not guard the element, whatever its assertions enumerate"), "the counterfactual regression paragraph must deny guarding status to a fixture that coincides with the default or fallback");
-            },
-            "the paragraph treats a surviving regression as a violation recorded with regression, file:line, and fixture property"({ body }) {
-                Assert.ok(body.includes("a regression that survives the test is a violation, recorded with the surviving regression, the test's `file:line`, and the fixture property that lets it pass."), "the counterfactual regression paragraph must treat a surviving regression as a violation recorded with regression, file:line, and fixture property");
+            "reviewerMethodologyCore carries the same sentence verbatim"({ core }) {
+                Assert.ok(core.includes(NO_OWN_TEST_STANDARD_SENTENCE), "reviewerMethodologyCore must carry the no-own-test-standard sentence verbatim");
             }
         }
     });
 
-    test("all five citation-free reviewer-core additions stay citation-free", {
+    test("the embedded citation-free reviewer core carries the non-execution paragraph", {
+        ARRANGE() {},
+        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "workSkillBody carries the non-execution paragraph verbatim"({ body }) {
+                Assert.ok(body.includes(NON_EXECUTION_PARAGRAPH), "workSkillBody must carry the non-execution paragraph verbatim");
+            },
+            "reviewerMethodologyCore carries the same paragraph verbatim"({ core }) {
+                Assert.ok(core.includes(NON_EXECUTION_PARAGRAPH), "reviewerMethodologyCore must carry the non-execution paragraph verbatim");
+            },
+            "the paragraph makes the reviewer edit nothing and generate no files"({ body }) {
+                Assert.ok(body.includes("You are inspection-only: you make no edit and run no operation that generates files."), "the non-execution paragraph must make the reviewer edit nothing and generate no files");
+            },
+            "the paragraph names compiling and testing as file-generating, so the reviewer does neither"({ body }) {
+                Assert.ok(body.includes("Compiling the project and running its tests both generate files, so you run neither the build command nor the test command — not directly, not through the project's package manager, and not through any wrapper."), "the non-execution paragraph must name compiling and testing as file-generating operations the reviewer never runs");
+            },
+            "the paragraph assumes the gates already passed against the changes before the review"({ body }) {
+                Assert.ok(body.includes("The build and test gates already passed against these changes before this review started, so you take the build as succeeding and the tests as passing without running them"), "the non-execution paragraph must assume the already-passed gates instead of re-running them");
+            },
+            "the paragraph confirms a gate-catchable claim by naming the already-passed gate or test"({ body }) {
+                Assert.ok(body.includes("you confirm a claim one of those gates would catch by naming that already-passed gate or test instead of executing it"), "the non-execution paragraph must confirm a gate-catchable claim by naming the already-passed gate or test");
+            },
+            "the paragraph limits the reviewer's commands to the read-only git operations"({ body }) {
+                Assert.ok(body.includes("The only commands you run are the read-only git operations that derive the change set."), "the non-execution paragraph must limit the reviewer's commands to the read-only git operations that derive the change set");
+            }
+        }
+    });
+
+    test("all four citation-free reviewer-core additions stay citation-free", {
         ARRANGE() {
             return {
                 referenced: REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH,
-                coverage: TEST_GUARDED_COVERAGE_SENTENCE,
-                fullBody: FULL_TEST_BODY_READ_PARAGRAPH,
-                counterfactual: COUNTERFACTUAL_REGRESSION_PARAGRAPH,
-                commentAdjudication: COMMENT_ADJUDICATION_PARAGRAPH
+                commentAdjudication: COMMENT_ADJUDICATION_PARAGRAPH,
+                noOwnStandard: NO_OWN_TEST_STANDARD_SENTENCE,
+                nonExecution: NON_EXECUTION_PARAGRAPH
             };
         },
         ACT(additions) { return additions; },
@@ -2587,29 +2623,23 @@ test.describe("skills – workSkillBody", test => {
             "the referenced-obligation paragraph contains no .md path at all"({ referenced }) {
                 Assert.strictEqual(referenced.includes(".md"), false);
             },
-            "the test-guarded coverage sentence names no flanders-internal spec path"({ coverage }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(coverage), false);
-            },
-            "the test-guarded coverage sentence contains no .md path at all"({ coverage }) {
-                Assert.strictEqual(coverage.includes(".md"), false);
-            },
-            "the full test-body read paragraph names no flanders-internal spec path"({ fullBody }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(fullBody), false);
-            },
-            "the full test-body read paragraph contains no .md path at all"({ fullBody }) {
-                Assert.strictEqual(fullBody.includes(".md"), false);
-            },
-            "the counterfactual regression paragraph names no flanders-internal spec path"({ counterfactual }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(counterfactual), false);
-            },
-            "the counterfactual regression paragraph contains no .md path at all"({ counterfactual }) {
-                Assert.strictEqual(counterfactual.includes(".md"), false);
-            },
             "the comment-adjudication paragraph names no flanders-internal spec path"({ commentAdjudication }) {
                 Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(commentAdjudication), false);
             },
             "the comment-adjudication paragraph contains no .md path at all"({ commentAdjudication }) {
                 Assert.strictEqual(commentAdjudication.includes(".md"), false);
+            },
+            "the no-own-test-standard sentence names no flanders-internal spec path"({ noOwnStandard }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(noOwnStandard), false);
+            },
+            "the no-own-test-standard sentence contains no .md path at all"({ noOwnStandard }) {
+                Assert.strictEqual(noOwnStandard.includes(".md"), false);
+            },
+            "the non-execution paragraph names no flanders-internal spec path"({ nonExecution }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(nonExecution), false);
+            },
+            "the non-execution paragraph contains no .md path at all"({ nonExecution }) {
+                Assert.strictEqual(nonExecution.includes(".md"), false);
             }
         }
     });
