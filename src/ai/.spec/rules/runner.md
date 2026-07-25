@@ -68,9 +68,9 @@ The decision of whether a given failure is retryable lives entirely in the adapt
 
 #### `{ type: "rate_limit", waitUntilMs }`
 
-The invocation hit a rate-limit signalled by the tool. Field shape:
+The invocation must pause and retry after a wait with a knowable end — because the tool signalled a rate-limit, or because the adapter chose to pace a transient failure with a fixed delay of its own. Field shape:
 
-- `waitUntilMs` — Unix timestamp in milliseconds: the wall-clock instant the runner waits until before re-invoking. It is the tool's authoritative reset instant when the tool's signal carries one; when the tool signals a rate-limit or quota/credit exhaustion without an end time, it is an estimate the adapter synthesizes for that signal. Either way the runner waits until this point per [src/ai/.spec/rules/retry.md#long-waits-run-as-a-loop-of-bounded-chunks](/src/ai/.spec/rules/retry.md#long-waits-run-as-a-loop-of-bounded-chunks) (chunking the wait when it exceeds an hour) and then re-invokes the same adapter with the same arguments.
+- `waitUntilMs` — Unix timestamp in milliseconds: the wall-clock instant the runner waits until before re-invoking. It is the tool's authoritative reset instant when the tool's signal carries one; otherwise — a rate-limit or quota/credit exhaustion with no end time, or a transient the adapter paces with a fixed delay — it is a value the adapter synthesizes, as pinned by that adapter's own rule. Either way the runner waits until this point per [src/ai/.spec/rules/retry.md#long-waits-run-as-a-loop-of-bounded-chunks](/src/ai/.spec/rules/retry.md#long-waits-run-as-a-loop-of-bounded-chunks) (chunking the wait when it exceeds an hour) and then re-invokes the same adapter with the same arguments.
 
 `rate_limit` is a terminal event: when an adapter emits it, the invocation has ended.
 
@@ -351,8 +351,9 @@ Codex's failure surface in the `exec --json` stream is two events that each carr
 
 The adapter acts on whichever of the two failure events arrives first, emits exactly one terminal `ToolEvent` for it, and absorbs the duplicate that follows — preserving the single-terminal-event invariant of [src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface](/src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface). The message it classifies is the `message` field for a `type: "error"` event and the nested `error.message` field for a `type: "turn.failed"` event.
 
-**Classification of a failure message** — the adapter inspects the trimmed message (case-insensitive, literal substring search):
+**Classification of a failure message** — the adapter inspects the trimmed message by literal substring search, case-insensitive for every family below except the reconnect family, whose substring matches case-sensitively:
 
+- Message contains the case-sensitive substring `Reconnecting...` (capital `R`, three trailing dots) — the Codex CLI's mid-stream reconnect / high-demand transient, surfaced verbatim in the failure message. The `exec --json` stream carries no reset time for it, so the adapter synthesizes a fixed wait of exactly two minutes: it emits `{ type: "rate_limit", waitUntilMs: <now> + 2 minutes }`, taking the current time through the injected time context per [src/.spec/rules/external-access-through-contexts.md](/src/.spec/rules/external-access-through-contexts.md) and never calling `Date.now()` directly. The wait is a constant two minutes with no random draw. This check is evaluated before every other family below, so a message carrying this substring always takes the two-minute wait regardless of any other token it also contains.
 - Message contains any of: `out of credits`, `refill`, `usage limit`, `rate limit`, `rate-limit`, `rate_limit`, `quota`, `too many requests`, or the standalone token `429` — this is a rate-limit or a quota/credit exhaustion. The `exec --json` stream carries no reset time for it, so the adapter synthesizes one: it emits `{ type: "rate_limit", waitUntilMs: <now> + R }`, where `R` is a duration drawn uniformly at random from the closed interval of 8 minutes to 12 minutes. Both the current time and the random draw are obtained through the injected contexts per [src/.spec/rules/external-access-through-contexts.md](/src/.spec/rules/external-access-through-contexts.md); the adapter never calls `Date.now()` or `Math.random()` directly.
 - Message contains any three-digit `5xx` token (`500`..`599`) — emit `{ type: "error", retryable: true, message }`.
 - Message contains the three-digit tokens `408` or `425` — emit `{ type: "error", retryable: true, message }`.
@@ -371,7 +372,7 @@ The adapter never inspects `stderr` or the prompt text to decide retryability; t
 
 Codex's `exec --json` failure events expose only a `message` string — `message` on the `error` event, `error.message` on the `turn.failed` event. The adapter cannot inspect a structured HTTP status, a subtype, a retry-after, a reset timestamp, or an error code because the stdout stream does not surface them. Substring matching on the message text is the only surface the stream leaves to consumers; the patterns above are the closed set the adapter recognizes. Adding a new recognized substring requires updating this rule first; silently expanding the matcher is a violation.
 
-The matching is literal substring search, case-insensitive, on the trimmed message. The adapter does NOT use a natural-language classifier and does not infer "nearby" variants.
+The matching is literal substring search on the trimmed message: case-insensitive for the rate-limit, HTTP-status, and transport families, and case-sensitive for the reconnect family (`Reconnecting...`), which matches only the exact capitalization the Codex CLI emits. The adapter does NOT use a natural-language classifier and does not infer "nearby" variants.
 
 ### Cancellation
 
@@ -395,7 +396,9 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `codex` p
 - The adapter resumes with the interactive `codex resume` subcommand — which rejects `--json` — instead of the non-interactive `codex exec resume`.
 - The adapter adds a new recognized substring to its matcher without adding it to this rule first.
 - The adapter classifies a rate-limit or quota/credit-exhaustion message (for example `out of credits` or `usage limit`) as a non-retryable `error` because that message was not in the recognized substring set.
-- The adapter emits the rate-limit `rate_limit` event with a `waitUntilMs` whose wait falls outside the 8-to-12-minute interval, or computed by calling `Date.now()` / `Math.random()` directly instead of through the injected contexts.
+- The adapter emits the quota/credit-exhaustion `rate_limit` event with a `waitUntilMs` whose wait falls outside the 8-to-12-minute interval, or computed by calling `Date.now()` / `Math.random()` directly instead of through the injected contexts.
+- The adapter classifies the reconnect transient (a message containing `Reconnecting...`) as a non-retryable `error`, or gives it the transient exponential backoff or the 8-to-12-minute quota synthesis instead of the fixed two-minute `rate_limit` wait.
+- The adapter matches the reconnect substring case-insensitively, firing on a lowercased `reconnecting` the Codex CLI never emits, or synthesizes the two-minute wait by calling `Date.now()` directly instead of through the injected time context.
 - The adapter ignores the `turn.failed` event and classifies only `type: "error"`, so a failure surfaced through `turn.failed` is dropped.
 - The adapter emits two terminal events when Codex emits both `error` and `turn.failed` for the same failure, instead of acting on the first and absorbing the second.
 - The adapter leaks the spawned `codex` process on cancellation.

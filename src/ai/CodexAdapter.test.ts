@@ -1179,6 +1179,121 @@ test.describe("CodexAdapter", test => {
         });
     });
 
+    test.describe("reconnect substring detection synthesizes a fixed two-minute wait", test => {
+
+        const NOW_MS = 1_000_000;
+        const RECONNECT_WAIT_MS = 120_000;
+        // A random draw of 0.5 would synthesize a 10-minute rate-limit wait (now + 600000); the
+        // reconnect assertions of now + 120000 therefore fail if the rate-limit path is taken instead.
+        const MID_DRAW = 0.5;
+        const REAL_MESSAGE = "Reconnecting... 2/5 (We're currently experiencing high demand, which may cause temporary errors.)";
+
+        test("the real reconnect message produces a single rate_limit event two minutes out", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    emitErrorAndExit(proc, REAL_MESSAGE);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "rate_limit", waitUntilMs: NOW_MS + RECONNECT_WAIT_MS }
+                ]);
+            }
+        });
+
+        const CO_OCCURRENCE_CASES:[string, string][] = [
+            ["rate-limit family", "Reconnecting... 1/5 (rate limit exceeded)"],
+            ["5xx HTTP-status family", "Reconnecting... 2/5 (internal server error 503)"],
+            ["408/425 HTTP-status family", "Reconnecting... 2/5 (error 408)"],
+            ["transport family", "Reconnecting... 2/5 (connection reset)"]
+        ];
+
+        for (const [family, message] of CO_OCCURRENCE_CASES) {
+            test(`the reconnect substring is tested before the ${family} so a co-occurring token still yields the two-minute wait`, {
+                ARRANGE() {
+                    const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
+                    const adapter = new CodexAdapter(contexts);
+                    const args = baseArgs();
+                    return { adapter, args, script, message };
+                },
+                async ACT({ adapter, args, script, message }) {
+                    return await collectEvents(adapter, args, script, proc => {
+                        emitErrorAndExit(proc, message);
+                    });
+                },
+                ASSERT(result) {
+                    Assert.deepStrictEqual(result, [
+                        { type: "rate_limit", waitUntilMs: NOW_MS + RECONNECT_WAIT_MS }
+                    ]);
+                }
+            });
+        }
+
+        test("matching is case-sensitive: a lowercased reconnecting marker is not recognized", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    emitErrorAndExit(proc, "reconnecting... 2/5");
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "error", retryable: false, message: "reconnecting... 2/5" }
+                ]);
+            }
+        });
+
+        test("surrounding whitespace is trimmed before the reconnect match", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    emitErrorAndExit(proc, "   Reconnecting... 3/5   ");
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "rate_limit", waitUntilMs: NOW_MS + RECONNECT_WAIT_MS }
+                ]);
+            }
+        });
+
+        test("a turn.failed event carrying the reconnect message produces the two-minute wait", {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script };
+            },
+            async ACT({ adapter, args, script }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    proc.$emitStdout(JSON.stringify({ type: "turn.failed", error: { message: REAL_MESSAGE } }) + "\n");
+                    proc.$emit("exit", 1, null);
+                });
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [
+                    { type: "rate_limit", waitUntilMs: NOW_MS + RECONNECT_WAIT_MS }
+                ]);
+            }
+        });
+    });
+
     test.describe("5xx HTTP status detection", test => {
 
         for (const [status, testMessage] of [
