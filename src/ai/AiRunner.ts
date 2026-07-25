@@ -107,6 +107,9 @@ export async function run(args:RunArgs):Promise<RunResult> {
         }
 
         if (terminal.type === "error" && !terminal.retryable) {
+            if (terminal.fatal) {
+                throw fatalLoginError(terminal.message);
+            }
             throw new Error(terminal.message);
         }
 
@@ -136,5 +139,17 @@ export async function run(args:RunArgs):Promise<RunResult> {
 function abortError():Error {
     const err = new Error("aborted");
     err.name = "AbortError";
+    return err;
+}
+
+const FATAL_LOGIN_ERROR_NAME = "FatalLoginError";
+
+export function isFatalLoginError(e:unknown):boolean {
+    return e instanceof Error && e.name === FATAL_LOGIN_ERROR_NAME;
+}
+
+function fatalLoginError(message:string):Error {
+    const err = new Error(message);
+    err.name = FATAL_LOGIN_ERROR_NAME;
     return err;
 }

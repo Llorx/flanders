@@ -15,6 +15,7 @@ export type ToolEventSession = Readonly<{
 export type ToolEventError = Readonly<{
     type:"error";
     retryable:boolean;
+    fatal?:boolean;
     message:string;
 }>;
 

@@ -2,7 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import { run } from "./AiRunner";
+import { isFatalLoginError, run } from "./AiRunner";
 import type { RunArgs } from "./AiRunner";
 import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent, ToolEventOutput } from "./ToolAdapter";
 import type { TimeContext, TimeoutHandle } from "../contexts";
@@ -348,8 +348,47 @@ test.describe("AiRunner", test => {
                 return { error: e as Error };
             }
         },
-        ASSERT(result) {
-            Assert.strictEqual(result.error!.message, "bad");
+        ASSERTS: {
+            "rejects with the adapter's exact message"(result) {
+                Assert.strictEqual(result.error!.message, "bad");
+            },
+            "the rejection is not identifiable as a fatal login failure"(result) {
+                Assert.strictEqual(isFatalLoginError(result.error), false);
+            }
+        }
+    });
+
+    test("fatal non-retryable error rejects as a login failure without re-invoking", {
+        ARRANGE() {
+            const stub = stubAdapter([
+                [{ type: "error" as const, retryable: false, fatal: true, message: "not logged in" }],
+                [{ type: "done" as const }]
+            ]);
+            const time = autoTimeContext();
+            const abort = new AbortController();
+            return { stub, time, abort };
+        },
+        async ACT({ stub, time, abort }) {
+            try {
+                await run(baseArgs({ adapter: stub.adapter, time, abortSignal: abort.signal }));
+                return { error: null as Error|null, invocationCount: stub.$invokeArgs.length };
+            } catch (e) {
+                return { error: e as Error, invocationCount: stub.$invokeArgs.length };
+            }
+        },
+        ASSERTS: {
+            "rejects with an error identifiable as a fatal login failure"(result) {
+                Assert.strictEqual(isFatalLoginError(result.error), true);
+            },
+            "the rejection carries the adapter's message"(result) {
+                Assert.strictEqual(result.error!.message, "not logged in");
+            },
+            "the adapter is invoked exactly once"(result) {
+                Assert.strictEqual(result.invocationCount, 1);
+            },
+            "no backoff wait is scheduled"(_, { time }) {
+                Assert.deepStrictEqual(time.$durations, []);
+            }
         }
     });
 
