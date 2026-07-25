@@ -78,6 +78,14 @@ function stubContexts() {
     return { contexts, written, errors, files, dirs, askResponses, askedHeaders, askedQuestions, askedOptions, askedTextPrompts, askTextResponses };
 }
 
+const WORKER_EFFORT_TEXT_PROMPT = "What effort level should the worker use? (leave empty for the default configured effort): ";
+
+const REVIEWER_EFFORT_TEXT_PROMPT = "What effort level should reviewer use? (leave empty for the default configured effort): ";
+
+const WORKER_MODEL_TEXT_PROMPT = "Which model should the worker use? (leave empty for the default configured model): ";
+
+const REVIEWER_MODEL_TEXT_PROMPT = "Which model should reviewer use? (leave empty for the default configured model): ";
+
 test.describe("Install --project", test => {
     test("writes SKILL.md files under projectRoot/.claude/skills/<skill>/", {
         ARRANGE() {
@@ -1818,6 +1826,23 @@ test.describe("Install scope prompt descriptions derived from skills tool", test
 
 type DataListener = (chunk:Buffer|string) => void;
 
+function codexProbeStdout(models:readonly Readonly<{ slug:string; efforts?:readonly string[] }>[]):string {
+    return JSON.stringify({
+        models: models.map(m => m.efforts === undefined
+            ? { slug: m.slug, visibility: "list" }
+            : { slug: m.slug, visibility: "list", supported_reasoning_levels: m.efforts.map(effort => ({ effort })) })
+    });
+}
+
+const TWO_MODELS_WITH_DISTINCT_LEVELS = codexProbeStdout([
+    { slug: "gpt-4.1", efforts: ["medium"] },
+    { slug: "gpt-5-codex", efforts: ["low", "high"] }
+]);
+
+const TWO_MODELS_WITHOUT_LEVELS = codexProbeStdout([{ slug: "gpt-5-codex" }, { slug: "gpt-4.1" }]);
+
+const EMPTY_CATALOG = codexProbeStdout([]);
+
 function makeModelScript(opts:{
     probeStdout?:string;
     probeStderr?:string;
@@ -1932,7 +1957,7 @@ test.describe("Install model question", test => {
                                 exitListener = listener;
                                 Promise.resolve().then(() => {
                                     if (args[0] === "debug" && args[1] === "models" && dataListener) {
-                                        dataListener('{"models":[]}');
+                                        dataListener(EMPTY_CATALOG);
                                     }
                                 }).then(() => exitListener?.(0, null));
                             }
@@ -2051,7 +2076,7 @@ test.describe("Install model question", test => {
                 Assert.strictEqual(config.worker.model, "  Opus-Custom-1m  ");
             },
             "the custom free-text prompt is the worker model question with its placeholder"(_result, { askedTextPrompts }) {
-                Assert.ok(askedTextPrompts.includes("Which model should the worker use? (leave empty for the default configured model): "));
+                Assert.ok(askedTextPrompts.includes(WORKER_MODEL_TEXT_PROMPT));
             }
         }
     });
@@ -2383,7 +2408,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list","supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}]},{"slug":"gpt-4.1","visibility":"list","supported_reasoning_levels":[{"effort":"medium"}]}]}',
+                probeStdout: codexProbeStdout([{ slug: "gpt-5-codex", efforts: ["low", "high"] }, { slug: "gpt-4.1", efforts: ["medium"] }]),
                 probeExitCode: 0
             });
             let capturedOptions:readonly { label:string; description?:string }[] = [];
@@ -2423,31 +2448,45 @@ test.describe("Install model question", test => {
         }
     });
 
-    test("both worker and reviewer codex probes once due to cache", {
+    test("the worker and reviewer model and effort questions all run off a single probe", {
         ARRANGE() {
             const s = stubContexts();
             const counter = { count: 0 };
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '{"models":[{"slug":"m1","visibility":"list"}]}',
+                probeStdout: TWO_MODELS_WITH_DISTINCT_LEVELS,
                 probeExitCode: 0,
                 probeCallCounter: counter
             });
-            s.askResponses.push([{ picked: [{ label: "m1" }] }]);
-            s.askResponses.push([{ picked: [{ label: "m1" }] }]);
+            s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "high" }] }]); // worker effort, from the cached levels
+            s.askResponses.push([{ picked: [{ label: "gpt-4.1" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "medium" }] }]); // reviewer effort, from the cached levels
             return { ...s, counter };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return code;
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
         },
         ASSERTS: {
-            "exits 0"(code) {
+            "exits 0"({ code }) {
                 Assert.strictEqual(code, 0);
             },
-            "probe invoked exactly once"(_code, { counter }) {
+            "probe invoked exactly once across two model questions and two effort questions"(_result, { counter }) {
                 Assert.strictEqual(counter.count, 1);
+            },
+            "all four questions were selectable lists, in order"(_result, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, ["Worker model", "Worker effort", "Reviewer model", "Reviewer effort"]);
+            },
+            "the worker persists the level it picked from its model's cached levels"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "high");
+            },
+            "the reviewer persists the level it picked from its own model's cached levels"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.effort, "medium");
             }
         }
     });
@@ -2471,7 +2510,7 @@ test.describe("Install model question", test => {
                 Assert.strictEqual(code, 0);
             },
             "askText was called for worker model"(_code, { askedTextPrompts }) {
-                Assert.strictEqual(askedTextPrompts[0], "Which model should the worker use? (leave empty for the default configured model): ");
+                Assert.strictEqual(askedTextPrompts[0], WORKER_MODEL_TEXT_PROMPT);
             },
             "no Worker model header in askChoices"(_code, { askedHeaders }) {
                 Assert.ok(!askedHeaders.includes("Worker model"));
@@ -2505,7 +2544,7 @@ test.describe("Install model question", test => {
                 Assert.strictEqual(errors.join("").includes("127"), false);
             },
             "falls back to the free-text worker model input"(_code, { askedTextPrompts }) {
-                Assert.strictEqual(askedTextPrompts[0], "Which model should the worker use? (leave empty for the default configured model): ");
+                Assert.strictEqual(askedTextPrompts[0], WORKER_MODEL_TEXT_PROMPT);
             },
             "no Worker model header in askChoices"(_code, { askedHeaders }) {
                 Assert.ok(!askedHeaders.includes("Worker model"));
@@ -2517,7 +2556,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '{"models":[]}',
+                probeStdout: EMPTY_CATALOG,
                 probeExitCode: 0
             });
             return s;
@@ -2533,7 +2572,7 @@ test.describe("Install model question", test => {
                 Assert.strictEqual(code, 0);
             },
             "falls back to the free-text worker model input"(_code, { askedTextPrompts }) {
-                Assert.strictEqual(askedTextPrompts[0], "Which model should the worker use? (leave empty for the default configured model): ");
+                Assert.strictEqual(askedTextPrompts[0], WORKER_MODEL_TEXT_PROMPT);
             },
             "no diagnostic is written"(_code, { errors }) {
                 Assert.strictEqual(errors.join(""), "");
@@ -2571,8 +2610,8 @@ test.describe("Install model question", test => {
             },
             "both the worker and reviewer model questions fall back to free-text"(_code, { askedTextPrompts }) {
                 const modelPrompts = askedTextPrompts.filter(p =>
-                    p === "Which model should the worker use? (leave empty for the default configured model): "
-                    || p === "Which model should reviewer use? (leave empty for the default configured model): ");
+                    p === WORKER_MODEL_TEXT_PROMPT
+                    || p === REVIEWER_MODEL_TEXT_PROMPT);
                 Assert.strictEqual(modelPrompts.length, 2);
             }
         }
@@ -2582,7 +2621,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list"},{"slug":"gpt-4.1","visibility":"list"}]}',
+                probeStdout: TWO_MODELS_WITHOUT_LEVELS,
                 probeExitCode: 0
             });
             const origAsk = s.contexts.ask.askChoices;
@@ -2762,7 +2801,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '{"models":[{"slug":"m1","visibility":"list"}]}',
+                probeStdout: codexProbeStdout([{ slug: "m1" }]),
                 probeExitCode: 0
             });
             s.askResponses.push([{ picked: [] }]);
@@ -2954,7 +2993,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '{"models":[{"slug":"model-a","visibility":"list"},{"slug":"model-b","visibility":"list"}]}',
+                probeStdout: codexProbeStdout([{ slug: "model-a" }, { slug: "model-b" }]),
                 probeExitCode: 0
             });
             const origAsk = s.contexts.ask.askChoices;
@@ -3002,7 +3041,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '{"models":[{"slug":"m1","visibility":"list"}]}',
+                probeStdout: codexProbeStdout([{ slug: "m1" }]),
                 probeExitCode: 0
             });
             s.askResponses.push([{ picked: [{ label: "m1" }] }]);
@@ -3029,7 +3068,7 @@ test.describe("Install model question", test => {
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list"},{"slug":"gpt-4.1","visibility":"list"}]}',
+                probeStdout: TWO_MODELS_WITHOUT_LEVELS,
                 probeExitCode: 0
             });
             const origAsk = s.contexts.ask.askChoices;
@@ -3067,9 +3106,13 @@ test.describe("Install model question", test => {
 });
 
 test.describe("Install effort question", test => {
-    test("codex tool uses askChoice with exactly six options in listed order", {
+    test("codex renders the selected model's reported levels in payload order, then the synthetic default", {
         ARRANGE() {
             const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: codexProbeStdout([{ slug: "gpt-4.1", efforts: ["medium", "high"] }, { slug: "gpt-5-codex", efforts: ["xhigh", "ultra", "low"] }]),
+                probeExitCode: 0
+            });
             let capturedOptions:readonly { label:string; description?:string }[] = [];
             const origAsk = s.contexts.ask.askChoices;
             (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
@@ -3082,11 +3125,12 @@ test.describe("Install effort question", test => {
                 const response = s.askResponses.shift();
                 return Promise.resolve(response ?? []);
             };
-            s.askResponses.push([{ picked: [{ label: "high" }] }]);
+            s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "xhigh" }] }]); // worker effort
             return { ...s, getCapturedOptions: () => capturedOptions };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3098,11 +3142,14 @@ test.describe("Install effort question", test => {
             "Worker effort header is present"(_code, { askedHeaders }) {
                 Assert.ok(askedHeaders.includes("Worker effort"));
             },
-            "option labels are exactly the six expected values in order"(_code, { getCapturedOptions }) {
+            "the options are exactly the second catalog entry's reported levels in payload order then the synthetic default, each a bare label with no description and no custom entry"(_code, { getCapturedOptions }) {
                 Assert.deepStrictEqual(
-                    getCapturedOptions().map(o => o.label),
-                    ["minimal", "low", "medium", "high", "xhigh", "default configured effort"]
+                    getCapturedOptions(),
+                    [{ label: "xhigh" }, { label: "ultra" }, { label: "low" }, { label: "default configured effort" }]
                 );
+            },
+            "no free-text effort input is opened"(_code, { askedTextPrompts }) {
+                Assert.deepStrictEqual(askedTextPrompts.filter(p => p.includes("effort")), []);
             }
         }
     });
@@ -3258,7 +3305,7 @@ test.describe("Install effort question", test => {
                 Assert.strictEqual(config.worker.effort, "  Ultra-Effort-9  ");
             },
             "the custom free-text prompt is the worker effort question with its placeholder"(_result, { askedTextPrompts }) {
-                Assert.ok(askedTextPrompts.includes("What effort level should the worker use? (leave empty for the default configured effort): "));
+                Assert.ok(askedTextPrompts.includes(WORKER_EFFORT_TEXT_PROMPT));
             }
         }
     });
@@ -3315,9 +3362,13 @@ test.describe("Install effort question", test => {
         }
     });
 
-    test("picking default configured effort from codex list persists as empty string", {
+    test("picking default configured effort from the codex effort list persists as empty string", {
         ARRANGE() {
             const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: TWO_MODELS_WITH_DISTINCT_LEVELS,
+                probeExitCode: 0
+            });
             const origAsk = s.contexts.ask.askChoices;
             (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
                 for (const q of questions) {
@@ -3326,11 +3377,12 @@ test.describe("Install effort question", test => {
                 const response = s.askResponses.shift();
                 return Promise.resolve(response ?? []);
             };
-            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]);
+            s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3346,9 +3398,13 @@ test.describe("Install effort question", test => {
         }
     });
 
-    test("picking high from codex list persists exactly high", {
+    test("picking a reported level from the codex effort list persists it verbatim, even one no hand-maintained set carries", {
         ARRANGE() {
             const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: codexProbeStdout([{ slug: "gpt-4.1", efforts: ["medium"] }, { slug: "gpt-5-codex", efforts: ["  Ultra-9  ", "low"] }]),
+                probeExitCode: 0
+            });
             const origAsk = s.contexts.ask.askChoices;
             (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
                 for (const q of questions) {
@@ -3357,11 +3413,12 @@ test.describe("Install effort question", test => {
                 const response = s.askResponses.shift();
                 return Promise.resolve(response ?? []);
             };
-            s.askResponses.push([{ picked: [{ label: "high" }] }]);
+            s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "  Ultra-9  " }] }]); // worker effort
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3370,9 +3427,9 @@ test.describe("Install effort question", test => {
             "exits 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "config worker.effort is exactly high"(_code, { files }) {
+            "config worker.effort is exactly the picked level (surrounding whitespace and mixed case preserved, not trimmed or case-folded)"(_code, { files }) {
                 const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
-                Assert.strictEqual(config.worker.effort, "high");
+                Assert.strictEqual(config.worker.effort, "  Ultra-9  ");
             }
         }
     });
@@ -3565,11 +3622,16 @@ test.describe("Install effort question", test => {
     test("Ctrl+C during worker effort askChoice exits non-zero", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [] }]);
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: TWO_MODELS_WITH_DISTINCT_LEVELS,
+                probeExitCode: 0
+            });
+            s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]); // worker model
+            s.askResponses.push([{ picked: [] }]); // worker effort list -> Ctrl+C
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3580,6 +3642,9 @@ test.describe("Install effort question", test => {
             },
             "no files written"(_code, { files }) {
                 Assert.strictEqual(files.size, 0);
+            },
+            "the aborted prompt is the Worker effort list, the last question asked"(_code, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, ["Worker model", "Worker effort"]);
             }
         }
     });
@@ -3625,6 +3690,89 @@ test.describe("Install effort question", test => {
             },
             "no files written"(_code, { files }) {
                 Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+
+    test("disposed during the codex worker effort choice returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: TWO_MODELS_WITH_DISTINCT_LEVELS,
+                probeExitCode: 0
+            });
+            let resolvePrompt:((v:readonly AskAnswer[]) => void) | null = null;
+            let callCount = 0;
+            (s.contexts.ask as { askChoices:typeof s.contexts.ask.askChoices }).askChoices = (questions) => {
+                for (const q of questions) {
+                    s.askedHeaders.push(q.header);
+                }
+                callCount++;
+                if (callCount === 1) {
+                    return Promise.resolve([{ picked: [{ label: "gpt-5-codex" }] }]); // worker model
+                }
+                return new Promise<readonly AskAnswer[]>(resolve => {
+                    resolvePrompt = resolve; // worker effort list left pending
+                });
+            };
+            return { ...s, getResolvePrompt: () => resolvePrompt };
+        },
+        async ACT({ contexts, getResolvePrompt }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            while (!getResolvePrompt()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolvePrompt()!([{ picked: [{ label: "high" }] }]);
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            },
+            "the prompt pending at disposal is the Worker effort list"(_code, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, ["Worker model", "Worker effort"]);
+            }
+        }
+    });
+
+    test("disposed during the codex worker effort free-text input returns 1", {
+        ARRANGE() {
+            const s = stubContexts();
+            let resolveText:((v:string) => void) | null = null;
+            (s.contexts.ask as { askText:typeof s.contexts.ask.askText }).askText = (prompt) => {
+                s.askedTextPrompts.push(prompt);
+                return new Promise<string>(resolve => {
+                    resolveText = resolve;
+                });
+            };
+            return { ...s, getResolveText: () => resolveText };
+        },
+        async ACT({ contexts, getResolveText }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            while (!getResolveText()) {
+                await new Promise(r => setTimeout(r, 1));
+            }
+            const disposePromise = cmd.dispose();
+            getResolveText()!("typed-after-dispose");
+            await disposePromise;
+            const code = await cmd.result();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no files written"(_code, { files }) {
+                Assert.strictEqual(files.size, 0);
+            },
+            "the input pending at disposal is the codex effort free-text fallback"(_code, { askedTextPrompts }) {
+                Assert.deepStrictEqual(askedTextPrompts, [WORKER_EFFORT_TEXT_PROMPT]);
             }
         }
     });
@@ -3685,14 +3833,31 @@ test.describe("Install effort question", test => {
         }
     });
 
-    test("reviewer effort codex uses askChoice and persists selection", {
+    test("reviewer effort codex renders the reviewer model's reported levels and persists the selection", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "medium" }] }]);
-            return s;
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: codexProbeStdout([{ slug: "first-codex", efforts: ["low"] }, { slug: "rev-codex", efforts: ["medium", "max"] }]),
+                probeExitCode: 0
+            });
+            let capturedOptions:readonly { label:string; description?:string }[] = [];
+            const origAsk = s.contexts.ask.askChoices;
+            (s.contexts.ask as { askChoices:typeof origAsk }).askChoices = (questions, _output) => {
+                for (const q of questions) {
+                    s.askedHeaders.push(q.header);
+                    if (q.header === "Reviewer effort") {
+                        capturedOptions = q.options;
+                    }
+                }
+                const response = s.askResponses.shift();
+                return Promise.resolve(response ?? []);
+            };
+            s.askResponses.push([{ picked: [{ label: "rev-codex" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [{ label: "medium" }] }]); // reviewer effort
+            return { ...s, getCapturedOptions: () => capturedOptions };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3707,6 +3872,12 @@ test.describe("Install effort question", test => {
             },
             "Reviewer effort header present"(_code, { askedHeaders }) {
                 Assert.ok(askedHeaders.includes("Reviewer effort"));
+            },
+            "the options are exactly the second catalog entry's reported levels then the synthetic default"(_code, { getCapturedOptions }) {
+                Assert.deepStrictEqual(
+                    getCapturedOptions(),
+                    [{ label: "medium" }, { label: "max" }, { label: "default configured effort" }]
+                );
             }
         }
     });
@@ -3714,11 +3885,16 @@ test.describe("Install effort question", test => {
     test("Ctrl+C during reviewer effort askChoice exits non-zero", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [] }]);
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: codexProbeStdout([{ slug: "rev-codex", efforts: ["medium"] }]),
+                probeExitCode: 0
+            });
+            s.askResponses.push([{ picked: [{ label: "rev-codex" }] }]); // reviewer model
+            s.askResponses.push([{ picked: [] }]); // reviewer effort -> Ctrl+C
             return s;
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=codex", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -3733,10 +3909,9 @@ test.describe("Install effort question", test => {
         }
     });
 
-    test("reviewer effort codex picking default configured effort persists empty string", {
+    test("reviewer effort codex falls back to free-text for a reviewer model that resolved to the default configured model, and the empty answer persists the empty string", {
         ARRANGE() {
             const s = stubContexts();
-            s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]);
             return s;
         },
         async ACT({ contexts }) {
@@ -3752,6 +3927,12 @@ test.describe("Install effort question", test => {
             "config reviewer.effort is empty string"(_code, { files }) {
                 const config = JSON.parse(files.get("/proj/.flanders/config.json")!);
                 Assert.strictEqual(config.reviewers[0].effort, "");
+            },
+            "the reviewer effort question is the free-text input with its placeholder"(_code, { askedTextPrompts }) {
+                Assert.deepStrictEqual(askedTextPrompts, [REVIEWER_EFFORT_TEXT_PROMPT]);
+            },
+            "no Reviewer effort header is rendered through askChoices"(_code, { askedHeaders }) {
+                Assert.ok(!askedHeaders.includes("Reviewer effort"));
             }
         }
     });
@@ -3774,6 +3955,337 @@ test.describe("Install effort question", test => {
             },
             "no files written"(_code, { files }) {
                 Assert.strictEqual(files.size, 0);
+            }
+        }
+    });
+});
+
+test.describe("Install codex effort free-text fallback", test => {
+    test("falls back to free-text for a model that resolved to the default configured model", {
+        ARRANGE() {
+            const s = stubContexts();
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "", effort: "W-default-model-effort", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=codex", "--reviewer-model="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "both effort questions are free-text inputs with their placeholders, and nothing else is typed"(_result, { askedTextPrompts }) {
+                Assert.deepStrictEqual(askedTextPrompts, [WORKER_EFFORT_TEXT_PROMPT, REVIEWER_EFFORT_TEXT_PROMPT]);
+            },
+            "no selectable list is rendered at all"(_result, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, []);
+            },
+            "the worker's empty input reproduces its stored effort verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "W-default-model-effort");
+            },
+            "the reviewer's empty input resolves to the empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.effort, "");
+            }
+        }
+    });
+
+    test("falls back to free-text when the model came from a flag, so no probe ran and nothing is cached", {
+        ARRANGE() {
+            const s = stubContexts();
+            const counter = { count: 0 };
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: TWO_MODELS_WITH_DISTINCT_LEVELS,
+                probeExitCode: 0,
+                probeCallCounter: counter
+            });
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "gpt-5-codex", effort: "W-flag-model-effort", fast: false },
+                reviewers: [{ tool: "codex", model: "gpt-4.1", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            });
+            return { ...s, counter };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-model=gpt-5-codex", "--reviewer-tool=codex", "--reviewer-model=gpt-4.1"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "no probe subprocess is launched for either effort question"(_result, { counter }) {
+                Assert.strictEqual(counter.count, 0);
+            },
+            "both effort questions are free-text inputs with their placeholders, and nothing else is typed"(_result, { askedTextPrompts }) {
+                Assert.deepStrictEqual(askedTextPrompts, [WORKER_EFFORT_TEXT_PROMPT, REVIEWER_EFFORT_TEXT_PROMPT]);
+            },
+            "no selectable list is rendered at all"(_result, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, []);
+            },
+            "the worker's empty input reproduces its stored effort verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "W-flag-model-effort");
+            },
+            "the reviewer's empty input resolves to the empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.effort, "");
+            }
+        }
+    });
+
+    test("falls back to free-text when the cached probe result is no-list", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({ probeExitCode: 1 });
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "", effort: "W-no-list-effort", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            });
+            s.askTextResponses.push("typed-worker-model"); // worker model free-text
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker resolved a concrete non-empty model, so the empty-model path cannot explain its effort fallback"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "typed-worker-model");
+            },
+            "each role types its model then its effort, and nothing else is typed"(_result, { askedTextPrompts }) {
+                Assert.deepStrictEqual(askedTextPrompts, [
+                    WORKER_MODEL_TEXT_PROMPT,
+                    WORKER_EFFORT_TEXT_PROMPT,
+                    REVIEWER_MODEL_TEXT_PROMPT,
+                    REVIEWER_EFFORT_TEXT_PROMPT
+                ]);
+            },
+            "no selectable list is rendered at all"(_result, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, []);
+            },
+            "the worker's empty input reproduces its stored effort verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "W-no-list-effort");
+            },
+            "the reviewer's empty input resolves to the empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.effort, "");
+            }
+        }
+    });
+
+    test("falls back to free-text when the cached probe result is not-started", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStderr: "codex executable is missing from PATH",
+                probeExitCode: 127
+            });
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "", effort: "W-not-started-effort", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            });
+            s.askTextResponses.push("typed-worker-model"); // worker model free-text
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the captured not-started reason is surfaced exactly once"(_result, { errors }) {
+                const occurrences = errors.join("").split("codex executable is missing from PATH").length - 1;
+                Assert.strictEqual(occurrences, 1);
+            },
+            "the worker resolved a concrete non-empty model, so the empty-model path cannot explain its effort fallback"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "typed-worker-model");
+            },
+            "each role types its model then its effort, and nothing else is typed"(_result, { askedTextPrompts }) {
+                Assert.deepStrictEqual(askedTextPrompts, [
+                    WORKER_MODEL_TEXT_PROMPT,
+                    WORKER_EFFORT_TEXT_PROMPT,
+                    REVIEWER_MODEL_TEXT_PROMPT,
+                    REVIEWER_EFFORT_TEXT_PROMPT
+                ]);
+            },
+            "no selectable list is rendered at all"(_result, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, []);
+            },
+            "the worker's empty input reproduces its stored effort verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "W-not-started-effort");
+            },
+            "the reviewer's empty input resolves to the empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.effort, "");
+            }
+        }
+    });
+
+    test("falls back to free-text for each reviewer whose flag-supplied model is not among the models the probe returned, while the worker model that is still gets its list", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: TWO_MODELS_WITH_DISTINCT_LEVELS,
+                probeExitCode: 0
+            });
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "gpt-5-codex", effort: "high", fast: false },
+                reviewers: [
+                    { tool: "codex", model: "absent-A", effort: "R1-absent-effort", fast: false, optional: false },
+                    { tool: "codex", model: "absent-B", effort: "", fast: false, optional: false }
+                ],
+                minimumReviews: 2
+            });
+            s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "high" }] }]); // worker effort (list render)
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project", "--skills-tool=codex", "--worker-tool=codex",
+                "--reviewer-tool=codex", "--reviewer-model=absent-A",
+                "--reviewer-2-tool=codex", "--reviewer-2-model=absent-B"
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "both reviewer effort questions are free-text inputs with their placeholders, followed only by the minimum entry"(_result, { askedTextPrompts }) {
+                Assert.deepStrictEqual(askedTextPrompts, [
+                    REVIEWER_EFFORT_TEXT_PROMPT,
+                    "What effort level should reviewer 2 use? (leave empty for the default configured effort): ",
+                    "Minimum reviewers that must run to a verdict in each review round (1-2, empty for 2): "
+                ]);
+            },
+            "the only lists rendered are the worker's model and effort questions"(_result, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, ["Worker model", "Worker effort"]);
+            },
+            "reviewer 1's empty input reproduces its stored effort verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.effort, "R1-absent-effort");
+            },
+            "reviewer 2's empty input resolves to the empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[1]!.effort, "");
+            },
+            "the worker, whose model the probe does return, persists the level it picked from the list"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "high");
+            }
+        }
+    });
+
+    test("falls back to free-text when the selected model reports no effort levels at all", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: codexProbeStdout([{ slug: "levelled-model", efforts: ["low"] }, { slug: "bare-model" }]),
+                probeExitCode: 0
+            });
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "bare-model", effort: "W-bare-effort", fast: false },
+                reviewers: [{ tool: "codex", model: "bare-model", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "bare-model" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "bare-model" }] }]); // reviewer model
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the model without reported levels is still selectable and persisted"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "bare-model");
+            },
+            "both effort questions are free-text inputs with their placeholders, and nothing else is typed"(_result, { askedTextPrompts }) {
+                Assert.deepStrictEqual(askedTextPrompts, [WORKER_EFFORT_TEXT_PROMPT, REVIEWER_EFFORT_TEXT_PROMPT]);
+            },
+            "the only lists rendered are the two model questions"(_result, { askedHeaders }) {
+                Assert.deepStrictEqual(askedHeaders, ["Worker model", "Reviewer model"]);
+            },
+            "the worker's empty input reproduces its stored effort verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "W-bare-effort");
+            },
+            "the reviewer's empty input resolves to the empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.effort, "");
+            }
+        }
+    });
+
+    test("a level typed into the codex effort free-text fallback is persisted verbatim, over any stored effort", {
+        ARRANGE() {
+            const s = stubContexts();
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "", effort: "stored-effort-not-typed", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            });
+            s.askTextResponses.push("  Codex-Typed-Effort  "); // worker effort free-text
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the effort question is the free-text input with its placeholder"(_result, { askedTextPrompts }) {
+                Assert.deepStrictEqual(askedTextPrompts, [WORKER_EFFORT_TEXT_PROMPT]);
+            },
+            "config worker.effort is the typed value verbatim (surrounding whitespace and mixed case preserved, not trimmed or case-folded), not the stored one"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "  Codex-Typed-Effort  ");
             }
         }
     });
@@ -4023,7 +4535,7 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list"},{"slug":"gpt-4.1","visibility":"list"}]}',
+                probeStdout: TWO_MODELS_WITHOUT_LEVELS,
                 probeExitCode: 0
             });
             const cap = captureChoiceDefaults(s);
@@ -4055,7 +4567,7 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '{"models":[{"slug":"gpt-4.1","visibility":"list"}]}',
+                probeStdout: codexProbeStdout([{ slug: "gpt-4.1" }]),
                 probeExitCode: 0
             });
             const cap = captureChoiceDefaults(s);
@@ -4087,7 +4599,7 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
         ARRANGE() {
             const s = stubContexts();
             (s.contexts as { script:ScriptContext }).script = makeModelScript({
-                probeStdout: '{"models":[{"slug":"gpt-5-codex","visibility":"list"},{"slug":"gpt-4.1","visibility":"list"}]}',
+                probeStdout: TWO_MODELS_WITHOUT_LEVELS,
                 probeExitCode: 0
             });
             const cap = captureChoiceDefaults(s);
@@ -4115,20 +4627,25 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
         }
     });
 
-    test("codex worker effort defaults to the stored level", {
+    test("codex worker effort defaults to the stored level when the selected model still reports it", {
         ARRANGE() {
             const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: TWO_MODELS_WITH_DISTINCT_LEVELS,
+                probeExitCode: 0
+            });
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "codex", model: "", effort: "high", fast: false },
+                worker: { tool: "codex", model: "gpt-5-codex", effort: "high", fast: false },
                 reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
+            s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]); // worker model
             s.askResponses.push([{ picked: [{ label: "high" }] }]); // worker effort
             return { ...s, cap };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -4146,17 +4663,22 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
     test("codex worker effort defaults to the synthetic default entry for the empty stored effort", {
         ARRANGE() {
             const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: TWO_MODELS_WITH_DISTINCT_LEVELS,
+                probeExitCode: 0
+            });
             const cap = captureChoiceDefaults(s);
             seedProjectConfig(s, {
-                worker: { tool: "codex", model: "", effort: "", fast: false },
+                worker: { tool: "codex", model: "gpt-5-codex", effort: "", fast: false },
                 reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
                 minimumReviews: 1
             });
+            s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]); // worker model
             s.askResponses.push([{ picked: [{ label: "default configured effort" }] }]); // worker effort
             return { ...s, cap };
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--worker-model=", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
             return code;
@@ -4167,6 +4689,44 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             },
             "the worker effort list defaults to the default configured effort entry"(_code, { cap }) {
                 Assert.strictEqual(cap.defaultLabelFor("What effort level should the worker use?"), "default configured effort");
+            }
+        }
+    });
+
+    test("codex worker effort carries no forced default when the selected model no longer reports the stored level", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: TWO_MODELS_WITH_DISTINCT_LEVELS,
+                probeExitCode: 0
+            });
+            const cap = captureChoiceDefaults(s);
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "gpt-5-codex", effort: "medium", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "gpt-5-codex" }] }]); // worker model
+            s.askResponses.push([{ picked: [{ label: "low" }] }]); // worker effort (answered actively)
+            return { ...s, cap };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker effort list has no forced default (defaultIndex undefined)"(_result, { cap }) {
+                Assert.strictEqual(cap.defaultIndexFor("What effort level should the worker use?"), undefined);
+            },
+            "the actively picked level is what gets persisted"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "low");
             }
         }
     });
@@ -4229,6 +4789,42 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
             "the resolved worker model is exactly the empty string"({ config }) {
                 Assert.ok(config);
                 Assert.strictEqual(config.worker.model, "");
+            }
+        }
+    });
+
+    test("codex worker effort free-text fallback pre-fills the stored effort when no reported model with levels was selected", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts as { script:ScriptContext }).script = makeModelScript({
+                probeStdout: TWO_MODELS_WITH_DISTINCT_LEVELS,
+                probeExitCode: 0
+            });
+            seedProjectConfig(s, {
+                worker: { tool: "codex", model: "", effort: "legacy-effort", fast: false },
+                reviewers: [{ tool: "codex", model: "", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            });
+            s.askResponses.push([{ picked: [{ label: "default configured model" }] }]); // worker model
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=codex", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "accepting the empty free-text reproduces the stored effort verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "legacy-effort");
+            },
+            "the effort question is the free-text input with its placeholder"(_result, { askedTextPrompts }) {
+                Assert.deepStrictEqual(askedTextPrompts, [WORKER_EFFORT_TEXT_PROMPT]);
             }
         }
     });

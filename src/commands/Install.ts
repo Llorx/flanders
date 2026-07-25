@@ -93,8 +93,6 @@ function validateClosedSet(value:string, allowed:readonly string[], flagName:str
     return `Invalid value for ${flagName}: "${value}". Allowed values: ${allowed.join(", ")}.\n`;
 }
 
-const CODEX_EFFORT_LEVELS:readonly string[] = ["minimal", "low", "medium", "high", "xhigh"];
-
 // Parse a `--skills-tool` value: a comma-separated list of one or more distinct names drawn from the
 // closed tool set. An empty list, an unknown name, or a repeated name is a usage error naming the
 // offending value, per `.spec/contracts/cli-commands/install.md`.
@@ -132,6 +130,18 @@ const SKILLS_TOOL_DESTINATIONS:Readonly<Record<ToolName, Readonly<{ project:stri
 };
 
 const CLAUDE_EFFORT_LEVELS:readonly string[] = ["low", "medium", "high", "xhigh", "max"];
+
+const DEFAULT_MODEL_LABEL = "default configured model";
+
+const DEFAULT_EFFORT_LABEL = "default configured effort";
+
+const CUSTOM_VALUE_LABEL = "enter a custom value…";
+
+const EMPTY_MODEL_PLACEHOLDER = "leave empty for the default configured model";
+
+const EMPTY_EFFORT_PLACEHOLDER = "leave empty for the default configured effort";
+
+type CustomEntry = Readonly<{ label:string; placeholder:string }>;
 
 type ModelEntry = Readonly<{ label:string; value:string }>;
 
@@ -494,23 +504,35 @@ export class Install {
     result():Promise<number> {
         return this._runPromise;
     }
-    private async _resolveCuratedChoice(headerLabel:string, question:string, curatedValues:readonly string[], defaultLabel:string, customLabel:string, customPlaceholder:string, contexts:InstallContexts, preselect?:string):Promise<string|null> {
-        const options:ChoiceOption[] = curatedValues.map(v => ({ label: v }));
+    private async _resolveFreeTextAnswer(question:string, placeholder:string, contexts:InstallContexts, preselect?:string):Promise<string|null> {
+        const text = await promptText(contexts.ask, {
+            question,
+            placeholder,
+            default: preselect
+        });
+        if (text === null) {
+            return null;
+        }
+        if (this._disposed) {
+            return null;
+        }
+        return text;
+    }
+    private async _resolveFlatChoice(headerLabel:string, question:string, values:readonly string[], defaultLabel:string, custom:CustomEntry|undefined, contexts:InstallContexts, preselect?:string):Promise<string|null> {
+        const options:ChoiceOption[] = values.map(v => ({ label: v }));
         options.push({ label: defaultLabel });
-        options.push({ label: customLabel });
-        // Pre-select the entry reproducing the stored value: the synthetic default entry for the
-        // empty string, the matching curated entry when the value is one of the suggestions, and
-        // otherwise the custom entry with its free-text input defaulted to the stored value. An
-        // undefined preselect (no stored configuration) leaves the list at its fresh default.
+        if (custom) {
+            options.push({ label: custom.label });
+        }
         let preselectLabel:string|undefined;
         let customDefault:string|undefined;
         if (preselect !== undefined) {
             if (preselect === "") {
                 preselectLabel = defaultLabel;
-            } else if (curatedValues.includes(preselect)) {
+            } else if (values.includes(preselect)) {
                 preselectLabel = preselect;
-            } else {
-                preselectLabel = customLabel;
+            } else if (custom) {
+                preselectLabel = custom.label;
                 customDefault = preselect;
             }
         }
@@ -529,19 +551,8 @@ export class Install {
         if (option.label === defaultLabel) {
             return "";
         }
-        if (option.label === customLabel) {
-            const text = await promptText(contexts.ask, {
-                question,
-                placeholder: customPlaceholder,
-                default: customDefault
-            });
-            if (text === null) {
-                return null;
-            }
-            if (this._disposed) {
-                return null;
-            }
-            return text;
+        if (custom && option.label === custom.label) {
+            return await this._resolveFreeTextAnswer(question, custom.placeholder, contexts, customDefault);
         }
         return option.label;
     }
@@ -563,7 +574,7 @@ export class Install {
         let preselectedEntryLabel:string|undefined;
         if (preselect !== undefined) {
             if (preselect === "") {
-                topDefault = "default configured model";
+                topDefault = DEFAULT_MODEL_LABEL;
             } else {
                 const alias = crossAliases.find(a => a.value === preselect);
                 if (alias) {
@@ -575,7 +586,7 @@ export class Install {
                         preselectedGroup = group;
                         preselectedEntryLabel = group.entries.find(e => e.value === preselect)!.label;
                     } else {
-                        topDefault = "enter a custom value…";
+                        topDefault = CUSTOM_VALUE_LABEL;
                         customDefault = preselect;
                     }
                 }
@@ -585,8 +596,8 @@ export class Install {
             const topOptions:ChoiceOption[] = [
                 ...groups.map(group => ({ label: group.name })),
                 ...crossAliases.map(alias => ({ label: alias.label })),
-                { label: "default configured model" },
-                { label: "enter a custom value…" }
+                { label: DEFAULT_MODEL_LABEL },
+                { label: CUSTOM_VALUE_LABEL }
             ];
             const top = await promptChoice(contexts.ask, {
                 header: headerLabel,
@@ -600,22 +611,11 @@ export class Install {
             if (this._disposed) {
                 return null;
             }
-            if (top.label === "default configured model") {
+            if (top.label === DEFAULT_MODEL_LABEL) {
                 return "";
             }
-            if (top.label === "enter a custom value…") {
-                const text = await promptText(contexts.ask, {
-                    question,
-                    placeholder: "leave empty for the default configured model",
-                    default: customDefault
-                });
-                if (text === null) {
-                    return null;
-                }
-                if (this._disposed) {
-                    return null;
-                }
-                return text;
+            if (top.label === CUSTOM_VALUE_LABEL) {
+                return await this._resolveFreeTextAnswer(question, EMPTY_MODEL_PLACEHOLDER, contexts, customDefault);
             }
             const crossAlias = crossAliases.find(alias => alias.label === top.label);
             if (crossAlias) {
@@ -645,24 +645,6 @@ export class Install {
             }
         }
     }
-    // Free-text model entry used by the `codex` free-text fallback (empty or failed probe). The
-    // question text, placeholder, and empty→"" resolution match the custom entry of the grouped menus;
-    // the stored model seeds the default so accepting the empty input reproduces it.
-    private async _resolveFreeTextModel(roleLabel:string, contexts:InstallContexts, preselect?:string):Promise<string|null> {
-        const text = await promptText(contexts.ask, {
-            question: `Which model should ${roleLabel} use?`,
-            placeholder: "leave empty for the default configured model",
-            default: preselect
-        });
-        if (text === null) {
-            return null;
-        }
-        /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptText return and this check.
-        if (this._disposed) {
-            return null;
-        }
-        return text;
-    }
     private async _resolveRoleModel(roleLabel:string, headerLabel:string, tool:ToolName, suppliedModel:string|undefined, contexts:InstallContexts, preselect?:string):Promise<string|null> {
         if (suppliedModel !== undefined) {
             return suppliedModel;
@@ -687,40 +669,23 @@ export class Install {
             }
         }
         const probeResult = this._modelProbeCache.get(tool)!;
+        const question = `Which model should ${roleLabel} use?`;
         if (probeResult.kind === "list") {
-            const options:ChoiceOption[] = probeResult.models.map(m => ({ label: m.slug }));
-            options.push({ label: "default configured model" });
-            // Pre-select the probe entry reproducing the stored model, or the synthetic default
-            // entry for the empty string. A stored model the probe no longer returns is left
-            // without a forced default, so that question is answered actively.
-            let modelDefaultLabel:string|undefined;
-            if (preselect !== undefined) {
-                if (preselect === "") {
-                    modelDefaultLabel = "default configured model";
-                } else if (probeResult.models.some(m => m.slug === preselect)) {
-                    modelDefaultLabel = preselect;
-                }
-            }
-            const option = await promptChoice(contexts.ask, {
-                header: headerLabel,
-                question: `Which model should ${roleLabel} use?`,
-                options,
-                defaultLabel: modelDefaultLabel
-            });
-            if (!option) {
-                return null;
-            }
-            /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptChoice return and this check.
-            if (this._disposed) {
-                return null;
-            }
-            return option.label === "default configured model" ? "" : option.label;
+            return await this._resolveFlatChoice(headerLabel, question, probeResult.models.map(m => m.slug), DEFAULT_MODEL_LABEL, undefined, contexts, preselect);
         }
-        // Free-text fallback (empty or failed probe): default to the stored model so accepting the
-        // empty input reproduces it.
-        return await this._resolveFreeTextModel(roleLabel, contexts, preselect);
+        return await this._resolveFreeTextAnswer(question, EMPTY_MODEL_PLACEHOLDER, contexts, preselect);
     }
-    private async _resolveRoleEffort(roleLabel:string, headerLabel:string, tool:ToolName, suppliedEffort:string|undefined, contexts:InstallContexts, preselect?:string):Promise<string|null> {
+    private _probedEffortLevels(tool:"codex", model:string):readonly string[] {
+        if (model === "") {
+            return [];
+        }
+        const probeResult = this._modelProbeCache.get(tool);
+        if (probeResult === undefined || probeResult.kind !== "list") {
+            return [];
+        }
+        return probeResult.models.find(m => m.slug === model)?.efforts ?? [];
+    }
+    private async _resolveRoleEffort(roleLabel:string, headerLabel:string, tool:ToolName, model:string, suppliedEffort:string|undefined, contexts:InstallContexts, preselect?:string):Promise<string|null> {
         if (suppliedEffort !== undefined) {
             return suppliedEffort;
         }
@@ -728,38 +693,20 @@ export class Install {
         if (this._disposed) {
             return null;
         }
+        const question = `What effort level should ${roleLabel} use?`;
         if (tool === "codex") {
-            const options:ChoiceOption[] = CODEX_EFFORT_LEVELS.map(e => ({ label: e }));
-            options.push({ label: "default configured effort" });
-            // Pre-select the documented level reproducing the stored effort, or the synthetic
-            // default entry for the empty string. Effort values are open, so a stored effort
-            // outside the documented list matches no entry and forces no default.
-            let effortDefaultLabel:string|undefined;
-            if (preselect !== undefined) {
-                effortDefaultLabel = preselect === "" ? "default configured effort" : preselect;
+            const levels = this._probedEffortLevels(tool, model);
+            if (levels.length > 0) {
+                return await this._resolveFlatChoice(headerLabel, question, levels, DEFAULT_EFFORT_LABEL, undefined, contexts, preselect);
             }
-            const option = await promptChoice(contexts.ask, {
-                header: headerLabel,
-                question: `What effort level should ${roleLabel} use?`,
-                options,
-                defaultLabel: effortDefaultLabel
-            });
-            if (!option) {
-                return null;
-            }
-            /* coverage ignore next 3 */ // — Defensive: _disposed cannot flip between the synchronous promptChoice return and this check.
-            if (this._disposed) {
-                return null;
-            }
-            return option.label === "default configured effort" ? "" : option.label;
+            return await this._resolveFreeTextAnswer(question, EMPTY_EFFORT_PLACEHOLDER, contexts, preselect);
         }
-        return await this._resolveCuratedChoice(
+        return await this._resolveFlatChoice(
             headerLabel,
-            `What effort level should ${roleLabel} use?`,
+            question,
             CLAUDE_EFFORT_LEVELS,
-            "default configured effort",
-            "enter a custom value…",
-            "leave empty for the default configured effort",
+            DEFAULT_EFFORT_LABEL,
+            { label: CUSTOM_VALUE_LABEL, placeholder: EMPTY_EFFORT_PLACEHOLDER },
             contexts,
             preselect
         );
@@ -839,7 +786,7 @@ export class Install {
         if (model === null) {
             return null;
         }
-        const effort = await this._resolveRoleEffort(roleLabel, `Reviewer${ordinal} effort`, tool, supplied?.effort, contexts, storedReviewer?.effort);
+        const effort = await this._resolveRoleEffort(roleLabel, `Reviewer${ordinal} effort`, tool, model, supplied?.effort, contexts, storedReviewer?.effort);
         if (effort === null) {
             return null;
         }
@@ -955,7 +902,7 @@ export class Install {
             if (workerModel === null) {
                 return 1;
             }
-            const workerEffort = await this._resolveRoleEffort("the worker", "Worker effort", workerTool, answers.workerEffort, contexts, storedConfig?.worker.effort);
+            const workerEffort = await this._resolveRoleEffort("the worker", "Worker effort", workerTool, workerModel, answers.workerEffort, contexts, storedConfig?.worker.effort);
             if (workerEffort === null) {
                 return 1;
             }
@@ -1068,15 +1015,13 @@ export class Install {
                     }
                     let chosen:number|null = null;
                     while (chosen === null) {
-                        const entry = await promptText(contexts.ask, {
-                            question: "Minimum reviewers that must run to a verdict in each review round",
-                            placeholder: `1-${reviewerCount}, empty for ${minimumDefault}`,
-                            default: String(minimumDefault)
-                        });
+                        const entry = await this._resolveFreeTextAnswer(
+                            "Minimum reviewers that must run to a verdict in each review round",
+                            `1-${reviewerCount}, empty for ${minimumDefault}`,
+                            contexts,
+                            String(minimumDefault)
+                        );
                         if (entry === null) {
-                            return 1;
-                        }
-                        if (this._disposed) {
                             return 1;
                         }
                         const trimmed = entry.trim();
@@ -1109,8 +1054,8 @@ export class Install {
                             // abandons the reviewer while it is in a rate-limit wait once it can otherwise
                             // complete; in every other respect an optional reviewer reviews like a required one.
                             const reviewer = reviewers[i]!;
-                            const modelLabel = reviewer.model === "" ? "default configured model" : reviewer.model;
-                            const effortLabel = reviewer.effort === "" ? "default configured effort" : reviewer.effort;
+                            const modelLabel = reviewer.model === "" ? DEFAULT_MODEL_LABEL : reviewer.model;
+                            const effortLabel = reviewer.effort === "" ? DEFAULT_EFFORT_LABEL : reviewer.effort;
                             // Default to the stored reviewer's optional flag at this position; a fresh
                             // position (no stored reviewer) defaults to "no" (required).
                             const optionalDefault = storedReviewers?.[i]?.optional === true ? "yes" : "no";
