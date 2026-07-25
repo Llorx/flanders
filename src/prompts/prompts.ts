@@ -26,21 +26,6 @@ export function linkedReferenceDirective(specPath:string):string {
 The full content of every contract and rule this task references has been consolidated into the file at ${specPath}. Read that file in full, from beginning to end, in as few passes as possible — ideally a single read — before you start.`;
 }
 
-// The claim-classification taxonomy the worker prompt embeds in its Evidence Report
-// instructions. Worker-only: no reviewer surface embeds a claim taxonomy.
-const claimClassification =
-`Classify every claim by ONE question: what kind of signal would soundly observe a plausible regression of the claim? Place the claim in exactly one of these three branches, and name the concrete observer the branch requires — an automated failure, an asserting test, or reviewer inspection.
-
-- **Toolchain-guarded** — a plausible regression triggers an automated failure signal WITHOUT any new test being added: a build error, a type error, a linker error, a linter or other static-analysis error from a checker the project actually runs, an existing test failing, or a runtime crash on a code path the test suite already exercises. The evidence is a \`file:line\` citation in the change plus the name of the automated failure a regression would trigger. A linter signal qualifies only when the project actually runs that linter as part of its build or test flow.
-- **Test-guarded** — no toolchain signal observes the regression, but the property is observable through the public behavioral surface a test may inspect per \`rules/testing/assert-via-public-surface.md\`: return values, fired callbacks, side effects recorded on injected dependencies, externally observable state, or an artifact the test legitimately constructs and reads back. The evidence is the test's \`file:line\`, the asserting call, and a one-sentence regression argument. "The behavior is correct in the current code" is never sufficient on its own here.
-- **Review-adjudicated** — no toolchain signal observes the regression AND the property cannot be observed through the test surface without reading the subject's source as text or piercing its encapsulation. Source-text structural invariants and semantic-judgment properties are verified by the adversarial reviewer's per-iteration inspection of the working tree. The evidence is a \`file:line\` citation plus the explicit statement that the reviewer verifies the property by inspection because it has neither an automated signal nor a test-surface observation. Do not fabricate a test that reads the module's own source as text to guard such a claim.
-
-Literal content, absence of a pattern, order, and count are classified by observability. When the property is observable through the public surface, it is test-guarded and needs an exact-match, zero-match or recorded-call, positional, or counting assertion that would fail under the regression. When the property is observable only by reading the subject's source as text, it is review-adjudicated. Semantic-judgment properties are always review-adjudicated.
-
-A claim that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") needs N independent guards; evidence covering only K of N facts (K < N) leaves the uncovered facts unguarded even when they currently hold. An enumerated-minimum guard list is a floor, never a ceiling.
-
-When a test-guarded regression argument cannot be soundly constructed — the asserting call would still pass under a regression the claim forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
-
 const foregroundBoundary =
 `Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example \`run_in_background: true\`), shell-level detachment (a trailing \`&\`, \`nohup\`, \`setsid\`, \`disown\`, \`start\`, \`Start-Process\`, \`Start-Job\`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.`;
 
@@ -316,27 +301,19 @@ Procedure:
    - Build script: ${Placeholders.BUILD_SCRIPT_PATH}
    - Test script: ${Placeholders.TEST_SCRIPT_PATH}
 4. If you establish the task cannot reach a clean iteration through any implementation it authorizes — its acceptance criteria cannot be satisfied while honoring a contract or rule the task references or the design the plan prescribes, or closing the recorded review findings requires design decisions or work outside the task's scope — write a \`hard-stop.log\` file at ${Placeholders.HARD_STOP_LOG_PATH} stating the structural cause, the evidence (the criterion and the obligation or design statement in conflict), and the plan or spec change that would unblock the task, then end your turn without further implementation work. Ordinary difficulty, a failing gate, or findings you can still address within the task's scope never qualify.
-5. Before declaring the task complete, write an Evidence Report as the final part of your output. This is a lightweight self-audit scoped to your diff and the task's links; the reviewer audits the full working tree in a separate, heavier pass. The report has three sections, in order. Consult the following rule files for the full framework:
-   - \`rules/ai/agents/evidence-report.md\`
-   - \`rules/ai/agents/evidence/claim-evidence-classification.md\`
-   - \`rules/ai/agents/evidence/enumerated-claim-coverage.md\`
-   - \`rules/ai/agents/evidence/scope-driven-self-audit.md\`
+5. Before declaring completion, end your output with an Evidence Report — a lightweight self-audit; the reviewer audits the full working tree. It has three sections, in order; every entry cites the working-tree file:line — code, test, or both — that satisfies its claim:
 
    **Acceptance-criterion claims**
 
-   For every acceptance criterion in the task, one entry. A criterion that enumerates N independent facts expands into one entry per fact. For each entry, cite the file:line in your changes (code, test, or both) that satisfies it, then classify the claim and produce the evidence its classification requires:
-
-${claimClassification}
+   For every acceptance criterion in the task, one entry stating the criterion. A criterion that enumerates N independent facts expands into one entry per fact.
 
    **Rule claims**
 
-   For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per \`rules/ai/agents/evidence/scope-driven-self-audit.md\`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (its path relative to the project root), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape are classified by observability: a test-observable absence needs a search-based or recorded-call assertion that confirms zero matches over the observable surface, while a source-text structural absence or semantic-judgment absence is review-adjudicated and must not be guarded by a test that reads source as text. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per \`rules/ai/agents/evidence/enumerated-claim-coverage.md\`.
+   One entry per rule the task links or whose obligation plausibly applies to a file your diff created, modified, deleted, or renamed; include the doubtful ones. Give each the rule's namespace (its path relative to the project root) and the trigger. Expand N distinct prohibited or required patterns into N independent entries.
 
    **Contract claims**
 
-   For every in-scope contract, one entry. Contracts follow the same union scope rule as rules: the set is the union of contracts the task linked and contracts your diff triggers. Each entry carries the contract's namespace (its path relative to the project root), the trigger, and the evidence of compliance classified by the same regression-signal question. Contract obligations that pin literal public-surface details (string messages, output channels, error-shape fields) fall into the literal-content shape and require an exact-match assertion; a substring or prefix check on those details is too weak.
-
-   Do not declare complete while any test-guarded claim has an unsound or missing regression argument. The Evidence Report is for your own self-audit before the adversarial reviewer runs. The whole point is to surface assertions that pass today but would not detect a regression — the most common cause of rejection.
+   One entry per contract the task links or your diff triggers. Give each the contract's namespace (its path relative to the project root) and the trigger. Expand N discrete facts into N independent entries.
 
 Do not flip the task's checkbox in the plan file. Flanders flips the checkbox itself once the implementation passes build, test, and adversarial review.
 

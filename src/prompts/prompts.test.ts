@@ -2,6 +2,7 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
+import * as promptsModule from "./prompts";
 import { prompts, reviewerMethodologyCore, linkedReferenceDirective } from "./prompts";
 import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
 
@@ -13,27 +14,44 @@ const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9
 // four governed folders in order: `.spec/contracts`, `.spec/rules`, `.spec/flanders`, `plans/`.
 const EXPECTED_SPEC_FOLDER_WRITE_BOUNDARY = "Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any `.spec/contracts` folder, any `.spec/rules` folder, any `.spec/flanders` folder, or the `plans/` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.";
 
-const EXPECTED_CLAIM_CLASSIFICATION_CORE =
-`Classify every claim by ONE question: what kind of signal would soundly observe a plausible regression of the claim? Place the claim in exactly one of these three branches, and name the concrete observer the branch requires — an automated failure, an asserting test, or reviewer inspection.
+// The worker's Evidence Report instruction, reproduced here rather than imported from
+// `prompts.ts` so that drift in the shipped wording trips the exact-match assertions instead of
+// moving with them. Each labelled section is pinned on its own and composed into the whole block,
+// so a failure names the section that drifted.
+// The module's runtime export surface. `Placeholders` is a `const enum` and the two interfaces are
+// types, so TypeScript erases all three and none of them reach this list.
+const EXPECTED_MODULE_EXPORTS = [
+    "buildFlandersVoiceSection",
+    "buildReviewerMethodology",
+    "codeCommentEconomy",
+    "flandersToneInstruction",
+    "linkedReferenceDirective",
+    "prompts",
+    "reviewerMethodologyCore"
+];
 
-- **Toolchain-guarded** — a plausible regression triggers an automated failure signal WITHOUT any new test being added: a build error, a type error, a linker error, a linter or other static-analysis error from a checker the project actually runs, an existing test failing, or a runtime crash on a code path the test suite already exercises. The evidence is a \`file:line\` citation in the change plus the name of the automated failure a regression would trigger. A linter signal qualifies only when the project actually runs that linter as part of its build or test flow.
-- **Test-guarded** — no toolchain signal observes the regression, but the property is observable through the public behavioral surface a test may inspect per \`rules/testing/assert-via-public-surface.md\`: return values, fired callbacks, side effects recorded on injected dependencies, externally observable state, or an artifact the test legitimately constructs and reads back. The evidence is the test's \`file:line\`, the asserting call, and a one-sentence regression argument. "The behavior is correct in the current code" is never sufficient on its own here.
-- **Review-adjudicated** — no toolchain signal observes the regression AND the property cannot be observed through the test surface without reading the subject's source as text or piercing its encapsulation. Source-text structural invariants and semantic-judgment properties are verified by the adversarial reviewer's per-iteration inspection of the working tree. The evidence is a \`file:line\` citation plus the explicit statement that the reviewer verifies the property by inspection because it has neither an automated signal nor a test-surface observation. Do not fabricate a test that reads the module's own source as text to guard such a claim.
+const EXPECTED_WORKER_EVIDENCE_REPORT_LEAD = "5. Before declaring completion, end your output with an Evidence Report — a lightweight self-audit; the reviewer audits the full working tree. It has three sections, in order; every entry cites the working-tree file:line — code, test, or both — that satisfies its claim:";
 
-Literal content, absence of a pattern, order, and count are classified by observability. When the property is observable through the public surface, it is test-guarded and needs an exact-match, zero-match or recorded-call, positional, or counting assertion that would fail under the regression. When the property is observable only by reading the subject's source as text, it is review-adjudicated. Semantic-judgment properties are always review-adjudicated.
+const EXPECTED_WORKER_AC_CLAIMS_PARAGRAPH = "For every acceptance criterion in the task, one entry stating the criterion. A criterion that enumerates N independent facts expands into one entry per fact.";
 
-A claim that enumerates N independent facts ("X AND Y AND Z", "items A, B, C, D") needs N independent guards; evidence covering only K of N facts (K < N) leaves the uncovered facts unguarded even when they currently hold. An enumerated-minimum guard list is a floor, never a ceiling.`;
+const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "One entry per rule the task links or whose obligation plausibly applies to a file your diff created, modified, deleted, or renamed; include the doubtful ones. Give each the rule's namespace (its path relative to the project root) and the trigger. Expand N distinct prohibited or required patterns into N independent entries.";
 
-const EXPECTED_WORKER_TOOLCHAIN_RERUN_STEP =
-`When a test-guarded regression argument cannot be soundly constructed — the asserting call would still pass under a regression the claim forbids — the assertion is too weak: strengthen it (typically by replacing substring, prefix, or inclusion checks with exact-match comparisons on literal values), re-run the toolchain, and update the report.`;
+const EXPECTED_WORKER_CONTRACT_CLAIMS_PARAGRAPH = "One entry per contract the task links or your diff triggers. Give each the contract's namespace (its path relative to the project root) and the trigger. Expand N discrete facts into N independent entries.";
 
-// The full worker-facing taxonomy is the core followed by the worker-only step. The reviewer
-// prohibition split leaves the worker text unchanged, so this still matches it verbatim.
-const EXPECTED_CLAIM_CLASSIFICATION = `${EXPECTED_CLAIM_CLASSIFICATION_CORE}
+const EXPECTED_WORKER_EVIDENCE_REPORT =
+`${EXPECTED_WORKER_EVIDENCE_REPORT_LEAD}
 
-${EXPECTED_WORKER_TOOLCHAIN_RERUN_STEP}`;
+   **Acceptance-criterion claims**
 
-const EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH = "For every in-scope rule, one entry. A rule is in scope when it is either (a) explicitly linked by the task, or (b) triggered by your diff per `rules/ai/agents/evidence/scope-driven-self-audit.md`. The two sets are unioned; the diff-driven scope is additive on top of the link list, never a replacement. Each entry carries the rule's namespace (its path relative to the project root), the trigger (which part of the diff or which task link brought it into scope), and the evidence of compliance classified by the same regression-signal question. Rule obligations of the absence-of-a-pattern shape are classified by observability: a test-observable absence needs a search-based or recorded-call assertion that confirms zero matches over the observable surface, while a source-text structural absence or semantic-judgment absence is review-adjudicated and must not be guarded by a test that reads source as text. A rule whose obligation enumerates N distinct prohibited or required patterns expands into N independent entries per `rules/ai/agents/evidence/enumerated-claim-coverage.md`.";
+   ${EXPECTED_WORKER_AC_CLAIMS_PARAGRAPH}
+
+   **Rule claims**
+
+   ${EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH}
+
+   **Contract claims**
+
+   ${EXPECTED_WORKER_CONTRACT_CLAIMS_PARAGRAPH}`;
 
 // The structural-impossibility hard-stop declaration the worker prompt carries, byte-exact. It
 // names the file path through the `<HARD_STOP_LOG_PATH>` placeholder (wired by the orchestrator),
@@ -53,15 +71,9 @@ const EXPECTED_WORKER_TONE = `${EXPECTED_TONE_PROSE_HEAD}.`;
 
 const EXPECTED_REVIEWER_TONE = `${EXPECTED_TONE_PROSE_HEAD}, and the violation entries you record in your error-log file.`;
 
-function claimClassificationBlock(template: string, endMarker: string) {
-    const start = template.indexOf("Classify every claim by ONE question:");
+function promptBlock(template: string, startMarker: string, endMarker: string) {
+    const start = template.indexOf(startMarker);
     const end = template.indexOf(endMarker, start);
-    return template.substring(start, end);
-}
-
-function workerRuleClaimsParagraph(template: string) {
-    const start = template.indexOf("For every in-scope rule");
-    const end = template.indexOf("\n\n   **Contract claims**", start);
     return template.substring(start, end);
 }
 
@@ -322,148 +334,85 @@ test.describe("prompts – linkedReferenceDirective", test => {
     });
 });
 
-test.describe("prompts – worker – acceptance-criteria classification taxonomy", test => {
-    test("the classification taxonomy is used in the worker but not exported", {
-        ARRANGE() {},
-        ACT() { return prompts; },
-        ASSERTS: {
-            "worker contains the taxonomy's distinctive text"(p) {
-                Assert.ok(p.worker.includes("every claim by ONE question"));
-            },
-            "claimClassification is not a member of the prompts export"(p) {
-                Assert.strictEqual((p as Record<string, unknown>).claimClassification, undefined);
-            }
-        }
-    });
-
-    test("contains the three classification branches", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERTS: {
-            "regression-signal question"(template) {
-                Assert.ok(template.includes("what kind of signal would soundly observe a plausible regression of the claim?"));
-            },
-            "toolchain-guarded branch is named"(template) {
-                Assert.ok(template.includes("**Toolchain-guarded**"));
-            },
-            "toolchain-guarded branch includes linter signal"(template) {
-                Assert.ok(template.includes("a linter or other static-analysis error from a checker the project actually runs"));
-            },
-            "test-guarded branch is named"(template) {
-                Assert.ok(template.includes("**Test-guarded**"));
-            },
-            "test-guarded branch cites the public behavioral surface rule"(template) {
-                Assert.ok(template.includes("public behavioral surface a test may inspect per `rules/testing/assert-via-public-surface.md`"));
-            },
-            "review-adjudicated branch is named"(template) {
-                Assert.ok(template.includes("**Review-adjudicated**"));
-            },
-            "review-adjudicated branch covers source-text and semantic properties"(template) {
-                Assert.ok(template.includes("Source-text structural invariants and semantic-judgment properties are verified by the adversarial reviewer's per-iteration inspection of the working tree."));
-            },
-            "review-adjudicated branch forbids source-reading tests"(template) {
-                Assert.ok(template.includes("Do not fabricate a test that reads the module's own source as text to guard such a claim."));
-            },
-            "N-facts-need-N-guards rule"(template) {
-                Assert.ok(template.includes("needs N independent guards"));
-            },
-            "test-guarded regression-argument soundness step"(template) {
-                Assert.ok(template.includes("When a test-guarded regression argument cannot be soundly constructed"));
-            }
-        }
-    });
-
-    test("classification block is byte-equal to the canonical wording in the worker prompt", {
-        ARRANGE() {},
-        ACT() {
-            return claimClassificationBlock(prompts.worker, "\n\n   **Rule claims**");
-        },
-        ASSERT(block) {
-            Assert.strictEqual(block, EXPECTED_CLAIM_CLASSIFICATION);
-        }
-    });
-
+test.describe("prompts – worker – taxonomy-free Evidence Report", test => {
     test("preserves the Evidence Report instruction", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERT(template) {
-            Assert.ok(template.includes("write an Evidence Report as the final part of your output"));
+            Assert.ok(template.includes("end your output with an Evidence Report"));
         }
     });
 
-    test("old category bullets are removed", {
+    test("the Evidence Report instruction is byte-equal to the taxonomy-free wording", {
+        ARRANGE() {},
+        ACT() {
+            return promptBlock(prompts.worker, "5. Before declaring completion", "\n\nDo not flip the task's checkbox");
+        },
+        ASSERT(block) {
+            Assert.strictEqual(block, EXPECTED_WORKER_EVIDENCE_REPORT);
+        }
+    });
+
+    test("carries no regression-signal claim taxonomy", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERTS: {
-            "no old automated-signal yes branch"(template) {
-                Assert.strictEqual(template.includes("the toolchain already guards the claim"), false);
+            "no toolchain-guarded branch, in any casing"(template) {
+                Assert.strictEqual(template.toLowerCase().includes("toolchain-guarded"), false);
             },
-            "no old no-implicit-guard no branch"(template) {
-                Assert.strictEqual(template.includes("the claim has no implicit guard"), false);
+            "no test-guarded branch, in any casing"(template) {
+                Assert.strictEqual(template.toLowerCase().includes("test-guarded"), false);
             },
-            "no old always-test-guard shapes sentence"(template) {
-                Assert.strictEqual(template.includes("Four shapes that always fall in the no-implicit-guard branch"), false);
+            "no review-adjudicated branch, in any casing"(template) {
+                Assert.strictEqual(template.toLowerCase().includes("review-adjudicated"), false);
             },
-            "no old verified-by-inspection-never-satisfies sentence"(template) {
-                Assert.strictEqual(template.includes("\"verified by inspection\" never satisfies"), false);
+            "no classify-every-claim opener"(template) {
+                Assert.strictEqual(template.includes("Classify every claim by ONE question"), false);
             },
-            "no 'For behavioral or observable criteria'"(template) {
-                Assert.strictEqual(template.includes("For behavioral or observable criteria"), false);
+            "no regression-signal question"(template) {
+                Assert.strictEqual(template.includes("regression-signal"), false);
             },
-            "no 'For negative-scope criteria'"(template) {
-                Assert.strictEqual(template.includes("For negative-scope criteria"), false);
+            "no classification-by-observability guidance"(template) {
+                Assert.strictEqual(template.includes("classified by observability"), false);
             },
-            "no 'For criteria that prescribe a literal value, options object, or specific shape'"(template) {
-                Assert.strictEqual(template.includes("For criteria that prescribe a literal value, options object, or specific shape"), false);
+            "no N-independent-guards phrasing"(template) {
+                Assert.strictEqual(template.includes("needs N independent guards"), false);
+            },
+            "no assert-via-public-surface citation"(template) {
+                Assert.strictEqual(template.includes("assert-via-public-surface"), false);
             }
         }
     });
 
-    test("contains no spec-path citations", {
+    test("no taxonomy symbol survives on the module's public surface", {
         ARRANGE() {},
-        ACT() { return prompts.worker; },
+        ACT() { return { exportedNames: Object.keys(promptsModule).sort(), members: prompts as Record<string, unknown> }; },
         ASSERTS: {
-            "no criterion-evidence-classification"(template) {
-                Assert.strictEqual(template.includes("criterion-evidence-classification"), false);
+            "the module exports exactly its live symbols"({ exportedNames }) {
+                Assert.deepStrictEqual(exportedNames, EXPECTED_MODULE_EXPORTS);
             },
-            "no enumerated-criterion-coverage"(template) {
-                Assert.strictEqual(template.includes("enumerated-criterion-coverage"), false);
+            "claimClassification is not a prompts member"({ members }) {
+                Assert.strictEqual(members.claimClassification, undefined);
+            },
+            "workerToolchainRerunStep is not a prompts member"({ members }) {
+                Assert.strictEqual(members.workerToolchainRerunStep, undefined);
             }
         }
     });
 
-    test("does not contain old criterion-flavored distinctive text", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERT(template) {
-            Assert.strictEqual(template.includes("every acceptance criterion by ONE question"), false);
-        }
-    });
-
-    test("special shape guidance is classified by observability", {
+    test("carries no strengthen-and-re-run-the-toolchain step", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
         ASSERTS: {
-            "the four shape labels are named together"(template) {
-                Assert.ok(template.includes("Literal content, absence of a pattern, order, and count are classified by observability."));
+            "no too-weak-assertion conclusion"(template) {
+                Assert.strictEqual(template.includes("the assertion is too weak"), false);
             },
-            "public-surface shapes are test-guarded"(template) {
-                Assert.ok(template.includes("When the property is observable through the public surface, it is test-guarded"));
+            "no re-run-the-toolchain instruction"(template) {
+                Assert.strictEqual(template.includes("re-run the toolchain"), false);
             },
-            "source-text shapes are review-adjudicated"(template) {
-                Assert.ok(template.includes("When the property is observable only by reading the subject's source as text, it is review-adjudicated."));
-            },
-            "semantic-judgment properties are review-adjudicated"(template) {
-                Assert.ok(template.includes("Semantic-judgment properties are always review-adjudicated."));
+            "no substring-to-exact-match strengthening guidance"(template) {
+                Assert.strictEqual(template.includes("replacing substring, prefix, or inclusion checks"), false);
             }
-        }
-    });
-
-    test("contains the test-guarded regression-argument-soundness conclusion", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERT(template) {
-            Assert.ok(template.includes("the assertion is too weak"));
         }
     });
 });
@@ -509,43 +458,22 @@ test.describe("prompts – worker – three-section Evidence Report", test => {
         }
     });
 
-    test("references rules/ai/agents/evidence-report.md", {
+    test("the three sections are self-contained — they cite no evidence-framework rule path", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
-        ASSERT(template) {
-            Assert.ok(template.includes("rules/ai/agents/evidence-report.md"));
-        }
-    });
-
-    test("references rules/ai/agents/evidence/scope-driven-self-audit.md", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERT(template) {
-            Assert.ok(template.includes("rules/ai/agents/evidence/scope-driven-self-audit.md"));
-        }
-    });
-
-    test("references rules/ai/agents/evidence/claim-evidence-classification.md", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERT(template) {
-            Assert.ok(template.includes("rules/ai/agents/evidence/claim-evidence-classification.md"));
-        }
-    });
-
-    test("references rules/ai/agents/evidence/enumerated-claim-coverage.md", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERT(template) {
-            Assert.ok(template.includes("rules/ai/agents/evidence/enumerated-claim-coverage.md"));
-        }
-    });
-
-    test("contains the union-semantics verbatim substring", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERT(template) {
-            Assert.ok(template.includes("additive on top of the link list, never a replacement"));
+        ASSERTS: {
+            "no evidence-report rule citation"(template) {
+                Assert.strictEqual(template.includes("rules/ai/agents/evidence-report.md"), false);
+            },
+            "no scope-driven-self-audit rule citation"(template) {
+                Assert.strictEqual(template.includes("rules/ai/agents/evidence/scope-driven-self-audit.md"), false);
+            },
+            "no claim-evidence-classification rule citation"(template) {
+                Assert.strictEqual(template.includes("rules/ai/agents/evidence/claim-evidence-classification.md"), false);
+            },
+            "no enumerated-claim-coverage rule citation"(template) {
+                Assert.strictEqual(template.includes("rules/ai/agents/evidence/enumerated-claim-coverage.md"), false);
+            }
         }
     });
 
@@ -578,35 +506,34 @@ test.describe("prompts – worker – three-section Evidence Report", test => {
         }
     });
 
-    test("introduces AC section with For every acceptance criterion in the task", {
+    test("each part of the instruction is byte-equal to its expected wording", {
         ARRANGE() {},
         ACT() { return prompts.worker; },
-        ASSERT(template) {
-            Assert.ok(template.includes("For every acceptance criterion in the task"));
-        }
-    });
-
-    test("introduces rule section with For every in-scope rule", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERT(template) {
-            Assert.ok(template.includes("For every in-scope rule"));
-        }
-    });
-
-    test("rule section routes absence claims by observability", {
-        ARRANGE() {},
-        ACT() { return workerRuleClaimsParagraph(prompts.worker); },
-        ASSERT(paragraph) {
-            Assert.strictEqual(paragraph, EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH);
-        }
-    });
-
-    test("introduces contract section with For every in-scope contract", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERT(template) {
-            Assert.ok(template.includes("For every in-scope contract"));
+        ASSERTS: {
+            "the lead-in requires a working-tree file:line for every entry"(template) {
+                Assert.strictEqual(
+                    promptBlock(template, "5. Before declaring completion", "\n\n   **Acceptance-criterion claims**"),
+                    EXPECTED_WORKER_EVIDENCE_REPORT_LEAD
+                );
+            },
+            "the acceptance-criterion section asks for one entry per criterion"(template) {
+                Assert.strictEqual(
+                    promptBlock(template, "For every acceptance criterion in the task", "\n\n   **Rule claims**"),
+                    EXPECTED_WORKER_AC_CLAIMS_PARAGRAPH
+                );
+            },
+            "the rule section asks for one entry per in-scope rule"(template) {
+                Assert.strictEqual(
+                    promptBlock(template, "One entry per rule", "\n\n   **Contract claims**"),
+                    EXPECTED_WORKER_RULE_CLAIMS_PARAGRAPH
+                );
+            },
+            "the contract section asks for one entry per in-scope contract"(template) {
+                Assert.strictEqual(
+                    promptBlock(template, "One entry per contract", "\n\nDo not flip the task's checkbox"),
+                    EXPECTED_WORKER_CONTRACT_CLAIMS_PARAGRAPH
+                );
+            }
         }
     });
 
@@ -1867,7 +1794,7 @@ test.describe("prompts – reviewer does not run build or test", test => {
         }
     });
 
-    test("neither reviewer surface re-runs the toolchain or carries the worker-only step", {
+    test("neither reviewer surface re-runs the toolchain", {
         ARRANGE() {},
         ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
         ASSERTS: {
@@ -1877,30 +1804,11 @@ test.describe("prompts – reviewer does not run build or test", test => {
             "reviewerMethodologyCore omits the phrase re-run the toolchain"({ core }) {
                 Assert.strictEqual(core.includes("re-run the toolchain"), false);
             },
-            "prompts.reviewer omits the worker-only step verbatim"({ reviewer }) {
-                Assert.strictEqual(reviewer.includes(EXPECTED_WORKER_TOOLCHAIN_RERUN_STEP), false);
-            },
-            "reviewerMethodologyCore omits the worker-only step verbatim"({ core }) {
-                Assert.strictEqual(core.includes(EXPECTED_WORKER_TOOLCHAIN_RERUN_STEP), false);
-            },
-            "prompts.reviewer omits the worker-only too-weak conclusion"({ reviewer }) {
+            "prompts.reviewer omits the too-weak conclusion"({ reviewer }) {
                 Assert.strictEqual(reviewer.includes("the assertion is too weak"), false);
             },
-            "reviewerMethodologyCore omits the worker-only too-weak conclusion"({ core }) {
+            "reviewerMethodologyCore omits the too-weak conclusion"({ core }) {
                 Assert.strictEqual(core.includes("the assertion is too weak"), false);
-            }
-        }
-    });
-
-    test("prompts.worker keeps the worker-only toolchain-rerun step intact", {
-        ARRANGE() {},
-        ACT() { return prompts.worker; },
-        ASSERTS: {
-            "contains the worker-only step verbatim"(worker) {
-                Assert.ok(worker.includes(EXPECTED_WORKER_TOOLCHAIN_RERUN_STEP));
-            },
-            "the worker-only step ends with re-run the toolchain, and update the report."(worker) {
-                Assert.ok(worker.includes("re-run the toolchain, and update the report."));
             }
         }
     });
