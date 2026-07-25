@@ -789,36 +789,6 @@ test.describe("parseInstallFlags", test => {
         }
     });
 
-    test("--worker-effort=high with --worker-tool=codex are both accepted", {
-        ARRANGE() {
-            return { args: ["--worker-effort=high", "--worker-tool=codex"] };
-        },
-        ACT({ args }) {
-            return parseInstallFlags(args);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, {
-                ok: true,
-                answers: { workerTool: "codex", workerEffort: "high" }
-            });
-        }
-    });
-
-    test("--worker-effort=high with --worker-tool=claude are both accepted (install does not pre-reject)", {
-        ARRANGE() {
-            return { args: ["--worker-effort=high", "--worker-tool=claude"] };
-        },
-        ACT({ args }) {
-            return parseInstallFlags(args);
-        },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, {
-                ok: true,
-                answers: { workerTool: "claude", workerEffort: "high" }
-            });
-        }
-    });
-
     test("no flags returns empty answers", {
         ARRANGE() {
             return { args: [] as string[] };
@@ -3457,70 +3427,117 @@ test.describe("Install effort question", test => {
         }
     });
 
-    test("--worker-effort=ludicrous with --worker-tool=codex is rejected at flag validation", {
+    test("--worker-effort=ludicrous with --worker-tool=codex is accepted verbatim (codex effort is open)", {
         ARRANGE() {
-            const s = stubContexts();
-            let askCalled = false;
-            (s.contexts as { ask:InstallContexts["ask"] }).ask = {
-                askChoices() { askCalled = true; throw new Error("askChoices should not be called"); },
-                askText() { askCalled = true; throw new Error("askText should not be called"); }
-            };
-            return { ...s, wasAskCalled: () => askCalled };
+            return { args: ["--worker-effort=ludicrous", "--worker-tool=codex"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { workerTool: "codex", workerEffort: "ludicrous" }
+            });
+        }
+    });
+
+    test("--reviewer-effort=ludicrous with --reviewer-tool=codex is accepted verbatim (codex effort is open)", {
+        ARRANGE() {
+            return { args: ["--reviewer-effort=ludicrous", "--reviewer-tool=codex"] };
+        },
+        ACT({ args }) {
+            return parseInstallFlags(args);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { reviewers: [{ tool: "codex", effort: "ludicrous" }] }
+            });
+        }
+    });
+
+    test("a non-documented codex worker effort supplied by flag reaches worker.effort verbatim in the written config", {
+        ARRANGE() {
+            return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--worker-effort=ludicrous", "--worker-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=codex", "--worker-model=", "--worker-effort=  Codex-Effort-X  ", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return code;
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
         },
         ASSERTS: {
-            "exits with code 1"(code) {
-                Assert.strictEqual(code, 1);
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
             },
-            "diagnostic is exact"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Invalid value for --worker-effort: \"ludicrous\". Allowed values: minimal, low, medium, high, xhigh.\n");
+            "no effort usage-error diagnostic is written"(_result, { errors }) {
+                Assert.strictEqual(errors.join(""), "");
             },
-            "no interactive prompt was called"(_code, { wasAskCalled }) {
-                Assert.strictEqual(wasAskCalled(), false);
+            "config worker.effort is the non-documented value verbatim (surrounding whitespace and mixed case preserved, not trimmed or case-folded)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "  Codex-Effort-X  ");
+            },
+            "the codex reviewer's empty --reviewer-effort= persists as the empty string"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.effort, "");
             }
         }
     });
 
-    test("--reviewer-effort=ludicrous with --reviewer-tool=codex is rejected at flag validation", {
+    test("claude effort flags with surrounding whitespace reach the worker and both reviewers verbatim in the written config", {
         ARRANGE() {
-            const s = stubContexts();
-            let askCalled = false;
-            (s.contexts as { ask:InstallContexts["ask"] }).ask = {
-                askChoices() { askCalled = true; throw new Error("askChoices should not be called"); },
-                askText() { askCalled = true; throw new Error("askText should not be called"); }
-            };
-            return { ...s, wasAskCalled: () => askCalled };
+            return stubContexts();
         },
         async ACT({ contexts }) {
-            const cmd = new Install(["--reviewer-effort=ludicrous", "--reviewer-tool=codex"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install([
+                "--project",
+                "--skills-tool=claude",
+                "--worker-tool=claude",
+                "--worker-model=",
+                "--worker-effort=  Claude-Effort-W  ",
+                "--reviewer-tool=claude",
+                "--reviewer-model=",
+                "--reviewer-effort=  Claude-Effort-R1  ",
+                "--reviewer-2-tool=claude",
+                "--reviewer-2-model=",
+                "--reviewer-2-effort=  Claude-Effort-R2  ",
+                "--reviewer-minimum=2"
+            ], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return code;
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
         },
         ASSERTS: {
-            "exits with code 1"(code) {
-                Assert.strictEqual(code, 1);
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
             },
-            "diagnostic is exact"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Invalid value for --reviewer-effort: \"ludicrous\". Allowed values: minimal, low, medium, high, xhigh.\n");
+            "no effort usage-error diagnostic is written"(_result, { errors }) {
+                Assert.strictEqual(errors.join(""), "");
             },
-            "no interactive prompt was called"(_code, { wasAskCalled }) {
-                Assert.strictEqual(wasAskCalled(), false);
+            "config worker.effort preserves surrounding whitespace and mixed case (not trimmed or case-folded)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "  Claude-Effort-W  ");
+            },
+            "config reviewer 1 effort preserves surrounding whitespace and mixed case (not trimmed or case-folded)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.effort, "  Claude-Effort-R1  ");
+            },
+            "config reviewer 2 effort preserves surrounding whitespace and mixed case (not trimmed or case-folded)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[1]!.effort, "  Claude-Effort-R2  ");
             }
         }
     });
 
     test("--worker-effort=ludicrous with --worker-tool=claude is accepted (free-text for claude)", {
         ARRANGE() {
-            return {};
+            return { args: ["--worker-effort=ludicrous", "--worker-tool=claude"] };
         },
-        ACT() {
-            return parseInstallFlags(["--worker-effort=ludicrous", "--worker-tool=claude"]);
+        ACT({ args }) {
+            return parseInstallFlags(args);
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, {
@@ -3532,10 +3549,10 @@ test.describe("Install effort question", test => {
 
     test("--worker-effort= with --worker-tool=codex is accepted (empty means default)", {
         ARRANGE() {
-            return {};
+            return { args: ["--worker-effort=", "--worker-tool=codex"] };
         },
-        ACT() {
-            return parseInstallFlags(["--worker-effort=", "--worker-tool=codex"]);
+        ACT({ args }) {
+            return parseInstallFlags(args);
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, {
@@ -6236,27 +6253,22 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
         }
     });
 
-    test("--reviewer-2-effort=ludicrous with --reviewer-2-tool=codex is rejected", {
+    test("--reviewer-2-effort=ludicrous with --reviewer-2-tool=codex is accepted verbatim (codex effort is open)", {
         ARRANGE() {
             return { args: ["--reviewer-tool=claude", "--reviewer-2-tool=codex", "--reviewer-2-effort=ludicrous"] };
         },
         ACT({ args }) {
             return parseInstallFlags(args);
         },
-        ASSERTS: {
-            "returns ok:false"(result) {
-                Assert.strictEqual(result.ok, false);
-            },
-            "diagnostic names --reviewer-2-effort"(result) {
-                if (result.ok) {
-                    throw new Error("expected failure");
-                }
-                Assert.strictEqual(result.diagnostic, `Invalid value for --reviewer-2-effort: "ludicrous". Allowed values: minimal, low, medium, high, xhigh.\n`);
-            }
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, {
+                ok: true,
+                answers: { reviewers: [{ tool: "claude" }, { tool: "codex", effort: "ludicrous" }] }
+            });
         }
     });
 
-    test("--reviewer-2-effort=ludicrous BEFORE --reviewer-2-tool=codex is still rejected (argv order independent)", {
+    test("--reviewer-2-effort=ludicrous BEFORE --reviewer-2-tool=codex is still accepted verbatim (argv order independent)", {
         ARRANGE() {
             return { args: ["--reviewer-tool=claude", "--reviewer-2-effort=ludicrous", "--reviewer-2-tool=codex"] };
         },
@@ -6265,24 +6277,47 @@ test.describe("Install indexed reviewer flags (multiple reviewers)", test => {
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, {
-                ok: false,
-                diagnostic: `Invalid value for --reviewer-2-effort: "ludicrous". Allowed values: minimal, low, medium, high, xhigh.\n`
+                ok: true,
+                answers: { reviewers: [{ tool: "claude" }, { tool: "codex", effort: "ludicrous" }] }
             });
         }
     });
 
-    test("--reviewer-2-effort=high BEFORE --reviewer-2-tool=codex is still accepted (argv order independent)", {
+    test("an undocumented --reviewer-2-effort on a codex reviewer 2 reaches config.reviewers[1].effort verbatim through install", {
         ARRANGE() {
-            return { args: ["--reviewer-tool=claude", "--reviewer-2-effort=high", "--reviewer-2-tool=codex"] };
+            return stubContexts();
         },
-        ACT({ args }) {
-            return parseInstallFlags(args);
+        async ACT({ contexts }) {
+            const cmd = new Install([
+                "--project",
+                "--skills-tool=claude",
+                "--worker-tool=claude",
+                "--worker-model=",
+                "--worker-effort=",
+                "--reviewer-tool=claude",
+                "--reviewer-model=",
+                "--reviewer-effort=",
+                "--reviewer-2-tool=codex",
+                "--reviewer-2-model=",
+                "--reviewer-2-effort=  Codex-Effort-R2  ",
+                "--reviewer-minimum=2"
+            ], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
         },
-        ASSERT(result) {
-            Assert.deepStrictEqual(result, {
-                ok: true,
-                answers: { reviewers: [{ tool: "claude" }, { tool: "codex", effort: "high" }] }
-            });
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "no effort usage-error diagnostic is written"(_result, { errors }) {
+                Assert.strictEqual(errors.join(""), "");
+            },
+            "config reviewer 2 effort is the undocumented value verbatim (surrounding whitespace and mixed case preserved, not trimmed or case-folded)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[1]!.effort, "  Codex-Effort-R2  ");
+            }
         }
     });
 
@@ -6770,6 +6805,10 @@ test.describe("Install weighted-review collection (2.2)", test => {
             "reviewer 2 is optional (--reviewer-2-optional)"({ config }) {
                 Assert.ok(config);
                 Assert.strictEqual(config.reviewers[1]!.optional, true);
+            },
+            "reviewer 2's persisted effort is the empty string (--reviewer-2-effort=)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[1]!.effort, "");
             }
         }
     });
@@ -7052,53 +7091,57 @@ test.describe("Install weighted-review collection (2.2)", test => {
     });
 });
 
-test.describe("Install codex effort re-validation after late tool resolution", test => {
-    test("--worker-effort with a non-documented codex level is rejected once the worker tool resolves to codex interactively", {
+test.describe("Install codex effort accepted verbatim after late tool resolution", test => {
+    test("--worker-effort with a non-documented codex level is accepted verbatim once the worker tool resolves to codex interactively", {
         ARRANGE() {
             const s = stubContexts();
             s.askResponses.push([{ picked: [{ label: "codex" }] }]); // worker tool -> codex
             return s;
         },
         async ACT({ contexts }) {
-            // --worker-effort carries a value codex does not document and --worker-tool is omitted, so
-            // parse-time cannot validate it against codex; the worker tool resolves to codex interactively
-            // and the re-validation rejects the effort before any worker model prompt.
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-effort=ultra"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-model=", "--worker-effort=  Codex-Effort-W  ", "--reviewer-tool=codex", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return code;
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
         },
         ASSERTS: {
-            "exits with code 1"(code) {
-                Assert.strictEqual(code, 1);
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
             },
-            "diagnostic names the worker-effort flag and the offending value exactly"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Invalid value for --worker-effort: \"ultra\". Allowed values: minimal, low, medium, high, xhigh.\n");
+            "no effort usage-error diagnostic is written"(_result, { errors }) {
+                Assert.strictEqual(errors.join(""), "");
+            },
+            "config worker.effort is the non-documented value verbatim (surrounding whitespace and mixed case preserved, not trimmed or case-folded)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.effort, "  Codex-Effort-W  ");
             }
         }
     });
 
-    test("--reviewer-effort with a non-documented codex level is rejected once reviewer 1 resolves to codex interactively", {
+    test("--reviewer-effort with a non-documented codex level is accepted verbatim once reviewer 1 resolves to codex interactively", {
         ARRANGE() {
             const s = stubContexts();
             s.askResponses.push([{ picked: [{ label: "codex" }] }]); // reviewer 1 tool -> codex
             return s;
         },
         async ACT({ contexts }) {
-            // The worker is fully flag-supplied, so reviewer 1's tool is the first prompt. --reviewer-effort
-            // carries a value codex does not document with --reviewer-tool omitted, so the re-validation
-            // rejects it after the reviewer tool resolves to codex, before the reviewer model prompt.
-            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-effort=ultra"], { projectRoot: "/proj" }, contexts);
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-model=", "--reviewer-effort=  Codex-Effort-R1  "], { projectRoot: "/proj" }, contexts);
             const code = await cmd.result();
             await cmd.dispose();
-            return code;
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
         },
         ASSERTS: {
-            "exits with code 1"(code) {
-                Assert.strictEqual(code, 1);
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
             },
-            "diagnostic names the reviewer-effort flag and the offending value exactly"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Invalid value for --reviewer-effort: \"ultra\". Allowed values: minimal, low, medium, high, xhigh.\n");
+            "no effort usage-error diagnostic is written"(_result, { errors }) {
+                Assert.strictEqual(errors.join(""), "");
+            },
+            "config reviewer 1 effort is the non-documented value verbatim (surrounding whitespace and mixed case preserved, not trimmed or case-folded)"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.reviewers[0]!.effort, "  Codex-Effort-R1  ");
             }
         }
     });

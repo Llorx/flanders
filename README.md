@@ -123,7 +123,7 @@ A presence flag, `--reviewer-fast` / `--reviewer-N-fast`, enables Claude Code's 
 - `--reviewer-optional` / `--reviewer-N-optional` — a presence flag that marks that reviewer optional; a reviewer with no such flag is required.
 - `--reviewer-minimum=<value>` — the minimum number of reviewers that must run to a verdict each round, an integer between `1` and the number of configured reviewers.
 
-A tool flag, or the `codex` effort flag, rejects a value outside its accepted set; model flags and the `claude` effort flag accept any value verbatim. Supplying a weighted-review flag with a single reviewer — or a `--reviewer-minimum` equal to the reviewer count together with any optional flag — is a usage error.
+A tool flag rejects a value outside its accepted set; model and effort flags accept any value verbatim, for every tool. Supplying a weighted-review flag with a single reviewer — or a `--reviewer-minimum` equal to the reviewer count together with any optional flag — is a usage error.
 
 ### Overwriting and output
 

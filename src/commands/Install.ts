@@ -95,22 +95,6 @@ function validateClosedSet(value:string, allowed:readonly string[], flagName:str
 
 const CODEX_EFFORT_LEVELS:readonly string[] = ["minimal", "low", "medium", "high", "xhigh"];
 
-// Validate an effort flag value against the tool it applies to, mirroring the per-tool effort rules.
-// An empty value is always accepted (it resolves to "default configured effort"). For `codex` the
-// value must be one of the closed documented levels. For `claude` (and when the tool is not yet known
-// from a flag) effort is open and unvalidated. Returns the diagnostic to reject with, or null when the
-// value is valid. Pinned by `.spec/contracts/cli-commands/install.md` and
-// `src/commands/.spec/rules/install.md`.
-function validateEffortForTool(value:string, tool:ToolName|undefined, flagName:string):string|null {
-    if (value === "") {
-        return null;
-    }
-    if (tool === "codex") {
-        return validateClosedSet(value, CODEX_EFFORT_LEVELS, flagName);
-    }
-    return null;
-}
-
 // Parse a `--skills-tool` value: a comma-separated list of one or more distinct names drawn from the
 // closed tool set. An empty list, an unknown name, or a repeated name is a usage error naming the
 // offending value, per `.spec/contracts/cli-commands/install.md`.
@@ -341,8 +325,6 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
     }
     const workerEffort = extractFlagValue(rawArgs, "--worker-effort");
     if (workerEffort !== undefined) {
-        const error = validateEffortForTool(workerEffort, answers.workerTool, "--worker-effort");
-        if (error) return { ok: false, diagnostic: error };
         answers.workerEffort = workerEffort;
     }
     const reviewerIndices = new Map<number, { tool?:ToolName; model?:string; effort?:string }>();
@@ -360,15 +342,9 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
         reviewerIndices.get(1)!.model = reviewer1Model;
     }
     if (reviewer1Effort !== undefined) {
-        const tool1 = reviewerIndices.get(1)?.tool;
-        const error = validateEffortForTool(reviewer1Effort, tool1, "--reviewer-effort");
-        if (error) return { ok: false, diagnostic: error };
         if (!reviewerIndices.has(1)) reviewerIndices.set(1, {});
         reviewerIndices.get(1)!.effort = reviewer1Effort;
     }
-    // First pass: collect every indexed reviewer flag without effort-against-tool validation,
-    // since the tool flag may appear after the effort flag in argv (`rules/install/effort-set-discovery.md`
-    // requires the codex closed set to be enforced regardless of argv order).
     for (const arg of rawArgs) {
         const match = arg.match(REVIEWER_INDEXED_RE);
         if (!match) continue;
@@ -388,13 +364,6 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
             entry.model = value;
         } else {
             entry.effort = value;
-        }
-    }
-    // Second pass: validate every collected effort against its now-known tool.
-    for (const [idx, entry] of reviewerIndices) {
-        if (entry.effort !== undefined) {
-            const error = validateEffortForTool(entry.effort, entry.tool, `--reviewer-${idx}-effort`);
-            if (error) return { ok: false, diagnostic: error };
         }
     }
     if (reviewerIndices.size > 0) {
@@ -763,8 +732,8 @@ export class Install {
             const options:ChoiceOption[] = CODEX_EFFORT_LEVELS.map(e => ({ label: e }));
             options.push({ label: "default configured effort" });
             // Pre-select the documented level reproducing the stored effort, or the synthetic
-            // default entry for the empty string. The codex effort set is closed, so a stored
-            // effort is always one of these entries.
+            // default entry for the empty string. Effort values are open, so a stored effort
+            // outside the documented list matches no entry and forces no default.
             let effortDefaultLabel:string|undefined;
             if (preselect !== undefined) {
                 effortDefaultLabel = preselect === "" ? "default configured effort" : preselect;
@@ -863,17 +832,6 @@ export class Install {
                 return null;
             }
             tool = option.label as ToolName;
-        }
-        // Re-validate the supplied effort flag against the now-resolved reviewer tool. As with the
-        // worker, parse-time validation only covers a tool fixed by a flag; an effort the resolved tool
-        // forbids (a non-documented level for codex) is rejected here with a diagnostic naming the
-        // offending flag and value, before any further prompt.
-        if (supplied?.effort !== undefined) {
-            const effortError = validateEffortForTool(supplied.effort, tool, idx === 1 ? "--reviewer-effort" : `--reviewer-${idx}-effort`);
-            if (effortError !== null) {
-                contexts.output.writeError(effortError);
-                return null;
-            }
         }
         // The stored reviewer's model and effort seed their questions through the same resolvers as
         // the worker; a fresh position passes undefined and keeps the fresh default.
@@ -992,18 +950,6 @@ export class Install {
                     return 1;
                 }
                 workerTool = option.label as ToolName;
-            }
-            // Re-validate the supplied --worker-effort against the now-resolved worker tool. Parse-time
-            // validation can only run when --worker-tool fixes the tool; when the tool is resolved
-            // interactively or from a stored default, an effort the resolved tool forbids (a
-            // non-documented level for codex) is caught here with a diagnostic naming the offending flag
-            // and value, before any further prompt.
-            if (answers.workerEffort !== undefined) {
-                const effortError = validateEffortForTool(answers.workerEffort, workerTool, "--worker-effort");
-                if (effortError !== null) {
-                    contexts.output.writeError(effortError);
-                    return 1;
-                }
             }
             const workerModel = await this._resolveRoleModel("the worker", "Worker model", workerTool, answers.workerModel, contexts, storedConfig?.worker.model);
             if (workerModel === null) {
