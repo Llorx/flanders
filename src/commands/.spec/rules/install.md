@@ -137,6 +137,8 @@ When `install` asks the user for a model identifier for the worker or the review
   |---|---|
   | `Latest Opus` | `opus` |
   | `Latest Opus [1m context]` | `opus[1m]` |
+  | `Opus 5` | `claude-opus-5` |
+  | `Opus 5 [1m context]` | `claude-opus-5[1m]` |
   | `Opus 4.8` | `claude-opus-4-8` |
   | `Opus 4.8 [1m context]` | `claude-opus-4-8[1m]` |
   | `Opus 4.7` | `claude-opus-4-7` |
@@ -243,9 +245,9 @@ After the effort question for the worker or a reviewer, `install` asks whether t
 
 ### Which models support fast mode
 
-A model supports fast mode when its persisted model identifier is one of: `opus`, `opus[1m]`, `claude-opus-4-8`, `claude-opus-4-8[1m]`, `claude-opus-4-7`, `claude-opus-4-7[1m]`.
+A model supports fast mode when its persisted model identifier is one of: `opus`, `opus[1m]`, `claude-opus-5`, `claude-opus-5[1m]`, `claude-opus-4-8`, `claude-opus-4-8[1m]`, `claude-opus-4-7`, `claude-opus-4-7[1m]`.
 
-These are the Opus 4.8 and Opus 4.7 entries of the `claude` catalog pinned in [src/commands/.spec/rules/install.md#the-model-list-is-sourced-per-tool-codex-by-probe-claude-from-a-hand-maintained-catalog](/src/commands/.spec/rules/install.md#the-model-list-is-sourced-per-tool-codex-by-probe-claude-from-a-hand-maintained-catalog): the auto-updating `Latest Opus` alias, which resolves to a fast-capable Opus, the pinned Opus 4.8 and Opus 4.7 identifiers, and each one's 1M-context variant; no other `claude` model identifier supports fast mode, whether selected from the catalog, typed as a custom value, or left as the empty `default configured model`. When Claude Code changes which models support fast mode — for example when fast mode for Opus 4.7 is removed — this rule is updated to track that change.
+These are the Opus 5, Opus 4.8, and Opus 4.7 entries of the `claude` catalog pinned in [src/commands/.spec/rules/install.md#the-model-list-is-sourced-per-tool-codex-by-probe-claude-from-a-hand-maintained-catalog](/src/commands/.spec/rules/install.md#the-model-list-is-sourced-per-tool-codex-by-probe-claude-from-a-hand-maintained-catalog): the auto-updating `Latest Opus` alias, which resolves to a fast-capable Opus, the pinned Opus 5, Opus 4.8, and Opus 4.7 identifiers, and each one's 1M-context variant; no other `claude` model identifier supports fast mode, whether selected from the catalog, typed as a custom value, or left as the empty `default configured model`. When Claude Code changes which models support fast mode — for example when fast mode for Opus 4.7 is removed — this rule is updated to track that change.
 
 ### When the question is asked, and its default
 

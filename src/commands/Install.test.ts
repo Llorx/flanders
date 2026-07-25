@@ -2131,12 +2131,48 @@ test.describe("Install model question", test => {
             "the Opus submenu options are exactly the Opus catalog entries then back, in order"(_result, { capture }) {
                 Assert.deepStrictEqual(
                     capture.optionsForQuestion("Which Opus model should the worker use?")[0],
-                    ["Latest Opus", "Latest Opus [1m context]", "Opus 4.8", "Opus 4.8 [1m context]", "Opus 4.7", "Opus 4.7 [1m context]", "Opus 4.6", "Opus 4.6 [1m context]", "← back"]
+                    ["Latest Opus", "Latest Opus [1m context]", "Opus 5", "Opus 5 [1m context]", "Opus 4.8", "Opus 4.8 [1m context]", "Opus 4.7", "Opus 4.7 [1m context]", "Opus 4.6", "Opus 4.6 [1m context]", "← back"]
                 );
             },
             "config worker.model is the full Opus 4.8 1M identifier verbatim"({ config }) {
                 Assert.ok(config);
                 Assert.strictEqual(config.worker.model, "claude-opus-4-8[1m]");
+            }
+        }
+    });
+
+    test("claude Opus 5 submenu entries persist their exact identifiers and are fast-capable", {
+        ARRANGE() {
+            const s = stubContexts();
+            const capture = captureModelMenu(s);
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // worker model -> Opus family submenu
+            s.askResponses.push([{ picked: [{ label: "Opus 5" }] }]); // worker submenu -> Opus 5
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // worker fast (Opus 5 supports fast mode) -> off
+            s.askResponses.push([{ picked: [{ label: "Opus" }] }]); // reviewer model -> Opus family submenu
+            s.askResponses.push([{ picked: [{ label: "Opus 5 [1m context]" }] }]); // reviewer submenu -> Opus 5 1M
+            s.askResponses.push([{ picked: [{ label: "no" }] }]); // reviewer fast (Opus 5 1M supports fast mode) -> off
+            return { ...s, capture };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=claude", "--worker-tool=claude", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            const config = await readConfig(contexts.fs, { projectRoot: "/proj", homeDir: "/home/testuser" });
+            return { code, config };
+        },
+        ASSERTS: {
+            "exits 0"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "config worker.model is the Opus 5 identifier verbatim"({ config }) {
+                Assert.ok(config);
+                Assert.strictEqual(config.worker.model, "claude-opus-5");
+            },
+            "config reviewer.model is the Opus 5 1M identifier verbatim"({ config }) {
+                Assert.ok(config);
+                const reviewer = config.reviewers[0];
+                Assert.ok(reviewer);
+                Assert.strictEqual(reviewer.model, "claude-opus-5[1m]");
             }
         }
     });

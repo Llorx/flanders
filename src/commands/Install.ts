@@ -161,6 +161,8 @@ const CLAUDE_MODEL_FAMILIES:readonly ModelGroup[] = [
         entries: [
             { label: "Latest Opus", value: "opus" },
             { label: "Latest Opus [1m context]", value: "opus[1m]" },
+            { label: "Opus 5", value: "claude-opus-5" },
+            { label: "Opus 5 [1m context]", value: "claude-opus-5[1m]" },
             { label: "Opus 4.8", value: "claude-opus-4-8" },
             { label: "Opus 4.8 [1m context]", value: "claude-opus-4-8[1m]" },
             { label: "Opus 4.7", value: "claude-opus-4-7" },

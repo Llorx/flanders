@@ -5,15 +5,15 @@ import test from "arrange-act-assert";
 import { modelSupportsFastMode } from "./fastMode";
 
 test.describe("modelSupportsFastMode predicate boundaries", test => {
-    test("returns true for each of the six fast-capable identifiers", {
+    test("returns true for each of the eight fast-capable identifiers", {
         ARRANGE() {
-            return { ids: ["opus", "opus[1m]", "claude-opus-4-8", "claude-opus-4-8[1m]", "claude-opus-4-7", "claude-opus-4-7[1m]"] };
+            return { ids: ["opus", "opus[1m]", "claude-opus-5", "claude-opus-5[1m]", "claude-opus-4-8", "claude-opus-4-8[1m]", "claude-opus-4-7", "claude-opus-4-7[1m]"] };
         },
         ACT({ ids }) {
             return ids.map(modelSupportsFastMode);
         },
         ASSERT(results) {
-            Assert.deepStrictEqual(results, [true, true, true, true, true, true]);
+            Assert.deepStrictEqual(results, [true, true, true, true, true, true, true, true]);
         }
     });
 
