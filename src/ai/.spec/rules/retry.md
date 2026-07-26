@@ -14,7 +14,7 @@ The AI runner (see [src/ai/.spec/contracts/ai-runner.md](/src/ai/.spec/contracts
 When the adapter emits its terminal event, the runner reacts as follows:
 
 - `{ type: "done" }` — the runner returns success to the caller.
-- `{ type: "rate_limit", waitUntilMs }` — the runner waits until `waitUntilMs` per [src/ai/.spec/rules/retry.md#long-waits-run-as-a-loop-of-bounded-chunks](/src/ai/.spec/rules/retry.md#long-waits-run-as-a-loop-of-bounded-chunks) (chunked when the wait exceeds an hour), then re-invokes the same adapter with the same arguments, reusing the captured `session_id` per [src/ai/.spec/rules/retry.md#retries-reuse-the-interrupted-calls-session_id](/src/ai/.spec/rules/retry.md#retries-reuse-the-interrupted-calls-session_id).
+- `{ type: "rate_limit", waitUntilMs }` — the runner waits toward `waitUntilMs` as a loop of retry attempts per [src/ai/.spec/rules/retry.md#rate-limit-waits-retry-the-invocation-at-most-every-30-minutes](/src/ai/.spec/rules/retry.md#rate-limit-waits-retry-the-invocation-at-most-every-30-minutes), each attempt re-invoking the same adapter with the same arguments and reusing the captured `session_id` per [src/ai/.spec/rules/retry.md#retries-reuse-the-interrupted-calls-session_id](/src/ai/.spec/rules/retry.md#retries-reuse-the-interrupted-calls-session_id), until an attempt gets past the limit.
 - `{ type: "error", retryable: true, message }` — the runner waits per [src/ai/.spec/rules/retry.md#transient-retries-use-exponential-backoff-capped-at-one-minute](/src/ai/.spec/rules/retry.md#transient-retries-use-exponential-backoff-capped-at-one-minute) (exponential backoff capped at one minute), then re-invokes the same adapter with the same arguments, reusing the captured `session_id`.
 - `{ type: "error", retryable: false, message }` — the runner stops, surfaces the error to the caller, and does not re-invoke. The `message` is what the caller sees and what is logged to `error.log`. The runner preserves the event's `fatal` marker (see [src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface](/src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface)) when it surfaces the failure: a `fatal: false` error is an ordinary non-retryable failure, while a `fatal: true` error is a fatal authentication/login failure the caller must treat as run-ending per [src/ai/.spec/contracts/ai-runner.md](/src/ai/.spec/contracts/ai-runner.md). The retry decision is identical for both — the runner never re-invokes on either — so `fatal` changes only how the failure is surfaced, not whether it is retried.
 
@@ -68,6 +68,34 @@ The backoff counter resets to its initial wait the moment a call succeeds. A fut
 - The runner caps the wait at a value other than one minute, or removes the cap entirely.
 - The backoff fails to reset after a success, so a single later transient failure inherits the long wait of a previous outage.
 - The runner gives up after a finite retry count, propagating a transient error the caller would otherwise have absorbed.
+
+## Rate-limit waits retry the invocation at most every 30 minutes
+
+A rate-limit wait is a loop of retry attempts, not a single sleep to the reported end. Each interval of the loop lasts until the earlier of the wait's current expected end and 30 minutes after that interval began; when the interval elapses, the runner attempts the call again. A reported end can be hours or days away while the underlying limit clears much earlier — or the interrupted session recovers on its own — so attempting on a bounded cadence gets the invocation working again as soon as it actually can, instead of holding it idle until the announced instant.
+
+### Who this applies to
+
+- **Subject:** the AI runner, on the wait it performs for a `{ type: "rate_limit", waitUntilMs }` terminal event (see [src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface](/src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface)).
+- **Not subject:** the transient-error backoff (see [src/ai/.spec/rules/retry.md#transient-retries-use-exponential-backoff-capped-at-one-minute](/src/ai/.spec/rules/retry.md#transient-retries-use-exponential-backoff-capped-at-one-minute)), which is already capped at one minute and needs no intermediate attempts; and the per-tool adapters, which report the limit and its end and take no part in the wait.
+
+### How the loop progresses
+
+1. **Wait an interval.** The runner sleeps until the earlier of the wait's current expected end and 30 minutes from the start of this interval. That bound also satisfies [src/ai/.spec/rules/retry.md#long-waits-run-as-a-loop-of-bounded-chunks](/src/ai/.spec/rules/retry.md#long-waits-run-as-a-loop-of-bounded-chunks): the retry interval is this wait's bounded chunk, so no single sleep of a rate-limit wait ever runs longer than 30 minutes, and each interval re-anchors against the current clock.
+2. **Attempt.** On wake the runner re-invokes the same adapter with the same arguments, reusing the captured `session_id` per [src/ai/.spec/rules/retry.md#retries-reuse-the-interrupted-calls-session_id](/src/ai/.spec/rules/retry.md#retries-reuse-the-interrupted-calls-session_id) — the same re-invocation any retry performs.
+3. **Still limited.** When that attempt ends in another `rate_limit` event without having produced any other event first, the wait continues: its expected end becomes the instant the new event reports, and step 1 runs again, measured from this attempt. The invocation stays inside the wait it was already in, and the runner keeps reporting it as one continuous wait with a fresh next-retry instant (see [src/ai/.spec/contracts/ai-runner.md](/src/ai/.spec/contracts/ai-runner.md), `Surfacing waits to the caller`).
+4. **Past the limit.** When the attempt produces anything else — any event of the invocation's ordinary progress, or a terminal `done` or `error` — the wait is over: the runner reports leaving the wait and handles that attempt exactly as it handles any invocation, per [src/ai/.spec/rules/retry.md#the-runner-retries-retryable-errors-and-rate-limits-via-the-tool-interface-events](/src/ai/.spec/rules/retry.md#the-runner-retries-retryable-errors-and-rate-limits-via-the-tool-interface-events).
+
+When the caller forces an immediate retry (see [src/ai/.spec/contracts/ai-runner.md](/src/ai/.spec/contracts/ai-runner.md), `Forcing an immediate retry`), the current interval ends at once and the attempt of step 2 runs there and then; if it finds the tool still limited, the next interval is measured from that forced attempt, so the following automatic attempt lands 30 minutes after the forced one.
+
+### Failure signals
+
+- The runner sleeps to the reported end in one stretch — or in chunks that only re-anchor the clock without re-invoking — so a limit that cleared hours ago leaves the invocation idle until the announced instant.
+- An interval of a rate-limit wait runs longer than 30 minutes, or runs past the wait's expected end.
+- An attempt that finds the tool still limited is surfaced as the wait ending and a new wait starting, so the caller's waiting presentation flaps and everything keyed to the invocation being waiting or running toggles with it.
+- The wait keeps its original expected end after an attempt reported a different one.
+- The runner counts the attempts and gives up after a maximum, propagating a rate-limit failure the caller would otherwise have had absorbed.
+- A forced attempt leaves the automatic interval anchored where it was, so an attempt fires moments after the forced one.
+- An attempt re-invokes with arguments other than the original ones, or without the captured `session_id`, turning each attempt into a fresh conversation.
 
 ## Long waits run as a loop of bounded chunks
 

@@ -121,14 +121,14 @@ The footer's waiting state is reserved for retry waits long enough to be worth s
 - The waiting state activates without an expected end or countdown to show, because the wait's duration is not knowable upfront.
 - A future long-running retry type is introduced without explicitly opting into or out of the waiting footer state.
 
-## The waiting footer label shows a heading, an expected end, and a countdown
+## The waiting footer label shows a heading, an expected end, a countdown, and the pending retry
 
-When the footer is in its waiting state (as defined by the UI contract), the label conveys three pieces of information so the user can both recognize what kind of wait this is and see when normal work will resume.
+When the footer is in its waiting state (as defined by the UI contract), the label conveys four pieces of information so the user can recognize what kind of wait this is, see when normal work will resume at the latest, and see when the invocation next retries behind that end.
 
 ### Who this applies to
 
 - **Subject:** the bottom-fixed UI block, specifically the footer line while it is in the waiting state.
-- **Scope:** the visible content of the label during that state. Which retries trigger the state lives in [src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-state-appears-only-for-long-retry-waits](/src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-state-appears-only-for-long-retry-waits).
+- **Scope:** the visible content of the label during that state. Which retries trigger the state lives in [src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-state-appears-only-for-long-retry-waits](/src/ui/.spec/rules/ui-behavior.md#the-waiting-footer-state-appears-only-for-long-retry-waits); the cadence of the retries the label reports lives in [src/ai/.spec/rules/retry.md#rate-limit-waits-retry-the-invocation-at-most-every-30-minutes](/src/ai/.spec/rules/retry.md#rate-limit-waits-retry-the-invocation-at-most-every-30-minutes).
 
 ### What the label shows
 
@@ -138,8 +138,9 @@ When the footer is in its waiting state (as defined by the UI contract), the lab
   - `<minutes> minutes` when the remaining wait is shorter than one hour.
   - `<hours> hours <minutes> minutes` when the remaining wait is at least one hour but shorter than one day.
   - `<days> days, <hours> hours, <minutes> minutes` when the remaining wait is at least one day.
+- **The pending retry**, shown as `retrying in <minutes>m (F5)` — the whole minutes left until the next retry the runner will attempt inside this wait, followed by the literal `(F5)`, which tells the user that key brings the retry forward (see [.spec/contracts/cli-commands/implement/non-interactive.md](/.spec/contracts/cli-commands/implement/non-interactive.md), `Key input`). This element is present while the next-retry instant falls before the wait's expected end; when the next retry is the wait's own end, the label carries the heading, the expected end, and the countdown alone, since the two remaining times are then the same figure.
 
-The countdown is part of the redraw and recomputes from the current clock and the target end time. It is never stored as a precomputed string between redraws (see [src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state](/src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state)).
+The countdown and the pending retry's minutes are both part of the redraw and recompute from the current clock and, respectively, the target end time and the next-retry instant. Neither is stored as a precomputed string between redraws (see [src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state](/src/ui/.spec/rules/ui-behavior.md#live-terminal-regions-redraw-from-structured-state)), and whether the pending-retry element is present is decided on each redraw from the two instants the runner last reported.
 
 ### Failure signals
 
@@ -147,3 +148,7 @@ The countdown is part of the redraw and recomputes from the current clock and th
 - The expected end is missing or shown in a different format from the rest of the UI's time fields.
 - The countdown crosses a unit boundary (one hour, one day) without switching to the matching wider format.
 - The countdown is precomputed when the wait starts and replayed verbatim on later redraws.
+- The label omits the pending retry while a retry is scheduled before the expected end, leaving the user unable to see that the session is being retried behind the announced end or that F5 brings that retry forward.
+- The pending-retry element is shown when the next retry is the wait's own end, restating the countdown as a second figure.
+- The pending-retry minutes are computed once when the interval starts and replayed on later redraws, so the figure sits still while the interval runs down.
+- The pending-retry element's presence is decided once when the wait is entered and kept for the whole wait, so it survives after a retry reported a next-retry instant that has become the wait's end.
