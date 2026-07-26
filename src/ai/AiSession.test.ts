@@ -6,6 +6,8 @@ import { AiSession } from "./AiSession";
 import type { AiSessionContexts, AiSessionOptions } from "./AiSession";
 import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent } from "./ToolAdapter";
 import type { OutputContext, TimeContext, TimeoutHandle } from "../contexts";
+import { manualTimeContext } from "../system/manualTimeContext.fixtures";
+import { settleAsyncWork as flush } from "../system/settleAsyncWork.fixtures";
 
 function stubAdapter(invocations:readonly (readonly ToolEvent[])[]):{
     adapter:ToolAdapter;
@@ -409,6 +411,127 @@ test.describe("AiSession", test => {
         }
     });
 
+    test("forceRetry advances the pending attempt of the in-flight session", {
+        ARRANGE() {
+            const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
+            const { adapter, $invokeArgs } = stubAdapter([
+                [
+                    { type: "session", id: "session-1" },
+                    { type: "rate_limit", waitUntilMs: FOUR_DAYS_MS }
+                ],
+                [{ type: "done" }]
+            ]);
+            const { output } = captureOutput();
+            const time = manualTimeContext();
+            let waitStartCount = 0;
+            let waitEndCount = 0;
+            const session = new AiSession({
+                adapter,
+                prompt: "p",
+                model: "",
+                effort: "",
+                fast: false,
+                onLongWaitStart: () => { waitStartCount++; },
+                onLongWaitEnd: () => { waitEndCount++; }
+            }, { time, output });
+            return {
+                session,
+                time,
+                $invokeArgs,
+                waitStartCount: () => waitStartCount,
+                waitEndCount: () => waitEndCount
+            };
+        },
+        async ACT({ session, time, $invokeArgs }) {
+            const runPromise = session.run();
+            await flush();
+            session.forceRetry();
+            await flush();
+            const afterForce = { invocationCount: $invokeArgs.length, now: time.now() };
+            const result = await runPromise;
+            return { afterForce, result };
+        },
+        ASSERTS: {
+            "the adapter is invoked again immediately"(result) {
+                Assert.strictEqual(result.afterForce.invocationCount, 2);
+            },
+            "the fake clock does not advance"(result) {
+                Assert.strictEqual(result.afterForce.now, 0);
+            },
+            "the forced attempt resumes the captured session"(_result, { $invokeArgs }) {
+                Assert.strictEqual($invokeArgs[1]!.resumeSessionId, "session-1");
+            },
+            "the session returns the captured session id"(result) {
+                Assert.strictEqual(result.result.sessionId, "session-1");
+            },
+            "the caller receives one wait entry"(_result, { waitStartCount }) {
+                Assert.strictEqual(waitStartCount(), 1);
+            },
+            "the caller receives one wait end"(_result, { waitEndCount }) {
+                Assert.strictEqual(waitEndCount(), 1);
+            }
+        }
+    });
+
+    test("forceRetry after a successful session is a no-op", {
+        ARRANGE() {
+            const built = buildSession([{ type: "done" }]);
+            return built;
+        },
+        async ACT({ session, $invokeArgs }) {
+            await session.run();
+            session.forceRetry();
+            await flush();
+            return $invokeArgs.length;
+        },
+        ASSERT(invocationCount) {
+            Assert.strictEqual(invocationCount, 1);
+        }
+    });
+
+    test("disposing a waiting session aborts its interval and disables forceRetry", {
+        ARRANGE() {
+            const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
+            const { adapter, $invokeArgs } = stubAdapter([
+                [{ type: "rate_limit", waitUntilMs: FOUR_DAYS_MS }],
+                [{ type: "done" }]
+            ]);
+            const { output } = captureOutput();
+            const time = manualTimeContext();
+            let waitEndCount = 0;
+            const session = new AiSession({
+                adapter,
+                prompt: "p",
+                model: "",
+                effort: "",
+                fast: false,
+                onLongWaitEnd: () => { waitEndCount++; }
+            }, { time, output });
+            return { session, time, $invokeArgs, waitEndCount: () => waitEndCount };
+        },
+        async ACT({ session, time }) {
+            const runPromise = session.run();
+            const runResult = monad(() => runPromise);
+            await flush();
+            await session.dispose();
+            session.forceRetry();
+            time.$advance(4 * 24 * 60 * 60 * 1000);
+            await flush();
+            return await runResult;
+        },
+        ASSERTS: {
+            "the waiting run rejects as aborted"(result) {
+                result.should.error({ name: "AbortError" });
+            },
+            "dispose and the later force do not invoke the adapter again"(_result, { $invokeArgs }) {
+                Assert.strictEqual($invokeArgs.length, 1);
+            },
+            "disposing reports the end of the wait once"(_result, { waitEndCount }) {
+                Assert.strictEqual(waitEndCount(), 1);
+            }
+        }
+    });
+
     test("Result with empty details renders (empty)", {
         ARRANGE() {
             const events:ToolEvent[] = [
@@ -527,13 +650,12 @@ test.describe("AiSession", test => {
         },
         async ACT({ session }) {
             const runPromise = session.run();
+            const runResult = monad(() => runPromise);
             await session.dispose();
-            const err = await runPromise.catch(e => e);
-            return err;
+            return await runResult;
         },
-        ASSERT(err) {
-            Assert.ok(err instanceof Error);
-            Assert.strictEqual(err.name, "AbortError");
+        ASSERT(result) {
+            result.should.error({ name: "AbortError" });
         }
     });
 

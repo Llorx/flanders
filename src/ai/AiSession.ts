@@ -2,7 +2,7 @@ import type { OutputContext, TimeContext } from "../contexts";
 import { disposeOnce } from "../disposeOnce";
 import type { ToolAdapter, ToolAdapterUsageCallback, ToolTokenUsage, ToolEventOutput } from "./ToolAdapter";
 import { run } from "./AiRunner";
-import type { RateLimitWaitEndCallback, RateLimitWaitStartCallback, RateLimitWaitUpdateCallback } from "./AiRunner";
+import type { ForceRetrySignal, RateLimitWaitEndCallback, RateLimitWaitStartCallback, RateLimitWaitUpdateCallback } from "./AiRunner";
 import { colorize, CYAN, DIM, GREEN, MAGENTA, YELLOW } from "../ui/formatters";
 
 const TOOL_RESULT_MAX_LINES = 5;
@@ -35,6 +35,7 @@ export type AiSessionContexts = Readonly<{
 export class AiSession {
     private _disposed = false;
     private _abortController:AbortController|null = null;
+    private _forceRetry:(() => void)|null = null;
     private _runPromise:Promise<AiSessionResult>|null = null;
 
     constructor(
@@ -49,6 +50,21 @@ export class AiSession {
 
         const controller = new AbortController();
         this._abortController = controller;
+        const forceRetryListeners = new Set<() => void>();
+        const forceRetry = () => {
+            for (const listener of [...forceRetryListeners]) {
+                listener();
+            }
+        };
+        const forceRetrySignal:ForceRetrySignal = {
+            onForceRetry(listener) {
+                forceRetryListeners.add(listener);
+                return () => {
+                    forceRetryListeners.delete(listener);
+                };
+            }
+        };
+        this._forceRetry = forceRetry;
 
         let inputTokens = 0;
         let outputTokens = 0;
@@ -117,6 +133,7 @@ export class AiSession {
                     ...(this._options.resumeSessionId != null ? { resumeSessionId: this._options.resumeSessionId } : null),
                     ...(this._options.priorSessionUsage != null ? { priorSessionUsage: this._options.priorSessionUsage } : null),
                     abortSignal: controller.signal,
+                    forceRetrySignal,
                     callbacks: {
                         onOutput,
                         onSessionId: () => {},
@@ -137,6 +154,10 @@ export class AiSession {
                     outputTokens
                 };
             } finally {
+                forceRetryListeners.clear();
+                if (this._forceRetry === forceRetry) {
+                    this._forceRetry = null;
+                }
                 if (this._abortController === controller) {
                     this._abortController = null;
                 }
@@ -153,12 +174,20 @@ export class AiSession {
         }
     }
 
+    forceRetry():void {
+        if (this._disposed) {
+            return;
+        }
+        this._forceRetry?.();
+    }
+
     dispose():Promise<void> {
         return this._dispose();
     }
 
     private _dispose = disposeOnce(async () => {
         this._disposed = true;
+        this._forceRetry = null;
         this._abortController?.abort();
         if (this._runPromise) {
             try {

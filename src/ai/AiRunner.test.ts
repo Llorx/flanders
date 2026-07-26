@@ -4,8 +4,10 @@ import test, { monad } from "arrange-act-assert";
 
 import { isFatalLoginError, run } from "./AiRunner";
 import type { RunArgs, RunCallbacks } from "./AiRunner";
+import type { ForceRetrySignal } from "./AiRunner";
 import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent, ToolEventOutput } from "./ToolAdapter";
 import type { TimeContext, TimeoutHandle } from "../contexts";
+import { manualTimeContext } from "../system/manualTimeContext.fixtures";
 import { settleAsyncWork as flush } from "../system/settleAsyncWork.fixtures";
 
 const THIRTY_MINUTES_MS = 30 * 60 * 1000;
@@ -58,33 +60,6 @@ function autoTimeContext(initialNow = 0) {
     };
 }
 
-function manualTimeContext(initialNow = 0) {
-    let now = initialNow;
-    const timers:Array<{ at:number; cb:() => void; cancelled:boolean }> = [];
-    const durations:number[] = [];
-    return {
-        $durations: durations,
-        $advance(ms:number) {
-            now += ms;
-            for (const t of timers.slice()) {
-                if (!t.cancelled && t.at <= now) {
-                    t.cancelled = true;
-                    t.cb();
-                }
-            }
-        },
-        ...({
-            now() { return now; },
-            setTimeout(handler:() => void, ms:number):TimeoutHandle {
-                durations.push(ms);
-                const t = { at: now + ms, cb: handler, cancelled: false };
-                timers.push(t);
-                return { cancel() { t.cancelled = true; } };
-            }
-        } satisfies TimeContext)
-    };
-}
-
 function recordWaitNotices() {
     const starts:Array<{ kind:string; endTimeMs:number; nextRetryAtMs:number }> = [];
     const updates:Array<{ endTimeMs:number; nextRetryAtMs:number }> = [];
@@ -107,6 +82,28 @@ function recordWaitNotices() {
         }
     };
     return { callbacks, $starts: starts, $updates: updates, $order: order, $endCount() { return endCount; } };
+}
+
+function forceRetrySource():{
+    signal:ForceRetrySignal;
+    forceRetry():void;
+} {
+    const listeners = new Set<() => void>();
+    return {
+        signal: {
+            onForceRetry(listener) {
+                listeners.add(listener);
+                return () => {
+                    listeners.delete(listener);
+                };
+            }
+        },
+        forceRetry() {
+            for (const listener of [...listeners]) {
+                listener();
+            }
+        }
+    };
 }
 
 function baseArgs(overrides:Partial<RunArgs> & Pick<RunArgs, "adapter"|"time">):RunArgs {
@@ -1194,6 +1191,301 @@ test.describe("AiRunner", test => {
             },
             "the rejection arrives without the interval elapsing"(_result, { time }) {
                 Assert.strictEqual(time.now(), THIRTY_MINUTES_MS);
+            }
+        }
+    });
+
+    test("forcing a four-day wait retries immediately and re-anchors a still-limited interval", {
+        ARRANGE() {
+            const stub = stubAdapter([
+                [
+                    { type: "session" as const, id: "s1" },
+                    { type: "rate_limit" as const, waitUntilMs: FOUR_DAYS_MS }
+                ],
+                [{ type: "rate_limit" as const, waitUntilMs: FOUR_DAYS_MS }],
+                [{ type: "done" as const }]
+            ]);
+            const time = manualTimeContext();
+            const notices = recordWaitNotices();
+            const retry = forceRetrySource();
+            return { stub, time, notices, retry };
+        },
+        async ACT({ stub, time, notices, retry }) {
+            const runPromise = run(baseArgs({
+                adapter: stub.adapter,
+                time,
+                prompt: "the prompt",
+                model: "m1",
+                effort: "high",
+                fast: true,
+                priorSessionUsage: { inputTokens: 40, outputTokens: 12 },
+                forceRetrySignal: retry.signal,
+                callbacks: notices.callbacks
+            }));
+            await flush();
+            retry.forceRetry();
+            await flush();
+            const afterForce = {
+                now: time.now(),
+                invocationCount: stub.$invokeArgs.length,
+                forcedArgs: stub.$invokeArgs[1]!,
+                waitEndCount: notices.$endCount()
+            };
+            time.$advance(THIRTY_MINUTES_MS - 1);
+            await flush();
+            const justBeforeNextInterval = stub.$invokeArgs.length;
+            time.$advance(1);
+            await flush();
+            const atNextInterval = stub.$invokeArgs.length;
+            await runPromise;
+            return { afterForce, justBeforeNextInterval, atNextInterval };
+        },
+        ASSERTS: {
+            "the forced attempt happens without advancing the fake clock"(result) {
+                Assert.strictEqual(result.afterForce.now, 0);
+            },
+            "the forced attempt invokes the adapter immediately"(result) {
+                Assert.strictEqual(result.afterForce.invocationCount, 2);
+            },
+            "the forced attempt re-issues the original prompt"(result) {
+                Assert.strictEqual(result.afterForce.forcedArgs.prompt, "the prompt");
+            },
+            "the forced attempt re-issues the original model"(result) {
+                Assert.strictEqual(result.afterForce.forcedArgs.model, "m1");
+            },
+            "the forced attempt re-issues the original effort"(result) {
+                Assert.strictEqual(result.afterForce.forcedArgs.effort, "high");
+            },
+            "the forced attempt re-issues the original fast value"(result) {
+                Assert.strictEqual(result.afterForce.forcedArgs.fast, true);
+            },
+            "the forced attempt re-issues the original usage baseline"(result) {
+                Assert.deepStrictEqual(result.afterForce.forcedArgs.priorSessionUsage, { inputTokens: 40, outputTokens: 12 });
+            },
+            "the forced attempt resumes the captured session id"(result) {
+                Assert.strictEqual(result.afterForce.forcedArgs.resumeSessionId, "s1");
+            },
+            "the continuous wait has one entry notice"(_result, { notices }) {
+                Assert.deepStrictEqual(notices.$starts, [
+                    { kind: "rate-limit", endTimeMs: FOUR_DAYS_MS, nextRetryAtMs: THIRTY_MINUTES_MS }
+                ]);
+            },
+            "the still-limited forced attempt updates the next retry from its own instant"(_result, { notices }) {
+                Assert.deepStrictEqual(notices.$updates, [
+                    { endTimeMs: FOUR_DAYS_MS, nextRetryAtMs: THIRTY_MINUTES_MS }
+                ]);
+            },
+            "the forced attempt does not end the continuous wait"(result) {
+                Assert.strictEqual(result.afterForce.waitEndCount, 0);
+            },
+            "no automatic attempt occurs before 30 minutes from the forced attempt"(result) {
+                Assert.strictEqual(result.justBeforeNextInterval, 2);
+            },
+            "the next automatic attempt occurs at 30 minutes from the forced attempt"(result) {
+                Assert.strictEqual(result.atNextInterval, 3);
+            },
+            "the wait ends exactly once when the later attempt succeeds"(_result, { notices }) {
+                Assert.strictEqual(notices.$endCount(), 1);
+            }
+        }
+    });
+
+    test("a forced attempt that succeeds ends the existing wait", {
+        ARRANGE() {
+            const stub = stubAdapter([
+                [{ type: "rate_limit" as const, waitUntilMs: FOUR_DAYS_MS }],
+                [{ type: "done" as const }]
+            ]);
+            const time = manualTimeContext();
+            const notices = recordWaitNotices();
+            const retry = forceRetrySource();
+            return { stub, time, notices, retry };
+        },
+        async ACT({ stub, time, notices, retry }) {
+            const runPromise = run(baseArgs({
+                adapter: stub.adapter,
+                time,
+                forceRetrySignal: retry.signal,
+                callbacks: notices.callbacks
+            }));
+            await flush();
+            retry.forceRetry();
+            await flush();
+            await runPromise;
+            return { invocationCount: stub.$invokeArgs.length, now: time.now() };
+        },
+        ASSERTS: {
+            "the forced successful attempt is the second invocation"(result) {
+                Assert.strictEqual(result.invocationCount, 2);
+            },
+            "success does not require fake-clock advancement"(result) {
+                Assert.strictEqual(result.now, 0);
+            },
+            "the caller sees one wait entry followed by one wait end"(_result, { notices }) {
+                Assert.deepStrictEqual(notices.$order, ["start", "end"]);
+            },
+            "success does not report a still-waiting update"(_result, { notices }) {
+                Assert.deepStrictEqual(notices.$updates, []);
+            }
+        }
+    });
+
+    test("forcing while the adapter invocation is still running leaves it uninterrupted", {
+        ARRANGE() {
+            let release:() => void = () => {};
+            const invokeArgs:ToolAdapterInvokeArgs[] = [];
+            const adapter:ToolAdapter = {
+                invoke(args):AsyncIterable<ToolEvent> {
+                    invokeArgs.push(args);
+                    return {
+                        async *[Symbol.asyncIterator]() {
+                            await new Promise<void>(resolve => {
+                                release = resolve;
+                            });
+                            yield { type: "done" };
+                        }
+                    };
+                }
+            };
+            const time = manualTimeContext();
+            const retry = forceRetrySource();
+            return { adapter, time, retry, invokeArgs, release: () => release() };
+        },
+        async ACT({ adapter, time, retry, invokeArgs, release }) {
+            const runPromise = run(baseArgs({ adapter, time, forceRetrySignal: retry.signal }));
+            await flush();
+            retry.forceRetry();
+            await flush();
+            const whileRunning = {
+                invocationCount: invokeArgs.length,
+                adapterSignalAborted: invokeArgs[0]!.abortSignal.aborted
+            };
+            release();
+            await runPromise;
+            return whileRunning;
+        },
+        ASSERTS: {
+            "no extra invocation is launched while the adapter is running"(result) {
+                Assert.strictEqual(result.invocationCount, 1);
+            },
+            "the adapter invocation is not interrupted"(result) {
+                Assert.strictEqual(result.adapterSignalAborted, false);
+            }
+        }
+    });
+
+    test("forcing after a successful invocation does not invoke the adapter again", {
+        ARRANGE() {
+            const stub = stubAdapter([[{ type: "done" as const }]]);
+            const time = manualTimeContext();
+            const retry = forceRetrySource();
+            return { stub, time, retry };
+        },
+        async ACT({ stub, time, retry }) {
+            await run(baseArgs({ adapter: stub.adapter, time, forceRetrySignal: retry.signal }));
+            retry.forceRetry();
+            await flush();
+            return stub.$invokeArgs.length;
+        },
+        ASSERT(invocationCount) {
+            Assert.strictEqual(invocationCount, 1);
+        }
+    });
+
+    test("forcing after a failed invocation does not invoke the adapter again", {
+        ARRANGE() {
+            const stub = stubAdapter([[
+                { type: "error" as const, retryable: false, message: "failed" }
+            ]]);
+            const time = manualTimeContext();
+            const retry = forceRetrySource();
+            return { stub, time, retry };
+        },
+        async ACT({ stub, time, retry }) {
+            const result = await monad(() => run(baseArgs({ adapter: stub.adapter, time, forceRetrySignal: retry.signal })));
+            retry.forceRetry();
+            await flush();
+            return result;
+        },
+        ASSERTS: {
+            "the completed invocation rejects with its error"(result) {
+                result.should.error({ message: "failed" });
+            },
+            "forcing after the rejection does not invoke the adapter again"(_result, { stub }) {
+                Assert.strictEqual(stub.$invokeArgs.length, 1);
+            }
+        }
+    });
+
+    test("forcing after an aborted invocation does not invoke the adapter again", {
+        ARRANGE() {
+            const stub = stubAdapter([[
+                { type: "rate_limit" as const, waitUntilMs: FOUR_DAYS_MS }
+            ]]);
+            const time = manualTimeContext();
+            const abort = new AbortController();
+            const retry = forceRetrySource();
+            return { stub, time, abort, retry };
+        },
+        async ACT({ stub, time, abort, retry }) {
+            const runResult = monad(() => run(baseArgs({
+                adapter: stub.adapter,
+                time,
+                abortSignal: abort.signal,
+                forceRetrySignal: retry.signal
+            })));
+            await flush();
+            abort.abort();
+            const result = await runResult;
+            retry.forceRetry();
+            await flush();
+            return result;
+        },
+        ASSERTS: {
+            "the completed invocation rejects as aborted"(result) {
+                result.should.error({ name: "AbortError" });
+            },
+            "forcing after the abort does not invoke the adapter again"(_result, { stub }) {
+                Assert.strictEqual(stub.$invokeArgs.length, 1);
+            }
+        }
+    });
+
+    test("an abort delivered with a rate-limit terminal event does not start a retry interval", {
+        ARRANGE() {
+            const abort = new AbortController();
+            let invocationCount = 0;
+            const adapter:ToolAdapter = {
+                invoke():AsyncIterable<ToolEvent> {
+                    invocationCount++;
+                    return {
+                        async *[Symbol.asyncIterator]() {
+                            abort.abort();
+                            yield { type: "rate_limit", waitUntilMs: FOUR_DAYS_MS };
+                        }
+                    };
+                }
+            };
+            const time = manualTimeContext();
+            return { adapter, time, abort, invocationCount: () => invocationCount };
+        },
+        async ACT({ adapter, time, abort, invocationCount }) {
+            const result = await monad(() => run(baseArgs({
+                adapter,
+                time,
+                abortSignal: abort.signal
+            })));
+            return { result, invocationCount: invocationCount(), durations: time.$durations.slice() };
+        },
+        ASSERTS: {
+            "the invocation rejects as aborted"(result) {
+                result.result.should.error({ name: "AbortError" });
+            },
+            "the adapter is invoked only once"(result) {
+                Assert.strictEqual(result.invocationCount, 1);
+            },
+            "no retry timer is scheduled"(result) {
+                Assert.deepStrictEqual(result.durations, []);
             }
         }
     });

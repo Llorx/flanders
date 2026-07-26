@@ -21,6 +21,10 @@ export type RateLimitWaitStartCallback = (kind:"rate-limit", endTimeMs:number, n
 export type RateLimitWaitUpdateCallback = (endTimeMs:number, nextRetryAtMs:number) => void;
 export type RateLimitWaitEndCallback = () => void;
 
+export interface ForceRetrySignal {
+    onForceRetry(listener:() => void):() => void;
+}
+
 export type RunCallbacks = Readonly<{
     onOutput(event:ToolEventOutput):void;
     onSessionId(id:string):void;
@@ -39,6 +43,7 @@ export type RunArgs = Readonly<{
     resumeSessionId?:string;
     priorSessionUsage?:ToolTokenUsage;
     abortSignal:AbortSignal;
+    forceRetrySignal?:ForceRetrySignal;
     callbacks:RunCallbacks;
     time:TimeContext;
 }>;
@@ -126,13 +131,25 @@ export async function run(args:RunArgs):Promise<RunResult> {
             if (terminal.type === "rate_limit") {
                 const retryIntervalStartedAtMs = inRateLimitWait ? attemptStartedAtMs : time.now();
                 const nextRetryAtMs = Math.min(terminal.waitUntilMs, retryIntervalStartedAtMs + RATE_LIMIT_RETRY_INTERVAL_MS);
-                if (inRateLimitWait) {
-                    callbacks.onWaitUpdate?.(terminal.waitUntilMs, nextRetryAtMs);
-                } else {
-                    inRateLimitWait = true;
-                    callbacks.onWaitStart?.("rate-limit", terminal.waitUntilMs, nextRetryAtMs);
+                const retryIntervalController = new AbortController();
+                const endRetryInterval = () => retryIntervalController.abort();
+                const stopListeningForForceRetry = args.forceRetrySignal?.onForceRetry(endRetryInterval);
+                abortSignal.addEventListener("abort", endRetryInterval, { once: true });
+                if (abortSignal.aborted) {
+                    endRetryInterval();
                 }
-                await wait(nextRetryAtMs - time.now(), RATE_LIMIT_RETRY_INTERVAL_MS, time, abortSignal);
+                try {
+                    if (inRateLimitWait) {
+                        callbacks.onWaitUpdate?.(terminal.waitUntilMs, nextRetryAtMs);
+                    } else {
+                        inRateLimitWait = true;
+                        callbacks.onWaitStart?.("rate-limit", terminal.waitUntilMs, nextRetryAtMs);
+                    }
+                    await wait(nextRetryAtMs - time.now(), RATE_LIMIT_RETRY_INTERVAL_MS, time, retryIntervalController.signal);
+                } finally {
+                    abortSignal.removeEventListener("abort", endRetryInterval);
+                    stopListeningForForceRetry?.();
+                }
                 if (abortSignal.aborted) {
                     throw abortError();
                 }
