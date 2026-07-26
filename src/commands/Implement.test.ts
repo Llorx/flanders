@@ -6,11 +6,12 @@ import { Terminal } from "@xterm/headless";
 import { Implement, completedPlanPath } from "./Implement";
 import type { ImplementContexts } from "./Implement";
 import type { FlandersConfig } from "../workspace/FlandersConfig";
-import type { AskAnswer, AskChoiceOptions, AskContext, SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
+import type { AskAnswer, AskChoiceOptions, AskContext, FsContext, SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
+import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent, ToolName } from "../ai/ToolAdapter";
 import { ConsoleAsk } from "../ui/ConsoleAsk";
 import { PromptLineReader } from "../ui/PromptLineReader";
 import { BottomBlock } from "../ui/BottomBlock";
-import type { HeaderFields, MetricsFields, TerminalLabel, ReviewerEntry } from "../ui/BottomBlock";
+import type { FooterState, HeaderFields, MetricsFields, TerminalLabel, ReviewerEntry } from "../ui/BottomBlock";
 import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, RESET, SEPARATOR_GLYPH, formatDateTime, stripAnsi } from "../ui/formatters";
 import { abortError } from "../abortError";
 import { recordingOutput, STUB_COLUMNS, STUB_ROWS } from "../ui/recordingOutput.fixtures";
@@ -292,9 +293,16 @@ const PLAN_ONE_TASK = '# Plan\n\n- [ ]{"it":0,"ot":0,"t":0} Implement feature A\
 const WS_ROOT = "/tmp/flanders-ws123";
 function reviewerRoot(n:number):string { return `/tmp/flanders-rev${n}`; }
 function reviewerErrorLogPath(n:number):string { return `${reviewerRoot(n)}/error.log`; }
+// The 1-based reviewer whose own error-log path the prompt names, or 0 when the prompt names none —
+// detect and worker prompts point at the main folder's error.log instead. This is the one place a
+// prompt is resolved to the role that received it.
+function reviewerNumberFromPrompt(capturedPrompt:string):number {
+    const m = capturedPrompt.match(/\/tmp\/flanders-rev(\d+)\/error\.log/);
+    return m ? Number(m[1]) : 0;
+}
 function targetErrorLogFromPrompt(capturedPrompt:string):string {
-    const m = capturedPrompt.match(/(\/tmp\/flanders-rev\d+)\/error\.log/);
-    return m ? `${m[1]}/error.log` : `${WS_ROOT}/error.log`;
+    const reviewerNum = reviewerNumberFromPrompt(capturedPrompt);
+    return reviewerNum === 0 ? `${WS_ROOT}/error.log` : reviewerErrorLogPath(reviewerNum);
 }
 const DEFAULT_CONFIG:FlandersConfig = { worker: { tool: "claude", model: "", effort: "", fast: false }, reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }], minimumReviews: 1 };
 const CONFIG_PATH = "/project/.flanders/config.json";
@@ -1134,8 +1142,7 @@ test.describe("Implement hard-stop per-iteration error-log materialization", tes
 
 // The exact worker-declared hard-stop diagnostic the orchestrator prints: it identifies the task by
 // line (3, from PLAN_ONE_TASK) and title, reproduces the declared `hard-stop.log` content between
-// markers, and points at the preserved main folder. Rebuilt independently here so an exact-match
-// assertion trips under any reworded, reordered, truncated, or content-dropping regression.
+// markers, and points at the preserved main folder.
 function workerDeclaredDiagnostic(declared:string):string {
     return `Hard stop: task at line 3 ("Implement feature A") declared structurally impossible.\n--- hard-stop.log ---\n${declared}\n--- end hard-stop.log ---\nInspect logs at ${WS_ROOT}.\n`;
 }
@@ -1369,6 +1376,871 @@ test.describe("Implement worker-declared hard stop", test => {
             },
             "the HARD_STOP_LOG_PATH placeholder is substituted"(_code, { promptQueue }) {
                 Assert.ok(!promptQueue[1]!.includes("<HARD_STOP_LOG_PATH>"), "HARD_STOP_LOG_PATH placeholder should be substituted");
+            }
+        }
+    });
+});
+
+const LOGIN_HARD_STOP_DIAGNOSTIC = `Hard stop: the configured AI tool is not logged in. Log in and re-run. Inspect logs at ${WS_ROOT}.\n`;
+
+// Event-loop turns that comfortably outlast the handful of microtask hops an already-surfaced
+// reviewer rejection needs to propagate through the orchestrator and cancel its siblings.
+const PROPAGATION_TICKS = 50;
+
+// The run's diagnostic surface: the above-text segment of every atomic redraw write. The live block
+// itself is excluded, so the task title its header legitimately renders is out of scope here.
+function diagnosticSegments(written:readonly string[]):string[] {
+    return written.map(writeAboveSegmentOf).filter((s):s is string => s !== null);
+}
+
+// The forms by which a diagnostic could tie itself to a task: the title PLAN_ONE_TASK holds, any task
+// or plan-line reference however spelled or numbered, and the worker-declared `hard-stop.log`.
+const TASK_IDENTIFYING_DIAGNOSTIC = /Implement feature A|\btasks?\b|\bline\b|#\s*\d|hard-stop\.log/i;
+
+function assertNoTaskIdentifyingDiagnostic(written:readonly string[]):void {
+    Assert.deepStrictEqual(diagnosticSegments(written).filter(s => TASK_IDENTIFYING_DIAGNOSTIC.test(s)), []);
+}
+
+function assertOnlyHardStopDiagnostic(written:readonly string[], expected:string):void {
+    Assert.deepStrictEqual(diagnosticSegments(written).filter(s => s.includes("Hard stop")), [expected]);
+}
+
+function recordWritesTo(s:{contexts:ImplementContexts}, path:string):string[] {
+    const writes:string[] = [];
+    const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
+    (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
+        if (p === path) {
+            writes.push(c);
+        }
+        return origWriteFile(p, c);
+    };
+    return writes;
+}
+
+// A one-shot gate: whoever awaits `opened` proceeds only once `open()` has been called. `open` is
+// bound before the constructor returns, so a holder can call it without a late-bound indirection.
+function gate() {
+    let open:() => void = () => {};
+    const opened = new Promise<void>(resolve => { open = resolve; });
+    return { open: () => open(), opened };
+}
+
+type FsCallKind = "writeFile"|"readFile"|"exists";
+
+// Holds the FIRST filesystem call of `kind` on `path` that `when` admits until `onEnter` resolves.
+// Pairing this with a gate pins the run inside the window that call opens: entering the call is what
+// releases the concurrent failure, and the call resolves only once that failure has been handled.
+// Only the first matching call is held, so later calls on the same path run at full speed.
+function holdFsCall(
+    s:{contexts:ImplementContexts},
+    kind:FsCallKind,
+    path:string,
+    onEnter:() => Promise<void>,
+    when:() => boolean = () => true
+):void {
+    const fs = s.contexts.fs;
+    const origWriteFile = fs.writeFile.bind(fs);
+    const origReadFile = fs.readFile.bind(fs);
+    const origExists = fs.exists.bind(fs);
+    let held = false;
+    const hold = async (callKind:FsCallKind, p:string):Promise<void> => {
+        if (!held && callKind === kind && p === path && when()) {
+            held = true;
+            await onEnter();
+        }
+    };
+    const patched = s.contexts.fs as { writeFile:FsContext["writeFile"]; readFile:FsContext["readFile"]; exists:FsContext["exists"] };
+    patched.writeFile = async (p, c) => { await hold("writeFile", p); return origWriteFile(p, c); };
+    patched.readFile = async (p) => { await hold("readFile", p); return origReadFile(p); };
+    patched.exists = async (p) => { await hold("exists", p); return origExists(p); };
+}
+
+const LOGIN_FAILURE_MESSAGE = "the configured tool is not logged in";
+const FATAL_LOGIN_EVENT:ToolEvent = { type: "error", retryable: false, fatal: true, message: LOGIN_FAILURE_MESSAGE };
+
+async function *completesWith(text:string):AsyncGenerator<ToolEvent> {
+    yield { type: "output", title: "Assistant", subtitle: "", details: text };
+    yield { type: "done" };
+}
+
+// Ends without a terminal event once the invocation is aborted, which is how the runner surfaces a
+// cancelled invocation.
+async function *endsOnAbort(args:ToolAdapterInvokeArgs, onAborted:() => void):AsyncGenerator<ToolEvent> {
+    await new Promise<void>(resolve => {
+        if (args.abortSignal.aborted) {
+            resolve();
+            return;
+        }
+        args.abortSignal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    onAborted();
+}
+
+type FakeInvocation = Readonly<{
+    tool:ToolName;
+    // 1-based position of the reviewer this invocation belongs to, or 0 for detect and the worker.
+    reviewerNum:number;
+    // 1-based count of this reviewer's invocations, or of the non-reviewer invocations (1 is detect,
+    // 2 is the first worker iteration, and so on).
+    invocation:number;
+    args:ToolAdapterInvokeArgs;
+}>;
+
+// Supplies Implement with an adapter whose tool-interface events the scenario scripts per invocation,
+// routing each one by the role its prompt names. `reviewerCount` seeds the per-reviewer counters, so a
+// reviewer that never invokes reads as 0 rather than as absent.
+function fakeAdapters(
+    s:ReturnType<typeof stubContexts>,
+    reviewerCount:number,
+    onInvoke:(call:FakeInvocation) => AsyncIterable<ToolEvent>
+) {
+    const toolsUsed:ToolName[] = [];
+    const invocationsByReviewer = new Map<number, number>();
+    for (let n = 1; n <= reviewerCount; n++) {
+        invocationsByReviewer.set(n, 0);
+    }
+    let nonReviewerInvocations = 0;
+    (s.contexts as { adapter?:(tool:ToolName) => ToolAdapter }).adapter = (tool:ToolName) => {
+        toolsUsed.push(tool);
+        return {
+            invoke(args:ToolAdapterInvokeArgs):AsyncIterable<ToolEvent> {
+                s.promptQueue.push(args.prompt);
+                const reviewerNum = reviewerNumberFromPrompt(args.prompt);
+                let invocation:number;
+                if (reviewerNum > 0) {
+                    invocation = invocationsByReviewer.get(reviewerNum)! + 1;
+                    invocationsByReviewer.set(reviewerNum, invocation);
+                } else {
+                    invocation = ++nonReviewerInvocations;
+                }
+                return onInvoke({ tool, reviewerNum, invocation, args });
+            }
+        };
+    };
+    return { toolsUsed, invocationsByReviewer, totalInvocations: () => nonReviewerInvocations + [...invocationsByReviewer.values()].reduce((a, b) => a + b, 0) };
+}
+
+// A config whose reviewers are all required and whose minimum is all of them, so no reviewer is ever
+// cancelled by the round-completion rule and every cancellation these tests observe is the login hard
+// stop's. Reviewer 1 is `codex`, every other role `claude`.
+function allRequiredReviewersConfig(count:number):FlandersConfig {
+    return {
+        worker: { tool: "claude", model: "", effort: "", fast: false },
+        reviewers: Array.from({ length: count }, (_unused, i) => ({ tool: (i === 0 ? "codex" : "claude") as ToolName, model: "", effort: "", fast: false, optional: false })),
+        minimumReviews: count
+    };
+}
+
+// Each await inside a reviewer's post-invocation sequence during which a sibling's fatal login failure
+// can land and cancel it. `stream-close` is the runner closing the event stream as it finishes the
+// invocation; the rest are the orchestrator's own filesystem steps, named by the call that opens them.
+type CancellationWindow =
+    | Readonly<{ at:"stream-close" }>
+    | Readonly<{ at:"fs"; kind:FsCallKind; path:string }>;
+
+const REVIEWER_TWO_VERDICT = "reviewer two violation";
+
+// Reviewer 2's reported consumption, and the metrics object a plan write carries once it has been
+// accounted for. Every other role in the stub reports nothing, so this pair appears in a plan write
+// only if reviewer 2's own accounting was committed.
+const REVIEWER_TWO_USAGE = { inputTokens: 700, outputTokens: 300 };
+const REVIEWER_TWO_PLAN_METRICS = '{"it":700,"ot":300,"t":0}';
+
+// The scenario every reviewer-cancellation-window test shares: two required reviewers where reviewer 2
+// runs to a NON-EMPTY verdict and reviewer 1's fatal login failure is released exactly once reviewer 2
+// has entered `window` — so the window is entered by causality rather than by racing, and the release
+// outlasts the failure's handling.
+function reviewerCancellationWindowStub(window:CancellationWindow) {
+    const s = stubContexts();
+    s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+    s.files.set(CONFIG_PATH, JSON.stringify(allRequiredReviewersConfig(2)));
+    gitActivationQueue(s.gitQueue);
+    s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // iter 1 post-worker add
+    const fatalRelease = gate();
+    const enterWindow = async () => {
+        fatalRelease.open();
+        await flush(PROPAGATION_TICKS);
+    };
+    // The hold arms only once reviewer 2's invocation has produced its terminal event, so an earlier
+    // call on the same path — another role's, or the round's own setup — never stands in for it.
+    let reviewer2Answered = false;
+    if (window.at === "fs") {
+        holdFsCall(s, window.kind, window.path, enterWindow, () => reviewer2Answered);
+    }
+    fakeAdapters(s, 2, call => {
+        if (call.reviewerNum === 1) {
+            return (async function *():AsyncGenerator<ToolEvent> {
+                await fatalRelease.opened;
+                yield FATAL_LOGIN_EVENT;
+            })();
+        }
+        if (call.reviewerNum === 2) {
+            s.files.set(reviewerErrorLogPath(2), REVIEWER_TWO_VERDICT);
+            return (async function *():AsyncGenerator<ToolEvent> {
+                try {
+                    call.args.onUsage?.(REVIEWER_TWO_USAGE);
+                    yield { type: "done" };
+                } finally {
+                    reviewer2Answered = true;
+                    if (window.at === "stream-close") {
+                        await enterWindow();
+                    }
+                }
+            })();
+        }
+        return completesWith(`non-reviewer ${call.invocation}`);
+    });
+    return { ...s, planWrites: recordWritesTo(s, PLAN_PATH) };
+}
+
+function reviewerStatesSeen(calls:readonly ReviewerStateSnapshot[], reviewerNum:number):string[] {
+    const seen = new Set(calls.filter(c => c.reviewers).map(c => c.reviewers![reviewerNum - 1]!.state));
+    return [...seen].sort();
+}
+
+// Per window: every state reviewer 2's footer entry may be seen in, and how many plan writes may carry
+// its consumption.
+//
+// The first window opens before the accounting boundary, so nothing of reviewer 2's is committed there.
+// The rest open after it, where its consumption is accounted for exactly once — a reviewer cancelled
+// past the boundary has still spent those tokens. Only the last window opens after the orchestrator
+// flips a reviewer to pass/fail, so `fail` is legitimately visible there and the outcome alone
+// distinguishes it.
+const REVIEWER_CANCELLATION_WINDOWS:ReadonlyArray<Readonly<{ name:string; window:CancellationWindow; footerStatesSeen:readonly string[]; planWritesWithItsMetrics:number }>> = [
+    { name: "as its event stream closes, before the orchestrator's first post-invocation step", window: { at: "stream-close" }, footerStatesSeen: ["running"], planWritesWithItsMetrics: 0 },
+    { name: "while its metrics persistence is awaited", window: { at: "fs", kind: "writeFile", path: PLAN_PATH }, footerStatesSeen: ["running"], planWritesWithItsMetrics: 1 },
+    { name: "while its verdict-file presence check is awaited", window: { at: "fs", kind: "exists", path: reviewerErrorLogPath(2) }, footerStatesSeen: ["running"], planWritesWithItsMetrics: 1 },
+    { name: "while its verdict file is being read", window: { at: "fs", kind: "readFile", path: reviewerErrorLogPath(2) }, footerStatesSeen: ["running"], planWritesWithItsMetrics: 1 },
+    { name: "while its per-reviewer output log is being written", window: { at: "fs", kind: "writeFile", path: WS_ROOT + "/reviewer.1.2.log" }, footerStatesSeen: ["fail", "running"], planWritesWithItsMetrics: 1 }
+];
+
+test.describe("Implement fatal login-failure hard stop", test => {
+    test("a fatal login failure from the worker hard-stops the run: no briefing, no metrics write, no further iteration, folder preserved", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(CONFIG_PATH, JSON.stringify({
+                worker: { tool: "codex", model: "", effort: "", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            }));
+            const briefingWrites = recordWritesTo(s, WS_ROOT + "/error.log");
+            const planWrites = recordWritesTo(s, PLAN_PATH);
+            gitActivationQueue(s.gitQueue);
+            const { toolsUsed, totalInvocations } = fakeAdapters(s, 1, call => {
+                // Invocation 1 is detect; invocation 2 is the first worker iteration.
+                if (call.invocation === 2) {
+                    return (async function *():AsyncGenerator<ToolEvent> { yield FATAL_LOGIN_EVENT; })();
+                }
+                return completesWith("detect ok");
+            });
+            return { ...s, briefingWrites, planWrites, toolsUsed, totalInvocations };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run exits non-zero"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the exact login diagnostic is printed exactly once inside its own atomic redraw write"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+            },
+            "no diagnostic identifies the task by title, plan line, or hard-stop.log"(_code, { written }) {
+                assertNoTaskIdentifyingDiagnostic(written);
+            },
+            "no second hard-stop diagnostic accompanies it"(_code, { written }) {
+                assertOnlyHardStopDiagnostic(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+            },
+            "the terminal outcome is the Hard stop label, not Failed"(_code, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(HARD_STOP_LABEL), "a login failure must finalize as Hard stop");
+                Assert.ok(!allOutput.includes(FAILED_LABEL), "a login failure must not finalize as Failed");
+            },
+            "the temporary folder is preserved (its root is not removed)"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(WS_ROOT), false);
+            },
+            "the briefing error.log is never written for the failure — not written and later removed, but never written at all"(_code, { briefingWrites }) {
+                Assert.deepStrictEqual(briefingWrites, []);
+            },
+            "no iteration bookkeeping runs before the hard stop — the plan file is never rewritten"(_code, { planWrites }) {
+                Assert.deepStrictEqual(planWrites, []);
+            },
+            "no further iteration runs — detect plus the single worker invocation are the only AI invocations"(_code, { totalInvocations }) {
+                Assert.strictEqual(totalInvocations(), 2);
+            },
+            "the fatal rejection came from a codex-configured worker"(_code, { toolsUsed }) {
+                Assert.deepStrictEqual(toolsUsed, ["codex", "codex"]);
+            },
+            "the iteration cap is not the cause — its diagnostic never appears"(_code, { written }) {
+                Assert.strictEqual(written.join("").includes("exceeded 5 iterations"), false);
+            },
+            "the generic run-failure exit is not taken — the rejection's own message never reaches the output"(_code, { written }) {
+                Assert.strictEqual(written.join("").includes(LOGIN_FAILURE_MESSAGE), false);
+            }
+        }
+    });
+
+    test("a fatal login failure from one reviewer cancels every in-flight sibling of the round and hard-stops without briefing the worker", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(CONFIG_PATH, JSON.stringify(allRequiredReviewersConfig(3)));
+            const briefingWrites = recordWritesTo(s, WS_ROOT + "/error.log");
+            gitActivationQueue(s.gitQueue);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // iter 1 post-worker add
+            const abortedReviewers:number[] = [];
+            const { toolsUsed, totalInvocations } = fakeAdapters(s, 3, call => {
+                if (call.reviewerNum === 1) {
+                    return (async function *():AsyncGenerator<ToolEvent> { yield FATAL_LOGIN_EVENT; })();
+                }
+                if (call.reviewerNum > 1) {
+                    return endsOnAbort(call.args, () => abortedReviewers.push(call.reviewerNum));
+                }
+                return completesWith(`non-reviewer ${call.invocation}`);
+            });
+            return { ...s, briefingWrites, abortedReviewers, toolsUsed, totalInvocations };
+        },
+        async ACT({ contexts, abortedReviewers }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            // Snapshotted before dispose(), so the cancellations observed below are the ones the
+            // login hard stop performed mid-round, not the teardown dispose() runs afterwards.
+            const abortedWhenRunEnded = [...abortedReviewers].sort();
+            await cmd.dispose();
+            return { code, abortedWhenRunEnded };
+        },
+        ASSERTS: {
+            "the run exits non-zero"({ code }) {
+                Assert.strictEqual(code, 1);
+            },
+            "both in-flight siblings are cancelled before the run ends"({ abortedWhenRunEnded }) {
+                Assert.deepStrictEqual(abortedWhenRunEnded, [2, 3]);
+            },
+            "the exact login diagnostic is printed exactly once inside its own atomic redraw write"(_result, { written }) {
+                assertDiagnosticWrittenOnce(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+            },
+            "no diagnostic identifies the task by title, plan line, or hard-stop.log"(_result, { written }) {
+                assertNoTaskIdentifyingDiagnostic(written);
+            },
+            "no second hard-stop diagnostic accompanies it"(_code, { written }) {
+                assertOnlyHardStopDiagnostic(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+            },
+            "the terminal outcome is the Hard stop label, not Failed"(_result, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(HARD_STOP_LABEL), "a login failure must finalize as Hard stop");
+                Assert.ok(!allOutput.includes(FAILED_LABEL), "a login failure must not finalize as Failed");
+            },
+            "the fatal reviewer failure is never written as a verdict briefing — no briefing write occurs at all"(_result, { briefingWrites }) {
+                Assert.deepStrictEqual(briefingWrites, []);
+            },
+            "the temporary folder is preserved (its root is not removed)"(_result, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(WS_ROOT), false);
+            },
+            "the fatal rejection came from a codex-configured reviewer"(_result, { toolsUsed }) {
+                Assert.strictEqual(toolsUsed.includes("codex"), true);
+            },
+            "no further iteration runs — detect, the worker and the three reviewers are the only AI invocations"(_result, { totalInvocations }) {
+                Assert.strictEqual(totalInvocations(), 5);
+            }
+        }
+    });
+
+    test("a reviewer's fatal login failure outranks an ordinary reviewer error that settled before it", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(CONFIG_PATH, JSON.stringify(allRequiredReviewersConfig(2)));
+            const briefingWrites = recordWritesTo(s, WS_ROOT + "/error.log");
+            gitActivationQueue(s.gitQueue);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // iter 1 post-worker add
+            // Reviewer 1 fails ordinarily first; reviewer 2 waits for that failure to have been
+            // emitted and fully absorbed by the stage's error tracking before surfacing the fatal
+            // login failure, so the fatal one is unambiguously the later of the two.
+            const ordinaryFailed = gate();
+            const { totalInvocations } = fakeAdapters(s, 2, call => {
+                if (call.reviewerNum === 1) {
+                    return (async function *():AsyncGenerator<ToolEvent> {
+                        // The runner closes this stream rather than resuming it once the terminal
+                        // event arrives, so the release belongs in the teardown.
+                        try {
+                            yield { type: "error", retryable: false, message: "ordinary reviewer boom" };
+                        } finally {
+                            ordinaryFailed.open();
+                        }
+                    })();
+                }
+                if (call.reviewerNum === 2) {
+                    return (async function *():AsyncGenerator<ToolEvent> {
+                        await ordinaryFailed.opened;
+                        await flush(PROPAGATION_TICKS);
+                        yield FATAL_LOGIN_EVENT;
+                    })();
+                }
+                return completesWith(`non-reviewer ${call.invocation}`);
+            });
+            return { ...s, briefingWrites, totalInvocations };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run exits non-zero"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the later fatal failure decides the outcome — the login diagnostic is printed exactly once"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+            },
+            "the earlier ordinary reviewer error is never briefed to the worker"(_code, { briefingWrites }) {
+                Assert.deepStrictEqual(briefingWrites, []);
+            },
+            "the terminal outcome is the Hard stop label, not Failed"(_code, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(HARD_STOP_LABEL), "the fatal failure must finalize as Hard stop");
+                Assert.ok(!allOutput.includes(FAILED_LABEL), "the fatal failure must not finalize as Failed");
+            },
+            "no further iteration runs — detect, the worker and the two reviewers are the only AI invocations"(_code, { totalInvocations }) {
+                Assert.strictEqual(totalInvocations(), 4);
+            },
+            "the temporary folder is preserved (its root is not removed)"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(WS_ROOT), false);
+            }
+        }
+    });
+
+    test("a sibling still preparing its spec.md when the fatal login failure surfaces never starts an invocation", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(CONFIG_PATH, JSON.stringify(allRequiredReviewersConfig(2)));
+            gitActivationQueue(s.gitQueue);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // iter 1 post-worker add
+            // Reviewer 2 parks inside its spec.md write — before it has any invocation to abort — and
+            // entering that write is what releases reviewer 1's fatal login failure, so the window is
+            // entered by causality rather than by racing. The park outlasts the failure's handling.
+            const preparing = gate();
+            holdFsCall(s, "writeFile", reviewerRoot(2) + "/spec.md", async () => {
+                preparing.open();
+                await flush(PROPAGATION_TICKS);
+            });
+            const { invocationsByReviewer, totalInvocations } = fakeAdapters(s, 2, call => {
+                if (call.reviewerNum === 1) {
+                    return (async function *():AsyncGenerator<ToolEvent> {
+                        await preparing.opened;
+                        yield FATAL_LOGIN_EVENT;
+                    })();
+                }
+                if (call.reviewerNum === 2) {
+                    s.files.set(reviewerErrorLogPath(2), "");
+                    return completesWith("rev2 verdict");
+                }
+                return completesWith(`non-reviewer ${call.invocation}`);
+            });
+            return { ...s, invocationsByReviewer, totalInvocations };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run exits non-zero"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the preparing sibling never starts an invocation"(_code, { invocationsByReviewer }) {
+                Assert.strictEqual(invocationsByReviewer.get(2), 0);
+            },
+            "only detect, the worker and the fatal reviewer ever invoke"(_code, { totalInvocations }) {
+                Assert.strictEqual(totalInvocations(), 3);
+            },
+            "the run hard-stops with the exact login diagnostic"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+            },
+            "the terminal outcome is the Hard stop label, not Failed"(_code, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(HARD_STOP_LABEL), "a login failure must finalize as Hard stop");
+                Assert.ok(!allOutput.includes(FAILED_LABEL), "a login failure must not finalize as Failed");
+            }
+        }
+    });
+
+    test("a sibling between attempts when the fatal login failure surfaces is not relaunched for its missing verdict file", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(CONFIG_PATH, JSON.stringify(allRequiredReviewersConfig(2)));
+            gitActivationQueue(s.gitQueue);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // iter 1 post-worker add
+            // Reviewer 2's first invocation completes without producing its verdict file, so the
+            // orchestrator would relaunch it. It parks inside the per-reviewer output-log write that
+            // precedes that relaunch, and entering that write is what releases reviewer 1's fatal
+            // login failure — so the between-attempts window is entered by causality, and the park
+            // outlasts the failure's handling.
+            const betweenAttempts = gate();
+            holdFsCall(s, "writeFile", WS_ROOT + "/reviewer.1.2.log", async () => {
+                betweenAttempts.open();
+                await flush(PROPAGATION_TICKS);
+            });
+            const { invocationsByReviewer } = fakeAdapters(s, 2, call => {
+                if (call.reviewerNum === 1) {
+                    return (async function *():AsyncGenerator<ToolEvent> {
+                        await betweenAttempts.opened;
+                        yield FATAL_LOGIN_EVENT;
+                    })();
+                }
+                if (call.reviewerNum === 2) {
+                    if (call.invocation > 1) {
+                        s.files.set(reviewerErrorLogPath(2), "");
+                    }
+                    return completesWith(`rev2 attempt ${call.invocation}`);
+                }
+                return completesWith(`non-reviewer ${call.invocation}`);
+            });
+            return { ...s, invocationsByReviewer };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the sibling runs exactly one invocation — the missing verdict file does not relaunch it"(_code, { invocationsByReviewer }) {
+                Assert.strictEqual(invocationsByReviewer.get(2), 1);
+            },
+            "the run exits non-zero"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the run hard-stops with the exact login diagnostic"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+            },
+            "the terminal outcome is the Hard stop label, not Failed"(_code, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(HARD_STOP_LABEL), "a login failure must finalize as Hard stop");
+                Assert.ok(!allOutput.includes(FAILED_LABEL), "a login failure must not finalize as Failed");
+            }
+        }
+    });
+
+    for (const { name, window, footerStatesSeen, planWritesWithItsMetrics } of REVIEWER_CANCELLATION_WINDOWS) {
+        test(`a sibling cancelled ${name} commits no verdict`, {
+            ARRANGE() {
+                const s = reviewerCancellationWindowStub(window);
+                const footer = recordFooterCalls(reviewerStateProjection);
+                return { ...s, footer, footerStatesSeen, planWritesWithItsMetrics };
+            },
+            async ACT({ contexts, footer }) {
+                try {
+                    const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+                    const code = await cmd.result();
+                    await cmd.dispose();
+                    return code;
+                } finally {
+                    footer.restore();
+                }
+            },
+            ASSERTS: {
+                "the run exits non-zero"(code) {
+                    Assert.strictEqual(code, 1);
+                },
+                "the cancelled sibling's verdict is never retained — nothing is materialized"(_code, { files }) {
+                    Assert.deepStrictEqual(materializedErrorLogs(files), []);
+                },
+                "the cancelled sibling makes no footer transition beyond the ones this window allows"(_code, { footer, footerStatesSeen }) {
+                    Assert.deepStrictEqual(reviewerStatesSeen(footer.calls, 2), [...footerStatesSeen]);
+                },
+                "the sibling's consumption is persisted exactly when its window opened past the accounting boundary"(_code, { planWrites, planWritesWithItsMetrics }) {
+                    Assert.strictEqual(planWrites.filter(w => w.includes(REVIEWER_TWO_PLAN_METRICS)).length, planWritesWithItsMetrics);
+                },
+                "the run hard-stops with the exact login diagnostic"(_code, { written }) {
+                    assertDiagnosticWrittenOnce(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+                },
+                "the terminal outcome is the Hard stop label, not Failed"(_code, { written }) {
+                    const allOutput = written.join("");
+                    Assert.ok(allOutput.includes(HARD_STOP_LABEL), "a login failure must finalize as Hard stop");
+                    Assert.ok(!allOutput.includes(FAILED_LABEL), "a login failure must not finalize as Failed");
+                }
+            }
+        });
+    }
+
+    test("a sibling cancelled while the absence of its verdict file is being checked writes no output log for that attempt", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(CONFIG_PATH, JSON.stringify(allRequiredReviewersConfig(2)));
+            gitActivationQueue(s.gitQueue);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // iter 1 post-worker add
+            // Reviewer 2 answers without producing its verdict file, so the presence check it parks in
+            // is the one whose absent-file arm would write the attempt's output log and loop.
+            let reviewer2Answered = false;
+            const checkingAbsence = gate();
+            holdFsCall(s, "exists", reviewerErrorLogPath(2), async () => {
+                checkingAbsence.open();
+                await flush(PROPAGATION_TICKS);
+            }, () => reviewer2Answered);
+            const { invocationsByReviewer } = fakeAdapters(s, 2, call => {
+                if (call.reviewerNum === 1) {
+                    return (async function *():AsyncGenerator<ToolEvent> {
+                        await checkingAbsence.opened;
+                        yield FATAL_LOGIN_EVENT;
+                    })();
+                }
+                if (call.reviewerNum === 2) {
+                    return (async function *():AsyncGenerator<ToolEvent> {
+                        try {
+                            yield { type: "done" };
+                        } finally {
+                            reviewer2Answered = true;
+                        }
+                    })();
+                }
+                return completesWith(`non-reviewer ${call.invocation}`);
+            });
+            return { ...s, invocationsByReviewer };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run exits non-zero"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the cancelled sibling writes no per-reviewer output log for the attempt it was cancelled in"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/reviewer.1.2.log"), false);
+            },
+            "the cancelled sibling is not relaunched for its missing verdict file"(_code, { invocationsByReviewer }) {
+                Assert.strictEqual(invocationsByReviewer.get(2), 1);
+            },
+            "the run hard-stops with the exact login diagnostic"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+            },
+            "the terminal outcome is the Hard stop label, not Failed"(_code, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(HARD_STOP_LABEL), "a login failure must finalize as Hard stop");
+                Assert.ok(!allOutput.includes(FAILED_LABEL), "a login failure must not finalize as Failed");
+            }
+        }
+    });
+
+    test("a fatal login failure from the build/test detect agent hard-stops before any task is picked, running the same materialization", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(CONFIG_PATH, JSON.stringify({
+                worker: { tool: "codex", model: "", effort: "", fast: false },
+                reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }],
+                minimumReviews: 1
+            }));
+            // A stale briefing and an unrelated log left in the folder by an earlier run.
+            s.files.set(WS_ROOT + "/error.log", "stale briefing from an earlier run");
+            s.files.set(WS_ROOT + "/worker.1.log", "an earlier run's streamed worker output");
+            gitActivationQueue(s.gitQueue);
+            const { toolsUsed, totalInvocations } = fakeAdapters(s, 1, () =>
+                (async function *():AsyncGenerator<ToolEvent> { yield FATAL_LOGIN_EVENT; })()
+            );
+            return { ...s, toolsUsed, totalInvocations };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run exits non-zero"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the exact login diagnostic is printed exactly once inside its own atomic redraw write"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+            },
+            "no diagnostic identifies the task by title, plan line, or hard-stop.log"(_code, { written }) {
+                assertNoTaskIdentifyingDiagnostic(written);
+            },
+            "no second hard-stop diagnostic accompanies it"(_code, { written }) {
+                assertOnlyHardStopDiagnostic(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+            },
+            "the terminal outcome is the Hard stop label, not Failed"(_code, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(HARD_STOP_LABEL), "a detect login failure must finalize as Hard stop");
+                Assert.ok(!allOutput.includes(FAILED_LABEL), "a detect login failure must not finalize as Failed");
+            },
+            "the materialization step ran — the stale briefing error.log is removed"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/error.log"), false);
+            },
+            "the unrelated existing workspace log is left untouched"(_code, { files }) {
+                Assert.strictEqual(files.get(WS_ROOT + "/worker.1.log"), "an earlier run's streamed worker output");
+            },
+            "no per-iteration error log is materialized — there was nothing retained to write"(_code, { files }) {
+                Assert.deepStrictEqual(materializedErrorLogs(files), []);
+            },
+            "the temporary folder is preserved (its root is not removed)"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(WS_ROOT), false);
+            },
+            "no task is picked — the detect invocation is the only AI invocation"(_code, { totalInvocations }) {
+                Assert.strictEqual(totalInvocations(), 1);
+            },
+            "the fatal rejection came from a codex-configured detect agent"(_code, { toolsUsed }) {
+                Assert.deepStrictEqual(toolsUsed, ["codex"]);
+            },
+            "the generic run-failure exit is not taken — the rejection's own message never reaches the output"(_code, { written }) {
+                Assert.strictEqual(written.join("").includes(LOGIN_FAILURE_MESSAGE), false);
+            }
+        }
+    });
+
+    test("a login hard stop after an earlier failing iteration materializes that iteration's per-stage error log and drops the briefing", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.files.set(WS_ROOT + "/build.sh", "make");
+            const briefingWrites = recordWritesTo(s, WS_ROOT + "/error.log");
+            gitActivationQueue(s.gitQueue);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });                   // iter 1 post-worker add
+            s.scriptQueue.push({ code: 1, stdout: "build boom 1\n", stderr: "" });  // iter 1 build FAIL → retained
+            const { totalInvocations } = fakeAdapters(s, 1, call => {
+                // Invocation 1 is detect, 2 is the iteration-1 worker, 3 is the iteration-2 worker.
+                if (call.invocation === 3) {
+                    return (async function *():AsyncGenerator<ToolEvent> { yield FATAL_LOGIN_EVENT; })();
+                }
+                return completesWith(`non-reviewer ${call.invocation}`);
+            });
+            return { ...s, briefingWrites, totalInvocations };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run exits non-zero"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "iteration 1's retained build failure is materialized with its exact captured text"(_code, { files }) {
+                Assert.strictEqual(
+                    files.get(WS_ROOT + "/build.1.error.log"),
+                    "build stage failed (exit 1)\n--- stdout ---\nbuild boom 1\n\n--- stderr ---\n"
+                );
+            },
+            "exactly that one per-stage error log is materialized"(_code, { files }) {
+                Assert.deepStrictEqual(materializedErrorLogs(files), [WS_ROOT + "/build.1.error.log"]);
+            },
+            "the briefing error.log is removed after materialization"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/error.log"), false);
+            },
+            "the only briefing ever written was iteration 1's build failure — the fatal worker failure adds none"(_code, { briefingWrites }) {
+                Assert.deepStrictEqual(briefingWrites, ["build stage failed (exit 1)\n--- stdout ---\nbuild boom 1\n\n--- stderr ---\n"]);
+            },
+            "the second iteration's worker is the last AI invocation"(_code, { totalInvocations }) {
+                Assert.strictEqual(totalInvocations(), 3);
+            },
+            "the temporary folder is preserved (its root is not removed)"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(WS_ROOT), false);
+            },
+            "the exact login diagnostic is printed exactly once"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+            },
+            "no diagnostic identifies the task by title, plan line, or hard-stop.log"(_code, { written }) {
+                assertNoTaskIdentifyingDiagnostic(written);
+            },
+            "no second hard-stop diagnostic accompanies it"(_code, { written }) {
+                assertOnlyHardStopDiagnostic(written, LOGIN_HARD_STOP_DIAGNOSTIC);
+            },
+            "the terminal outcome is the Hard stop label, not Failed"(_code, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(HARD_STOP_LABEL), "a login failure must finalize as Hard stop");
+                Assert.ok(!allOutput.includes(FAILED_LABEL), "a login failure must not finalize as Failed");
+            }
+        }
+    });
+
+    test("ordinary non-retryable worker and reviewer failures keep their existing briefing paths and never trigger the login hard stop", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            gitRunQueue(s.gitQueue);        // iter 3 acceptance: post-worker add, commit-stage add, commit
+            extraWorkerAdds(s.gitQueue, 1); // iter 2's post-worker add (its reviewer then errors)
+            const briefingWrites = recordWritesTo(s, WS_ROOT + "/error.log");
+            s.claudeQueue.push({ text: "ok" });                     // detect
+            s.claudeQueue.push({ text: "", error: true });          // iter 1 worker → ordinary non-retryable failure
+            s.claudeQueue.push({ text: "w2" });                     // iter 2 worker
+            s.claudeQueue.push({ text: "", error: true });          // iter 2 reviewer → ordinary non-retryable failure
+            s.claudeQueue.push({ text: "w3" });                     // iter 3 worker
+            s.claudeQueue.push({ text: "rev ok", errorLog: "" });    // iter 3 reviewer PASS
+            return { ...s, briefingWrites };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run completes successfully"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker failure is briefed to the next iteration carrying its own surfaced message"(_code, { briefingWrites }) {
+                Assert.match(briefingWrites[0]!, /^worker stage failed: Error: spawn error\n/);
+            },
+            "the reviewer failure reaches the worker carrying its own surfaced message"(_code, { briefingWrites }) {
+                Assert.match(briefingWrites[1]!, /^reviewer stage failed: Error: spawn error\n/);
+            },
+            "exactly those two briefings are written"(_code, { briefingWrites }) {
+                Assert.strictEqual(briefingWrites.length, 2);
+            },
+            "the login hard-stop diagnostic is never printed"(_code, { written }) {
+                Assert.strictEqual(written.filter(w => w.includes(LOGIN_HARD_STOP_DIAGNOSTIC)).length, 0);
+            },
+            "the terminal outcome is the Done label, not Hard stop"(_code, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(DONE_LABEL), "an ordinary failure that later recovers must finalize as Done");
+                Assert.ok(!allOutput.includes(HARD_STOP_LABEL), "an ordinary failure must not finalize as Hard stop");
+            }
+        }
+    });
+
+    test("an ordinary non-retryable detect failure still takes the generic run-failure exit, not the login hard stop", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            gitActivationQueue(s.gitQueue);
+            s.claudeQueue.push({ text: "", error: true }); // detect → ordinary non-retryable failure
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run exits non-zero"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the failure's own message is what reaches the output"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, "spawn error\n");
+            },
+            "the login hard-stop diagnostic is never printed"(_code, { written }) {
+                Assert.strictEqual(written.filter(w => w.includes(LOGIN_HARD_STOP_DIAGNOSTIC)).length, 0);
+            },
+            "the terminal outcome is the Failed label, not Hard stop"(_code, { written }) {
+                const allOutput = written.join("");
+                Assert.ok(allOutput.includes(FAILED_LABEL), "an ordinary detect failure must finalize as Failed");
+                Assert.ok(!allOutput.includes(HARD_STOP_LABEL), "an ordinary detect failure must not finalize as Hard stop");
+            },
+            "the temporary folder is still removed on dispose"(_code, { rmCalls }) {
+                Assert.strictEqual(rmCalls.includes(WS_ROOT), true);
             }
         }
     });
@@ -3410,19 +4282,33 @@ async function until(condition:() => boolean, rounds = 500) {
     }
 }
 
-// Records the FooterState kind of every BottomBlock.setFooter call (the public footer surface) so a
-// test can observe footer transitions without piercing private state. Call restore() in a finally.
-function recordFooterKinds() {
-    const footerKinds:string[] = [];
+// Intercepts BottomBlock.setFooter — the public footer surface — recording `project(state)` for every
+// call before delegating to the real implementation. The patch is on the shared prototype, so
+// restore() must run in a finally. Reviewer entries must be copied inside `project`: the orchestrator
+// replaces the array on each transition, so a retained reference would not snapshot that call.
+function recordFooterCalls<T>(project:(state:FooterState) => T) {
+    const calls:T[] = [];
     const origSetFooter = BottomBlock.prototype.setFooter;
     BottomBlock.prototype.setFooter = function(state) {
-        footerKinds.push(state.kind);
+        calls.push(project(state));
         origSetFooter.call(this, state);
     };
     return {
-        footerKinds,
+        calls,
         restore() { BottomBlock.prototype.setFooter = origSetFooter; }
     };
+}
+
+type ReviewerStateSnapshot = { kind:string; reviewers?:Array<{state:string}> };
+function reviewerStateProjection(state:FooterState):ReviewerStateSnapshot {
+    return state.kind === "reviewing"
+        ? { kind: state.kind, reviewers: state.reviewers.map(r => ({ state: r.state })) }
+        : { kind: state.kind };
+}
+
+function recordFooterKinds() {
+    const recorder = recordFooterCalls<string>(state => state.kind);
+    return { footerKinds: recorder.calls, restore: recorder.restore };
 }
 
 // A claude spawn whose designated spawns (hold(...)) are held open — their result is not emitted until
@@ -4483,14 +5369,7 @@ test.describe("Implement per-task token and time metrics", test => {
             s.claudeQueue.push({ text: "worker", inputTokens: 100, outputTokens: 50 });
             s.scriptQueue.push({ code: 0, stdout: "ok\n", stderr: "" });
             s.claudeQueue.push({ text: "reviewer ok", inputTokens: 80, outputTokens: 30, errorLog: "" });
-            const planSnapshots:string[] = [];
-            const origWriteFile = s.contexts.fs.writeFile;
-            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, content) => {
-                if (p === PLAN_PATH) {
-                    planSnapshots.push(content);
-                }
-                return origWriteFile(p, content);
-            };
+            const planSnapshots = recordWritesTo(s, PLAN_PATH);
             return { ...s, planSnapshots };
         },
         async ACT({ contexts }) {
@@ -4650,7 +5529,7 @@ test.describe("Implement per-task token and time metrics", test => {
                 return () => { const idx = resizeListeners.indexOf(listener); if (idx >= 0) resizeListeners.splice(idx, 1); };
             };
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            let releaseReviewer:() => void;
+            const reviewerHeld = gate();
             let spawnCount = 0;
             (s.contexts.claude as any).spawn = () => {
                 spawnCount++;
@@ -4662,7 +5541,7 @@ test.describe("Implement per-task token and time metrics", test => {
                     end() { origStdin.end(); }
                 };
                 if (spawnCount === 3) {
-                    new Promise<void>(r => { releaseReviewer = r; }).then(() => {
+                    reviewerHeld.opened.then(() => {
                         setImmediate(() => {
                             const target = targetErrorLogFromPrompt(capturedPrompt);
                             s.files.set(target, "");
@@ -4685,9 +5564,9 @@ test.describe("Implement per-task token and time metrics", test => {
             };
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "worker", inputTokens: 1000, outputTokens: 500 });
-            return { s, resizeListeners, setCols: (n:number) => { cols = n; }, getReleaseReviewer: () => releaseReviewer! };
+            return { s, resizeListeners, setCols: (n:number) => { cols = n; }, releaseReviewer: reviewerHeld.open };
         },
-        async ACT({ s, resizeListeners, setCols, getReleaseReviewer }) {
+        async ACT({ s, resizeListeners, setCols, releaseReviewer }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
             await flush();
             const beforeResize = s.written.join("");
@@ -4695,7 +5574,7 @@ test.describe("Implement per-task token and time metrics", test => {
             setCols(25);
             for (const l of [...resizeListeners]) l();
             const afterResize = s.written.join("");
-            getReleaseReviewer()();
+            releaseReviewer();
             await flush();
             const code = await cmd.result();
             await cmd.dispose();
@@ -8684,12 +9563,7 @@ test.describe("Implement worker iter 1 deterministic injection", test => {
             // referenced file must surface as a stage failure (briefing written, inner loop restarted),
             // never as a placeholder and never as an immediate command-level abort.
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
-            const errorLogWrites:string[] = [];
-            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
-            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
-                if (p === WS_ROOT + "/error.log") errorLogWrites.push(c);
-                return origWriteFile(p, c);
-            };
+            const errorLogWrites = recordWritesTo(s, WS_ROOT + "/error.log");
             s.claudeQueue.push({ text: "ok" });               // detect
             // iterations 2-5: the fresh-fallback worker launches and "succeeds"; each iteration's
             // reviewer stage then fails because its reference injection cannot read the missing file.
@@ -8953,13 +9827,7 @@ test.describe("Implement worker iter n>1 — resume, no context replay", test =>
             s.files.set("/project/.spec/contracts/regen-c.md", "REGEN_CONTRACT_SNIPPET");
             s.files.set("/project/.spec/rules/regen-r.md", "REGEN_RULE_SNIPPET");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
-            // Capture every write to the worker's spec.md path across the run.
-            const specWrites:string[] = [];
-            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
-            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
-                if (p === WS_ROOT + "/spec.md") specWrites.push(c);
-                return origWriteFile(p, c);
-            };
+            const specWrites = recordWritesTo(s, WS_ROOT + "/spec.md");
             s.claudeQueue.push({ text: "ok" });
             // iter 1: worker captures session, reviewer FAIL
             s.claudeQueue.push({ text: "w1", sessionId: "w-regen" });
@@ -9198,14 +10066,7 @@ test.describe("Implement reviewer deterministic injection", test => {
             s.files.set("/project/.spec/contracts/linked-c.md", "ALPHA_2ITER_CONTRACT");
             s.files.set("/project/.spec/rules/linked-r.md", "ALPHA_2ITER_RULE");
             (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = readdirForPaths(s.files);
-            // Capture every write to the reviewer's per-reviewer spec.md so each iteration's
-            // re-provisioning is observable even though both writes target the same path.
-            const reviewerSpecWrites:string[] = [];
-            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
-            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
-                if (p === reviewerRoot(1) + "/spec.md") reviewerSpecWrites.push(c);
-                return origWriteFile(p, c);
-            };
+            const reviewerSpecWrites = recordWritesTo(s, reviewerRoot(1) + "/spec.md");
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "w1", sessionId: "worker-rev-2iter" });
             s.claudeQueue.push({ text: "found issues", errorLog: "fix it" });
@@ -9440,13 +10301,7 @@ test.describe("Implement multiple parallel reviewers", test => {
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            // Capture every write to the aggregate error.log path before iteration 2 overwrites it.
-            const errorLogWrites:string[] = [];
-            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
-            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
-                if (p === WS_ROOT + "/error.log") errorLogWrites.push(c);
-                return origWriteFile(p, c);
-            };
+            const errorLogWrites = recordWritesTo(s, WS_ROOT + "/error.log");
             s.claudeQueue.push({ text: "ok" });
             // iter 1: worker + reviewer 1 (FAIL) + reviewer 2 (PASS)
             s.claudeQueue.push({ text: "worker done" });
@@ -9498,12 +10353,7 @@ test.describe("Implement multiple parallel reviewers", test => {
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            const errorLogWrites:string[] = [];
-            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
-            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
-                if (p === WS_ROOT + "/error.log") errorLogWrites.push(c);
-                return origWriteFile(p, c);
-            };
+            const errorLogWrites = recordWritesTo(s, WS_ROOT + "/error.log");
             s.claudeQueue.push({ text: "ok" });
             // iter 1: both reviewers FAIL with distinct violations
             s.claudeQueue.push({ text: "worker done" });
@@ -9549,12 +10399,7 @@ test.describe("Implement multiple parallel reviewers", test => {
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            const errorLogWrites:string[] = [];
-            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
-            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
-                if (p === WS_ROOT + "/error.log") errorLogWrites.push(c);
-                return origWriteFile(p, c);
-            };
+            const errorLogWrites = recordWritesTo(s, WS_ROOT + "/error.log");
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "worker done" });
             // Both reviewers produce whitespace-only content — aggregate "  \n  \n  \n  " trims to ""
@@ -9690,17 +10535,10 @@ test.describe("Implement multiple parallel reviewers", test => {
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            type FooterSnapshot = { kind:string; reviewers?:Array<{tool:string; model:string; effort:string; state:string}> };
-            const footerCalls:FooterSnapshot[] = [];
-            const origSetFooter = BottomBlock.prototype.setFooter;
-            BottomBlock.prototype.setFooter = function(state) {
-                if (state.kind === "reviewing") {
-                    footerCalls.push({ kind: state.kind, reviewers: state.reviewers.map(r => ({ tool: r.tool, model: r.model, effort: r.effort, state: r.state })) });
-                } else {
-                    footerCalls.push({ kind: state.kind });
-                }
-                origSetFooter.call(this, state);
-            };
+            const footer = recordFooterCalls(state => state.kind === "reviewing"
+                ? { kind: state.kind, reviewers: state.reviewers.map(r => ({ tool: r.tool, model: r.model, effort: r.effort, state: r.state })) }
+                : { kind: state.kind });
+            const footerCalls = footer.calls;
             let spawnCount = 0;
             (s.contexts.claude as any).spawn = () => {
                 spawnCount++;
@@ -9735,9 +10573,9 @@ test.describe("Implement multiple parallel reviewers", test => {
             s.claudeQueue.push({ text: "ok", inputTokens: 5, outputTokens: 5 });
             s.claudeQueue.push({ text: "worker", inputTokens: 50, outputTokens: 25 });
             s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25, errorLog: "" });
-            return { s, time, footerCalls, origSetFooter };
+            return { s, time, footerCalls, footer };
         },
-        async ACT({ s, time, origSetFooter }) {
+        async ACT({ s, time, footer }) {
             try {
                 const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
                 await flush();
@@ -9747,7 +10585,7 @@ test.describe("Implement multiple parallel reviewers", test => {
                 await cmd.dispose();
                 return code;
             } finally {
-                BottomBlock.prototype.setFooter = origSetFooter;
+                footer.restore();
             }
         },
         ASSERTS: {
@@ -9829,17 +10667,10 @@ test.describe("Implement multiple parallel reviewers", test => {
             // into BottomBlock. The rendered terminal output (s.written) is asserted
             // below too, so the test pins both the structured endTime and that it
             // renders as this reviewer's compact countdown in the live reviewing footer.
-            type FooterSnapshot = { kind:string; reviewers?:ReviewerEntry[] };
-            const footerCalls:FooterSnapshot[] = [];
-            const origSetFooter = BottomBlock.prototype.setFooter;
-            BottomBlock.prototype.setFooter = function(state) {
-                if (state.kind === "reviewing") {
-                    footerCalls.push({ kind: state.kind, reviewers: state.reviewers.map(r => ({ ...r })) });
-                } else {
-                    footerCalls.push({ kind: state.kind });
-                }
-                origSetFooter.call(this, state);
-            };
+            const footer = recordFooterCalls<{ kind:string; reviewers?:ReviewerEntry[] }>(state => state.kind === "reviewing"
+                ? { kind: state.kind, reviewers: state.reviewers.map(r => ({ ...r })) }
+                : { kind: state.kind });
+            const footerCalls = footer.calls;
             let spawnCount = 0;
             (s.contexts.claude as any).spawn = () => {
                 spawnCount++;
@@ -9875,9 +10706,9 @@ test.describe("Implement multiple parallel reviewers", test => {
             s.claudeQueue.push({ text: "ok", inputTokens: 5, outputTokens: 5 });
             s.claudeQueue.push({ text: "worker", inputTokens: 50, outputTokens: 25 });
             s.claudeQueue.push({ text: "reviewer ok", inputTokens: 50, outputTokens: 25, errorLog: "" });
-            return { s, time, footerCalls, origSetFooter };
+            return { s, time, footerCalls, footer };
         },
-        async ACT({ s, time, origSetFooter }) {
+        async ACT({ s, time, footer }) {
             try {
                 const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
                 await flush();
@@ -9887,7 +10718,7 @@ test.describe("Implement multiple parallel reviewers", test => {
                 await cmd.dispose();
                 return code;
             } finally {
-                BottomBlock.prototype.setFooter = origSetFooter;
+                footer.restore();
             }
         },
         ASSERTS: {
@@ -9934,17 +10765,8 @@ test.describe("Implement multiple parallel reviewers", test => {
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            type FooterSnapshot = { kind:string; reviewers?:Array<{state:string}> };
-            const footerCalls:FooterSnapshot[] = [];
-            const origSetFooter = BottomBlock.prototype.setFooter;
-            BottomBlock.prototype.setFooter = function(state) {
-                if (state.kind === "reviewing") {
-                    footerCalls.push({ kind: state.kind, reviewers: state.reviewers.map(r => ({ state: r.state })) });
-                } else {
-                    footerCalls.push({ kind: state.kind });
-                }
-                origSetFooter.call(this, state);
-            };
+            const footer = recordFooterCalls(reviewerStateProjection);
+            const footerCalls = footer.calls;
             s.claudeQueue.push({ text: "ok" });
             // iter 1: reviewer FAIL
             s.claudeQueue.push({ text: "w1" });
@@ -9953,16 +10775,16 @@ test.describe("Implement multiple parallel reviewers", test => {
             // iter 2: reviewer PASS
             s.claudeQueue.push({ text: "w2" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            return { ...s, footerCalls, origSetFooter };
+            return { ...s, footerCalls, footer };
         },
-        async ACT({ contexts, origSetFooter }) {
+        async ACT({ contexts, footer }) {
             try {
                 const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
                 const code = await cmd.result();
                 await cmd.dispose();
                 return code;
             } finally {
-                BottomBlock.prototype.setFooter = origSetFooter;
+                footer.restore();
             }
         },
         ASSERTS: {
@@ -9994,17 +10816,8 @@ test.describe("Implement multiple parallel reviewers", test => {
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            type FooterSnapshot = { kind:string; reviewers?:Array<{state:string}> };
-            const footerCalls:FooterSnapshot[] = [];
-            const origSetFooter = BottomBlock.prototype.setFooter;
-            BottomBlock.prototype.setFooter = function(state) {
-                if (state.kind === "reviewing") {
-                    footerCalls.push({ kind: state.kind, reviewers: state.reviewers.map(r => ({ state: r.state })) });
-                } else {
-                    footerCalls.push({ kind: state.kind });
-                }
-                origSetFooter.call(this, state);
-            };
+            const footer = recordFooterCalls(reviewerStateProjection);
+            const footerCalls = footer.calls;
             let spawnCount = 0;
             (s.contexts.claude as any).spawn = () => {
                 spawnCount++;
@@ -10044,9 +10857,9 @@ test.describe("Implement multiple parallel reviewers", test => {
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "worker done" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
-            return { ...s, footerCalls, origSetFooter, time };
+            return { ...s, footerCalls, footer, time };
         },
-        async ACT({ contexts, time, origSetFooter }) {
+        async ACT({ contexts, time, footer }) {
             try {
                 const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
                 await flush();
@@ -10056,7 +10869,7 @@ test.describe("Implement multiple parallel reviewers", test => {
                 await cmd.dispose();
                 return code;
             } finally {
-                BottomBlock.prototype.setFooter = origSetFooter;
+                footer.restore();
             }
         },
         ASSERTS: {
@@ -10092,21 +10905,9 @@ test.describe("Implement multiple parallel reviewers", test => {
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            type FooterSnapshot = { kind:string; reviewers?:Array<{state:string}> };
-            const footerCalls:FooterSnapshot[] = [];
-            const origSetFooter = BottomBlock.prototype.setFooter;
-            BottomBlock.prototype.setFooter = function(state) {
-                if (state.kind === "reviewing") {
-                    footerCalls.push({ kind: state.kind, reviewers: state.reviewers.map(r => ({ state: r.state })) });
-                } else {
-                    footerCalls.push({ kind: state.kind });
-                }
-                origSetFooter.call(this, state);
-            };
-            let releaseReviewer2:(() => void)|null = null;
-            const reviewer2HeldGate = new Promise<void>(resolve => {
-                releaseReviewer2 = resolve;
-            });
+            const footer = recordFooterCalls(reviewerStateProjection);
+            const footerCalls = footer.calls;
+            const reviewer2Held = gate();
             (s.contexts.claude as any).spawn = (_command:string, args:readonly string[]) => {
                 s.claudeSpawnedArgs.push([...args]);
                 const proc = fakeProcess();
@@ -10124,7 +10925,7 @@ test.describe("Implement multiple parallel reviewers", test => {
                     const promptIsReviewer2 = capturedPrompt.includes(reviewerErrorLogPath(2));
                     if (promptIsReviewer2) {
                         // Hold reviewer 2 in flight until the test releases the gate.
-                        reviewer2HeldGate.then(() => {
+                        reviewer2Held.opened.then(() => {
                             // After release, reviewer 2 produces an empty per-reviewer error.log and exits.
                             s.files.set(reviewerErrorLogPath(2), "");
                             proc.$emitStdout(claudeResultEvents("rev2 ok"));
@@ -10145,9 +10946,9 @@ test.describe("Implement multiple parallel reviewers", test => {
             s.claudeQueue.push({ text: "ok" });                       // detect
             s.claudeQueue.push({ text: "worker done" });              // worker
             s.claudeQueue.push({ text: "rev1 ok", errorLog: "" });    // reviewer 1 — fast PASS
-            return { ...s, footerCalls, origSetFooter, getRelease: () => releaseReviewer2! };
+            return { ...s, footerCalls, footer, releaseReviewer2: reviewer2Held.open };
         },
-        async ACT({ contexts, origSetFooter, getRelease, footerCalls }) {
+        async ACT({ contexts, footer, releaseReviewer2, footerCalls }) {
             try {
                 const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
                 // Spin until reviewer 1 has emitted its ok snapshot AND reviewer 2 is still pending.
@@ -10163,12 +10964,12 @@ test.describe("Implement multiple parallel reviewers", test => {
                     }
                 }
                 // Now release reviewer 2 so the run can complete.
-                getRelease()();
+                releaseReviewer2();
                 const code = await cmd.result();
                 await cmd.dispose();
                 return { code, snapshotWhileR2InFlight };
             } finally {
-                BottomBlock.prototype.setFooter = origSetFooter;
+                footer.restore();
             }
         },
         ASSERTS: {
@@ -10489,12 +11290,7 @@ test.describe("Implement weighted-review round completion", test => {
             };
             s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            const errorLogWrites:string[] = [];
-            const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
-            (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p, c) => {
-                if (p === WS_ROOT + "/error.log") errorLogWrites.push(c);
-                return origWriteFile(p, c);
-            };
+            const errorLogWrites = recordWritesTo(s, WS_ROOT + "/error.log");
             // iter 1: worker, R0 (required) PASS, R1 (optional) errors with a non-retryable spawn error.
             s.claudeQueue.push({ text: "detect" });
             s.claudeQueue.push({ text: "w1" });
@@ -10516,8 +11312,11 @@ test.describe("Implement weighted-review round completion", test => {
             "exits 0 after the iter-2 retry"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "the optional reviewer's error failed the stage and wrote the reviewer-stage briefing"(_code, { errorLogWrites }) {
-                Assert.ok(errorLogWrites.some(w => w.startsWith("reviewer stage failed: ")), `expected a reviewer-stage failure briefing; got writes: ${JSON.stringify(errorLogWrites)}`);
+            "the optional reviewer's error failed the stage and briefed its own surfaced message"(_code, { errorLogWrites }) {
+                Assert.ok(
+                    errorLogWrites.some(w => /^reviewer stage failed: Error: spawn error\n/.test(w)),
+                    `expected a reviewer-stage briefing carrying the surfaced message; got writes: ${JSON.stringify(errorLogWrites)}`
+                );
             },
             "the iteration was rerun (iter-2 review ran), proving the error was not silently dropped as a cancellation"(_code, { files }) {
                 Assert.strictEqual(files.has(WS_ROOT + "/reviewer.2.1.log"), true);

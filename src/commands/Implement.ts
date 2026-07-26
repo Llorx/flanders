@@ -1,3 +1,4 @@
+import { isFatalLoginError } from "../ai/AiRunner";
 import { AiSession } from "../ai/AiSession";
 import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import { CodexAdapter } from "../ai/CodexAdapter";
@@ -39,6 +40,13 @@ export function completedPlanPath(planPath:string):string {
         return planPath;
     }
     return `${dir}${COMPLETED_PLAN_MARKER}${base}`;
+}
+
+// The diagnostic a fatal authentication/login failure hard-stops with. It identifies no task because
+// the failure belongs to the configured tool rather than to any task, and can arrive from the detect
+// agent before the first task is even picked.
+function loginFailureDiagnostic(workspaceRoot:string):string {
+    return `Hard stop: the configured AI tool is not logged in. Log in and re-run. Inspect logs at ${workspaceRoot}.\n`;
 }
 
 class LineBufferedBlock {
@@ -90,6 +98,13 @@ export type ImplementContexts = Readonly<{
     platform:PlatformContext;
     ask:AskContext;
     output:OutputContext;
+    /**
+     * Supplies the tool adapter for a configured tool instead of the built-in one. Production omits
+     * it. Present for testing: how the orchestrator responds to a runner outcome is otherwise
+     * observable only by making a real adapter classify a native tool event into that outcome, which
+     * couples the orchestrator's own behavior to whichever adapter the scenario happens to spawn.
+     */
+    adapter?:(tool:ToolName) => ToolAdapter;
 }>;
 
 export type ImplementOptions = Readonly<{
@@ -329,6 +344,11 @@ export class Implement {
             this._finalizeBlock("Done");
             return 0;
         } catch (e) {
+            if (isFatalLoginError(e)) {
+                await this._hardStop(loginFailureDiagnostic(this._workspace!.paths().root));
+                this._finalizeBlock("Hard stop");
+                return 1;
+            }
             if (!this._disposed) {
                 this._ensureBlockMounted();
                 this._buffered.writeError(`${this._errorMessage(e)}\n`);
@@ -672,6 +692,9 @@ export class Implement {
             await this._writeLog(ws.workerLog(iteration), capturedOutput);
             return true;
         } catch (e) {
+            if (isFatalLoginError(e)) {
+                throw e;
+            }
             await this._persistMetrics(plan, task.line);
             this._updateMetrics(plan);
             await this._writeErrorLog(ws, `worker stage failed: ${this._stringifyError(e)}`);
@@ -818,9 +841,26 @@ export class Implement {
         // every required reviewer to already have a verdict, any still-waiting reviewer is optional.
         for (let i = 0; i < statuses.length; i++) {
             if (statuses[i] === "waiting") {
-                this._cancelledReviewers.add(i);
-                this._reviewerAbortControllers.get(i)!.abort();
+                this._cancelReviewer(i, this._reviewerAbortControllers.get(i)!);
             }
+        }
+    }
+    // The one transition by which the orchestrator cancels a reviewer of the round, shared by every
+    // caller that cancels one. The mark is what tells the reviewer apart from one that failed on its
+    // own: it both stops the reviewer before it starts another invocation and identifies the
+    // resulting rejection as this deliberate cancellation.
+    private _cancelReviewer(idx:number, controller:AbortController):void {
+        this._cancelledReviewers.add(idx);
+        controller.abort();
+    }
+    // Cancels every reviewer of the round that has not yet returned — preparing, invoking, or
+    // sitting out a usage-limit wait that would otherwise hold the round open for hours. Each such
+    // reviewer holds its handle in the map from the moment it starts until its finally removes it,
+    // so a reviewer whose own invocation raised the failure is already out and only its siblings
+    // remain.
+    private _cancelInFlightReviewers():void {
+        for (const [idx, controller] of this._reviewerAbortControllers) {
+            this._cancelReviewer(idx, controller);
         }
     }
     private async _reviewerStage(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number):Promise<boolean> {
@@ -834,11 +874,18 @@ export class Implement {
         }
         await this._workspace!.clearErrorLog();
         let failureCaught:unknown = null;
+        // Kept apart from the ordinary first-error above, which it outranks: a fatal
+        // authentication/login failure ends the whole run whenever in the round it surfaces, even
+        // after a sibling has already failed ordinarily.
+        let fatalLoginCaught:unknown = null;
         const outcomes:Array<"verdict"|"cancelled"> = reviewers.map(() => "cancelled");
         const launches = reviewers.map((reviewer, idx) => this._runOneReviewerToVerdict(plan, task, ws, iteration, reviewer, idx)
             .then(outcome => { outcomes[idx] = outcome; })
             .catch(e => {
-                if (failureCaught === null) {
+                if (isFatalLoginError(e)) {
+                    fatalLoginCaught = e;
+                    this._cancelInFlightReviewers();
+                } else if (failureCaught === null) {
                     failureCaught = e;
                 }
             }));
@@ -870,6 +917,9 @@ export class Implement {
                 }
             }
         }
+        if (fatalLoginCaught !== null) {
+            throw fatalLoginCaught;
+        }
         if (failureCaught !== null) {
             await this._persistMetrics(plan, task.line);
             this._updateMetrics(plan);
@@ -885,31 +935,38 @@ export class Implement {
     }
     private async _runOneReviewerToVerdict(plan:PlanFile, task:PlanTask, ws:WorkspacePaths, iteration:number, reviewer:FlandersRole, idx:number):Promise<"verdict"|"cancelled"> {
         const reviewerNum = idx + 1;
-        // Every reviewer invocation is fresh and receives the same deterministic injection the
-        // worker's iteration 1 receives: the full task text in the prompt, and the full content of
-        // every referenced contract and rule consolidated into this reviewer's own `spec.md` (its
-        // SPEC_PATH placeholder resolves to that file in this reviewer's temporary folder). A read
-        // failure from _buildSpecContent propagates so the reviewer stage treats it as a failure.
-        let prompt = prompts.reviewer
-            .split(Placeholders.PLAN_PATH).join(plan.path)
-            .split(Placeholders.TASK_TEXT).join(plan.fullTaskText(task))
-            .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
-            .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
-            .split(Placeholders.BEHAVIOR_RULE_LIST).join(this._formatPathList(this._behaviorRuleList))
-            .split(Placeholders.ERROR_LOG_PATH).join(ws.reviewerErrorLog(reviewerNum))
-            .split(Placeholders.SPEC_PATH).join(ws.reviewerSpecFile(reviewerNum));
-        await this._contexts.fs.writeFile(ws.reviewerSpecFile(reviewerNum), await this._buildSpecContent(plan, task));
         // Per-reviewer cancellation handle owned by the orchestrator: aborting it disposes whichever
         // invocation is in flight (wired below), which aborts a usage-limit wait per the
-        // AiSession/AiRunner cancellation behavior. Set before the reviewer is awaited; removed in
-        // the finally so cancelled, settled, and thrown paths all clean up.
+        // AiSession/AiRunner cancellation behavior. Registered ahead of the asynchronous preparation
+        // below so a reviewer cancelled before its first invocation is reachable too; removed in the
+        // finally so cancelled, settled, and thrown paths all clean up.
         const controller = new AbortController();
         this._reviewerAbortControllers.set(idx, controller);
         try {
+            // Every reviewer invocation is fresh and receives the same deterministic injection the
+            // worker's iteration 1 receives: the full task text in the prompt, and the full content of
+            // every referenced contract and rule consolidated into this reviewer's own `spec.md` (its
+            // SPEC_PATH placeholder resolves to that file in this reviewer's temporary folder). A read
+            // failure from _buildSpecContent propagates so the reviewer stage treats it as a failure.
+            const prompt = prompts.reviewer
+                .split(Placeholders.PLAN_PATH).join(plan.path)
+                .split(Placeholders.TASK_TEXT).join(plan.fullTaskText(task))
+                .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
+                .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
+                .split(Placeholders.BEHAVIOR_RULE_LIST).join(this._formatPathList(this._behaviorRuleList))
+                .split(Placeholders.ERROR_LOG_PATH).join(ws.reviewerErrorLog(reviewerNum))
+                .split(Placeholders.SPEC_PATH).join(ws.reviewerSpecFile(reviewerNum));
+            await this._contexts.fs.writeFile(ws.reviewerSpecFile(reviewerNum), await this._buildSpecContent(plan, task));
             const aggregateOutput:string[] = [];
             for (;;) {
                 /* coverage ignore next 3 */ // — Defensive: disposed guard between async operations.
                 if (this._disposed) {
+                    return "cancelled";
+                }
+                // A reviewer cancelled while it was preparing, or between a missing-verdict relaunch,
+                // has no in-flight invocation for the abort to reach, so the mark is what stops it:
+                // it never starts another invocation.
+                if (this._cancelledReviewers.has(idx)) {
                     return "cancelled";
                 }
                 this._setReviewerState(idx, "running");
@@ -948,27 +1005,49 @@ export class Implement {
                 try {
                     runResult = await this._runAiWith(reviewer.tool, reviewer.model, reviewer.effort, reviewer.fast, prompt, null, callbacks);
                 } catch (e) {
-                    // A reviewer the round-completion logic intentionally cancelled is marked here:
-                    // its in-flight session was disposed, surfacing as the runner's AbortError. The
-                    // mark distinguishes that deliberate cancellation from a genuine reviewer error,
-                    // which is never marked and propagates to the stage's failure path so the worker
-                    // is briefed — regardless of whether the reviewer is optional.
+                    // A fatal authentication/login failure ends the whole run, so it is surfaced even
+                    // when this reviewer had already been marked cancelled; absorbing it as the
+                    // cancellation would let the round carry on without it.
+                    if (isFatalLoginError(e)) {
+                        throw e;
+                    }
+                    // A reviewer the orchestrator intentionally cancelled is marked here: its
+                    // in-flight session was disposed, surfacing as the runner's AbortError. The mark
+                    // distinguishes that deliberate cancellation from a genuine reviewer error, which
+                    // is never marked and propagates to the stage's failure path so the worker is
+                    // briefed — regardless of whether the reviewer is optional.
                     if (this._cancelledReviewers.has(idx)) {
                         return "cancelled";
                     }
                     throw e;
                 }
+                if (this._cancelledReviewers.has(idx)) {
+                    return "cancelled";
+                }
+                // Consumption already incurred is accounted for unconditionally from here, in the same
+                // synchronous step as the boundary above: a reviewer cancelled after this point has
+                // still spent these tokens, and the plan file reports what the task consumed. Only the
+                // verdict is withheld from a cancelled reviewer, so each await on the way to it is
+                // followed by a fresh recheck — the orchestrator can mark this reviewer during any of
+                // those microtask windows.
                 const { result, capturedOutput } = runResult;
                 this._taskTokens.it += result.inputTokens;
                 this._taskTokens.ot += result.outputTokens;
                 await this._persistMetrics(plan, task.line);
                 this._updateMetrics(plan);
                 aggregateOutput.push(capturedOutput);
-                if (!await this._workspace!.reviewerErrorLogExists(reviewerNum)) {
+                const verdictFilePresent = await this._workspace!.reviewerErrorLogExists(reviewerNum);
+                if (this._cancelledReviewers.has(idx)) {
+                    return "cancelled";
+                }
+                if (!verdictFilePresent) {
                     await this._writeLog(ws.reviewerOutputLog(iteration, reviewerNum), aggregateOutput.join("\n---\n"));
                     continue;
                 }
                 const trimmed = (await this._workspace!.readReviewerErrorLog(reviewerNum)).trim();
+                if (this._cancelledReviewers.has(idx)) {
+                    return "cancelled";
+                }
                 // Flip per-reviewer footer state to pass/fail the instant this reviewer's own verdict
                 // file is present — before writing the per-reviewer log — so the UI advances per
                 // reviewer rather than waiting for the slowest reviewer in the round.
@@ -978,6 +1057,9 @@ export class Implement {
                     ? "Verdict: PASS"
                     : `Verdict: FAIL ${trimmed}`;
                 await this._writeLog(ws.reviewerOutputLog(iteration, reviewerNum), `${aggregateOutput.join("\n---\n")}\n\n${verdictLine}`);
+                if (this._cancelledReviewers.has(idx)) {
+                    return "cancelled";
+                }
                 return "verdict";
             }
         } finally {
@@ -991,6 +1073,9 @@ export class Implement {
         return items.join("\n");
     }
     private _getAdapter(tool:ToolName):ToolAdapter {
+        if (this._contexts.adapter) {
+            return this._contexts.adapter(tool);
+        }
         if (tool === "codex") {
             return new CodexAdapter({
                 script: this._contexts.script,
