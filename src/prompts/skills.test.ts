@@ -36,25 +36,43 @@ function userFacingVoiceSection(body: string): string {
     return body.slice(start, end);
 }
 
-function planValidatorCategory4(body: string): string {
-    return body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+function sectionBetween(body: string, startMarker: string, endMarker: string): string {
+    return body.slice(body.indexOf(startMarker), body.indexOf(endMarker));
 }
 
-function validatorInputsSection(body: string): string {
-    return body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
-}
-
-// Category 4's satisfiability item is a single line however long, so the protocol ends at the next newline.
-function jointSatisfiabilityProtocol(body: string): string {
-    const start = body.indexOf("The per-reference pass establishes only individual satisfiability.");
+// A skill body writes each paragraph as one continuous line however long, so a paragraph runs from its
+// opening words to the next newline.
+function paragraphAt(body: string, opening: string): string {
+    const start = body.indexOf(opening);
     return body.slice(start, body.indexOf("\n", start));
 }
 
-// Slice out the /flanders-hard-stop-review body's "Interaction and reasoning language" section — from
-// its heading to the "## Voice" section that follows — so the language-resolution assertions share one
-// extraction rather than repeating the slice.
+function planValidatorCategory4(body: string): string {
+    return sectionBetween(body, "4. Plan content rules", "5. Active application of referenced contracts and rules");
+}
+
+function validatorInputsSection(body: string): string {
+    return sectionBetween(body, "### Validator inputs", "### Validator checks");
+}
+
+function specValidatorChecksSection(body: string): string {
+    return sectionBetween(body, "### Validator checks", "### Validator output");
+}
+
+function specValidatorCategoryC(body: string): string {
+    return sectionBetween(body, "**C. Non-contradiction", "### Validator output");
+}
+
+function sourceGroundedContradictionForm(body: string): string {
+    return paragraphAt(body, "A contradiction also takes a source-grounded form:");
+}
+
+function jointSatisfiabilityProtocol(body: string): string {
+    return paragraphAt(body, "The per-reference pass establishes only individual satisfiability.");
+}
+
 function interactionAndReasoningLanguageSection(body: string): string {
-    return body.slice(body.indexOf("## Interaction and reasoning language"), body.indexOf("## Voice"));
+    return sectionBetween(body, "## Interaction and reasoning language", "## Voice");
 }
 
 test.describe("skills – planSkillBody", test => {
@@ -2044,28 +2062,45 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(inputsSection.includes("The verbatim text of the check categories below, together with the per-item adjudication protocol stated alongside them. The host MUST inline these categories and that protocol in the validator's prompt"), "Validator inputs must name the per-item adjudication protocol as part of the verbatim text the host inlines");
             },
             "forbids aggregate adjudication and requires one verdict line per applicable item per file"(body) {
-                const checks = body.slice(body.indexOf("### Validator checks"), body.indexOf("### Validator output"));
+                const checks = specValidatorChecksSection(body);
                 Assert.ok(checks.includes("Every applicable check item is adjudicated per file individually, never in aggregate: for each file under audit, render every applicable check item — each format-and-shape item, each content item, and the non-contradiction category — as its own verdict line, PASS or FAIL, produced from the record the item's kind requires"), "validator checks must forbid aggregate adjudication and require one verdict line per applicable item per file");
             },
             "requires presence checks to name the satisfying element"(body) {
-                const checks = body.slice(body.indexOf("### Validator checks"), body.indexOf("### Validator output"));
+                const checks = specValidatorChecksSection(body);
                 Assert.ok(checks.includes("Presence checks — a check satisfied by an element the file must carry, such as a descriptive filename, an explicit scope-of-enforcement section, atomic rule sections, or cross-references written as markdown links — name or quote the satisfying element, and a FAIL names the missing or malformed element with its file:line"), "validator checks must require presence checks to name or quote the satisfying element");
             },
             "requires absence checks to quote the offending passage or commit to a full read"(body) {
-                const checks = body.slice(body.indexOf("### Validator checks"), body.indexOf("### Validator output"));
+                const checks = specValidatorChecksSection(body);
                 Assert.ok(checks.includes("Absence checks — a check violated by content the file must not carry, such as placeholders, hedge phrasing, historical or migration content, implementation detail in a contract, or an obligation duplicated across files — quote the offending passage with its file:line on FAIL, and on PASS commit that a full read of the file surfaced no occurrence"), "validator checks must require absence checks to quote the offending passage on FAIL and commit to a full read on PASS");
             },
             "requires the non-contradiction verdict to name the corpus files read and compared"(body) {
-                const checks = body.slice(body.indexOf("### Validator checks"), body.indexOf("### Validator output"));
+                const checks = specValidatorChecksSection(body);
                 Assert.ok(checks.includes("The non-contradiction verdict names the corpus files read and compared to reach it — a non-contradiction verdict that names no consulted corpus file is not an adjudication — and a flagged contradiction quotes both sides with their file:line"), "validator checks must require the non-contradiction verdict to name the corpus files consulted and quote both sides of a flagged contradiction");
             },
             "bans conditional adjudication and FAILs a genuinely open reading"(body) {
-                const checks = body.slice(body.indexOf("### Validator checks"), body.indexOf("### Validator output"));
+                const checks = specValidatorChecksSection(body);
                 Assert.ok(checks.includes("A verdict conditioned on an unresolved reading — \"compatible under either reading\", \"fine either way\", or any wording that leaves the reading unresolved — is not a verdict: resolve which reading the corpus text sustains and judge that reading alone; when the audited text genuinely admits both readings, that openness is itself an ambiguous-wording FAIL, never a ground for passing the item"), "validator checks must ban conditional adjudication and FAIL a genuinely open reading");
             },
             "blocks a category while any item is unaudited and voids summary clauses"(body) {
-                const checks = body.slice(body.indexOf("### Validator checks"), body.indexOf("### Validator output"));
+                const checks = specValidatorChecksSection(body);
                 Assert.ok(checks.includes("An item missing the record its kind requires is unaudited, and a category is not reported as passed while any of its items is unaudited; a summary clause that disposes of several items or several files at once leaves everything it covers unaudited"), "validator checks must block a category with unaudited items and treat summary clauses as leaving their items unaudited");
+            }
+        }
+    });
+
+    test("the per-item protocol pins the record a source-grounded category C verdict rests on", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "names the governed-source file:line when the judgment is source-grounded"(body) {
+                Assert.ok(specValidatorChecksSection(body).includes("When that judgment is source-grounded, the verdict also names the file:line of the governed source read"), "the per-item protocol must make a source-grounded non-contradiction verdict name the file:line of the governed source read");
+            },
+            "cites that source alongside both obligations on a flagged source-grounded contradiction"(body) {
+                Assert.ok(specValidatorChecksSection(body).includes("a flagged source-grounded contradiction cites that source alongside both obligations."), "the per-item protocol must make a flagged source-grounded contradiction cite the governed source alongside both obligations");
+            },
+            "states the source-grounded verdict record after the corpus-files record it extends"(body) {
+                const checks = specValidatorChecksSection(body);
+                Assert.ok(checks.indexOf("When that judgment is source-grounded") > checks.indexOf("The non-contradiction verdict names the corpus files read and compared to reach it"), "the source-grounded verdict record must follow the corpus-files record it extends");
             }
         }
     });
@@ -2208,24 +2243,71 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return specSkillBody; },
         ASSERTS: {
             "names the renamed-term sweep check inside category C"(body) {
-                const categoryC = body.slice(body.indexOf("**C. Non-contradiction"), body.indexOf("### Validator output"));
+                const categoryC = specValidatorCategoryC(body);
                 Assert.ok(categoryC.includes("**Renamed-term sweep.** For each old term the host passed (the terms this run renamed, relocated, or removed), the validator searches the whole corpus for that term and inspects every occurrence."), "category C must carry the per-term whole-corpus renamed-term sweep check");
             },
             "FAILs a stale un-updated occurrence"(body) {
-                const categoryC = body.slice(body.indexOf("**C. Non-contradiction"), body.indexOf("### Validator output"));
+                const categoryC = specValidatorCategoryC(body);
                 Assert.ok(categoryC.includes("An occurrence that is a stale, un-updated instance of the renamed term — a leftover that should have been changed in this run — is FAIL."), "category C must FAIL a stale un-updated occurrence");
             },
             "treats an intentional reference as not a violation"(body) {
-                const categoryC = body.slice(body.indexOf("**C. Non-contradiction"), body.indexOf("### Validator output"));
+                const categoryC = specValidatorCategoryC(body);
                 Assert.ok(categoryC.includes("An occurrence that is an intentional reference the rename correctly leaves alone is not a violation."), "category C must treat an intentional reference as not a violation");
             },
             "drives the check from the passed terms, not the validator's relevance judgment"(body) {
-                const categoryC = body.slice(body.indexOf("**C. Non-contradiction"), body.indexOf("### Validator output"));
+                const categoryC = specValidatorCategoryC(body);
                 Assert.ok(categoryC.includes("The validator drives this check from the passed term(s), not from its own judgment of which files are relevant"), "category C must drive the check from the passed terms rather than the validator's relevance judgment");
             },
             "is vacuously satisfied when the passed list is empty"(body) {
-                const categoryC = body.slice(body.indexOf("**C. Non-contradiction"), body.indexOf("### Validator output"));
+                const categoryC = specValidatorCategoryC(body);
                 Assert.ok(categoryC.includes("When the passed list is empty, this check is vacuously satisfied."), "category C must be vacuously satisfied when the passed list is empty");
+            }
+        }
+    });
+
+    test("Category C carries the source-grounded contradiction form", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "keeps the text-against-text form the source-grounded form is added to"(body) {
+                Assert.ok(specValidatorCategoryC(body).includes("A contradiction is an obligation pinned in two places with incompatible content."), "category C must keep the text-against-text definition of a contradiction");
+            },
+            "makes a jointly unsatisfiable pair governing the same code a contradiction"(body) {
+                Assert.ok(specValidatorCategoryC(body).includes("A contradiction also takes a source-grounded form: when a file written or updated in this run and an existing corpus spec each govern the behavior of the same code, and — though each obligation is satisfiable on its own — no implementation of that code can satisfy both at once, the pair is a contradiction even where the two spec texts read as compatible."), "category C must make a run file and a corpus spec that jointly govern one code and cannot both be implemented a contradiction, even where the two spec texts read as compatible");
+            },
+            "establishes it against the governed source read on disk, not the two spec texts alone"(body) {
+                Assert.ok(specValidatorCategoryC(body).includes("The validator establishes this against the state of the governed source it reads on disk, not from the two spec texts alone."), "category C must establish the source-grounded form against the state of the governed source read on disk rather than from the two spec texts alone");
+            },
+            "states the citation obligation once, leaving it to the per-item protocol"(body) {
+                Assert.strictEqual(sourceGroundedContradictionForm(body).includes("cites that source alongside both obligations"), false);
+            },
+            "bounds the audit to the files this run wrote or updated, judged against the corpus"(body) {
+                Assert.ok(specValidatorCategoryC(body).includes("This audit is bounded to the file(s) this run wrote or updated, judged against the corpus;"), "category C must bound the source-grounded audit to the files this run wrote or updated, judged against the corpus");
+            },
+            "is not a sweep for latent contradictions between specs the run did not touch"(body) {
+                Assert.ok(specValidatorCategoryC(body).includes("it is not a sweep for latent contradictions between specs the run did not touch."), "category C must exclude a sweep for latent contradictions between specs the run did not touch");
+            },
+            "the source-grounded form names no path under contracts/, rules/, flanders/, or plans/"(body) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(sourceGroundedContradictionForm(body)), false);
+            },
+            "the source-grounded form contains no .md path at all"(body) {
+                Assert.strictEqual(sourceGroundedContradictionForm(body).includes(".md"), false);
+            }
+        }
+    });
+
+    test("Validator inputs ground category C in the source a run file and a corpus spec jointly govern", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "reads the on-disk source a run file and a corpus spec jointly govern"(body) {
+                Assert.ok(validatorInputsSection(body).includes("It also reads the on-disk source that a file written or updated in this run and a corpus spec jointly govern"), "Validator inputs must have the validator read the on-disk source a run file and a corpus spec jointly govern");
+            },
+            "rests category C's judgment on that source rather than the two spec texts alone"(body) {
+                Assert.ok(validatorInputsSection(body).includes("so category C's judgment rests on the behavior that source pins rather than on the two spec texts alone"), "Validator inputs must rest category C's judgment on the behavior the governed source pins rather than on the two spec texts alone");
+            },
+            "keeps that source read read-only"(body) {
+                Assert.ok(validatorInputsSection(body).includes("that source read is read-only."), "Validator inputs must state the governed-source read is read-only");
             }
         }
     });
