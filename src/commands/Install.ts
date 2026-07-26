@@ -1,7 +1,8 @@
 import type { AskContext, ChoiceOption, FsContext, OutputContext, ScriptContext } from "../contexts";
+import { disposeOnce } from "../disposeOnce";
 import type { FlandersConfig, FlandersRole, FlandersReviewer } from "../workspace/FlandersConfig";
 import { write as writeConfig, readScope } from "../workspace/FlandersConfig";
-import { askChoice, askMultiChoice, askText } from "../ui/PromptHelper";
+import { tryAskChoice, tryAskMultiChoice, tryAskText } from "../ui/PromptHelper";
 import type { AskChoiceArgs, AskMultiChoiceArgs, AskTextArgs } from "../ui/PromptHelper";
 import { writeSkillArtifacts } from "./skillArtifacts";
 import type { PlatformContext } from "../workspace/Workspace";
@@ -23,38 +24,16 @@ export type InstallOptions = Readonly<{
     projectRoot:string;
 }>;
 
-async function promptChoice(ask:AskContext, args:AskChoiceArgs):Promise<ChoiceOption|null> {
-    try {
-        return await askChoice(ask, args);
-    } catch (e) {
-        if (e instanceof Error && e.name === "AbortError") {
-            return null;
-        }
-        throw e;
-    }
+function promptChoice(contexts:InstallContexts, args:AskChoiceArgs):Promise<ChoiceOption|null> {
+    return tryAskChoice(contexts.ask, args, contexts.output);
 }
 
-async function promptText(ask:AskContext, args:AskTextArgs):Promise<string|null> {
-    try {
-        return await askText(ask, args);
-    } catch (e) {
-        if (e instanceof Error && e.name === "AbortError") {
-            return null;
-        /* coverage ignore next 3 */ // — Defensive: askText in PromptHelper wraps all errors as AbortError, so this rethrow is unreachable.
-        }
-        throw e;
-    }
+function promptText(contexts:InstallContexts, args:AskTextArgs):Promise<string|null> {
+    return tryAskText(contexts.ask, args, contexts.output);
 }
 
-async function promptMultiChoice(ask:AskContext, args:AskMultiChoiceArgs):Promise<readonly ChoiceOption[]|null> {
-    try {
-        return await askMultiChoice(ask, args);
-    } catch (e) {
-        if (e instanceof Error && e.name === "AbortError") {
-            return null;
-        }
-        throw e;
-    }
+function promptMultiChoice(contexts:InstallContexts, args:AskMultiChoiceArgs):Promise<readonly ChoiceOption[]|null> {
+    return tryAskMultiChoice(contexts.ask, args, contexts.output);
 }
 
 type ReviewerFlagAnswers = Readonly<{
@@ -507,7 +486,7 @@ export class Install {
         return this._runPromise;
     }
     private async _resolveFreeTextAnswer(question:string, placeholder:string, contexts:InstallContexts, preselect?:string):Promise<string|null> {
-        const text = await promptText(contexts.ask, {
+        const text = await promptText(contexts, {
             question,
             placeholder,
             default: preselect
@@ -538,7 +517,7 @@ export class Install {
                 customDefault = preselect;
             }
         }
-        const option = await promptChoice(contexts.ask, {
+        const option = await promptChoice(contexts, {
             header: headerLabel,
             question,
             options,
@@ -601,7 +580,7 @@ export class Install {
                 { label: DEFAULT_MODEL_LABEL },
                 { label: CUSTOM_VALUE_LABEL }
             ];
-            const top = await promptChoice(contexts.ask, {
+            const top = await promptChoice(contexts, {
                 header: headerLabel,
                 question,
                 options: topOptions,
@@ -627,7 +606,7 @@ export class Install {
             for (;;) {
                 const groupOptions:ChoiceOption[] = group.entries.map(entry => ({ label: entry.label }));
                 groupOptions.push({ label: MODEL_BACK_LABEL });
-                const choice = await promptChoice(contexts.ask, {
+                const choice = await promptChoice(contexts, {
                     header: headerLabel,
                     question: `Which ${group.name} model should ${roleLabel} use?`,
                     options: groupOptions,
@@ -737,7 +716,7 @@ export class Install {
         if (!eligible) {
             return false;
         }
-        const option = await promptChoice(contexts.ask, {
+        const option = await promptChoice(contexts, {
             header: headerLabel,
             question: `Should ${roleLabel} run with Claude Code's fast mode enabled, neighbor?`,
             options: [
@@ -768,7 +747,7 @@ export class Install {
             }
             // Pre-select this reviewer's stored tool when a configuration was read for this position;
             // a fresh position (no stored reviewer) leaves the tool question at its fresh default.
-            const option = await promptChoice(contexts.ask, {
+            const option = await promptChoice(contexts, {
                 header: `Reviewer${ordinal} tool`,
                 question: `Which AI tool should ${roleLabel} use?`,
                 options: TOOL_CHOICE_OPTIONS,
@@ -818,7 +797,7 @@ export class Install {
                 if (this._disposed) {
                     return 1;
                 }
-                const picked = await promptMultiChoice(contexts.ask, {
+                const picked = await promptMultiChoice(contexts, {
                     header: "Skills tool",
                     question: "Which AI tool(s) should the skills be installed for, neighbor?",
                     options: [
@@ -846,7 +825,7 @@ export class Install {
                 // skills-tool selection names, in selection order, joined with " and ".
                 const projectDescription = `Install in ${skillsTools.map(t => SKILLS_TOOL_DESTINATIONS[t].project).join(" and ")} relative to CWD`;
                 const globalDescription = `Install in ${skillsTools.map(t => SKILLS_TOOL_DESTINATIONS[t].global).join(" and ")}`;
-                const option = await promptChoice(contexts.ask, {
+                const option = await promptChoice(contexts, {
                     header: "Install destination",
                     question: "Where should Flanders skills be installed?",
                     options: [
@@ -886,7 +865,7 @@ export class Install {
                 if (this._disposed) {
                     return 1;
                 }
-                const option = await promptChoice(contexts.ask, {
+                const option = await promptChoice(contexts, {
                     header: "Worker tool, neighborino",
                     question: "Which AI tool should the worker use?",
                     options: TOOL_CHOICE_OPTIONS,
@@ -951,7 +930,7 @@ export class Install {
                     const moreDefault = storedReviewers !== undefined
                         ? (idx < storedReviewers.length ? "yes" : "no")
                         : undefined;
-                    const more = await promptChoice(contexts.ask, {
+                    const more = await promptChoice(contexts, {
                         header: "Configure another reviewer?",
                         question: "Okely-dokely — care to configure another reviewer?",
                         options: [
@@ -1061,7 +1040,7 @@ export class Install {
                             // Default to the stored reviewer's optional flag at this position; a fresh
                             // position (no stored reviewer) defaults to "no" (required).
                             const optionalDefault = storedReviewers?.[i]?.optional === true ? "yes" : "no";
-                            const optionalOption = await promptChoice(contexts.ask, {
+                            const optionalOption = await promptChoice(contexts, {
                                 header: `Reviewer ${i + 1} optional`,
                                 question: `Is reviewer ${i + 1} (${reviewer.tool} · ${modelLabel} · ${effortLabel}) optional?`,
                                 options: [
@@ -1133,20 +1112,15 @@ export class Install {
             return 1;
         }
     }
-    async dispose():Promise<void> {
-        if (this._disposed) {
-            try {
-                await this._runPromise;
-            /* coverage ignore next 2 */ // — Defensive: _run always resolves with a number, so this catch is unreachable.
-            } catch {
-            }
-            return;
-        }
+    dispose():Promise<void> {
+        return this._dispose();
+    }
+    private _dispose = disposeOnce(async () => {
         this._disposed = true;
         try {
             await this._runPromise;
         /* coverage ignore next 2 */ // — Defensive: _run always resolves with a number, so this catch is unreachable.
         } catch {
         }
-    }
+    });
 }

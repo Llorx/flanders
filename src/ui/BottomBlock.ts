@@ -81,6 +81,7 @@ export class BottomBlock {
     private _countdownTimer:TimeoutHandle|null = null;
     private _unsubResize:(() => void)|null = null;
     private _prevLineWidths:readonly number[]|null = null;
+    private _unmountedLineOpen = false;
     // The clock value at which the metrics-time counter is currently frozen — set
     // while the counter is paused (the footer in its waiting state, or in its
     // reviewing state with no reviewer running), null while it runs. When set,
@@ -98,6 +99,10 @@ export class BottomBlock {
     mount():void {
         if (this._disposed) return;
         if (this._mounted) return;
+        if (this._unmountedLineOpen) {
+            this._io.write("\n");
+            this._unmountedLineOpen = false;
+        }
         this._mounted = true;
         if (this._footer.kind === "working") {
             this._workingLabel = pickVariant(workingPool, this._random);
@@ -111,6 +116,10 @@ export class BottomBlock {
 
     isFinalized():boolean {
         return this._finalized;
+    }
+
+    isMounted():boolean {
+        return this._mounted;
     }
 
     setHeader(fields:HeaderFields):void {
@@ -170,6 +179,9 @@ export class BottomBlock {
         if (this._disposed) return;
         if (!this._mounted) {
             this._io.write(text);
+            if (text.length > 0) {
+                this._unmountedLineOpen = !text.endsWith("\n") && !text.endsWith("\r");
+            }
             return;
         }
         this._redraw(text);

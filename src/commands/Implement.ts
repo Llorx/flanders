@@ -1,7 +1,8 @@
 import { AiSession } from "../ai/AiSession";
 import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import { CodexAdapter } from "../ai/CodexAdapter";
-import type { FsContext, OutputContext, RandomContext, ScriptContext, TimeContext } from "../contexts";
+import type { AskContext, ChoiceOption, FsContext, OutputContext, RandomContext, ScriptContext, TimeContext } from "../contexts";
+import { disposeOnce } from "../disposeOnce";
 import type { ToolAdapter, ToolName, ToolTokenUsage } from "../ai/ToolAdapter";
 import type { FlandersConfig, FlandersRole } from "../workspace/FlandersConfig";
 import { read as readConfig } from "../workspace/FlandersConfig";
@@ -13,7 +14,8 @@ import { Placeholders, linkedReferenceDirective, prompts } from "../prompts/prom
 import { ScriptRunner } from "../system/ScriptRunner";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { Activity, ReviewerEntry, ReviewerState, TerminalLabel } from "../ui/BottomBlock";
-import { formatSnapshotBlock } from "../ui/formatters";
+import { formatDateTime, formatSnapshotBlock } from "../ui/formatters";
+import { tryAskChoice } from "../ui/PromptHelper";
 import { allTasksCompletedPool, pickVariant, tasksCompletedPool } from "../voiceVariants";
 import { PlatformContext, Workspace, WorkspacePaths } from "../workspace/Workspace";
 
@@ -44,20 +46,10 @@ class LineBufferedBlock {
     private _stderrBuf = "";
     constructor(private _block:BottomBlock) {}
     write(text:string):void {
-        this._stdoutBuf += text;
-        const idx = this._stdoutBuf.lastIndexOf("\n");
-        if (idx !== -1) {
-            this._block.writeAbove(this._stdoutBuf.slice(0, idx + 1));
-            this._stdoutBuf = this._stdoutBuf.slice(idx + 1);
-        }
+        this._stdoutBuf = this._emit(this._stdoutBuf + text);
     }
     writeError(text:string):void {
-        this._stderrBuf += text;
-        const idx = this._stderrBuf.lastIndexOf("\n");
-        if (idx !== -1) {
-            this._block.writeAbove(this._stderrBuf.slice(0, idx + 1));
-            this._stderrBuf = this._stderrBuf.slice(idx + 1);
-        }
+        this._stderrBuf = this._emit(this._stderrBuf + text);
     }
     flush():void {
         /* coverage ignore next 8 */ // — AiSession always appends trailing newlines; buffers are empty when flush() runs.
@@ -70,6 +62,23 @@ class LineBufferedBlock {
             this._stderrBuf = "";
         }
     }
+    // Answers with the text still to hold back. A partial line waits for its newline only while the
+    // block is mounted: held back before that, it would hide a prompt waiting for input on that line.
+    private _emit(pending:string):string {
+        if (pending.length === 0) {
+            return "";
+        }
+        if (!this._block.isMounted()) {
+            this._block.writeAbove(pending);
+            return "";
+        }
+        const idx = pending.lastIndexOf("\n");
+        if (idx === -1) {
+            return pending;
+        }
+        this._block.writeAbove(pending.slice(0, idx + 1));
+        return pending.slice(idx + 1);
+    }
 }
 
 export type ImplementContexts = Readonly<{
@@ -79,6 +88,7 @@ export type ImplementContexts = Readonly<{
     time:TimeContext;
     random:RandomContext;
     platform:PlatformContext;
+    ask:AskContext;
     output:OutputContext;
 }>;
 
@@ -115,6 +125,10 @@ export class Implement {
     private _behaviorRuleList:readonly string[] = [];
     private _workspace:Workspace|null = null;
     private _block:BottomBlock|null = null;
+    // The channel every write of this command flows through, held apart from `_block` because
+    // teardown drops the block before disposing it, yet a diagnostic escaping that disposal still
+    // has to reach it.
+    private _ownerChannel:OutputContext|null = null;
     private _buffered!:LineBufferedBlock;
     private _currentWorkerSessionId:string|null = null;
     // Running token total already attributed to the current worker session, fed back as the
@@ -129,6 +143,8 @@ export class Implement {
     private _reviewerLogicalStatuses:ReviewerLogicalStatus[] = [];
     private _reviewerAbortControllers:Map<number, AbortController> = new Map();
     private _cancelledReviewers:Set<number> = new Set();
+    private _promptControllers:Set<AbortController> = new Set();
+    private _promptOperations:Set<Promise<unknown>> = new Set();
     private _currentIndexLabel = "";
     private _currentIteration = 0;
     // Per-task retention of each failing iteration's captured stage output as ready-to-write
@@ -175,6 +191,9 @@ export class Implement {
     result():Promise<number> {
         return this._runPromise;
     }
+    output():OutputContext {
+        return this._ownerChannel ?? this._contexts.output;
+    }
     private async _run(rawArgs:readonly string[]):Promise<number> {
         const block = new BottomBlock({
             write: text => this._contexts.output.write(text),
@@ -182,12 +201,13 @@ export class Implement {
             onResize: listener => this._contexts.output.onResize(listener)
         }, this._contexts.time, this._contexts.random);
         this._block = block;
-        block.mount();
         this._buffered = new LineBufferedBlock(block);
+        this._ownerChannel = this._bufferedOutputContext();
         try {
             const positional:string[] = [];
             for (const arg of rawArgs) {
                 if (arg.startsWith("-")) {
+                    this._ensureBlockMounted();
                     this._buffered.writeError(`Unknown flag: ${arg}\n`);
                     this._finalizeBlock("Failed");
                     return 1;
@@ -200,13 +220,13 @@ export class Implement {
                 homeDir: this._contexts.platform.homedir()
             });
             if (config === null) {
+                this._ensureBlockMounted();
                 this._buffered.writeError("Missing Flanders configuration. Run 'npx flanders install'.\n");
                 this._finalizeBlock("Failed");
                 return 1;
             }
             this._config = config;
             const planPath = await this._selectPlan(positional);
-            /* coverage ignore next 4 */ // — Defensive: disposed guard between async operations.
             if (this._disposed) {
                 this._finalizeBlock("Interrupted");
                 return 1;
@@ -215,6 +235,7 @@ export class Implement {
                 this._finalizeBlock("Failed");
                 return 1;
             }
+            this._ensureBlockMounted();
             const plan = await PlanFile.load(planPath, this._contexts.fs);
             const initialParse = plan.parse();
             if (initialParse.malformed.length > 0) {
@@ -309,8 +330,8 @@ export class Implement {
             return 0;
         } catch (e) {
             if (!this._disposed) {
-                /* coverage ignore next */ // — Defensive: all rejections inside _run() produce Error instances.
-                this._buffered.writeError(`${e instanceof Error ? e.message : String(e)}\n`);
+                this._ensureBlockMounted();
+                this._buffered.writeError(`${this._errorMessage(e)}\n`);
             }
             /* coverage ignore next */ // — Defensive: _disposed is only true when dispose() races with _run(); tested via dispose-during-execution.
             this._finalizeBlock(this._disposed ? "Interrupted" : "Failed");
@@ -329,23 +350,62 @@ export class Implement {
             if (await this._contexts.fs.exists(inFolder)) {
                 return inFolder;
             }
+            this._ensureBlockMounted();
             this._buffered.writeError(`Plan file not found: ${arg}\n`);
             return null;
         }
         const files = await listFilesRecursive(this._contexts.fs, plansFolder);
         if (files.length === 0) {
+            this._ensureBlockMounted();
             this._buffered.writeError(`No plan files found in ${plansFolder}.\n`);
             return null;
         }
         if (files.length === 1) {
             return joinPath(plansFolder, files[0]!);
         }
-        this._buffered.writeError(`Multiple plan files found in ${plansFolder}:\n`);
-        for (const f of files) {
-            this._buffered.writeError(`  ${f}\n`);
+        return await this._pickPlan(plansFolder, files);
+    }
+    private async _pickPlan(plansFolder:string, files:readonly string[]):Promise<string|null> {
+        const entries:Array<{ name:string; mtimeMs:number; listingIndex:number; label:string }> = [];
+        for (const name of files) {
+            const { mtimeMs } = await this._contexts.fs.stat(joinPath(plansFolder, name));
+            if (this._disposed) {
+                return null;
+            }
+            entries.push({
+                name,
+                mtimeMs,
+                listingIndex: entries.length,
+                label: `${name} — ${formatDateTime(new Date(mtimeMs))}`
+            });
         }
-        this._buffered.writeError("Re-run with the chosen plan as the [plan] argument.\n");
-        return null;
+        entries.sort((a, b) => a.mtimeMs - b.mtimeMs || a.listingIndex - b.listingIndex);
+        const options = entries.map(e => ({ label: e.label }));
+        const controller = new AbortController();
+        this._promptControllers.add(controller);
+        const prompt = tryAskChoice(this._contexts.ask, {
+            header: "Plan pickin' time",
+            question: "Which plan should I work on, neighborino?",
+            options,
+            defaultLabel: entries[entries.length - 1]!.label
+        }, this._ownerChannel!, controller.signal);
+        this._promptOperations.add(prompt);
+        let chosen:ChoiceOption|null;
+        try {
+            chosen = await prompt;
+        } finally {
+            this._promptControllers.delete(controller);
+            this._promptOperations.delete(prompt);
+        }
+        // The answer only counts if teardown did not begin while this continuation was queued: the
+        // controller is gone by now, so nothing else can stop the run from mounting the block.
+        if (!chosen || this._disposed) {
+            return null;
+        }
+        return joinPath(plansFolder, entries.find(e => e.label === chosen.label)!.name);
+    }
+    private _ensureBlockMounted():void {
+        this._block!.mount();
     }
     private async _detectBuildAndTest(ws:WorkspacePaths):Promise<void> {
         const prompt = prompts.detectBuildAndTest
@@ -391,14 +451,12 @@ export class Implement {
             plan: { tokens: planTotals.it + planTotals.ot, anchorMs, baseSeconds: this._otherTasksSeconds }
         });
     }
-    private _gitOutputContext():OutputContext {
+    private _bufferedOutputContext():OutputContext {
         return {
             write: text => this._buffered.write(text),
             writeError: text => this._buffered.writeError(text),
-            /* coverage ignore next 2 */ // — Pass-through required by OutputContext; Git never calls columns or rows.
             columns: () => this._contexts.output.columns(),
             rows: () => this._contexts.output.rows(),
-            /* coverage ignore next */ // — Pass-through required by OutputContext; Git never calls onResize.
             onResize: listener => this._contexts.output.onResize(listener)
         };
     }
@@ -457,7 +515,7 @@ export class Implement {
                 await this._hardStop(`Hard stop: task at line ${task.line} ("${task.title}") declared structurally impossible.\n--- hard-stop.log ---\n${declared}\n--- end hard-stop.log ---\nInspect logs at ${ws.root}.\n`);
                 return false;
             }
-            const workerAddResult = await addAll(this._contexts.script, this._contexts.time, this._gitOutputContext(), this._options.projectRoot);
+            const workerAddResult = await addAll(this._contexts.script, this._contexts.time, this._ownerChannel!, this._options.projectRoot);
             if (workerAddResult.code !== 0) {
                 await this._writeErrorLog(ws, `git add -A failed (exit ${workerAddResult.code})\n--- stdout ---\n${workerAddResult.stdout}\n--- stderr ---\n${workerAddResult.stderr}`);
                 continue;
@@ -512,7 +570,7 @@ export class Implement {
                 await plan.markOpen(task.line, {it:this._taskTokens.it, ot:this._taskTokens.ot, t:this._activeSeconds()});
             };
             const commitMessage = task.taskNumber ? `${task.taskNumber} ${task.title}` : task.title;
-            const addResult = await addAll(this._contexts.script, this._contexts.time, this._gitOutputContext(), this._options.projectRoot);
+            const addResult = await addAll(this._contexts.script, this._contexts.time, this._ownerChannel!, this._options.projectRoot);
             if (addResult.code !== 0) {
                 const briefing = `git add -A failed (exit ${addResult.code})\n--- stdout ---\n${addResult.stdout}\n--- stderr ---\n${addResult.stderr}`;
                 this._retainedMaterializations.push({ path: ws.commitErrorLog(iteration), content: briefing });
@@ -520,7 +578,7 @@ export class Implement {
                 await revertCompletion();
                 continue;
             }
-            const commitResult = await commit(this._contexts.script, this._contexts.time, this._gitOutputContext(), this._options.projectRoot, commitMessage);
+            const commitResult = await commit(this._contexts.script, this._contexts.time, this._ownerChannel!, this._options.projectRoot, commitMessage);
             if (commitResult.code !== 0) {
                 const briefing = `git commit failed (exit ${commitResult.code})\n--- stdout ---\n${commitResult.stdout}\n--- stderr ---\n${commitResult.stderr}`;
                 this._retainedMaterializations.push({ path: ws.commitErrorLog(iteration), content: briefing });
@@ -1094,30 +1152,40 @@ export class Implement {
         }
         await this._workspace!.clearErrorLog();
     }
-    private _stringifyError(e:unknown):string {
-        if (e instanceof Error) {
+    private _errorText(e:unknown, withStack:boolean):string {
+        if (!(e instanceof Error)) {
+            return String(e);
+        }
+        if (withStack) {
             /* coverage ignore next */ // — Defensive: V8 always populates Error.stack; the ?? guards the optional type.
             return e.stack ?? e.message;
-        /* coverage ignore next 3 */ // — Defensive: all callers receive Error instances from spawn/promise rejections.
         }
-        return String(e);
+        return e.message;
+    }
+    private _errorMessage(e:unknown):string {
+        return this._errorText(e, false);
+    }
+    private _stringifyError(e:unknown):string {
+        return this._errorText(e, true);
     }
     private _finalizeBlock(label:TerminalLabel):void {
         if (!this._block || this._block.isFinalized()) return;
         this._buffered.flush();
         this._block.finalize(label);
     }
-    async dispose() {
-        /* coverage ignore next 8 */ // — Defensive: _runPromise always resolves (returns number); second-dispose path is idempotent.
-        if (this._disposed) {
-            try {
-                await this._runPromise;
-            } catch {
-
-            }
-            return;
-        }
+    dispose():Promise<void> {
+        return this._dispose();
+    }
+    private _dispose = disposeOnce(async () => {
         this._disposed = true;
+        const promptControllers = [...this._promptControllers];
+        const promptOperations = [...this._promptOperations];
+        this._promptControllers.clear();
+        this._promptOperations.clear();
+        for (const controller of promptControllers) {
+            controller.abort();
+        }
+        await Promise.allSettled(promptOperations);
         // Abort every per-reviewer cancellation handle before teardown: each abort disposes the
         // reviewer's in-flight session (wired in _runOneReviewerToVerdict), so no reviewer outlives
         // the dispose. These are not round-completion cancellations, so they are not marked.
@@ -1150,16 +1218,17 @@ export class Implement {
         } catch {
 
         }
+        if (this._workspace) {
+            const ws = this._workspace;
+            this._workspace = null;
+            await ws.dispose();
+        }
         if (this._block) {
             this._finalizeBlock("Interrupted");
             const block = this._block;
             this._block = null;
             block.dispose();
         }
-        if (this._workspace) {
-            const ws = this._workspace;
-            this._workspace = null;
-            await ws.dispose();
-        }
-    }
+        this._ownerChannel = null;
+    });
 }

@@ -1,7 +1,8 @@
 import * as Assert from "assert";
 
-import test from "arrange-act-assert";
+import test, { monad } from "arrange-act-assert";
 
+import { Implement } from "./commands/Implement";
 import { Flanders } from "./Flanders";
 import type { FlandersContexts } from "./Flanders";
 
@@ -46,6 +47,27 @@ function stubContexts() {
             onResize() { return () => {}; }
         }
     };
+    return { contexts, written, errors };
+}
+
+function arrangeImplementRun() {
+    const { contexts, written, errors } = stubContexts();
+    const files:Record<string, string> = {};
+    const configJson = JSON.stringify({ worker: { tool: "claude", model: "", effort: "", fast: false }, reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }], minimumReviews: 1 });
+    contexts.fs.writeFile = async (p, content) => { files[p] = content; };
+    contexts.fs.readFile = async (p) => {
+        if (p === "/proj/plans/plan.md") {
+            return '# Plan\n\n- [x]{"it":0,"ot":0,"t":0} Done task\n';
+        }
+        if (p === "/proj/.flanders/config.json") {
+            return configJson;
+        }
+        throw new Error("not found: " + p);
+    };
+    contexts.fs.exists = async (p) => p === "/proj/plans/plan.md" || p === "/proj/.flanders/config.json";
+    contexts.fs.mkdir = async () => {};
+    contexts.fs.mkdtemp = async (prefix) => prefix + "ws123";
+    contexts.fs.rm = async () => {};
     return { contexts, written, errors };
 }
 
@@ -265,24 +287,7 @@ test.describe("Flanders dispatch", test => {
 
     test("implement command dispatches to Implement", {
         ARRANGE() {
-            const { contexts, written, errors } = stubContexts();
-            const files:Record<string, string> = {};
-            const configJson = JSON.stringify({ worker: { tool: "claude", model: "", effort: "", fast: false }, reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }], minimumReviews: 1 });
-            contexts.fs.writeFile = async (p, content) => { files[p] = content; };
-            contexts.fs.readFile = async (p) => {
-                if (p === "/proj/plans/plan.md") {
-                    return '# Plan\n\n- [x]{"it":0,"ot":0,"t":0} Done task\n';
-                }
-                if (p === "/proj/.flanders/config.json") {
-                    return configJson;
-                }
-                throw new Error("not found: " + p);
-            };
-            contexts.fs.exists = async (p) => p === "/proj/plans/plan.md" || p === "/proj/.flanders/config.json";
-            contexts.fs.mkdir = async () => {};
-            contexts.fs.mkdtemp = async (prefix) => prefix + "ws123";
-            contexts.fs.rm = async () => {};
-            return { contexts, written, errors };
+            return arrangeImplementRun();
         },
         async ACT({ contexts }) {
             const f = new Flanders(["implement", "/proj/plans/plan.md"], { projectRoot: "/proj" }, contexts);
@@ -292,6 +297,91 @@ test.describe("Flanders dispatch", test => {
         },
         ASSERT(code) {
             Assert.strictEqual(code, 0);
+        }
+    });
+
+    test("output() routes through the running command's own channel", {
+        ARRANGE() {
+            return arrangeImplementRun();
+        },
+        async ACT({ contexts }) {
+            const f = new Flanders(["implement", "/proj/plans/plan.md"], { projectRoot: "/proj" }, contexts);
+            await f.result();
+            f.output().writeError("routed diagnostic\n");
+            await f.dispose();
+        },
+        ASSERTS: {
+            "the text reaches the command's output channel"(_result, { written }) {
+                Assert.ok(written.join("").includes("routed diagnostic"), "the command's channel should carry the text");
+            },
+            "the text does not reach the injected channel directly"(_result, { errors }) {
+                Assert.strictEqual(errors.join(""), "");
+            }
+        }
+    });
+
+    test("output() still routes through the command's channel when the command's disposal fails", {
+        ARRANGE() {
+            const arranged = arrangeImplementRun();
+            const teardownFailure = new Error("command teardown blew up");
+            const origDispose = Implement.prototype.dispose;
+            Implement.prototype.dispose = function() {
+                Implement.prototype.dispose = origDispose;
+                return Promise.reject(teardownFailure);
+            };
+            return { ...arranged, teardownFailure, origDispose };
+        },
+        async ACT({ contexts, origDispose }) {
+            try {
+                const f = new Flanders(["implement", "/proj/plans/plan.md"], { projectRoot: "/proj" }, contexts);
+                await f.result();
+                const disposal = await monad(() => f.dispose());
+                f.output().writeError("escaping teardown diagnostic\n");
+                return disposal;
+            } finally {
+                Implement.prototype.dispose = origDispose;
+            }
+        },
+        ASSERTS: {
+            "the teardown failure escapes dispose"(disposal, { teardownFailure }) {
+                disposal.should.error(teardownFailure);
+            },
+            "the diagnostic reaches the command's own output channel"(_disposal, { written }) {
+                Assert.ok(written.join("").includes("escaping teardown diagnostic"), `the command's channel should carry the text, got: ${JSON.stringify(written.join(""))}`);
+            },
+            "the diagnostic does not fall back to the injected channel"(_disposal, { errors }) {
+                Assert.strictEqual(errors.join(""), "");
+            }
+        }
+    });
+
+    test("output() falls back to the injected channel for a command that owns no live region", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const f = new Flanders(["update", "extra-arg"], { projectRoot: "/proj" }, contexts);
+            await f.result();
+            f.output().writeError("fallback diagnostic\n");
+            await f.dispose();
+        },
+        ASSERT(_result, { errors }) {
+            Assert.ok(errors.join("").includes("fallback diagnostic"), "the injected channel should carry the text");
+        }
+    });
+
+    test("output() falls back to the injected channel when no command was dispatched", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            const f = new Flanders(["bogus"], { projectRoot: "/proj" }, contexts);
+            await f.result();
+            f.output().writeError("no-command diagnostic\n");
+            await f.dispose();
+        },
+        ASSERT(_result, { errors }) {
+            Assert.ok(errors.join("").includes("no-command diagnostic"), "the injected channel should carry the text");
         }
     });
 

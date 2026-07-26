@@ -1,9 +1,11 @@
 import * as Assert from "assert";
 
-import test from "arrange-act-assert";
+import test, { monad } from "arrange-act-assert";
 
+import { abortError, isAbortError, isInputReleasedError } from "../abortError";
 import type { AskChoiceOptions, AskContext } from "../contexts";
-import { askChoice, askMultiChoice, askText } from "./PromptHelper";
+import { askChoice, askMultiChoice, askText, tryAskChoice } from "./PromptHelper";
+import { recordingOutput } from "./recordingOutput.fixtures";
 
 test.describe("askChoice", test => {
     test("returns the picked option with exact label and description", {
@@ -174,6 +176,120 @@ test.describe("askChoice", test => {
         },
         ASSERT(_result, { getCaptured }) {
             Assert.strictEqual(getCaptured()![0]!.defaultIndex, undefined);
+        }
+    });
+
+    test("a signal aborted while the answer is in flight is refused instead of returned", {
+        ARRANGE() {
+            const controller = new AbortController();
+            const ask:AskContext = {
+                askChoices() {
+                    return Promise.resolve([{ picked: [{ label: "a" }] }]).then(answers => {
+                        controller.abort();
+                        return answers;
+                    });
+                },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask, controller };
+        },
+        async ACT({ ask, controller }) {
+            return await monad(() => askChoice(ask, {
+                header: "Test",
+                question: "Pick one?",
+                options: [{ label: "a" }]
+            }, undefined, controller.signal));
+        },
+        ASSERT(result) {
+            result.should.error(isAbortError);
+        }
+    });
+
+    test("a cancelled prompt is never reported as the user's own cancellation", {
+        ARRANGE() {
+            const controller = new AbortController();
+            const ask:AskContext = {
+                askChoices() {
+                    controller.abort();
+                    return Promise.resolve([{ picked: [{ label: "a" }] }]);
+                },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask, controller };
+        },
+        async ACT({ ask, controller }) {
+            return await monad(() => askChoice(ask, {
+                header: "Test",
+                question: "Pick one?",
+                options: [{ label: "a" }]
+            }, undefined, controller.signal));
+        },
+        ASSERT(result) {
+            result.should.error(e => isAbortError(e) && !isInputReleasedError(e));
+        }
+    });
+});
+
+test.describe("tryAskChoice", test => {
+    // Aborts on the `picked` read, which askChoice performs after its own post-await recheck, so the
+    // abort lands in the window between the prompt resolving and the wrapper resuming.
+    function abortingOnAnswerRead(controller:AbortController):AskContext {
+        const picked = [{ label: "alpha" }];
+        return {
+            askChoices() {
+                return Promise.resolve([{
+                    get picked() {
+                        controller.abort();
+                        return picked;
+                    }
+                }]);
+            },
+            askText() { return Promise.resolve(""); }
+        };
+    }
+    const ARGS = { header: "Test", question: "Pick one?", options: [{ label: "alpha" }] };
+
+    test("an abort landing after the prompt resolved yields no choice and no cancellation diagnostic", {
+        ARRANGE() {
+            const controller = new AbortController();
+            const { output, errors } = recordingOutput();
+            return { ask: abortingOnAnswerRead(controller), controller, output, errors };
+        },
+        async ACT({ ask, controller, output }) {
+            return await tryAskChoice(ask, ARGS, output, controller.signal);
+        },
+        ASSERTS: {
+            "no option is handed back"(result) {
+                Assert.strictEqual(result, null);
+            },
+            "the cancellation the caller itself caused is not reported to the user"(_result, { errors }) {
+                Assert.deepStrictEqual(errors, []);
+            }
+        }
+    });
+
+    test("the user releasing the input is reported with the shared cancellation diagnostic", {
+        ARRANGE() {
+            const { output, errors } = recordingOutput();
+            const ask:AskContext = {
+                askChoices() { return Promise.reject(abortError({ inputReleased: true })); },
+                askText() { return Promise.resolve(""); }
+            };
+            return { ask, output, errors };
+        },
+        async ACT({ ask, output }) {
+            const controller = new AbortController();
+            const picked = await tryAskChoice(ask, ARGS, output, controller.signal);
+            controller.abort();
+            return picked;
+        },
+        ASSERTS: {
+            "no option is handed back"(result) {
+                Assert.strictEqual(result, null);
+            },
+            "the diagnostic reaches the supplied channel"(_result, { errors }) {
+                Assert.deepStrictEqual(errors, ["Prompt cancelled, neighbor.\n"]);
+            }
         }
     });
 });

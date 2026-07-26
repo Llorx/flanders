@@ -1,4 +1,5 @@
 import type { OutputContext, TimeContext } from "../contexts";
+import { disposeOnce } from "../disposeOnce";
 import type { ToolAdapter, ToolAdapterUsageCallback, ToolTokenUsage, ToolEventOutput } from "./ToolAdapter";
 import { run } from "./AiRunner";
 import { colorize, CYAN, DIM, GREEN, MAGENTA, YELLOW } from "../ui/formatters";
@@ -149,10 +150,11 @@ export class AiSession {
         }
     }
 
-    async dispose() {
-        if (this._disposed) {
-            return;
-        }
+    dispose():Promise<void> {
+        return this._dispose();
+    }
+
+    private _dispose = disposeOnce(async () => {
         this._disposed = true;
         this._abortController?.abort();
         if (this._runPromise) {
@@ -162,7 +164,7 @@ export class AiSession {
                 // Swallow errors from aborted runs during disposal.
             }
         }
-    }
+    });
 }
 
 function formatToolResultLines(text:string):string {

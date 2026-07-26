@@ -227,6 +227,10 @@ function stubContexts(config:FlandersConfig) {
             tmpdir() { return "/tmp"; },
             homedir() { return "/home/test"; }
         },
+        ask: {
+            askChoices() { return Promise.reject(new Error("unexpected askChoices")); },
+            askText() { return Promise.reject(new Error("unexpected askText")); }
+        },
         output: {
             write() {},
             writeError() {},

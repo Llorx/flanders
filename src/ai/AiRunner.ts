@@ -11,6 +11,7 @@ import type {
     ToolEventRateLimit,
 } from "./ToolAdapter";
 import { wait } from "../system/wait";
+import { abortError } from "../abortError";
 
 const RATE_LIMIT_CHUNK_MS = 60 * 60 * 1000;
 const INITIAL_TRANSIENT_WAIT_MS = 1_000;
@@ -134,12 +135,6 @@ export async function run(args:RunArgs):Promise<RunResult> {
             throw abortError();
         }
     }
-}
-
-function abortError():Error {
-    const err = new Error("aborted");
-    err.name = "AbortError";
-    return err;
 }
 
 const FATAL_LOGIN_ERROR_NAME = "FatalLoginError";

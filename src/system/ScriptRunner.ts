@@ -1,4 +1,5 @@
 import type { ScriptContext, SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
+import { disposeOnce } from "../disposeOnce";
 
 export type ScriptResult = Readonly<{
     code:number|null;
@@ -86,16 +87,10 @@ export class ScriptRunner {
             });
         });
     }
-    async dispose() {
-        /* coverage ignore next 7 */ // — Defensive: second-dispose idempotent guard; _runPromise is always settled by the first dispose.
-        if (this._disposed) {
-            try {
-                await this._runPromise;
-            } catch {
-
-            }
-            return;
-        }
+    dispose():Promise<void> {
+        return this._dispose();
+    }
+    private _dispose = disposeOnce(async () => {
         this._disposed = true;
         const proc = this._process;
         if (proc) {
@@ -116,5 +111,5 @@ export class ScriptRunner {
         } catch {
 
         }
-    }
+    });
 }

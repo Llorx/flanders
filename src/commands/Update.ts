@@ -1,4 +1,5 @@
 import type { FsContext, OutputContext } from "../contexts";
+import { disposeOnce } from "../disposeOnce";
 import type { PlatformContext } from "../workspace/Workspace";
 import { skillArtifactPaths, writeSkillArtifacts } from "./skillArtifacts";
 
@@ -102,20 +103,15 @@ export class Update {
             return 1;
         }
     }
-    async dispose():Promise<void> {
-        if (this._disposed) {
-            try {
-                await this._runPromise;
-            /* coverage ignore next 2 */ // — Defensive: _run always resolves with a number, so this catch is unreachable.
-            } catch {
-            }
-            return;
-        }
+    dispose():Promise<void> {
+        return this._dispose();
+    }
+    private _dispose = disposeOnce(async () => {
         this._disposed = true;
         try {
             await this._runPromise;
         /* coverage ignore next 2 */ // — Defensive: _run always resolves with a number, so this catch is unreachable.
         } catch {
         }
-    }
+    });
 }

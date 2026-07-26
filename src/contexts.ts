@@ -73,7 +73,9 @@ export type AskAnswer = Readonly<{
 }>;
 
 export interface AskContext {
-    askChoices(questions:readonly AskChoiceOptions[], output?:OutputContext):Promise<readonly AskAnswer[]>;
+    // Aborting `signal` cancels the questions still unanswered: the returned promise rejects with an
+    // `AbortError` instead of waiting for input that is no longer wanted.
+    askChoices(questions:readonly AskChoiceOptions[], output?:OutputContext, signal?:AbortSignal):Promise<readonly AskAnswer[]>;
     askText(prompt:string):Promise<string>;
 }
 

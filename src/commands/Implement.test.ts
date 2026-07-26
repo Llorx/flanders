@@ -1,14 +1,19 @@
 import * as Assert from "assert";
 
-import test from "arrange-act-assert";
+import test, { monad } from "arrange-act-assert";
+import { Terminal } from "@xterm/headless";
 
 import { Implement, completedPlanPath } from "./Implement";
 import type { ImplementContexts } from "./Implement";
 import type { FlandersConfig } from "../workspace/FlandersConfig";
-import type { SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
+import type { AskAnswer, AskChoiceOptions, AskContext, SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
+import { ConsoleAsk } from "../ui/ConsoleAsk";
+import { PromptLineReader } from "../ui/PromptLineReader";
 import { BottomBlock } from "../ui/BottomBlock";
 import type { HeaderFields, MetricsFields, TerminalLabel, ReviewerEntry } from "../ui/BottomBlock";
 import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, RESET, SEPARATOR_GLYPH, formatDateTime, stripAnsi } from "../ui/formatters";
+import { abortError } from "../abortError";
+import { recordingOutput, STUB_COLUMNS, STUB_ROWS } from "../ui/recordingOutput.fixtures";
 import { workingPool, successPool, hardStopPool, interruptionPool, failurePool, tasksCompletedPool, allTasksCompletedPool } from "../voiceVariants";
 
 // The stub random context returns 0, so the rotating working footer label is
@@ -99,14 +104,22 @@ function codexResultEvents(text:string, sessionId?:string, inputTokens?:number, 
     return out;
 }
 
+const ASK_PROMPT_MARKER = "[?] plan selection prompt: ";
+
+// Tall enough that a whole picker run plus the block fits without the prompt row scrolling out of
+// the emulator's buffer.
+const EMULATOR_ROWS = 120;
+
 function stubContexts() {
     const files = new Map<string, string>();
     files.set("/project/.flanders/config.json", JSON.stringify(DEFAULT_CONFIG));
+    const mtimes = new Map<string, number>();
     const rmCalls:string[] = [];
-    const written:string[] = [];
-    const errors:string[] = [];
+    const { output, written, errors } = recordingOutput();
     const mkdtempState = { count: 0 };
     const mkdtempCalls:string[] = [];
+    const askPick:{ mode:"default"|"cancel"|"error"|"reject-non-error"|"never-answers"|"answers-after-disposal"|number; answer:(() => void)|null } = { mode: "default", answer: null };
+    const askCalls:Array<{ questions:readonly AskChoiceOptions[]; outputBefore:string }> = [];
 
     const claudeQueue:ClaudeResponse[] = [];
     const codexQueue:CodexResponse[] = [];
@@ -209,7 +222,7 @@ function stubContexts() {
             rename(oldP, newP) { const c = files.get(oldP); if (c !== undefined) { files.delete(oldP); files.set(newP, c); } return Promise.resolve(); },
             readdir() { return Promise.resolve([]); },
             stat(p) {
-                if (files.has(p)) return Promise.resolve({ size: files.get(p)!.length, isFile: true, isDirectory: false, mtimeMs: 0 });
+                if (files.has(p)) return Promise.resolve({ size: files.get(p)!.length, isFile: true, isDirectory: false, mtimeMs: mtimes.get(p) ?? 0 });
                 return Promise.reject(new Error("not found: " + p));
             },
             exists(p) { return Promise.resolve(files.has(p)); },
@@ -235,15 +248,39 @@ function stubContexts() {
             tmpdir() { return "/tmp"; },
             homedir() { return "/home/test"; }
         },
-        output: {
-            write(text) { written.push(text); },
-            writeError(text) { errors.push(text); },
-            columns() { return 80; },
-            rows() { return 24; },
-            onResize() { return () => {}; }
-        }
+        ask: {
+            askChoices(questions, output, signal) {
+                askCalls.push({ questions, outputBefore: written.join("") });
+                output?.write(ASK_PROMPT_MARKER);
+                if (askPick.mode === "error") {
+                    return Promise.reject(new Error("ask channel failed"));
+                }
+                if (askPick.mode === "reject-non-error") {
+                    return Promise.reject("ask channel failed as a bare string");
+                }
+                if (askPick.mode === "never-answers") {
+                    return new Promise<readonly AskAnswer[]>((_resolve, reject) => {
+                        signal?.addEventListener("abort", () => reject(abortError()));
+                    });
+                }
+                if (askPick.mode === "answers-after-disposal") {
+                    return new Promise<readonly AskAnswer[]>(resolve => {
+                        askPick.answer = () => resolve(questions.map(q => ({ picked: [q.options[q.defaultIndex!]!] })));
+                    });
+                }
+                return Promise.resolve(questions.map(q => {
+                    if (askPick.mode === "cancel") {
+                        return { picked: [] };
+                    }
+                    const index = typeof askPick.mode === "number" ? askPick.mode : q.defaultIndex!;
+                    return { picked: [q.options[index]!] };
+                }));
+            },
+            askText() { return Promise.reject(new Error("unexpected askText")); }
+        },
+        output
     };
-    return { contexts, files, rmCalls, written, errors, claudeQueue, codexQueue, promptQueue, scriptQueue, gitQueue, gitSpawns, claudeSpawnedArgs, codexSpawnedArgs, mkdtempCalls };
+    return { contexts, files, mtimes, rmCalls, written, errors, claudeQueue, codexQueue, promptQueue, scriptQueue, gitQueue, gitSpawns, claudeSpawnedArgs, codexSpawnedArgs, mkdtempCalls, askPick, askCalls };
 }
 
 const PLAN_PATH = "/project/plans/test.md";
@@ -1396,7 +1433,7 @@ test.describe("Implement per-reviewer verdict file delete-before", test => {
 });
 
 const CLEAR_SEQ = "\x1b[3A\r\x1b[J";
-const SEP = "─";
+const SEP = SEPARATOR_GLYPH;
 
 // Extracts the above-text segment of an atomic writeAbove redraw write — the text
 // composed between the leading block clear and the block redraw of a single
@@ -1942,30 +1979,252 @@ test.describe("Implement config loading", test => {
     });
 });
 
-test.describe("Implement ambiguous plan selection", test => {
+// `plans/` hands the names back in declaration order; the alphabetical listing order is the one
+// listFilesRecursive imposes.
+function arrangePlansFolder(s:ReturnType<typeof stubContexts>, plans:ReadonlyArray<{ name:string; content:string; mtimeMs:number }>):void {
+    for (const plan of plans) {
+        const path = `/project/plans/${plan.name}`;
+        s.files.set(path, plan.content);
+        s.mtimes.set(path, plan.mtimeMs);
+    }
+    const origExists = s.contexts.fs.exists.bind(s.contexts.fs);
+    (s.contexts.fs as { exists:typeof s.contexts.fs.exists }).exists = (p) =>
+        p === "/project/plans" ? Promise.resolve(true) : origExists(p);
+    (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = (p) =>
+        p === "/project/plans"
+            ? Promise.resolve(plans.map(plan => ({ name: plan.name, isFile: true, isDirectory: false })))
+            : Promise.resolve([]);
+}
+
+test.describe("Implement interactive plan selection", test => {
     const PLAN_A = '# Plan A\n\n- [ ]{"it":0,"ot":0,"t":0} Task A\n';
     const PLAN_B = '# Plan B\n\n- [ ]{"it":0,"ot":0,"t":0} Task B\n';
+    const PLAN_C = '# Plan C\n\n- [ ]{"it":0,"ot":0,"t":0} Task C\n';
+    const NEWEST_MS = 3_000_000_000;
+    const MIDDLE_MS = 2_000_000_000;
+    const OLDEST_MS = 1_000_000_000;
+    const THREE_PLANS = [
+        { name: "alpha.md", content: PLAN_A, mtimeMs: NEWEST_MS },
+        { name: "beta.md", content: PLAN_B, mtimeMs: MIDDLE_MS },
+        { name: "gamma.md", content: PLAN_C, mtimeMs: OLDEST_MS }
+    ];
+    function planLabel(name:string, mtimeMs:number):string {
+        return `${name} — ${formatDateTime(new Date(mtimeMs))}`;
+    }
+    function firstSeparatorIndex(written:readonly string[]):number {
+        return written.join("").indexOf(SEP);
+    }
+    // `echoesInput` models a terminal that echoes the submitted line back onto the prompt row, which
+    // the emulator only shows if the source writes that echo itself.
+    function arrangeProductionPicker(echoesInput:boolean, askFailure:Error|null = null) {
+        const s = stubContexts();
+        gitRunQueue(s.gitQueue);
+        arrangePlansFolder(s, THREE_PLANS);
+        const term = new Terminal({ cols: STUB_COLUMNS, rows: EMULATOR_ROWS, convertEol: true, allowProposedApi: true });
+        const output = s.contexts.output;
+        (output as { write:(text:string) => void }).write = text => {
+            s.written.push(text);
+            term.write(text);
+        };
+        const reader = new PromptLineReader(() => ({
+            echoesInput,
+            ask(onLine) {
+                if (askFailure) {
+                    throw askFailure;
+                }
+                if (echoesInput) {
+                    term.write("1\n");
+                }
+                onLine("1");
+            },
+            close() {}
+        }));
+        (s.contexts as { ask:AskContext }).ask = new ConsoleAsk(reader, output);
+        s.claudeQueue.push({ text: "detect ok" });
+        s.claudeQueue.push({ text: "worker" });
+        s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+        const flushTerm = () => new Promise<void>(resolve => { term.write("", resolve); });
+        const disposePicker = async () => {
+            await reader.dispose();
+            term.dispose();
+        };
+        return { ...s, term, flushTerm, disposePicker };
+    }
+    function readTerminalRows(term:Terminal):string[] {
+        const buf = term.buffer.active;
+        const rows:string[] = [];
+        for (let y = 0; y < buf.baseY + term.rows; y++) {
+            rows.push(buf.getLine(y)!.translateToString(true));
+        }
+        return rows;
+    }
+    function readPromptGeometry(term:Terminal) {
+        const rows = readTerminalRows(term);
+        const promptRow = rows.findIndex(row => row.includes("Pick [1-3"));
+        return {
+            promptRowText: promptRow === -1 ? null : rows[promptRow]!,
+            separatorRowsBelowPrompt: rows.slice(promptRow + 1).filter(row => row === SEP.repeat(STUB_COLUMNS)).length
+        };
+    }
 
-    test("multiple plans + no [plan] arg emits diagnostic listing each plan and instructions, exits non-zero, never prompts", {
+    test("multiple plans + no [plan] arg presents one single-select before the block and runs the plan it returns", {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            s.files.set("/project/plans/plan-a.md", PLAN_A);
-            s.files.set("/project/plans/plan-b.md", PLAN_B);
-            const origExists = s.contexts.fs.exists.bind(s.contexts.fs);
-            (s.contexts.fs as any).exists = (p:string) => {
-                if (p === "/project/plans") return Promise.resolve(true);
-                return origExists(p);
-            };
-            (s.contexts.fs as any).readdir = (p:string) => {
-                if (p === "/project/plans") {
-                    return Promise.resolve([
-                        { name: "plan-a.md", isFile: true, isDirectory: false },
-                        { name: "plan-b.md", isFile: true, isDirectory: false }
-                    ]);
-                }
-                return Promise.resolve([]);
-            };
+            arrangePlansFolder(s, THREE_PLANS);
+            s.claudeQueue.push({ text: "detect ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "presents exactly one question through the injected ask context"(_code, { askCalls }) {
+                Assert.strictEqual(askCalls.reduce((total, call) => total + call.questions.length, 0), 1);
+            },
+            "that question is a single-select"(_code, { askCalls }) {
+                Assert.strictEqual(askCalls[0]!.questions[0]!.multiSelect, false);
+            },
+            "no block line had been written when the question was presented"(_code, { askCalls }) {
+                Assert.ok(!askCalls[0]!.outputBefore.includes(SEP), `no separator glyph may precede the prompt, got: ${JSON.stringify(askCalls[0]!.outputBefore)}`);
+            },
+            "the prompt's own text reaches the command's output channel"(_code, { written }) {
+                Assert.ok(written.join("").includes(ASK_PROMPT_MARKER), "the prompt output must flow through the block-owning channel");
+            },
+            "the block is drawn only after the prompt"(_code, { written }) {
+                const promptAt = written.join("").indexOf(ASK_PROMPT_MARKER);
+                Assert.notStrictEqual(promptAt, -1, "the prompt text must be in the output to be ordered against the block");
+                Assert.ok(promptAt < firstSeparatorIndex(written), "the separator must appear after the prompt text");
+            },
+            "the options are the plans ordered oldest last-modified first"(_code, { askCalls }) {
+                Assert.deepStrictEqual(askCalls[0]!.questions[0]!.options.map(o => o.label), [
+                    planLabel("gamma.md", OLDEST_MS),
+                    planLabel("beta.md", MIDDLE_MS),
+                    planLabel("alpha.md", NEWEST_MS)
+                ]);
+            },
+            "the pre-highlighted entry is the last one — the most recently modified plan"(_code, { askCalls }) {
+                const question = askCalls[0]!.questions[0]!;
+                Assert.strictEqual(question.defaultIndex, question.options.length - 1);
+            },
+            "the plan the prompt returned is the one implemented to completion"(_code, { files }) {
+                Assert.ok(files.has("/project/plans/V-alpha.md"), "the chosen plan should carry the completion marker");
+            },
+            "the block is present once the run proceeds"(_code, { written }) {
+                Assert.ok(written.join("").includes(SEP.repeat(STUB_COLUMNS)), "the four pinned lines should be drawn after the selection");
+            }
+        }
+    });
+
+    test("plans sharing a last-modified date keep the alphabetical order of the plans/ listing", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            arrangePlansFolder(s, [
+                { name: "zulu.md", content: PLAN_B, mtimeMs: MIDDLE_MS },
+                { name: "alpha.md", content: PLAN_A, mtimeMs: MIDDLE_MS },
+                { name: "mike.md", content: PLAN_C, mtimeMs: MIDDLE_MS }
+            ]);
+            s.askPick.mode = "cancel";
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERT(_code, { askCalls }) {
+            Assert.deepStrictEqual(askCalls[0]!.questions[0]!.options.map(o => o.label), [
+                planLabel("alpha.md", MIDDLE_MS),
+                planLabel("mike.md", MIDDLE_MS),
+                planLabel("zulu.md", MIDDLE_MS)
+            ]);
+        }
+    });
+
+    test("picking an entry other than the pre-highlighted one implements exactly that plan", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            arrangePlansFolder(s, THREE_PLANS);
+            s.askPick.mode = 0;
+            s.claudeQueue.push({ text: "detect ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the chosen plan is the one implemented to completion"(_code, { files }) {
+                Assert.ok(files.has("/project/plans/V-gamma.md"), "the picked plan should carry the completion marker");
+            },
+            "the pre-highlighted plan is left untouched"(_code, { files }) {
+                Assert.deepStrictEqual(
+                    [files.has("/project/plans/alpha.md"), files.has("/project/plans/V-alpha.md")],
+                    [true, false]
+                );
+            },
+            "every AI invocation works on the chosen plan"(_code, { promptQueue }) {
+                Assert.ok(promptQueue.some(p => p.includes("/project/plans/gamma.md")), "a prompt should name the chosen plan");
+            },
+            "no AI invocation is told about another plan"(_code, { promptQueue }) {
+                Assert.ok(!promptQueue.some(p => p.includes("alpha.md") || p.includes("beta.md")), "no prompt may name a plan the user did not pick");
+            }
+        }
+    });
+
+    test("an explicit [plan] argument skips the prompt even with several plans present", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            arrangePlansFolder(s, THREE_PLANS);
+            s.claudeQueue.push({ text: "detect ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement(["/project/plans/beta.md"], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "presents no selection question"(_code, { askCalls }) {
+                Assert.strictEqual(askCalls.length, 0);
+            },
+            "implements the plan the argument names"(_code, { files }) {
+                Assert.ok(files.has("/project/plans/V-beta.md"), "the argument's plan should carry the completion marker");
+            }
+        }
+    });
+
+    test("cancelling the selection exits 1 with a short diagnostic and no block line", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            arrangePlansFolder(s, THREE_PLANS);
+            s.askPick.mode = "cancel";
             return s;
         },
         async ACT({ contexts }) {
@@ -1978,36 +2237,538 @@ test.describe("Implement ambiguous plan selection", test => {
             "exits with code 1"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "block separator is present"(_code, { written }) {
-                Assert.ok(written.join("").includes(SEP.repeat(80)), "block should be present");
+            "the prompt was shown"(_code, { askCalls }) {
+                Assert.strictEqual(askCalls.length, 1);
             },
-            "header entry equals exact literal naming plansFolder"(_code, { written }) {
-                const segments = written.map(writeAboveSegmentOf).map(s => s === null ? null : stripAnsi(s));
-                const entry = segments.find(e => e !== null && e.includes("Multiple plan files found"));
-                Assert.ok(entry !== undefined, "a written entry must contain the header");
-                Assert.strictEqual(entry, "Multiple plan files found in /project/plans:\n");
+            "a short cancellation diagnostic reaches the command's output channel"(_code, { written }) {
+                Assert.ok(written.join("").includes("Prompt cancelled"), `cancellation should be reported, got: ${JSON.stringify(written.join(""))}`);
             },
-            "plan-a.md is listed as an exact line entry"(_code, { written }) {
-                const segments = written.map(writeAboveSegmentOf).map(s => s === null ? null : stripAnsi(s));
-                const entry = segments.find(e => e !== null && e.includes("plan-a.md"));
-                Assert.ok(entry !== undefined, "a written entry must contain plan-a.md");
-                Assert.strictEqual(entry, "  plan-a.md\n");
+            "no separator glyph reaches the output"(_code, { written }) {
+                Assert.ok(!written.join("").includes(SEP), `no block line may be drawn, got: ${JSON.stringify(written.join(""))}`);
             },
-            "plan-b.md is listed as an exact line entry"(_code, { written }) {
-                const segments = written.map(writeAboveSegmentOf).map(s => s === null ? null : stripAnsi(s));
-                const entry = segments.find(e => e !== null && e.includes("plan-b.md"));
-                Assert.ok(entry !== undefined, "a written entry must contain plan-b.md");
-                Assert.strictEqual(entry, "  plan-b.md\n");
+            "no terminal footer label reaches the output"(_code, { written }) {
+                Assert.ok(!stripAnsi(written.join("")).includes(FAILED_LABEL), "an undrawn block shows no terminal label");
             },
-            "instruction entry equals exact literal naming the [plan] argument"(_code, { written }) {
-                const segments = written.map(writeAboveSegmentOf).map(s => s === null ? null : stripAnsi(s));
-                const entry = segments.find(e => e !== null && e.includes("Re-run"));
-                Assert.ok(entry !== undefined, "a written entry must contain the instruction");
-                Assert.strictEqual(entry, "Re-run with the chosen plan as the [plan] argument.\n");
-            },
-            "footer shows Failed"(_code, { written }) {
-                Assert.ok(stripAnsi(written.join("")).includes(FAILED_LABEL));
+            "no git command runs"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.length, 0);
             }
+        }
+    });
+
+    test("a prompt failure that is not a cancellation surfaces above the mounted block", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            arrangePlansFolder(s, THREE_PLANS);
+            s.askPick.mode = "error";
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the failure reaches the output"(_code, { written }) {
+                Assert.ok(written.join("").includes("ask channel failed"), "the prompt failure must be reported");
+            },
+            "the failure diagnostic is written with the block present"(_code, { written }) {
+                Assert.ok(written.join("").includes(SEP.repeat(STUB_COLUMNS)), "a non-cancellation failure should use the mounted live block");
+            }
+        }
+    });
+
+    test("a prompt rejection that is not an Error is still reported", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            arrangePlansFolder(s, THREE_PLANS);
+            s.askPick.mode = "reject-non-error";
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the rejected value reaches the output"(_code, { written }) {
+                Assert.ok(written.join("").includes("ask channel failed as a bare string"), `expected the bare rejection reported, got: ${JSON.stringify(written.join(""))}`);
+            },
+            "the block is mounted for the failure diagnostic"(_code, { written }) {
+                Assert.ok(written.join("").includes(SEP.repeat(STUB_COLUMNS)), "a non-cancellation rejection should use the mounted live block");
+            }
+        }
+    });
+
+    test("the whole prompt of the production ask context reaches the terminal before the block", {
+        ARRANGE() {
+            return arrangeProductionPicker(false);
+        },
+        async ACT({ contexts, disposePicker }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            await disposePicker();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the question line precedes the block"(_code, { written }) {
+                const all = written.join("");
+                const at = all.indexOf("[?] Plan pickin' time: Which plan should I work on, neighborino?");
+                Assert.notStrictEqual(at, -1, `the question must reach the output, got: ${JSON.stringify(all)}`);
+                Assert.ok(at < all.indexOf(SEP), "the question must appear before the block separator");
+            },
+            "every plan option precedes the block"(_code, { written }) {
+                const all = written.join("");
+                const at = all.indexOf(`3) ${planLabel("alpha.md", NEWEST_MS)}`);
+                Assert.notStrictEqual(at, -1, `the options must reach the output, got: ${JSON.stringify(all)}`);
+                Assert.ok(at < all.indexOf(SEP), "the options must appear before the block separator");
+            },
+            "the unterminated input prompt precedes the block"(_code, { written }) {
+                const all = written.join("");
+                const at = all.indexOf("Pick [1-3; free-text OK], Enter for the default: ");
+                Assert.notStrictEqual(at, -1, `the input prompt must reach the output, got: ${JSON.stringify(all)}`);
+                Assert.ok(at < all.indexOf(SEP), "the input prompt must appear before the block separator");
+            },
+            "the plan the answer names is the one implemented"(_code, { files }) {
+                Assert.ok(files.has("/project/plans/V-gamma.md"), "the answered option should carry the completion marker");
+            }
+        }
+    });
+
+    test("@xterm/headless: a prompt failure closes the partial input row before mounting the four-row block", {
+        ARRANGE() {
+            const failure = new Error("input source failed");
+            return { ...arrangeProductionPicker(false, failure), failure };
+        },
+        async ACT({ contexts, term, flushTerm, disposePicker, failure }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            await flushTerm();
+            const rows = readTerminalRows(term);
+            const promptRow = rows.findIndex(row => row.includes("Pick [1-3"));
+            const failureRow = rows.findIndex(row => row.includes(failure.message));
+            const separatorRow = rows.findIndex((row, index) => index > failureRow && row === SEP.repeat(STUB_COLUMNS));
+            const footerRow = rows.findIndex((row, index) => index > separatorRow && row.includes(FAILED_LABEL));
+            const geometry = {
+                code,
+                promptRowText: promptRow === -1 ? null : rows[promptRow]!,
+                promptRow,
+                failureRow,
+                separatorRow,
+                separatorText: separatorRow === -1 ? null : rows[separatorRow]!,
+                footerRow
+            };
+            await disposePicker();
+            return geometry;
+        },
+        ASSERTS: {
+            "exits with code 1"({ code }) {
+                Assert.strictEqual(code, 1);
+            },
+            "the unterminated prompt remains on its own row"({ promptRowText }) {
+                Assert.strictEqual(promptRowText, "Pick [1-3; free-text OK], Enter for the default: ");
+            },
+            "the failure diagnostic is below the prompt"({ promptRow, failureRow }) {
+                Assert.ok(failureRow > promptRow, "the diagnostic must not overwrite the partial prompt row");
+            },
+            "the separator begins on the row immediately below the diagnostic"({ failureRow, separatorRow }) {
+                Assert.strictEqual(separatorRow, failureRow + 1);
+            },
+            "the separator spans the full terminal width"({ separatorText }) {
+                Assert.strictEqual(separatorText, SEP.repeat(STUB_COLUMNS));
+            },
+            "the footer occupies the block's fourth row"({ separatorRow, footerRow }) {
+                Assert.strictEqual(footerRow, separatorRow + 3);
+            }
+        }
+    });
+
+    test("@xterm/headless: with input that does not echo, the rendered prompt row carries no block line", {
+        ARRANGE() {
+            return arrangeProductionPicker(false);
+        },
+        async ACT({ contexts, term, flushTerm, disposePicker }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            await flushTerm();
+            const geometry = readPromptGeometry(term);
+            await disposePicker();
+            return geometry;
+        },
+        ASSERTS: {
+            "the prompt row ends where the prompt ends"({ promptRowText }) {
+                Assert.strictEqual(promptRowText, "Pick [1-3; free-text OK], Enter for the default: ");
+            },
+            "the block's separator rows are rendered below the prompt row"({ separatorRowsBelowPrompt }) {
+                Assert.ok(separatorRowsBelowPrompt > 0, "a full-width separator row must be rendered below the prompt row");
+            }
+        }
+    });
+
+    test("@xterm/headless: with input the terminal echoes, the rendered prompt row carries the echo and no block line", {
+        ARRANGE() {
+            return arrangeProductionPicker(true);
+        },
+        async ACT({ contexts, term, flushTerm, disposePicker }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            await flushTerm();
+            const geometry = readPromptGeometry(term);
+            await disposePicker();
+            return geometry;
+        },
+        ASSERTS: {
+            "the echoed answer closes the prompt row"({ promptRowText }) {
+                Assert.strictEqual(promptRowText, "Pick [1-3; free-text OK], Enter for the default: 1");
+            },
+            "the block's separator rows are rendered below the prompt row"({ separatorRowsBelowPrompt }) {
+                Assert.ok(separatorRowsBelowPrompt > 0, "a full-width separator row must be rendered below the prompt row");
+            }
+        }
+    });
+
+    test("disposal while the selection prompt waits ends the run without an answer", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            arrangePlansFolder(s, THREE_PLANS);
+            s.askPick.mode = "never-answers";
+            return s;
+        },
+        async ACT({ contexts, askCalls }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            await until(() => askCalls.length > 0);
+            await cmd.dispose();
+            return await cmd.result();
+        },
+        ASSERTS: {
+            "the run ends with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no block line is drawn"(_code, { written }) {
+                Assert.ok(!written.join("").includes(SEP), `no block line may be drawn, got: ${JSON.stringify(written.join(""))}`);
+            }
+        }
+    });
+
+    test("an answer that lands as disposal begins is not implemented", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            arrangePlansFolder(s, THREE_PLANS);
+            s.askPick.mode = "answers-after-disposal";
+            return s;
+        },
+        async ACT({ contexts, askPick }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            await until(() => askPick.answer !== null);
+            const disposal = cmd.dispose();
+            askPick.answer!();
+            await disposal;
+            return await cmd.result();
+        },
+        ASSERTS: {
+            "the run ends with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "no plan is implemented"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.length, 0);
+            },
+            "no block line is drawn"(_code, { written }) {
+                Assert.ok(!written.join("").includes(SEP), `no block line may be drawn, got: ${JSON.stringify(written.join(""))}`);
+            }
+        }
+    });
+
+    test("disposal while the plans are being timestamped never opens the prompt", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            arrangePlansFolder(s, THREE_PLANS);
+            const firstStat:{ release:(() => void)|null } = { release: null };
+            const statted:string[] = [];
+            const origStat = s.contexts.fs.stat.bind(s.contexts.fs);
+            (s.contexts.fs as { stat:typeof s.contexts.fs.stat }).stat = (p) => {
+                statted.push(p);
+                if (firstStat.release !== null) {
+                    return origStat(p);
+                }
+                return new Promise(resolve => {
+                    firstStat.release = () => resolve(origStat(p));
+                });
+            };
+            return { ...s, firstStat, statted };
+        },
+        async ACT({ contexts, firstStat, statted }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            await until(() => firstStat.release !== null);
+            const disposal = cmd.dispose();
+            firstStat.release!();
+            await disposal;
+            return { code: await cmd.result(), statted: [...statted] };
+        },
+        ASSERTS: {
+            "the run ends with code 1"({ code }) {
+                Assert.strictEqual(code, 1);
+            },
+            "the plans after the one in flight are never timestamped"({ statted }) {
+                Assert.deepStrictEqual(statted, ["/project/plans/alpha.md"]);
+            },
+            "no question is ever presented"(_result, { askCalls }) {
+                Assert.strictEqual(askCalls.length, 0);
+            },
+            "no block line is drawn"(_result, { written }) {
+                Assert.ok(!written.join("").includes(SEP), `no block line may be drawn, got: ${JSON.stringify(written.join(""))}`);
+            }
+        }
+    });
+
+    // Reproduces the entry point's Ctrl+C order: release the line read the picker waits on, then
+    // tear the command down in the same turn.
+    test("a Ctrl+C at the picker reports the cancellation even though teardown follows it immediately", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            arrangePlansFolder(s, THREE_PLANS);
+            const asked = { yet: false };
+            const reader = new PromptLineReader(() => ({
+                echoesInput: false,
+                ask() { asked.yet = true; },
+                close() {}
+            }));
+            (s.contexts as { ask:AskContext }).ask = new ConsoleAsk(reader, s.contexts.output);
+            return { ...s, reader, asked };
+        },
+        async ACT({ contexts, reader, asked }) {
+            const cmd = new Implement([], { projectRoot: "/project" }, contexts);
+            await until(() => asked.yet);
+            reader.cancel();
+            await cmd.dispose();
+            const code = await cmd.result();
+            await reader.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run ends with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "the short cancellation diagnostic reaches the command's output channel"(_code, { written }) {
+                Assert.ok(written.join("").includes("Prompt cancelled"), `the user's cancellation should be reported, got: ${JSON.stringify(written.join(""))}`);
+            },
+            "no block line is drawn"(_code, { written }) {
+                Assert.ok(!written.join("").includes(SEP), `no block line may be drawn, got: ${JSON.stringify(written.join(""))}`);
+            },
+            "no plan is implemented"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.length, 0);
+            }
+        }
+    });
+});
+
+test.describe("Implement output channel offered to its caller", test => {
+    test("a write handed to a still-running command reaches the terminal through its block", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            cmd.output().writeError("late diagnostic\n");
+            await cmd.dispose();
+        },
+        ASSERTS: {
+            "the text scrolls above the block"(_result, { written }) {
+                Assert.strictEqual(writeAboveSegmentOf(written[written.length - 1]!), "late diagnostic\n");
+            },
+            "the text bypasses the raw error channel"(_result, { errors }) {
+                Assert.strictEqual(errors.join(""), "");
+            }
+        }
+    });
+
+    test("a disposal that fails leaves the channel pointing at the block, so its diagnostic still scrolls above it", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            const teardownFailure = new Error("block teardown blew up");
+            const origDispose = BottomBlock.prototype.dispose;
+            BottomBlock.prototype.dispose = function() {
+                BottomBlock.prototype.dispose = origDispose;
+                throw teardownFailure;
+            };
+            return { ...s, teardownFailure, origDispose };
+        },
+        async ACT({ contexts, origDispose }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+                await cmd.result();
+                const disposal = await monad(() => cmd.dispose());
+                cmd.output().writeError("escaping teardown diagnostic\n");
+                return disposal;
+            } finally {
+                BottomBlock.prototype.dispose = origDispose;
+            }
+        },
+        ASSERTS: {
+            "the teardown failure escapes dispose"(disposal, { teardownFailure }) {
+                disposal.should.error(teardownFailure);
+            },
+            "the diagnostic flows through the command's own output owner"(_disposal, { written }) {
+                Assert.ok(written.join("").includes("escaping teardown diagnostic"), `the owner channel should carry the text, got: ${JSON.stringify(written.join(""))}`);
+            },
+            "the diagnostic bypasses the raw error channel"(_disposal, { errors }) {
+                Assert.strictEqual(errors.join(""), "");
+            }
+        }
+    });
+
+    test("a concurrent second disposal resolves only once the command's resources are released", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            // Holds the first removal the workspace teardown asks for, so both disposal handles are
+            // observed while that teardown is still in flight.
+            const held:{ armed:boolean; release:(() => void)|null } = { armed: false, release: null };
+            const origRm = s.contexts.fs.rm.bind(s.contexts.fs);
+            (s.contexts.fs as { rm:typeof s.contexts.fs.rm }).rm = (p, options) => {
+                if (!held.armed || held.release !== null) {
+                    return origRm(p, options);
+                }
+                return new Promise(resolve => {
+                    held.release = () => resolve(origRm(p, options));
+                });
+            };
+            return { ...s, held };
+        },
+        async ACT({ contexts, held }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            held.armed = true;
+            const first = cmd.dispose();
+            const second = cmd.dispose();
+            await until(() => held.release !== null);
+            held.release!();
+            await second;
+            cmd.output().writeError("written once the second handle settled\n");
+            await first;
+            return first === second;
+        },
+        ASSERTS: {
+            "both callers hold one and the same disposal"(sameDisposal) {
+                Assert.strictEqual(sameDisposal, true);
+            },
+            "awaiting the second handle already observes the released output owner"(_sameDisposal, { errors }) {
+                Assert.strictEqual(errors.join(""), "written once the second handle settled\n");
+            },
+            "the workspace folder was removed before either handle settled"(_sameDisposal, { rmCalls }) {
+                Assert.ok(rmCalls.includes(WS_ROOT), `the workspace root should have been removed, got: ${JSON.stringify(rmCalls)}`);
+            }
+        }
+    });
+
+    test("a write handed to a disposed command reaches the injected channel", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            await cmd.dispose();
+            cmd.output().writeError("post-dispose diagnostic\n");
+        },
+        ASSERT(_result, { errors }) {
+            Assert.strictEqual(errors.join(""), "post-dispose diagnostic\n");
+        }
+    });
+
+    test("the channel reports the terminal geometry and resize subscription of the injected one", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            const channel = cmd.output();
+            const observed = { columns: channel.columns(), rows: channel.rows(), unsubscribe: channel.onResize(() => {}) };
+            await cmd.dispose();
+            return observed;
+        },
+        ASSERTS: {
+            "columns comes from the injected channel"({ columns }) {
+                Assert.strictEqual(columns, STUB_COLUMNS);
+            },
+            "rows comes from the injected channel"({ rows }) {
+                Assert.strictEqual(rows, STUB_ROWS);
+            },
+            "subscribing returns the injected channel's unsubscribe handle"({ unsubscribe }) {
+                Assert.strictEqual(typeof unsubscribe, "function");
+            }
+        }
+    });
+
+    test("an empty write produces no output at all", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.claudeQueue.push({ text: "detect ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return s;
+        },
+        async ACT({ contexts, written }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            await cmd.result();
+            const before = written.length;
+            cmd.output().write("");
+            const after = written.length;
+            await cmd.dispose();
+            return { before, after };
+        },
+        ASSERT({ before, after }) {
+            Assert.strictEqual(after, before);
         }
     });
 });
@@ -2639,6 +3400,12 @@ function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
 
 async function flush(rounds = 20) {
     for (let i = 0; i < rounds; i++) {
+        await new Promise(r => setImmediate(r));
+    }
+}
+
+async function until(condition:() => boolean, rounds = 500) {
+    for (let i = 0; i < rounds && !condition(); i++) {
         await new Promise(r => setImmediate(r));
     }
 }
@@ -6411,7 +7178,7 @@ test.describe("Implement _selectPlan edge cases", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            s.contexts.fs.exists = async (p) => s.files.has(p) || p === "/project/plans";
+            arrangePlansFolder(s, []);
             return s;
         },
         async ACT({ contexts }) {
@@ -6427,6 +7194,12 @@ test.describe("Implement _selectPlan edge cases", test => {
             "error mentions plans folder"(_code, { written }) {
                 const all = written.join("");
                 Assert.ok(all.includes("No plan files found"));
+            },
+            "the diagnostic is written with the block present"(_code, { written }) {
+                Assert.ok(written.join("").includes(SEP.repeat(STUB_COLUMNS)), "block should be drawn for the no-plans diagnostic");
+            },
+            "presents no selection question"(_code, { askCalls }) {
+                Assert.strictEqual(askCalls.length, 0);
             }
         }
     });
@@ -6435,17 +7208,7 @@ test.describe("Implement _selectPlan edge cases", test => {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
-            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
-            const origExists = s.contexts.fs.exists;
-            (s.contexts.fs as { exists:typeof s.contexts.fs.exists }).exists = (p) => {
-                if (p === "/project/plans") return Promise.resolve(true);
-                return origExists(p);
-            };
-            const origReaddir = s.contexts.fs.readdir;
-            (s.contexts.fs as { readdir:typeof s.contexts.fs.readdir }).readdir = (p) => {
-                if (p === "/project/plans") return Promise.resolve([{ name: "test.md", isFile: true, isDirectory: false }]);
-                return origReaddir(p);
-            };
+            arrangePlansFolder(s, [{ name: "test.md", content: PLAN_ONE_TASK, mtimeMs: 0 }]);
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "worker" });
             s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
@@ -6457,8 +7220,13 @@ test.describe("Implement _selectPlan edge cases", test => {
             await cmd.dispose();
             return code;
         },
-        ASSERT(code) {
-            Assert.strictEqual(code, 0);
+        ASSERTS: {
+            "exits 0"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "presents no selection question"(_code, { askCalls }) {
+                Assert.strictEqual(askCalls.length, 0);
+            }
         }
     });
 });

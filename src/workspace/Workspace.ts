@@ -1,4 +1,5 @@
 import type { FsContext } from "../contexts";
+import { disposeOnce } from "../disposeOnce";
 import { joinPath } from "../system/fsUtils";
 
 export type WorkspacePaths = Readonly<{
@@ -131,10 +132,10 @@ export class Workspace {
             await this._fs.rm(path, { force: true });
         }
     }
-    async dispose() {
-        if (this._disposed) {
-            return;
-        }
+    dispose():Promise<void> {
+        return this._dispose();
+    }
+    private _dispose = disposeOnce(async () => {
         this._disposed = true;
         const root = this._root;
         const reviewerRoots = this._reviewerRoots;
@@ -154,5 +155,5 @@ export class Workspace {
 
             }
         }
-    }
+    });
 }
