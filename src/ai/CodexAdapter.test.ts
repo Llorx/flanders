@@ -1,9 +1,10 @@
 import * as Assert from "assert";
 
 import test from "arrange-act-assert";
+import type { TestFunction } from "arrange-act-assert";
 
 import { CodexAdapter, CodexAdapterContexts, formatCodexCommand } from "./CodexAdapter";
-import type { ToolEvent, ToolAdapterInvokeArgs } from "./ToolAdapter";
+import type { ToolEvent, ToolEventError, ToolAdapterInvokeArgs } from "./ToolAdapter";
 import { UNKNOWN_TOOL_ERROR_MESSAGE } from "./toolErrorClassification";
 import type { RandomContext, ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
 
@@ -62,7 +63,11 @@ function scriptContext() {
     };
 }
 
-function timeContext(nowMs = 1_000_000):TimeContext {
+const NOW_MS = 1_000_000;
+const MID_DRAW = 0.5;
+const RECONNECT_WAIT_MS = 120_000;
+
+function timeContext(nowMs = NOW_MS):TimeContext {
     return {
         now() { return nowMs; },
         setTimeout(_handler:() => void, _ms:number):TimeoutHandle {
@@ -114,14 +119,118 @@ async function collectEvents(adapter:CodexAdapter, args:ToolAdapterInvokeArgs, s
     return events;
 }
 
+function emitEvent(proc:SpawnedProcessSpy, event:object):void {
+    proc.$emitStdout(JSON.stringify(event) + "\n");
+}
+
+function emitEventAndExit(proc:SpawnedProcessSpy, event:object, exitCode:number):void {
+    emitEvent(proc, event);
+    proc.$emit("exit", exitCode, null);
+}
+
 function emitTurnCompletedAndExit(proc:SpawnedProcessSpy):void {
-    proc.$emitStdout(JSON.stringify({ type: "turn.completed" }) + "\n");
-    proc.$emit("exit", 0, null);
+    emitEventAndExit(proc, { type: "turn.completed" }, 0);
 }
 
 function emitErrorAndExit(proc:SpawnedProcessSpy, message:string):void {
-    proc.$emitStdout(JSON.stringify({ type: "error", message }) + "\n");
-    proc.$emit("exit", 1, null);
+    emitEventAndExit(proc, { type: "error", message }, 1);
+}
+
+function emitTurnFailedAndExit(proc:SpawnedProcessSpy, message:string):void {
+    emitEventAndExit(proc, { type: "turn.failed", error: { message } }, 1);
+}
+
+type ErrorClassification<E = ToolEventError> = E extends unknown ? Omit<E, "type"|"message"> : never;
+
+function errorEvent(classification:ErrorClassification, message:string):ToolEvent {
+    return { type: "error", ...classification, message };
+}
+
+function retryable(message:string):ToolEvent {
+    return errorEvent({ retryable: true }, message);
+}
+
+function nonRetryable(message:string):ToolEvent {
+    return errorEvent({ retryable: false }, message);
+}
+
+function fatalLogin(message:string):ToolEvent {
+    return errorEvent({ retryable: false, fatal: true }, message);
+}
+
+const RECONNECT_WAIT:ToolEvent = { type: "rate_limit", waitUntilMs: NOW_MS + RECONNECT_WAIT_MS };
+
+function messageCarryingOnly(token:string):string {
+    return `the tool reported ${token}`;
+}
+
+type ClassificationCase = [name:string, message:string, expected:ToolEvent];
+
+function classificationCases<T>(
+    items:readonly T[],
+    name:(item:T) => string,
+    message:(item:T) => string,
+    expected:(message:string) => ToolEvent
+):ClassificationCase[] {
+    return items.map((item):ClassificationCase => {
+        const text = message(item);
+        return [name(item), text, expected(text)];
+    });
+}
+
+function standaloneTokenCases(tokens:readonly string[], outcome:string, expected:(message:string) => ToolEvent):ClassificationCase[] {
+    return classificationCases(
+        tokens,
+        token => `a message whose only signal is the standalone ${token} token ${outcome}`,
+        messageCarryingOnly,
+        expected
+    );
+}
+
+const WORD_CHARACTERS = ["x", "1", "_"];
+
+function nonStandaloneTokenCases(token:string):ClassificationCase[] {
+    return classificationCases(
+        WORD_CHARACTERS.flatMap(char => [`${char}${token}`, `${token}${char}`, `${char}${token}${char}`]),
+        adjacent => `${adjacent} carries no standalone ${token} token`,
+        messageCarryingOnly,
+        nonRetryable
+    );
+}
+
+function retryableSubstringCases(cases:ReadonlyArray<[marker:string, message:string]>):ClassificationCase[] {
+    return classificationCases(
+        cases,
+        ([marker]) => `a message whose only recognized substring is "${marker}" produces a retryable error`,
+        ([, message]) => message,
+        retryable
+    );
+}
+
+function registerClassificationCases(
+    test:TestFunction,
+    cases:readonly ClassificationCase[],
+    emit:(proc:SpawnedProcessSpy, message:string) => void = emitErrorAndExit,
+    draw = MID_DRAW
+):void {
+    for (const [name, message, expected] of cases) {
+        test(name, {
+            ARRANGE() {
+                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(draw) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script, message, expected };
+            },
+            async ACT({ adapter, args, script, message }) {
+                return await collectEvents(adapter, args, script, proc => {
+                    emit(proc, message);
+                });
+            },
+            ASSERT(result, { expected }) {
+                Assert.deepStrictEqual(result, [expected]);
+            }
+        });
+    }
 }
 
 test.describe("CodexAdapter", test => {
@@ -277,10 +386,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEvent(proc, {
                         type: "item.completed",
                         item: { type: "agent_message", text: "hi" }
-                    }) + "\n");
+                    });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -303,10 +412,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEvent(proc, {
                         type: "item.completed",
                         item: { type: "agent_message" }
-                    }) + "\n");
+                    });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -329,7 +438,7 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEvent(proc, {
                         type: "item.completed",
                         item: {
                             type: "command_execution",
@@ -338,7 +447,7 @@ test.describe("CodexAdapter", test => {
                             exit_code: 0,
                             status: "succeeded"
                         }
-                    }) + "\n");
+                    });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -361,10 +470,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEvent(proc, {
                         type: "item.completed",
                         item: { type: "command_execution", aggregated_output: "out" }
-                    }) + "\n");
+                    });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -387,10 +496,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEvent(proc, {
                         type: "item.completed",
                         item: { type: "command_execution", command: "", aggregated_output: "" }
-                    }) + "\n");
+                    });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -413,10 +522,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEvent(proc, {
                         type: "item.completed",
                         item: { type: "command_execution", command: "ls" }
-                    }) + "\n");
+                    });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -440,10 +549,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script, longCommand }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEvent(proc, {
                         type: "item.completed",
                         item: { type: "command_execution", command: longCommand, aggregated_output: "" }
-                    }) + "\n");
+                    });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -466,10 +575,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEvent(proc, {
                         type: "item.completed",
                         item: { type: "reasoning", text: "Let me think..." }
-                    }) + "\n");
+                    });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -492,10 +601,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEvent(proc, {
                         type: "item.completed",
                         item: { type: "reasoning" }
-                    }) + "\n");
+                    });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -518,10 +627,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEvent(proc, {
                         type: "item.completed",
                         item: { type: "some_unknown_item_type", text: "ignored" }
-                    }) + "\n");
+                    });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -539,7 +648,7 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "item.completed" }) + "\n");
+                    emitEvent(proc, { type: "item.completed" });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -557,7 +666,7 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "turn.started" }) + "\n");
+                    emitEvent(proc, { type: "turn.started" });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -575,10 +684,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEvent(proc, {
                         type: "item.started",
                         item: { type: "agent_message", text: "in progress", status: "in_progress" }
-                    }) + "\n");
+                    });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -596,7 +705,7 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "response.created", something: true }) + "\n");
+                    emitEvent(proc, { type: "response.created", something: true });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -633,7 +742,7 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEventAndExit(proc, {
                         type: "turn.completed",
                         usage: {
                             input_tokens: 100,
@@ -641,8 +750,7 @@ test.describe("CodexAdapter", test => {
                             output_tokens: 50,
                             reasoning_output_tokens: 10
                         }
-                    }) + "\n");
-                    proc.$emit("exit", 0, null);
+                    }, 0);
                 });
             },
             ASSERTS: {
@@ -668,11 +776,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEventAndExit(proc, {
                         type: "turn.completed",
                         usage: {}
-                    }) + "\n");
-                    proc.$emit("exit", 0, null);
+                    }, 0);
                 });
             },
             ASSERT(_result, { captured }) {
@@ -710,11 +817,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEventAndExit(proc, {
                         type: "turn.completed",
                         usage: { input_tokens: 100, output_tokens: 50 }
-                    }) + "\n");
-                    proc.$emit("exit", 0, null);
+                    }, 0);
                 });
             },
             ASSERT(result) {
@@ -736,11 +842,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEventAndExit(proc, {
                         type: "turn.completed",
                         usage: { input_tokens: 100, cached_input_tokens: 60, output_tokens: 50, reasoning_output_tokens: 10 }
-                    }) + "\n");
-                    proc.$emit("exit", 0, null);
+                    }, 0);
                 });
             },
             ASSERTS: {
@@ -766,11 +871,10 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({
+                    emitEventAndExit(proc, {
                         type: "turn.completed",
                         usage: { input_tokens: 100, output_tokens: 50 }
-                    }) + "\n");
-                    proc.$emit("exit", 0, null);
+                    }, 0);
                 });
             },
             ASSERT(_result, { captured }) {
@@ -828,7 +932,7 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "thread.started", thread_id: "T1" }) + "\n");
+                    emitEvent(proc, { type: "thread.started", thread_id: "T1" });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -849,8 +953,8 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "thread.started", thread_id: "T1" }) + "\n");
-                    proc.$emitStdout(JSON.stringify({ type: "thread.started", thread_id: "T1" }) + "\n");
+                    emitEvent(proc, { type: "thread.started", thread_id: "T1" });
+                    emitEvent(proc, { type: "thread.started", thread_id: "T1" });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -870,8 +974,8 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "thread.started", thread_id: "T1" }) + "\n");
-                    proc.$emitStdout(JSON.stringify({ type: "thread.started", thread_id: "T2" }) + "\n");
+                    emitEvent(proc, { type: "thread.started", thread_id: "T1" });
+                    emitEvent(proc, { type: "thread.started", thread_id: "T2" });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -892,7 +996,7 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "thread.started", thread_id: "" }) + "\n");
+                    emitEvent(proc, { type: "thread.started", thread_id: "" });
                     emitTurnCompletedAndExit(proc);
                 });
             },
@@ -985,158 +1089,44 @@ test.describe("CodexAdapter", test => {
 
     test.describe("rate-limit / credit-exhaustion substring detection synthesizes an 8-12 minute wait", test => {
 
-        const NOW_MS = 1_000_000;
         // R = EIGHT_MINUTES_MS + round(random * (TWELVE_MINUTES_MS - EIGHT_MINUTES_MS)); random 0.5 => 480000 + 120000.
-        const MID_DRAW = 0.5;
         const MID_R = 600_000;
 
-        const RATE_LIMIT_CASES:[string, string][] = [
-            ["out of credits", "you are out of credits, please upgrade"],
-            ["refill", "your credits will refill at midnight"],
-            ["usage limit", "you have hit your usage limit"],
-            ["rate limit", "the request was rate limited"],
-            ["rate-limit", "rate-limit threshold exceeded"],
-            ["rate_limit", "rate_limit error occurred"],
-            ["quota", "quota exceeded for this organization"],
-            ["too many requests", "too many requests, slow down"],
-            ["429", "received error 429 from API"]
-        ];
+        const MID_WAIT:ToolEvent = { type: "rate_limit", waitUntilMs: NOW_MS + MID_R };
 
-        for (const [substring, testMessage] of RATE_LIMIT_CASES) {
-            test(`message containing "${substring}" produces a single rate_limit event with synthesized wait`, {
-                ARRANGE() {
-                    const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
-                    const adapter = new CodexAdapter(contexts);
-                    const args = baseArgs();
-                    return { adapter, args, script, testMessage };
-                },
-                async ACT({ adapter, args, script, testMessage }) {
-                    return await collectEvents(adapter, args, script, proc => {
-                        emitErrorAndExit(proc, testMessage);
-                    });
-                },
-                ASSERT(result) {
-                    Assert.deepStrictEqual(result, [
-                        { type: "rate_limit", waitUntilMs: NOW_MS + MID_R }
-                    ]);
-                }
-            });
-        }
+        registerClassificationCases(test, [
+            [`a message containing "out of credits" yields the synthesized wait`, "you are out of credits, please upgrade", MID_WAIT],
+            [`a message containing "refill" yields the synthesized wait`, "your credits will refill at midnight", MID_WAIT],
+            [`a message containing "usage limit" yields the synthesized wait`, "you have hit your usage limit", MID_WAIT],
+            [`a message containing "rate limit" yields the synthesized wait`, "the request was rate limited", MID_WAIT],
+            [`a message containing "rate-limit" yields the synthesized wait`, "rate-limit threshold exceeded", MID_WAIT],
+            [`a message containing "rate_limit" yields the synthesized wait`, "rate_limit error occurred", MID_WAIT],
+            [`a message containing "quota" yields the synthesized wait`, "quota exceeded for this organization", MID_WAIT],
+            [`a message containing "too many requests" yields the synthesized wait`, "too many requests, slow down", MID_WAIT],
+            ["matching is case-insensitive and trims surrounding whitespace", "   OUT OF CREDITS   ", MID_WAIT],
+            ["a mid random draw of 0.5 yields the 10-minute midpoint (now + 600000)", "rate limit exceeded", MID_WAIT],
+            ["a formerly duration-bearing message now produces the synthesized 8-12 minute wait, not a 30-second wait", "rate limit exceeded, try again in 30 seconds", MID_WAIT],
+            ...standaloneTokenCases(["429"], "yields the synthesized wait", () => MID_WAIT),
+            ...nonStandaloneTokenCases("429"),
+            ...classificationCases(
+                ["428", "430"],
+                digits => `${digits} is not the 429 rate-limit token`,
+                messageCarryingOnly,
+                nonRetryable
+            )
+        ]);
 
-        test("matching is case-insensitive and trims surrounding whitespace", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "   OUT OF CREDITS   ");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + MID_R }
-                ]);
-            }
-        });
+        registerClassificationCases(test, [
+            ["a random draw of 0 yields the 8-minute floor (now + 480000)", "out of credits", { type: "rate_limit", waitUntilMs: NOW_MS + 480_000 }]
+        ], emitErrorAndExit, 0);
 
-        test("a random draw of 0 yields the 8-minute floor (now + 480000)", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(0) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "out of credits");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + 480_000 }
-                ]);
-            }
-        });
+        registerClassificationCases(test, [
+            ["a random draw of 1 yields the 12-minute ceiling (now + 720000)", "usage limit reached", { type: "rate_limit", waitUntilMs: NOW_MS + 720_000 }]
+        ], emitErrorAndExit, 1);
 
-        test("a random draw of 1 yields the 12-minute ceiling (now + 720000)", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(1) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "usage limit reached");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + 720_000 }
-                ]);
-            }
-        });
-
-        test("a mid random draw of 0.5 yields the 10-minute midpoint (now + 600000)", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(0.5) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "rate limit exceeded");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + 600_000 }
-                ]);
-            }
-        });
-
-        test("a formerly duration-bearing message now produces the synthesized 8-12 minute wait, not a 30-second wait", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "rate limit exceeded, try again in 30 seconds");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + MID_R }
-                ]);
-            }
-        });
-
-        test("a turn.failed event carrying a credit-exhaustion message produces a single rate_limit event", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "turn.failed", error: { message: "out of credits" } }) + "\n");
-                    proc.$emit("exit", 1, null);
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + MID_R }
-                ]);
-            }
-        });
+        registerClassificationCases(test, [
+            ["a turn.failed event carrying a credit-exhaustion message produces a single rate_limit event", "out of credits", MID_WAIT]
+        ], emitTurnFailedAndExit);
 
         test("an error event immediately followed by a turn.failed event with the same text yields exactly one rate_limit event", {
             ARRANGE() {
@@ -1147,9 +1137,8 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "error", message: "out of credits" }) + "\n");
-                    proc.$emitStdout(JSON.stringify({ type: "turn.failed", error: { message: "out of credits" } }) + "\n");
-                    proc.$emit("exit", 1, null);
+                    emitEvent(proc, { type: "error", message: "out of credits" });
+                    emitEventAndExit(proc, { type: "turn.failed", error: { message: "out of credits" } }, 1);
                 });
             },
             ASSERT(result) {
@@ -1168,8 +1157,7 @@ test.describe("CodexAdapter", test => {
             },
             async ACT({ adapter, args, script }) {
                 return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "turn.failed" }) + "\n");
-                    proc.$emit("exit", 1, null);
+                    emitEventAndExit(proc, { type: "turn.failed" }, 1);
                 });
             },
             ASSERT(result) {
@@ -1182,179 +1170,130 @@ test.describe("CodexAdapter", test => {
 
     test.describe("reconnect substring detection synthesizes a fixed two-minute wait", test => {
 
-        const NOW_MS = 1_000_000;
-        const RECONNECT_WAIT_MS = 120_000;
-        // A random draw of 0.5 would synthesize a 10-minute rate-limit wait (now + 600000); the
-        // reconnect assertions of now + 120000 therefore fail if the rate-limit path is taken instead.
-        const MID_DRAW = 0.5;
         const REAL_MESSAGE = "Reconnecting... 2/5 (We're currently experiencing high demand, which may cause temporary errors.)";
 
-        test("the real reconnect message produces a single rate_limit event two minutes out", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, REAL_MESSAGE);
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + RECONNECT_WAIT_MS }
-                ]);
-            }
-        });
+        registerClassificationCases(test, [
+            ["the real reconnect message produces a single rate_limit event two minutes out", REAL_MESSAGE, RECONNECT_WAIT],
+            ["the reconnect substring is tested before the rate-limit family", "Reconnecting... 1/5 (rate limit exceeded)", RECONNECT_WAIT],
+            ["the reconnect substring is tested before the 5xx HTTP-status family", "Reconnecting... 2/5 (internal server error 503)", RECONNECT_WAIT],
+            ["the reconnect substring is tested before the 408/425 HTTP-status family", "Reconnecting... 2/5 (error 408)", RECONNECT_WAIT],
+            ["the reconnect substring is tested before the transport family", "Reconnecting... 2/5 (connection reset)", RECONNECT_WAIT],
+            ["matching is case-sensitive: a lowercased reconnecting marker is not recognized", "reconnecting... 2/5", nonRetryable("reconnecting... 2/5")],
+            ["surrounding whitespace is trimmed before the reconnect match", "   Reconnecting... 3/5   ", RECONNECT_WAIT]
+        ]);
 
-        const CO_OCCURRENCE_CASES:[string, string][] = [
-            ["rate-limit family", "Reconnecting... 1/5 (rate limit exceeded)"],
-            ["5xx HTTP-status family", "Reconnecting... 2/5 (internal server error 503)"],
-            ["408/425 HTTP-status family", "Reconnecting... 2/5 (error 408)"],
-            ["transport family", "Reconnecting... 2/5 (connection reset)"]
+        registerClassificationCases(test, [
+            ["a turn.failed event carrying the reconnect message produces the two-minute wait", REAL_MESSAGE, RECONNECT_WAIT]
+        ], emitTurnFailedAndExit);
+    });
+
+    test.describe("login/authentication substring detection emits a fatal non-retryable error", test => {
+
+        const LOGIN_CASES:ReadonlyArray<[marker:string, message:string]> = [
+            ["not logged in", "stream error: you are not logged in"],
+            ["codex login", "authentication required, run codex login to continue"],
+            ["not authenticated", "request rejected: not authenticated"],
+            ["unauthorized", "the API returned unauthorized"],
+            ["401", messageCarryingOnly("401")]
         ];
 
-        for (const [family, message] of CO_OCCURRENCE_CASES) {
-            test(`the reconnect substring is tested before the ${family} so a co-occurring token still yields the two-minute wait`, {
-                ARRANGE() {
-                    const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
-                    const adapter = new CodexAdapter(contexts);
-                    const args = baseArgs();
-                    return { adapter, args, script, message };
-                },
-                async ACT({ adapter, args, script, message }) {
-                    return await collectEvents(adapter, args, script, proc => {
-                        emitErrorAndExit(proc, message);
-                    });
-                },
-                ASSERT(result) {
-                    Assert.deepStrictEqual(result, [
-                        { type: "rate_limit", waitUntilMs: NOW_MS + RECONNECT_WAIT_MS }
-                    ]);
-                }
-            });
-        }
+        const CASE_VARIANT_CASES:ReadonlyArray<[marker:string, message:string]> = [
+            ["not logged in", "   NOT LOGGED IN   "],
+            ["codex login", "Authentication required, run CODEX LOGIN to continue"],
+            ["not authenticated", "Request rejected: Not Authenticated"],
+            ["unauthorized", "The API returned UNAUTHORIZED"]
+        ];
 
-        test("matching is case-sensitive: a lowercased reconnecting marker is not recognized", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "reconnecting... 2/5");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "error", retryable: false, message: "reconnecting... 2/5" }
-                ]);
-            }
-        });
+        const COMPETING_FAMILY_CASES:ReadonlyArray<[family:string, text:string]> = [
+            ["rate-limit substring family", "usage limit reached"],
+            ["429 rate-limit token", "429 returned"],
+            ["5xx HTTP-status family", "503 from the upstream"],
+            ["408 retryable-status token", "408 on the request"],
+            ["425 retryable-status token", "425 on the request"],
+            ["transport family", "connection reset by peer"]
+        ];
 
-        test("surrounding whitespace is trimmed before the reconnect match", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "   Reconnecting... 3/5   ");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + RECONNECT_WAIT_MS }
-                ]);
-            }
-        });
+        const COMPETING_FAMILY_PAIRS = LOGIN_CASES.flatMap(([marker, loginMessage]) =>
+            COMPETING_FAMILY_CASES.map(([family, competingText]) => ({ marker, loginMessage, family, competingText }))
+        );
 
-        test("a turn.failed event carrying the reconnect message produces the two-minute wait", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts({ time: timeContext(NOW_MS), random: randomContext(MID_DRAW) });
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    proc.$emitStdout(JSON.stringify({ type: "turn.failed", error: { message: REAL_MESSAGE } }) + "\n");
-                    proc.$emit("exit", 1, null);
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "rate_limit", waitUntilMs: NOW_MS + RECONNECT_WAIT_MS }
-                ]);
-            }
-        });
+        registerClassificationCases(test, classificationCases(LOGIN_CASES,
+            ([marker]) => `an error event whose message contains "${marker}" produces a single fatal non-retryable error`,
+            ([, message]) => message,
+            fatalLogin));
+
+        registerClassificationCases(test, classificationCases(LOGIN_CASES,
+            ([marker]) => `a turn.failed event whose nested error message contains "${marker}" produces the same fatal error`,
+            ([, message]) => message,
+            fatalLogin), emitTurnFailedAndExit);
+
+        registerClassificationCases(test, classificationCases(CASE_VARIANT_CASES,
+            ([marker]) => `matching "${marker}" is case-insensitive and the message passes through verbatim`,
+            ([, message]) => message,
+            fatalLogin));
+
+        registerClassificationCases(test, classificationCases(COMPETING_FAMILY_PAIRS,
+            ({ family, marker }) => `the login family is tested before the ${family} so "${marker}" co-occurring with it still yields the fatal error`,
+            ({ loginMessage, competingText }) => `${loginMessage} (${competingText})`,
+            fatalLogin));
+
+        registerClassificationCases(test, classificationCases(LOGIN_CASES,
+            ([marker]) => `the reconnect family is tested before the login family so a co-occurring "${marker}" still yields the two-minute wait`,
+            ([, loginMessage]) => `Reconnecting... 2/5 (${loginMessage})`,
+            () => RECONNECT_WAIT));
+
+        registerClassificationCases(test, nonStandaloneTokenCases("401"));
+
+        registerClassificationCases(test, classificationCases(
+            ["400", "402"],
+            digits => `${digits} is not the 401 login token`,
+            messageCarryingOnly,
+            nonRetryable
+        ));
     });
 
     test.describe("5xx HTTP status detection", test => {
 
-        for (const [status, testMessage] of [
-            ["500", "internal server error 500"],
-            ["502", "bad gateway 502"],
-            ["503", "service unavailable 503"],
-            ["599", "error code 599"]
-        ] as [string, string][]) {
-            test(`message containing ${status} produces retryable error`, {
-                ARRANGE() {
-                    const { contexts, script } = makeContexts();
-                    const adapter = new CodexAdapter(contexts);
-                    const args = baseArgs();
-                    return { adapter, args, script, testMessage };
-                },
-                async ACT({ adapter, args, script, testMessage }) {
-                    return await collectEvents(adapter, args, script, proc => {
-                        emitErrorAndExit(proc, testMessage);
-                    });
-                },
-                ASSERT(result) {
-                    Assert.deepStrictEqual(result, [
-                        { type: "error", retryable: true, message: testMessage }
-                    ]);
-                }
-            });
-        }
+        const FIVE_XX_TOKENS = Array.from({ length: 100 }, (_unused, offset) => String(500 + offset));
+
+        registerClassificationCases(test, standaloneTokenCases(
+            FIVE_XX_TOKENS,
+            "produces a retryable error",
+            retryable
+        ));
+
+        registerClassificationCases(test, ["500", "550", "599"].flatMap(token => nonStandaloneTokenCases(token)));
+
+        registerClassificationCases(test, classificationCases(
+            ["5", "50", "5000", "499", "600"],
+            digits => `${digits} is not a three-digit 5xx token`,
+            messageCarryingOnly,
+            nonRetryable
+        ));
     });
 
     test.describe("408 and 425 HTTP status detection", test => {
 
-        for (const [status, testMessage] of [
-            ["408", "request timeout 408"],
-            ["425", "too early 425"]
-        ] as [string, string][]) {
-            test(`message containing ${status} produces retryable error`, {
-                ARRANGE() {
-                    const { contexts, script } = makeContexts();
-                    const adapter = new CodexAdapter(contexts);
-                    const args = baseArgs();
-                    return { adapter, args, script, testMessage };
-                },
-                async ACT({ adapter, args, script, testMessage }) {
-                    return await collectEvents(adapter, args, script, proc => {
-                        emitErrorAndExit(proc, testMessage);
-                    });
-                },
-                ASSERT(result) {
-                    Assert.deepStrictEqual(result, [
-                        { type: "error", retryable: true, message: testMessage }
-                    ]);
-                }
-            });
-        }
+        registerClassificationCases(test, standaloneTokenCases(
+            ["408", "425"],
+            "produces a retryable error",
+            retryable
+        ));
+
+        registerClassificationCases(test, ["408", "425"].flatMap(token => nonStandaloneTokenCases(token)));
+
+        registerClassificationCases(test, classificationCases(
+            ["400", "409", "424", "426"],
+            digits => `${digits} is neither the 408 nor the 425 retryable-status token`,
+            messageCarryingOnly,
+            nonRetryable
+        ));
     });
 
     test.describe("transport-level substring detection", test => {
 
-        const TRANSPORT_CASES:[string, string][] = [
-            ["timeout", "the operation timed out due to timeout"],
+        registerClassificationCases(test, retryableSubstringCases([
+            ["timeout", "a timeout occurred while streaming"],
             ["timed out", "connection timed out"],
             ["connection reset", "connection reset by peer"],
             ["connection refused", "connection refused on port 443"],
@@ -1368,69 +1307,17 @@ test.describe("CodexAdapter", test => {
             ["ENOTFOUND", "getaddrinfo ENOTFOUND api.example.com"],
             ["ETIMEDOUT", "connect ETIMEDOUT 10.0.0.1:443"],
             ["EAI_AGAIN", "getaddrinfo EAI_AGAIN api.example.com"]
-        ];
-
-        for (const [substring, testMessage] of TRANSPORT_CASES) {
-            test(`message containing "${substring}" produces retryable error`, {
-                ARRANGE() {
-                    const { contexts, script } = makeContexts();
-                    const adapter = new CodexAdapter(contexts);
-                    const args = baseArgs();
-                    return { adapter, args, script, testMessage };
-                },
-                async ACT({ adapter, args, script, testMessage }) {
-                    return await collectEvents(adapter, args, script, proc => {
-                        emitErrorAndExit(proc, testMessage);
-                    });
-                },
-                ASSERT(result) {
-                    Assert.deepStrictEqual(result, [
-                        { type: "error", retryable: true, message: testMessage }
-                    ]);
-                }
-            });
-        }
+        ]));
     });
 
     test.describe("non-retryable errors", test => {
 
-        test("unrecognized error message produces non-retryable error", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts();
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "unauthorized");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "error", retryable: false, message: "unauthorized" }
-                ]);
-            }
-        });
-
-        test("error with message invalid api key is non-retryable", {
-            ARRANGE() {
-                const { contexts, script } = makeContexts();
-                const adapter = new CodexAdapter(contexts);
-                const args = baseArgs();
-                return { adapter, args, script };
-            },
-            async ACT({ adapter, args, script }) {
-                return await collectEvents(adapter, args, script, proc => {
-                    emitErrorAndExit(proc, "invalid api key");
-                });
-            },
-            ASSERT(result) {
-                Assert.deepStrictEqual(result, [
-                    { type: "error", retryable: false, message: "invalid api key" }
-                ]);
-            }
-        });
+        registerClassificationCases(test, classificationCases(
+            ["the tool declined the request", "invalid api key"],
+            message => `an unrecognized message "${message}" produces a non-retryable error carrying no fatal marker`,
+            message => message,
+            nonRetryable
+        ));
     });
 
     test("abortSignal sends SIGINT to child and closes iterable", {
@@ -1560,8 +1447,7 @@ test.describe("CodexAdapter", test => {
         },
         async ACT({ adapter, args, script }) {
             return await collectEvents(adapter, args, script, proc => {
-                proc.$emitStdout(JSON.stringify({ type: "error" }) + "\n");
-                proc.$emit("exit", 1, null);
+                emitEventAndExit(proc, { type: "error" }, 1);
             });
         },
         ASSERT(result) {
@@ -1699,10 +1585,10 @@ test.describe("CodexAdapter", test => {
             const iterable = adapter.invoke(args);
             const iter = iterable[Symbol.asyncIterator]();
             const proc = script.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
+            emitEvent(proc, {
                 type: "item.completed",
                 item: { type: "agent_message", text: "hi" }
-            }) + "\n");
+            });
             const first = await iter.next();
             const events:ToolEvent[] = first.done ? [] : [first.value];
             const returnPromise = iter.return!();
@@ -1737,10 +1623,10 @@ test.describe("CodexAdapter", test => {
             const proc = script.$processes[0]!;
             const iter = iterable[Symbol.asyncIterator]();
             const pendingNext = iter.next();
-            proc.$emitStdout(JSON.stringify({
+            emitEvent(proc, {
                 type: "item.completed",
                 item: { type: "agent_message", text: "delayed" }
-            }) + "\n");
+            });
             const first = await pendingNext;
             emitTurnCompletedAndExit(proc);
             const events:ToolEvent[] = [];
@@ -1776,16 +1662,16 @@ test.describe("CodexAdapter", test => {
         },
         async ACT({ adapter, args, script }) {
             return await collectEvents(adapter, args, script, proc => {
-                emitErrorAndExit(proc, "unauthorized");
-                proc.$emitStdout(JSON.stringify({
+                emitErrorAndExit(proc, "the tool declined the request");
+                emitEvent(proc, {
                     type: "item.completed",
                     item: { type: "agent_message", text: "late" }
-                }) + "\n");
+                });
             });
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, [
-                { type: "error", retryable: false, message: "unauthorized" }
+                { type: "error", retryable: false, message: "the tool declined the request" }
             ]);
         }
     });

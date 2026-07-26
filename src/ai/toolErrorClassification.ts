@@ -5,18 +5,22 @@ import type { ToolEventError, ToolEventRateLimit } from "./ToolAdapter";
 // human-readable text of its own.
 export const UNKNOWN_TOOL_ERROR_MESSAGE = "unknown error";
 
-// The recognized transient-error substring families used by the Codex adapter, whose CLI exposes a
-// failure only as free text, with no structured error / HTTP-status / retry-after fields. The
-// adapter classifies a failure by literal substring search over the trimmed message — case-insensitive
-// for the families below, case-sensitive for the reconnect substring, which matches only the exact
-// capitalization the CLI emits. The set is closed; adding a substring requires updating
-// src/ai/.spec/rules/runner.md first (the Codex adapter section), which is why the families live here
-// rather than being inlined into the adapter.
+// The Codex CLI exposes a failure as free text alone, so each family below is a closed set of
+// literal substrings the adapter recognizes, never a fuzzy or inferred match.
 
-// The Codex CLI surfaces its reconnect / high-demand transient as free text carrying this exact-cased
-// marker and no structured code, so the match is a case-sensitive literal.
+// The Codex CLI emits this marker with exactly this capitalization, so this family alone matches
+// case-sensitively.
 const RECONNECT_SUBSTRING = "Reconnecting...";
 const RECONNECT_WAIT_MS = 2 * 60_000;
+
+const LOGIN_SUBSTRINGS = [
+    "not logged in",
+    "codex login",
+    "not authenticated",
+    "unauthorized"
+];
+
+const LOGIN_TOKEN_PATTERNS = [/\b401\b/];
 
 const RATE_LIMIT_SUBSTRINGS = [
     "out of credits",
@@ -29,14 +33,12 @@ const RATE_LIMIT_SUBSTRINGS = [
     "too many requests"
 ];
 
-const RATE_LIMIT_429_RE = /\b429\b/;
+const RATE_LIMIT_TOKEN_PATTERNS = [/\b429\b/];
 
 const EIGHT_MINUTES_MS = 8 * 60_000;
 const TWELVE_MINUTES_MS = 12 * 60_000;
 
-const FIVE_XX_RE = /\b5\d{2}\b/;
-const STATUS_408_RE = /\b408\b/;
-const STATUS_425_RE = /\b425\b/;
+const RETRYABLE_STATUS_TOKEN_PATTERNS = [/\b5\d{2}\b/, /\b408\b/, /\b425\b/];
 
 const TRANSPORT_SUBSTRINGS = [
     "timeout",
@@ -55,32 +57,36 @@ const TRANSPORT_SUBSTRINGS = [
     "eai_again"
 ];
 
+function matchesFailureFamily(message:string, substrings:readonly string[], tokenPatterns:readonly RegExp[]):boolean {
+    const trimmed = message.trim();
+    for (const pattern of tokenPatterns) {
+        if (pattern.test(trimmed)) return true;
+    }
+    const lower = trimmed.toLowerCase();
+    for (const substring of substrings) {
+        if (lower.includes(substring)) return true;
+    }
+    return false;
+}
+
 export function isReconnectMessage(message:string):boolean {
     return message.trim().includes(RECONNECT_SUBSTRING);
 }
 
+export function isLoginFailureMessage(message:string):boolean {
+    return matchesFailureFamily(message, LOGIN_SUBSTRINGS, LOGIN_TOKEN_PATTERNS);
+}
+
 export function isRateLimitMessage(message:string):boolean {
-    const lower = message.trim().toLowerCase();
-    for (const sub of RATE_LIMIT_SUBSTRINGS) {
-        if (lower.includes(sub)) return true;
-    }
-    return RATE_LIMIT_429_RE.test(message.trim());
+    return matchesFailureFamily(message, RATE_LIMIT_SUBSTRINGS, RATE_LIMIT_TOKEN_PATTERNS);
 }
 
 export function isRetryableHttpStatus(message:string):boolean {
-    const trimmed = message.trim();
-    if (FIVE_XX_RE.test(trimmed)) return true;
-    if (STATUS_408_RE.test(trimmed)) return true;
-    if (STATUS_425_RE.test(trimmed)) return true;
-    return false;
+    return matchesFailureFamily(message, [], RETRYABLE_STATUS_TOKEN_PATTERNS);
 }
 
 export function isRetryableTransport(message:string):boolean {
-    const lower = message.trim().toLowerCase();
-    for (const sub of TRANSPORT_SUBSTRINGS) {
-        if (lower.includes(sub)) return true;
-    }
-    return false;
+    return matchesFailureFamily(message, TRANSPORT_SUBSTRINGS, []);
 }
 
 // The Codex adapter synthesizes this wait when its CLI signals a rate-limit / quota exhaustion
@@ -92,14 +98,12 @@ export function synthesizeRateLimitEvent(time:TimeContext, random:RandomContext)
     return { type: "rate_limit", waitUntilMs: time.now() + r };
 }
 
-// The full classification the Codex adapter applies to a failure message: the reconnect substring
-// yields a fixed two-minute wait and is tested first, so a message carrying it takes that wait even
-// when a later family's token co-occurs; a rate-limit / quota substring yields the synthesized 8-to-12
-// minute wait; a retryable HTTP-status or transport substring yields a retryable error; anything else
-// yields a non-retryable error.
 export function classifyToolFailure(message:string, time:TimeContext, random:RandomContext):ToolEventRateLimit|ToolEventError {
     if (isReconnectMessage(message)) {
         return { type: "rate_limit", waitUntilMs: time.now() + RECONNECT_WAIT_MS };
+    }
+    if (isLoginFailureMessage(message)) {
+        return { type: "error", retryable: false, fatal: true, message };
     }
     if (isRateLimitMessage(message)) {
         return synthesizeRateLimitEvent(time, random);
