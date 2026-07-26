@@ -13,16 +13,21 @@ import type {
 import { wait } from "../system/wait";
 import { abortError } from "../abortError";
 
-const RATE_LIMIT_CHUNK_MS = 60 * 60 * 1000;
+const RATE_LIMIT_RETRY_INTERVAL_MS = 30 * 60 * 1000;
 const INITIAL_TRANSIENT_WAIT_MS = 1_000;
 const TRANSIENT_WAIT_CAP_MS = 60_000;
+
+export type RateLimitWaitStartCallback = (kind:"rate-limit", endTimeMs:number, nextRetryAtMs:number) => void;
+export type RateLimitWaitUpdateCallback = (endTimeMs:number, nextRetryAtMs:number) => void;
+export type RateLimitWaitEndCallback = () => void;
 
 export type RunCallbacks = Readonly<{
     onOutput(event:ToolEventOutput):void;
     onSessionId(id:string):void;
     onUsage?:ToolAdapterUsageCallback;
-    onWaitStart?(kind:"rate-limit", endTimeMs:number):void;
-    onWaitEnd?():void;
+    onWaitStart?:RateLimitWaitStartCallback;
+    onWaitUpdate?:RateLimitWaitUpdateCallback;
+    onWaitEnd?:RateLimitWaitEndCallback;
 }>;
 
 export type RunArgs = Readonly<{
@@ -52,88 +57,97 @@ export async function run(args:RunArgs):Promise<RunResult> {
     let capturedSessionId:string|null = null;
     let transientAttempt = 0;
     let firstInvocation = true;
+    let inRateLimitWait = false;
+    const baseInvokeArgs = { prompt, model, effort, fast, abortSignal, onUsage: callbacks.onUsage, priorSessionUsage: args.priorSessionUsage };
 
-    for (;;) {
-        const base = { prompt, model, effort, fast, abortSignal, onUsage: callbacks.onUsage, priorSessionUsage: args.priorSessionUsage };
+    const leaveRateLimitWait = () => {
+        if (inRateLimitWait) {
+            inRateLimitWait = false;
+            callbacks.onWaitEnd?.();
+        }
+    };
 
-        let invokeArgs:ToolAdapterInvokeArgs;
-        if (firstInvocation) {
-            if (args.resumeSessionId) {
-                invokeArgs = { ...base, resumeSessionId: args.resumeSessionId };
-            } else {
-                invokeArgs = base;
-            }
+    try {
+        for (;;) {
+            const resumeSessionId = firstInvocation ? args.resumeSessionId : capturedSessionId ?? args.resumeSessionId;
+            const invokeArgs:ToolAdapterInvokeArgs = resumeSessionId
+                ? { ...baseInvokeArgs, resumeSessionId }
+                : baseInvokeArgs;
             firstInvocation = false;
-        } else {
-            const retrySessionId:string|undefined = capturedSessionId ?? args.resumeSessionId;
-            if (retrySessionId) {
-                invokeArgs = { ...base, resumeSessionId: retrySessionId };
-            } else {
-                invokeArgs = base;
+
+            let terminal:ToolEventError|ToolEventRateLimit|ToolEventDone|null = null;
+
+            const attemptStartedAtMs = time.now();
+            const iterable:AsyncIterable<ToolEvent> = adapter.invoke(invokeArgs);
+            for await (const event of iterable) {
+                switch (event.type) {
+                    case "output":
+                        leaveRateLimitWait();
+                        callbacks.onOutput(event);
+                        break;
+                    case "session":
+                        leaveRateLimitWait();
+                        capturedSessionId = event.id;
+                        callbacks.onSessionId(event.id);
+                        break;
+                    case "error":
+                    case "rate_limit":
+                    case "done":
+                        terminal = event;
+                        break;
+                }
+                if (terminal) break;
             }
-        }
 
-        let terminal:ToolEventError|ToolEventRateLimit|ToolEventDone|null = null;
-
-        const iterable:AsyncIterable<ToolEvent> = adapter.invoke(invokeArgs);
-        for await (const event of iterable) {
-            switch (event.type) {
-                case "output":
-                    callbacks.onOutput(event);
-                    break;
-                case "session":
-                    capturedSessionId = event.id;
-                    callbacks.onSessionId(event.id);
-                    break;
-                case "error":
-                case "rate_limit":
-                case "done":
-                    terminal = event;
-                    break;
+            if (!terminal && abortSignal.aborted) {
+                throw abortError();
             }
-            if (terminal) break;
-        }
-
-        if (!terminal && abortSignal.aborted) {
-            throw abortError();
-        }
-        /* coverage ignore next 3 */ // Unreachable: tool-interface invariant guarantees exactly one terminal event per invocation.
-        if (!terminal) {
-            throw new Error("adapter closed without terminal event");
-        }
-
-        if (terminal.type === "done") {
-            transientAttempt = 0;
-            return { sessionId: capturedSessionId };
-        }
-
-        if (terminal.type === "error" && !terminal.retryable) {
-            if (terminal.fatal) {
-                throw fatalLoginError(terminal.message);
+            /* coverage ignore next 3 */ // Unreachable: tool-interface invariant guarantees exactly one terminal event per invocation.
+            if (!terminal) {
+                throw new Error("adapter closed without terminal event");
             }
-            throw new Error(terminal.message);
-        }
 
-        if (terminal.type === "rate_limit") {
-            const waitMs = Math.max(0, terminal.waitUntilMs - time.now());
-            callbacks.onWaitStart?.("rate-limit", terminal.waitUntilMs);
-            try {
-                await wait(waitMs, RATE_LIMIT_CHUNK_MS, time, abortSignal);
-            } finally {
-                callbacks.onWaitEnd?.();
+            if (terminal.type !== "rate_limit") {
+                leaveRateLimitWait();
             }
+
+            if (terminal.type === "done") {
+                transientAttempt = 0;
+                return { sessionId: capturedSessionId };
+            }
+
+            if (terminal.type === "error" && !terminal.retryable) {
+                if (terminal.fatal) {
+                    throw fatalLoginError(terminal.message);
+                }
+                throw new Error(terminal.message);
+            }
+
+            if (terminal.type === "rate_limit") {
+                const retryIntervalStartedAtMs = inRateLimitWait ? attemptStartedAtMs : time.now();
+                const nextRetryAtMs = Math.min(terminal.waitUntilMs, retryIntervalStartedAtMs + RATE_LIMIT_RETRY_INTERVAL_MS);
+                if (inRateLimitWait) {
+                    callbacks.onWaitUpdate?.(terminal.waitUntilMs, nextRetryAtMs);
+                } else {
+                    inRateLimitWait = true;
+                    callbacks.onWaitStart?.("rate-limit", terminal.waitUntilMs, nextRetryAtMs);
+                }
+                await wait(nextRetryAtMs - time.now(), RATE_LIMIT_RETRY_INTERVAL_MS, time, abortSignal);
+                if (abortSignal.aborted) {
+                    throw abortError();
+                }
+                continue;
+            }
+
+            transientAttempt++;
+            const waitMs = Math.min(TRANSIENT_WAIT_CAP_MS, INITIAL_TRANSIENT_WAIT_MS * 2 ** (transientAttempt - 1));
+            await wait(waitMs, waitMs, time, abortSignal);
             if (abortSignal.aborted) {
                 throw abortError();
             }
-            continue;
         }
-
-        transientAttempt++;
-        const waitMs = Math.min(TRANSIENT_WAIT_CAP_MS, INITIAL_TRANSIENT_WAIT_MS * 2 ** (transientAttempt - 1));
-        await wait(waitMs, waitMs, time, abortSignal);
-        if (abortSignal.aborted) {
-            throw abortError();
-        }
+    } finally {
+        leaveRateLimitWait();
     }
 }
 

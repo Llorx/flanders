@@ -325,22 +325,24 @@ test.describe("AiSession", test => {
             let waitEndCount = 0;
             let waitStartKind:string|null = null;
             let waitStartEndTime:number|null = null;
+            let waitStartNextRetry:number|null = null;
             const session = new AiSession({
                 adapter,
                 prompt: "p",
                 model: "",
                 effort: "",
                 fast: false,
-                onLongWaitStart: (kind, endTimeMs) => {
+                onLongWaitStart: (kind, endTimeMs, nextRetryAtMs) => {
                     waitStartCount++;
                     waitStartKind = kind;
                     waitStartEndTime = endTimeMs;
+                    waitStartNextRetry = nextRetryAtMs;
                 },
                 onLongWaitEnd: () => {
                     waitEndCount++;
                 }
             }, { time, output });
-            return { session, waitStartCount: () => waitStartCount, waitEndCount: () => waitEndCount, waitStartKind: () => waitStartKind, waitStartEndTime: () => waitStartEndTime };
+            return { session, waitStartCount: () => waitStartCount, waitEndCount: () => waitEndCount, waitStartKind: () => waitStartKind, waitStartEndTime: () => waitStartEndTime, waitStartNextRetry: () => waitStartNextRetry };
         },
         async ACT({ session }) {
             return await session.run();
@@ -357,6 +359,52 @@ test.describe("AiSession", test => {
             },
             "onLongWaitStart endTimeMs is the rate_limit waitUntilMs"(_result, { waitStartEndTime }) {
                 Assert.strictEqual(waitStartEndTime(), 100);
+            },
+            "onLongWaitStart nextRetryAtMs is the expected end, closer than the retry interval"(_result, { waitStartNextRetry }) {
+                Assert.strictEqual(waitStartNextRetry(), 100);
+            }
+        }
+    });
+
+    test("a still-limited attempt reaches the caller as an update of both instants, not as a new wait", {
+        ARRANGE() {
+            const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
+            const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+            const SECOND_END_MS = THIRTY_MINUTES_MS + 10 * 60 * 1000;
+            const { adapter } = stubAdapter([
+                [{ type: "rate_limit", waitUntilMs: FOUR_DAYS_MS }],
+                [{ type: "rate_limit", waitUntilMs: SECOND_END_MS }],
+                [{ type: "done" }]
+            ]);
+            const { output } = captureOutput();
+            const time = autoTimeContext(0);
+            const starts:Array<{ kind:string; endTimeMs:number; nextRetryAtMs:number }> = [];
+            const updates:Array<{ endTimeMs:number; nextRetryAtMs:number }> = [];
+            let endCount = 0;
+            const session = new AiSession({
+                adapter,
+                prompt: "p",
+                model: "",
+                effort: "",
+                fast: false,
+                onLongWaitStart: (kind, endTimeMs, nextRetryAtMs) => { starts.push({ kind, endTimeMs, nextRetryAtMs }); },
+                onLongWaitUpdate: (endTimeMs, nextRetryAtMs) => { updates.push({ endTimeMs, nextRetryAtMs }); },
+                onLongWaitEnd: () => { endCount++; }
+            }, { time, output });
+            return { session, starts, updates, endCount: () => endCount, FOUR_DAYS_MS, THIRTY_MINUTES_MS, SECOND_END_MS };
+        },
+        async ACT({ session }) {
+            return await session.run();
+        },
+        ASSERTS: {
+            "the caller is told it entered the wait exactly once"(_result, { starts, FOUR_DAYS_MS, THIRTY_MINUTES_MS }) {
+                Assert.deepStrictEqual(starts, [{ kind: "rate-limit", endTimeMs: FOUR_DAYS_MS, nextRetryAtMs: THIRTY_MINUTES_MS }]);
+            },
+            "the update carries the newest end and the next retry"(_result, { updates, SECOND_END_MS }) {
+                Assert.deepStrictEqual(updates, [{ endTimeMs: SECOND_END_MS, nextRetryAtMs: SECOND_END_MS }]);
+            },
+            "the wait ends once, when an attempt gets past the limit"(_result, { endCount }) {
+                Assert.strictEqual(endCount(), 1);
             }
         }
     });

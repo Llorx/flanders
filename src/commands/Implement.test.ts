@@ -16,6 +16,7 @@ import { CYAN, YELLOW, MAGENTA, GREEN, BLUE, DIM, RESET, SEPARATOR_GLYPH, format
 import { abortError } from "../abortError";
 import { recordingOutput, STUB_COLUMNS, STUB_ROWS } from "../ui/recordingOutput.fixtures";
 import { workingPool, successPool, hardStopPool, interruptionPool, failurePool, tasksCompletedPool, allTasksCompletedPool } from "../voiceVariants";
+import { settleAsyncWork as flush } from "../system/settleAsyncWork.fixtures";
 
 // The stub random context returns 0, so the rotating working footer label is
 // always workingPool[0] — the deterministic label the live footer renders here.
@@ -4643,14 +4644,16 @@ test.describe("Implement rate-limit footer", test => {
             // _detectBuildAndTest -> _runAi -> _defaultRunAiCallbacks before the iteration loop
             // starts, while _currentTask is still null. Rate-limiting spawn 1 (with a 300s = 5
             // minute wait) exercises the single-agent waiting footer for the detection stage. The
-            // detect retry (spawn 2) is held so that, once the wait resolves, the run pauses at the
-            // retry and the footer is observably at rest on Working — isolating the wait-resolution
-            // render from the later post-review `setFooter({kind:"working"})`. Releasing spawn 2 lets
-            // the worker (spawn 3) and reviewer (spawn 4) finish the single accepted iteration (exit 0).
+            // wait ends when the detect retry (spawn 2) gets past the limit, so the worker call
+            // (spawn 3) is held instead: the run then pauses right after that retry has produced
+            // its events and the footer is observably at rest on Working — isolating the
+            // wait-resolution render from the later post-review `setFooter({kind:"working"})`.
+            // Releasing spawn 3 lets the worker and the reviewer (spawn 4) finish the single
+            // accepted iteration (exit 0).
             const r = rateLimitStub(1, 300);
-            r.hold(2);
-            r.s.claudeQueue.push({ text: "ok" });                        // detect retry (spawn 2, held)
-            r.s.claudeQueue.push({ text: "worker" });                    // worker (spawn 3)
+            r.hold(3);
+            r.s.claudeQueue.push({ text: "ok" });                        // detect retry (spawn 2)
+            r.s.claudeQueue.push({ text: "worker" });                    // worker (spawn 3, held)
             r.s.claudeQueue.push({ text: "reviewer ok", errorLog: "" }); // reviewer (spawn 4)
             return r;
         },
@@ -4660,9 +4663,9 @@ test.describe("Implement rate-limit footer", test => {
             const outputDuringRateLimit = s.written.join("");
             time.advance(300000);
             await flush();
-            // The detect retry (spawn 2) is held, so the last render is the post-wait footer.
+            // The worker call (spawn 3) is held, so the last render is the post-wait footer.
             const footerAfterWait = stripAnsi(s.written.join("").split("\n").pop() ?? "");
-            release(2);
+            release(3);
             const code = await cmd.result();
             await cmd.dispose();
             return { code, outputDuringRateLimit, footerAfterWait };
@@ -5148,11 +5151,12 @@ test.describe("Implement per-task token and time metrics", test => {
             const plan = s.files.get(COMPLETED_PLAN_PATH)!;
             // detect spawn(1): time→2000. Task starts: _taskStartedAt=2000
             // worker spawn(2) (rate-limited): time→3000. onLongWaitStart: _taskRateLimitStartedAt=3000
-            // time.advance(10000): time→13000. Rate-limit timer fires, onLongWaitEnd: _taskExcludedMs=10000
-            // worker retry spawn(3): time→14000
+            // time.advance(10000): time→13000. The retry interval elapses and the worker retry
+            //   (spawn 3) runs: time→14000. Its first event is what gets the call past the limit,
+            //   so onLongWaitEnd lands there: _taskExcludedMs=11000
             // reviewer spawn(4): time→15000
-            // active = (15000 - 2000 - 10000) / 1000 = 3
-            Assert.ok(plan.includes('"t":3}'), `t should exclude rate-limit window, got: ${plan}`);
+            // active = (15000 - 2000 - 11000) / 1000 = 2
+            Assert.ok(plan.includes('"t":2}'), `t should exclude rate-limit window, got: ${plan}`);
         }
     });
 
@@ -5273,12 +5277,12 @@ test.describe("Implement per-task token and time metrics", test => {
             Assert.strictEqual(code, 0);
             const plan = s.files.get(COMPLETED_PLAN_PATH)!;
             // detect (1s) → task starts at 1000
-            // worker rate-limited (1s spawn + 5s wait) → 7000
-            // worker retry (1s) → 8000
-            // reviewer rate-limited (1s spawn + 3s wait) → 12000 (the sole reviewer waiting = no reviewer running, so the span is excluded)
-            // reviewer retry (1s, reviewer running — counted) → 13000
-            // active = (13000 - 1000 - 5000 - 3000) / 1000 = 4 — the worker rate-limit and the review-stage pause are both subtracted
-            Assert.ok(plan.includes('"t":4}'), `t should exclude the worker rate-limit and the review-stage pause, got: ${plan}`);
+            // worker rate-limited at 2000 (1s spawn) + 5s wait → 7000
+            // worker retry (1s) → 8000; its first event ends the wait, so 2000→8000 is excluded
+            // reviewer rate-limited at 9000 (1s spawn) + 3s wait → 12000 (the sole reviewer waiting = no reviewer running, so the span is excluded)
+            // reviewer retry (1s) → 13000; its first event ends the pause, so 9000→13000 is excluded
+            // active = (13000 - 1000 - 6000 - 4000) / 1000 = 2 — each wait is subtracted up to the attempt that got past the limit
+            Assert.ok(plan.includes('"t":2}'), `t should exclude the worker rate-limit and the review-stage pause, got: ${plan}`);
         }
     });
 
@@ -10914,10 +10918,11 @@ test.describe("Implement multiple parallel reviewers", test => {
                 const plan = s.files.get(COMPLETED_PLAN_PATH)!;
                 // detect (1s) → 1000 (task starts here)
                 // worker (1s) → 2000
-                // reviewer rate-limit (1s spawn + 5s wait) → 8000 (the wait leaves no reviewer running, so its 5s are excluded)
-                // reviewer retry (1s, reviewer running — counted) → 9000
-                // active = (9000 - 1000 - 5000) / 1000 = 3
-                Assert.ok(plan.includes('"t":3}'), `t should exclude the review-stage pause, got: ${plan}`);
+                // reviewer rate-limit at 3000 (1s spawn) + 5s wait → 8000 (the wait leaves no reviewer running, so it is excluded)
+                // reviewer retry (1s) → 9000; its first event is what gets the call past the limit,
+                //   so the pause closes there and the excluded span is 3000→9000
+                // active = (9000 - 1000 - 6000) / 1000 = 2
+                Assert.ok(plan.includes('"t":2}'), `t should exclude the review-stage pause, got: ${plan}`);
             },
             "no global waiting footer state was set during the reviewer rate-limit"({}, { footerCalls }) {
                 Assert.ok(!footerCalls.some(c => c.kind === "waiting"), `expected no global waiting state, got kinds: ${footerCalls.map(c => c.kind).join(", ")}`);

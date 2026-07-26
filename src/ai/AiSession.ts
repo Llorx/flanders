@@ -2,6 +2,7 @@ import type { OutputContext, TimeContext } from "../contexts";
 import { disposeOnce } from "../disposeOnce";
 import type { ToolAdapter, ToolAdapterUsageCallback, ToolTokenUsage, ToolEventOutput } from "./ToolAdapter";
 import { run } from "./AiRunner";
+import type { RateLimitWaitEndCallback, RateLimitWaitStartCallback, RateLimitWaitUpdateCallback } from "./AiRunner";
 import { colorize, CYAN, DIM, GREEN, MAGENTA, YELLOW } from "../ui/formatters";
 
 const TOOL_RESULT_MAX_LINES = 5;
@@ -21,8 +22,9 @@ export type AiSessionOptions = Readonly<{
     fast:boolean;
     resumeSessionId?:string|null;
     priorSessionUsage?:ToolTokenUsage;
-    onLongWaitStart?(kind:"rate-limit", endTimeMs:number):void;
-    onLongWaitEnd?():void;
+    onLongWaitStart?:RateLimitWaitStartCallback;
+    onLongWaitUpdate?:RateLimitWaitUpdateCallback;
+    onLongWaitEnd?:RateLimitWaitEndCallback;
 }>;
 
 export type AiSessionContexts = Readonly<{
@@ -120,6 +122,7 @@ export class AiSession {
                         onSessionId: () => {},
                         onUsage,
                         onWaitStart: this._options.onLongWaitStart,
+                        onWaitUpdate: this._options.onLongWaitUpdate,
                         onWaitEnd: this._options.onLongWaitEnd
                     },
                     time: this._contexts.time
