@@ -199,7 +199,7 @@ function stubContexts(config:FlandersConfig) {
             rename(oldP, newP) { const c = files.get(oldP); if (c !== undefined) { files.delete(oldP); files.set(newP, c); } return Promise.resolve(); },
             readdir() { return Promise.resolve([]); },
             stat(p) {
-                if (files.has(p)) return Promise.resolve({ size: files.get(p)!.length, isFile: true, isDirectory: false });
+                if (files.has(p)) return Promise.resolve({ size: files.get(p)!.length, isFile: true, isDirectory: false, mtimeMs: 0 });
                 return Promise.reject(new Error("not found: " + p));
             },
             exists(p) { return Promise.resolve(files.has(p)); },

@@ -11,7 +11,7 @@ function stubFs():FsContext {
         writeFile() { return Promise.resolve(); },
         rename() { return Promise.resolve(); },
         readdir() { return Promise.resolve([]); },
-        stat() { return Promise.resolve({ size: 42, isFile: true, isDirectory: false }); },
+        stat() { return Promise.resolve({ size: 42, isFile: true, isDirectory: false, mtimeMs: 0 }); },
         exists() { return Promise.resolve(false); },
         mkdir() { return Promise.resolve(); },
         mkdtemp(prefix:string) { return Promise.resolve(prefix + "abc"); },
@@ -32,7 +32,7 @@ test.describe("fileSize", test => {
     test("returns the size from stat", {
         ARRANGE() {
             const fs = stubFs();
-            fs.stat = () => Promise.resolve({ size: 1234, isFile: true, isDirectory: false });
+            fs.stat = () => Promise.resolve({ size: 1234, isFile: true, isDirectory: false, mtimeMs: 0 });
             return fs;
         },
         async ACT(fs) {
@@ -46,7 +46,7 @@ test.describe("fileSize", test => {
     test("returns 0 for empty file", {
         ARRANGE() {
             const fs = stubFs();
-            fs.stat = () => Promise.resolve({ size: 0, isFile: true, isDirectory: false });
+            fs.stat = () => Promise.resolve({ size: 0, isFile: true, isDirectory: false, mtimeMs: 0 });
             return fs;
         },
         async ACT(fs) {

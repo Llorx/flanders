@@ -70,7 +70,8 @@ const fsContext:FsContext = {
         return {
             size: s.size,
             isFile: s.isFile(),
-            isDirectory: s.isDirectory()
+            isDirectory: s.isDirectory(),
+            mtimeMs: s.mtimeMs
         };
     },
     async exists(p) {

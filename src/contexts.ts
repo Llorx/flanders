@@ -35,7 +35,7 @@ export interface FsContext {
     writeFile(path:string, content:string):Promise<void>;
     rename(oldPath:string, newPath:string):Promise<void>;
     readdir(path:string):Promise<readonly FsDirEntry[]>;
-    stat(path:string):Promise<Readonly<{ size:number; isFile:boolean; isDirectory:boolean }>>;
+    stat(path:string):Promise<Readonly<{ size:number; isFile:boolean; isDirectory:boolean; mtimeMs:number }>>;
     exists(path:string):Promise<boolean>;
     mkdir(path:string, options?:Readonly<{ recursive?:boolean }>):Promise<void>;
     mkdtemp(prefix:string):Promise<string>;
