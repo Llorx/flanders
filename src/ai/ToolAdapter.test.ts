@@ -28,6 +28,44 @@ test.describe("ToolAdapter types", test => {
         }
     });
 
+    test("the fatal marker is assignable only alongside retryable false", {
+        ARRANGE() {
+            const fatal = { type: "error" as const, retryable: false, fatal: true, message: "no login" } satisfies ToolEvent;
+            // @ts-expect-error — fatal: true is not assignable alongside retryable: true
+            const _retryableFatal = { type: "error" as const, retryable: true, fatal: true, message: "no login" } satisfies ToolEvent;
+            void _retryableFatal;
+            return { fatal };
+        },
+        ACT({ fatal }) {
+            return fatal;
+        },
+        ASSERTS: {
+            "the fatal event pairs the marker with retryable false"(result) {
+                Assert.deepStrictEqual(result, { type: "error", retryable: false, fatal: true, message: "no login" });
+            }
+        }
+    });
+
+    test("an error event without the fatal marker accepts a computed boolean retryable", {
+        ARRANGE() {
+            const retryable:boolean = [408, 425].includes(408);
+            const computed = { type: "error" as const, retryable, message: "too early" } satisfies ToolEvent;
+            const explicitlyNonFatal = { type: "error" as const, retryable: true, fatal: false, message: "5xx" } satisfies ToolEvent;
+            return { computed, explicitlyNonFatal };
+        },
+        ACT({ computed, explicitlyNonFatal }) {
+            return { computed, explicitlyNonFatal };
+        },
+        ASSERTS: {
+            "the computed retryable value reaches the event"(result) {
+                Assert.deepStrictEqual(result.computed, { type: "error", retryable: true, message: "too early" });
+            },
+            "an explicit fatal false stays assignable"(result) {
+                Assert.deepStrictEqual(result.explicitlyNonFatal, { type: "error", retryable: true, fatal: false, message: "5xx" });
+            }
+        }
+    });
+
     test("exhaustive switch over ToolEvent.type covers all five variants", {
         ARRANGE() {
             const events:readonly ToolEvent[] = [

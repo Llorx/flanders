@@ -1,7 +1,7 @@
 import type { SpawnOptions } from "child_process";
 
 import type { RandomContext, ScriptContext, SpawnedProcess, TimeContext } from "../contexts";
-import { classifyToolFailure } from "./toolErrorClassification";
+import { classifyToolFailure, UNKNOWN_TOOL_ERROR_MESSAGE } from "./toolErrorClassification";
 import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent } from "./ToolAdapter";
 
 const COMMAND_INLINE_MAX = 120;
@@ -228,9 +228,9 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
                 });
             }
         } else if (parsed.type === "error") {
-            this._handleFailure(typeof parsed.message === "string" ? parsed.message : "unknown error");
+            this._handleFailure(typeof parsed.message === "string" ? parsed.message : UNKNOWN_TOOL_ERROR_MESSAGE);
         } else if (parsed.type === "turn.failed") {
-            this._handleFailure(typeof parsed.error?.message === "string" ? parsed.error.message : "unknown error");
+            this._handleFailure(typeof parsed.error?.message === "string" ? parsed.error.message : UNKNOWN_TOOL_ERROR_MESSAGE);
         }
 
         this._wake();

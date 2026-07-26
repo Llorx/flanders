@@ -2,7 +2,7 @@ import type { SpawnOptions } from "child_process";
 
 import type { ScriptContext, TimeContext, RandomContext, SpawnedProcess } from "../contexts";
 import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent } from "./ToolAdapter";
-import { synthesizeRateLimitEvent } from "./toolErrorClassification";
+import { synthesizeRateLimitEvent, UNKNOWN_TOOL_ERROR_MESSAGE } from "./toolErrorClassification";
 
 const TOOL_INPUT_INLINE_MAX = 120;
 
@@ -45,7 +45,7 @@ type ClaudeNativeEvent = Readonly<{
             cache_read_input_tokens?:number;
         }>;
     }>;
-    error?:Readonly<{
+    error?:string|Readonly<{
         message?:string;
     }>;
     result?:string;
@@ -380,7 +380,8 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
     private _classifyError(parsed:ClaudeNativeEvent):ToolEvent {
         const status = parsed.api_error_status;
         const subtype = parsed.subtype;
-        const message = parsed.error?.message ?? "unknown error";
+        const errorDetail = typeof parsed.error === "object" ? parsed.error : undefined;
+        const message = errorDetail?.message ?? UNKNOWN_TOOL_ERROR_MESSAGE;
 
         // A rate-limit signal — Claude's earlier `rate_limit_event.rate_limit_info`, the terminal
         // `result.rate_limit_info`, or an HTTP 429 — is detected ahead of status classification.
@@ -398,6 +399,16 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
                 }
             }
             return synthesizeRateLimitEvent(this._contexts.time, this._contexts.random);
+        }
+
+        // Claude signals a login failure as the `authentication_failed` identifier standing in place of
+        // the error detail object, or as a 401 — and may carry it with no HTTP status at all, the shape
+        // the ladder below reads as a retryable transport error and would re-invoke against forever.
+        // Standing in place of the detail object, the identifier leaves the turn's human-readable text
+        // in the result's own `result` string.
+        if (parsed.error === "authentication_failed" || status === 401) {
+            const loginMessage = errorDetail?.message ?? parsed.result ?? UNKNOWN_TOOL_ERROR_MESSAGE;
+            return { type: "error", retryable: false, fatal: true, message: loginMessage };
         }
 
         if (typeof status === "number" && status >= 500) {

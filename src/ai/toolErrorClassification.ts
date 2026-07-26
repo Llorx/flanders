@@ -1,6 +1,10 @@
 import type { RandomContext, TimeContext } from "../contexts";
 import type { ToolEventError, ToolEventRateLimit } from "./ToolAdapter";
 
+// What every adapter puts on an `error` event when its tool reported a failure carrying no
+// human-readable text of its own.
+export const UNKNOWN_TOOL_ERROR_MESSAGE = "unknown error";
+
 // The recognized transient-error substring families used by the Codex adapter, whose CLI exposes a
 // failure only as free text, with no structured error / HTTP-status / retry-after fields. The
 // adapter classifies a failure by literal substring search over the trimmed message — case-insensitive

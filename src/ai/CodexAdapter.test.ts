@@ -4,6 +4,7 @@ import test from "arrange-act-assert";
 
 import { CodexAdapter, CodexAdapterContexts, formatCodexCommand } from "./CodexAdapter";
 import type { ToolEvent, ToolAdapterInvokeArgs } from "./ToolAdapter";
+import { UNKNOWN_TOOL_ERROR_MESSAGE } from "./toolErrorClassification";
 import type { RandomContext, ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
 
 type SpawnedProcessSpy = SpawnedProcess & {
@@ -1173,7 +1174,7 @@ test.describe("CodexAdapter", test => {
             },
             ASSERT(result) {
                 Assert.deepStrictEqual(result, [
-                    { type: "error", retryable: false, message: "unknown error" }
+                    { type: "error", retryable: false, message: UNKNOWN_TOOL_ERROR_MESSAGE }
                 ]);
             }
         });
@@ -1564,7 +1565,7 @@ test.describe("CodexAdapter", test => {
             });
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result[0], { type: "error", retryable: false, message: "unknown error" });
+            Assert.deepStrictEqual(result[0], { type: "error", retryable: false, message: UNKNOWN_TOOL_ERROR_MESSAGE });
         }
     });
 

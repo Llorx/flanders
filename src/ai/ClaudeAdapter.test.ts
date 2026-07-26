@@ -4,6 +4,7 @@ import test from "arrange-act-assert";
 
 import { ClaudeAdapter, ClaudeAdapterContexts, formatToolInput } from "./ClaudeAdapter";
 import type { ToolEvent, ToolAdapterInvokeArgs } from "./ToolAdapter";
+import { UNKNOWN_TOOL_ERROR_MESSAGE } from "./toolErrorClassification";
 import type { RandomContext, ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
 
 type SpawnedProcessSpy = SpawnedProcess & {
@@ -116,6 +117,42 @@ const BASE_ARGV = [
     "--print",
     "--dangerously-skip-permissions"
 ];
+
+// Classification fixtures share one neutral message and one neutral result text: no expected outcome
+// may be predictable from the human-readable text, since the adapter classifies from structured fields
+// alone. LOGIN_WORDED_TEXT is the exception, carried only by fixtures that must NOT be fatal.
+const NEUTRAL_ERROR_MESSAGE = "the tool reported a failure";
+const NEUTRAL_RESULT_TEXT = "the tool ended the turn without finishing";
+const LOGIN_WORDED_TEXT = "Not logged in · unauthorized · 401 · Please run /login";
+
+type NativeEvent = Readonly<Record<string, unknown>>;
+
+type ClassificationSubject = Readonly<{
+    adapter:ClaudeAdapter;
+    args:ToolAdapterInvokeArgs;
+    claude:ReturnType<typeof claudeContext>;
+    nativeEvents:ReadonlyArray<NativeEvent>;
+}>;
+
+function classificationSubject(
+    nativeEvents:ReadonlyArray<NativeEvent>,
+    overrides?:Partial<{ time:TimeContext; random:RandomContext }>
+):ClassificationSubject {
+    const { contexts, claude } = makeContexts(overrides);
+    return { adapter: new ClaudeAdapter(contexts), args: baseArgs(), claude, nativeEvents };
+}
+
+async function emittedEventsOf(subject:ClassificationSubject):Promise<ToolEvent[]> {
+    const iterable = subject.adapter.invoke(subject.args);
+    const proc = subject.claude.$processes[0]!;
+    for (const native of subject.nativeEvents) {
+        proc.$emitStdout(JSON.stringify(native) + "\n");
+    }
+    proc.$emit("exit", 0);
+    const events:ToolEvent[] = [];
+    for await (const e of iterable) events.push(e);
+    return events;
+}
 
 test.describe("ClaudeAdapter", test => {
 
@@ -523,171 +560,112 @@ test.describe("ClaudeAdapter", test => {
 
     test("result is_error:false emits done", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
+            return classificationSubject([{ type: "result", is_error: false }]);
         },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events;
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result[result.length - 1], { type: "done" });
+            Assert.deepStrictEqual(result, [{ type: "done" }]);
         }
     });
 
     test("result 429 with parseable resetsAt produces rate_limit event", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
+            return classificationSubject([{
                 type: "result",
                 is_error: true,
                 api_error_status: 429,
-                error: { message: "rate limited" },
+                error: { message: NEUTRAL_ERROR_MESSAGE },
                 rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
-            }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events;
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            const terminal = result.find(e => e.type === "rate_limit");
-            Assert.deepStrictEqual(terminal, { type: "rate_limit", waitUntilMs: 1700000000 * 1000 });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
         }
     });
 
     test("rate_limit_event before a bare 429 result uses the retained reset timestamp", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
+            return classificationSubject([{
                 type: "rate_limit_event",
                 rate_limit_info: { status: "rejected", resetsAt: 1700000000, rateLimitType: "five_hour" }
-            }) + "\n");
-            proc.$emitStdout(JSON.stringify({
+            }, {
                 type: "result",
                 is_error: true,
                 api_error_status: 429,
-                error: { message: "rate limited" }
-            }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "rate_limit");
+                error: { message: NEUTRAL_ERROR_MESSAGE }
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 1700000000 * 1000 });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
         }
     });
 
     test("retained rate_limit_event info takes precedence over result rate_limit_info", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
+            return classificationSubject([{
                 type: "rate_limit_event",
                 rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
-            }) + "\n");
-            proc.$emitStdout(JSON.stringify({
+            }, {
                 type: "result",
                 is_error: true,
                 api_error_status: 429,
-                error: { message: "rate limited" },
+                error: { message: NEUTRAL_ERROR_MESSAGE },
                 rate_limit_info: { status: "rejected", resetsAt: 1800000000 }
-            }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "rate_limit");
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 1700000000 * 1000 });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
         }
     });
 
     test("rate_limit_event before a non-429 result uses the retained reset timestamp", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
+            return classificationSubject([{
                 type: "rate_limit_event",
                 rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
-            }) + "\n");
-            proc.$emitStdout(JSON.stringify({
+            }, {
                 type: "result",
                 is_error: true,
                 api_error_status: 503,
-                error: { message: "service unavailable" }
-            }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "rate_limit");
+                error: { message: NEUTRAL_ERROR_MESSAGE }
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 1700000000 * 1000 });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
         }
     });
 
     test("rate_limit_event without parseable reset before a status-less result synthesizes rate_limit", {
         ARRANGE() {
             const time:TimeContext = { now() { return 1000; }, setTimeout() { return { cancel() {} }; } };
-            const { contexts, claude } = makeContexts({ time, random: randomContext(0.5) });
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
+            return classificationSubject([{
                 type: "rate_limit_event",
                 rate_limit_info: { status: "rejected" }
-            }) + "\n");
-            proc.$emitStdout(JSON.stringify({
+            }, {
                 type: "result",
                 is_error: true,
-                error: { message: "rate limited" }
-            }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "rate_limit");
+                error: { message: NEUTRAL_ERROR_MESSAGE }
+            }], { time, random: randomContext(0.5) });
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 601_000 });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 601_000 }]);
         }
     });
 
@@ -695,28 +673,18 @@ test.describe("ClaudeAdapter", test => {
         ARRANGE() {
             // time.now() = 0 and random() = 0 → the synthesized wait is the lower bound of the
             // 8-to-12-minute window, so waitUntilMs is exactly 8 * 60_000.
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
+            return classificationSubject([{
                 type: "result",
                 is_error: true,
                 api_error_status: 429,
-                error: { message: "rate limited" }
-            }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events;
+                error: { message: NEUTRAL_ERROR_MESSAGE }
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            const terminal = result.find(e => e.type === "rate_limit" || e.type === "error");
-            Assert.deepStrictEqual(terminal, { type: "rate_limit", waitUntilMs: 8 * 60_000 });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 8 * 60_000 }]);
         }
     });
 
@@ -726,28 +694,19 @@ test.describe("ClaudeAdapter", test => {
             // window = +10 minutes) prove the synthesized waitUntilMs is computed from the injected
             // time and random contexts: 1000 + (8*60_000 + round(0.5 * 4*60_000)) = 601_000.
             const time:TimeContext = { now() { return 1000; }, setTimeout() { return { cancel() {} }; } };
-            const { contexts, claude } = makeContexts({ time, random: randomContext(0.5) });
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
+            return classificationSubject([{
                 type: "result",
                 is_error: true,
                 api_error_status: 429,
-                error: { message: "rate limited" },
+                error: { message: NEUTRAL_ERROR_MESSAGE },
                 rate_limit_info: { status: "rejected" }
-            }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error" || e.type === "rate_limit");
+            }], { time, random: randomContext(0.5) });
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 601_000 });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 601_000 }]);
         }
     });
 
@@ -755,28 +714,19 @@ test.describe("ClaudeAdapter", test => {
         ARRANGE() {
             // The rate-limit JSON drives detection regardless of the HTTP status: a 503 that carries
             // rate_limit_info is a rate-limit, not a retryable 5xx error. waitUntilMs is the reset.
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
+            return classificationSubject([{
                 type: "result",
                 is_error: true,
                 api_error_status: 503,
-                error: { message: "rate limited" },
+                error: { message: NEUTRAL_ERROR_MESSAGE },
                 rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
-            }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error" || e.type === "rate_limit");
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 1700000000 * 1000 });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
         }
     });
 
@@ -784,249 +734,334 @@ test.describe("ClaudeAdapter", test => {
         ARRANGE() {
             // No api_error_status at all: the rate-limit JSON alone drives detection. time.now() = 0
             // and random() = 0 → the synthesized wait is the 8-minute lower bound of the window.
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
+            return classificationSubject([{
                 type: "result",
                 is_error: true,
-                error: { message: "rate limited" },
+                error: { message: NEUTRAL_ERROR_MESSAGE },
                 rate_limit_info: { status: "rejected" }
-            }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error" || e.type === "rate_limit");
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 8 * 60_000 });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 8 * 60_000 }]);
         }
     });
 
-    test("api_error_status 500 produces retryable error", {
+    test("result carrying the authentication_failed identifier produces a fatal non-retryable error with the Claude message", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            return { adapter, contexts, claude };
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                error: "authentication_failed",
+                result: NEUTRAL_RESULT_TEXT
+            }]);
         },
-        async ACT({ adapter, claude }) {
-            const iterable = adapter.invoke(baseArgs());
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: true, api_error_status: 500, error: { message: "internal" } }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error");
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: true, message: "internal" });
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: NEUTRAL_RESULT_TEXT }]);
         }
     });
 
-    test("api_error_status 503 produces retryable error", {
+    test("api_error_status 401 produces a fatal non-retryable error with the Claude message", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            return { adapter, contexts, claude };
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                api_error_status: 401,
+                error: { message: NEUTRAL_ERROR_MESSAGE }
+            }]);
         },
-        async ACT({ adapter, claude }) {
-            const iterable = adapter.invoke(baseArgs());
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: true, api_error_status: 503, error: { message: "unavailable" } }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error");
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: true, message: "unavailable" });
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: NEUTRAL_ERROR_MESSAGE }]);
         }
     });
 
-    test("api_error_status 599 produces retryable error", {
+    test("a 401 result carrying both an error message and result text surfaces the error message", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            return { adapter, contexts, claude };
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                api_error_status: 401,
+                error: { message: NEUTRAL_ERROR_MESSAGE },
+                result: NEUTRAL_RESULT_TEXT
+            }]);
         },
-        async ACT({ adapter, claude }) {
-            const iterable = adapter.invoke(baseArgs());
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: true, api_error_status: 599, error: { message: "5xx" } }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error");
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: true, message: "5xx" });
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: NEUTRAL_ERROR_MESSAGE }]);
         }
     });
 
-    test("api_error_status 408 produces retryable error", {
+    test("an authentication_failed identifier carrying no result text falls back to the unknown-error message", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            return { adapter, contexts, claude };
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                error: "authentication_failed"
+            }]);
         },
-        async ACT({ adapter, claude }) {
-            const iterable = adapter.invoke(baseArgs());
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: true, api_error_status: 408, error: { message: "timeout" } }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error");
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: true, message: "timeout" });
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: UNKNOWN_TOOL_ERROR_MESSAGE }]);
         }
     });
 
-    test("api_error_status 425 produces retryable error", {
+    // One entry per rung of the status/subtype ladder the authentication branch is evaluated ahead of.
+    const AUTHENTICATION_PRECEDENCE_CASES:ReadonlyArray<Readonly<{ rung:string; fields:NativeEvent }>> = [
+        { rung: "the null-status transport rule", fields: { api_error_status: null } },
+        { rung: "the 5xx rule", fields: { api_error_status: 503 } },
+        { rung: "the 408 rule", fields: { api_error_status: 408 } },
+        { rung: "the 425 rule", fields: { api_error_status: 425 } },
+        { rung: "the error_during_execution subtype", fields: { subtype: "error_during_execution" } },
+        { rung: "the error_max_turns subtype", fields: { subtype: "error_max_turns" } },
+        { rung: "the error_max_budget_usd subtype", fields: { subtype: "error_max_budget_usd" } },
+        { rung: "the error_max_structured_output_retries subtype", fields: { subtype: "error_max_structured_output_retries" } },
+        { rung: "the unrecognized-shape catch-all", fields: { api_error_status: 418 } }
+    ];
+
+    for (const { rung, fields } of AUTHENTICATION_PRECEDENCE_CASES) {
+        test(`the authentication_failed identifier is fatal ahead of ${rung}`, {
+            ARRANGE() {
+                return classificationSubject([{
+                    type: "result",
+                    is_error: true,
+                    error: "authentication_failed",
+                    result: NEUTRAL_RESULT_TEXT,
+                    ...fields
+                }]);
+            },
+            ACT(subject) {
+                return emittedEventsOf(subject);
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: NEUTRAL_RESULT_TEXT }]);
+            }
+        });
+    }
+
+    test("rate-limit signal under a 401 status is still classified as a rate_limit event", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            return { adapter, contexts, claude };
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                api_error_status: 401,
+                error: { message: NEUTRAL_ERROR_MESSAGE },
+                rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
+            }]);
         },
-        async ACT({ adapter, claude }) {
-            const iterable = adapter.invoke(baseArgs());
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: true, api_error_status: 425, error: { message: "too early" } }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error");
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: true, message: "too early" });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
         }
     });
 
-    test("api_error_status null produces retryable error", {
+    test("rate-limit signal alongside the authentication_failed identifier is still classified as a rate_limit event", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            return { adapter, contexts, claude };
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                error: "authentication_failed",
+                result: NEUTRAL_RESULT_TEXT,
+                rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
+            }]);
         },
-        async ACT({ adapter, claude }) {
-            const iterable = adapter.invoke(baseArgs());
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: true, api_error_status: null, error: { message: "transport" } }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error");
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: true, message: "transport" });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
         }
     });
 
-    test("subtype error_during_execution produces retryable error", {
+    test("a bare 429 alongside the authentication_failed identifier is still classified as a rate_limit event", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            return { adapter, contexts, claude };
+            // The 429 carries no rate_limit_info, so the wait is synthesized: time.now() = 0 and
+            // random() = 0 → the 8-minute lower bound of the window.
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                api_error_status: 429,
+                error: "authentication_failed",
+                result: NEUTRAL_RESULT_TEXT
+            }]);
         },
-        async ACT({ adapter, claude }) {
-            const iterable = adapter.invoke(baseArgs());
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: true, subtype: "error_during_execution", error: { message: "exec failed" } }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error");
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: true, message: "exec failed" });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 8 * 60_000 }]);
         }
     });
 
-    test("subtype error_max_turns produces non-retryable error", {
+    test("retained rate_limit_event info before an authentication_failed result still yields the retained rate_limit", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            return { adapter, contexts, claude };
+            return classificationSubject([{
+                type: "rate_limit_event",
+                rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
+            }, {
+                type: "result",
+                is_error: true,
+                error: "authentication_failed",
+                result: NEUTRAL_RESULT_TEXT
+            }]);
         },
-        async ACT({ adapter, claude }) {
-            const iterable = adapter.invoke(baseArgs());
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: true, subtype: "error_max_turns", error: { message: "max turns" } }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error");
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: false, message: "max turns" });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
         }
     });
 
-    test("subtype error_max_budget_usd produces non-retryable error", {
+    test("retained rate_limit_event info before a 401 result still yields the retained rate_limit", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            return { adapter, contexts, claude };
+            return classificationSubject([{
+                type: "rate_limit_event",
+                rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
+            }, {
+                type: "result",
+                is_error: true,
+                api_error_status: 401,
+                error: { message: NEUTRAL_ERROR_MESSAGE }
+            }]);
         },
-        async ACT({ adapter, claude }) {
-            const iterable = adapter.invoke(baseArgs());
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: true, subtype: "error_max_budget_usd", error: { message: "budget" } }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error");
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: false, message: "budget" });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
         }
     });
 
-    test("subtype error_max_structured_output_retries produces non-retryable error", {
+    test("the same result text without the identifier is an ordinary error keeping the unknown-error fallback", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            return { adapter, contexts, claude };
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                api_error_status: 418,
+                result: NEUTRAL_RESULT_TEXT
+            }]);
         },
-        async ACT({ adapter, claude }) {
-            const iterable = adapter.invoke(baseArgs());
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: true, subtype: "error_max_structured_output_retries", error: { message: "retries" } }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error");
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: false, message: "retries" });
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, message: UNKNOWN_TOOL_ERROR_MESSAGE }]);
         }
     });
 
-    test("unknown error shape (api_error_status 418) produces non-retryable error", {
+    // Identifiers that differ from the token only by case or by surrounding characters: each must stay
+    // an ordinary error, so the comparison is neither case-insensitive nor a substring test.
+    const NON_AUTHENTICATION_IDENTIFIERS = [
+        "some_other_failure",
+        "AUTHENTICATION_FAILED",
+        "Authentication_Failed",
+        "authentication_failed_extra",
+        "pre_authentication_failed",
+        " authentication_failed"
+    ];
+
+    for (const identifier of NON_AUTHENTICATION_IDENTIFIERS) {
+        test(`the error identifier "${identifier}" is not the authentication identifier and classifies by the status ladder`, {
+            ARRANGE() {
+                return classificationSubject([{
+                    type: "result",
+                    is_error: true,
+                    api_error_status: 418,
+                    error: identifier,
+                    result: NEUTRAL_RESULT_TEXT
+                }]);
+            },
+            ACT(subject) {
+                return emittedEventsOf(subject);
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [{ type: "error", retryable: false, message: UNKNOWN_TOOL_ERROR_MESSAGE }]);
+            }
+        });
+    }
+
+    test("a login-worded error message with no identifier and no 401 status is not fatal", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            return { adapter, contexts, claude };
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                api_error_status: 418,
+                error: { message: LOGIN_WORDED_TEXT }
+            }]);
         },
-        async ACT({ adapter, claude }) {
-            const iterable = adapter.invoke(baseArgs());
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: true, api_error_status: 418, error: { message: "teapot" } }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error");
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: false, message: "teapot" });
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, message: LOGIN_WORDED_TEXT }]);
         }
     });
+
+    test("a login-worded result text with no identifier and no 401 status is not fatal", {
+        ARRANGE() {
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                api_error_status: 418,
+                result: LOGIN_WORDED_TEXT
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, message: UNKNOWN_TOOL_ERROR_MESSAGE }]);
+        }
+    });
+
+    // Every rung carries the same neutral message, so the structured api_error_status / subtype is the
+    // only input that can distinguish a retryable rung from a non-retryable one.
+    const ORDINARY_LADDER_CASES:ReadonlyArray<Readonly<{ rung:string; fields:NativeEvent; retryable:boolean }>> = [
+        { rung: "api_error_status 500", fields: { api_error_status: 500 }, retryable: true },
+        { rung: "api_error_status 503", fields: { api_error_status: 503 }, retryable: true },
+        { rung: "api_error_status 599", fields: { api_error_status: 599 }, retryable: true },
+        { rung: "api_error_status 408", fields: { api_error_status: 408 }, retryable: true },
+        { rung: "api_error_status 425", fields: { api_error_status: 425 }, retryable: true },
+        { rung: "api_error_status null", fields: { api_error_status: null }, retryable: true },
+        { rung: "subtype error_during_execution", fields: { subtype: "error_during_execution" }, retryable: true },
+        { rung: "subtype error_max_turns", fields: { subtype: "error_max_turns" }, retryable: false },
+        { rung: "subtype error_max_budget_usd", fields: { subtype: "error_max_budget_usd" }, retryable: false },
+        { rung: "subtype error_max_structured_output_retries", fields: { subtype: "error_max_structured_output_retries" }, retryable: false },
+        { rung: "unknown error shape (api_error_status 418)", fields: { api_error_status: 418 }, retryable: false }
+    ];
+
+    for (const { rung, fields, retryable } of ORDINARY_LADDER_CASES) {
+        test(`${rung} produces a ${retryable ? "retryable" : "non-retryable"} error forwarding the Claude message`, {
+            ARRANGE() {
+                return classificationSubject([{
+                    type: "result",
+                    is_error: true,
+                    error: { message: NEUTRAL_ERROR_MESSAGE },
+                    ...fields
+                }]);
+            },
+            ACT(subject) {
+                return emittedEventsOf(subject);
+            },
+            ASSERT(result) {
+                Assert.deepStrictEqual(result, [{ type: "error", retryable, message: NEUTRAL_ERROR_MESSAGE }]);
+            }
+        });
+    }
 
     test("abort during stream sends SIGINT and closes iterable", {
         ARRANGE() {
@@ -1226,28 +1261,19 @@ test.describe("ClaudeAdapter", test => {
 
     test("429 with overageResetsAt when isUsingOverage is true uses overage timestamp", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
-        },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({
+            return classificationSubject([{
                 type: "result",
                 is_error: true,
                 api_error_status: 429,
-                error: { message: "rate limited" },
+                error: { message: NEUTRAL_ERROR_MESSAGE },
                 rate_limit_info: { status: "rejected", resetsAt: 1000, isUsingOverage: true, overageResetsAt: 2000 }
-            }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "rate_limit");
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "rate_limit", waitUntilMs: 2000 * 1000 });
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 2000 * 1000 }]);
         }
     });
 
@@ -1274,24 +1300,15 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
-    test("result event with no error.message falls back to 'unknown error'", {
+    test("result event with neither an error message nor result text falls back to 'unknown error'", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
-            const adapter = new ClaudeAdapter(contexts);
-            const args = baseArgs();
-            return { adapter, args, claude };
+            return classificationSubject([{ type: "result", is_error: true, api_error_status: 418 }]);
         },
-        async ACT({ adapter, args, claude }) {
-            const iterable = adapter.invoke(args);
-            const proc = claude.$processes[0]!;
-            proc.$emitStdout(JSON.stringify({ type: "result", is_error: true, api_error_status: 418 }) + "\n");
-            proc.$emit("exit", 0);
-            const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return events.find(e => e.type === "error");
+        ACT(subject) {
+            return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, { type: "error", retryable: false, message: "unknown error" });
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, message: UNKNOWN_TOOL_ERROR_MESSAGE }]);
         }
     });
 

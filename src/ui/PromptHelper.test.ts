@@ -50,20 +50,19 @@ test.describe("askChoice", test => {
             return { ask };
         },
         async ACT({ ask }) {
-            try {
-                await askChoice(ask, {
-                    header: "Test",
-                    question: "Pick one?",
-                    options: [{ label: "a" }]
-                });
-                return null;
-            } catch (e) {
-                return e;
-            }
+            return await monad(async () => await askChoice(ask, {
+                header: "Test",
+                question: "Pick one?",
+                options: [{ label: "a" }]
+            }));
         },
-        ASSERT(result) {
-            Assert.ok(result instanceof Error);
-            Assert.strictEqual(result.name, "AbortError");
+        ASSERTS: {
+            "rejects with an Error"(res) {
+                res.should.error(Error);
+            },
+            "rejects with the AbortError name"(res) {
+                res.should.error({ name: "AbortError" });
+            }
         }
     });
 
@@ -78,20 +77,19 @@ test.describe("askChoice", test => {
             return { ask };
         },
         async ACT({ ask }) {
-            try {
-                await askChoice(ask, {
-                    header: "Test",
-                    question: "Pick one?",
-                    options: [{ label: "a" }]
-                });
-                return null;
-            } catch (e) {
-                return e;
-            }
+            return await monad(async () => await askChoice(ask, {
+                header: "Test",
+                question: "Pick one?",
+                options: [{ label: "a" }]
+            }));
         },
-        ASSERT(result) {
-            Assert.ok(result instanceof Error);
-            Assert.strictEqual(result.name, "AbortError");
+        ASSERTS: {
+            "rejects with an Error"(res) {
+                res.should.error(Error);
+            },
+            "rejects with the AbortError name"(res) {
+                res.should.error({ name: "AbortError" });
+            }
         }
     });
 
@@ -365,20 +363,19 @@ test.describe("askMultiChoice", test => {
             return { ask };
         },
         async ACT({ ask }) {
-            try {
-                await askMultiChoice(ask, {
-                    header: "Test",
-                    question: "Pick one or more?",
-                    options: [{ label: "claude" }, { label: "codex" }]
-                });
-                return null;
-            } catch (e) {
-                return e;
-            }
+            return await monad(async () => await askMultiChoice(ask, {
+                header: "Test",
+                question: "Pick one or more?",
+                options: [{ label: "claude" }, { label: "codex" }]
+            }));
         },
-        ASSERT(result) {
-            Assert.ok(result instanceof Error);
-            Assert.strictEqual(result.name, "AbortError");
+        ASSERTS: {
+            "rejects with an Error"(res) {
+                res.should.error(Error);
+            },
+            "rejects with the AbortError name"(res) {
+                res.should.error({ name: "AbortError" });
+            }
         }
     });
 
@@ -393,20 +390,19 @@ test.describe("askMultiChoice", test => {
             return { ask };
         },
         async ACT({ ask }) {
-            try {
-                await askMultiChoice(ask, {
-                    header: "Test",
-                    question: "Pick one or more?",
-                    options: [{ label: "claude" }, { label: "codex" }]
-                });
-                return null;
-            } catch (e) {
-                return e;
-            }
+            return await monad(async () => await askMultiChoice(ask, {
+                header: "Test",
+                question: "Pick one or more?",
+                options: [{ label: "claude" }, { label: "codex" }]
+            }));
         },
-        ASSERT(result) {
-            Assert.ok(result instanceof Error);
-            Assert.strictEqual(result.name, "AbortError");
+        ASSERTS: {
+            "rejects with an Error"(res) {
+                res.should.error(Error);
+            },
+            "rejects with the AbortError name"(res) {
+                res.should.error({ name: "AbortError" });
+            }
         }
     });
 
@@ -540,16 +536,15 @@ test.describe("askText", test => {
             return { ask };
         },
         async ACT({ ask }) {
-            try {
-                await askText(ask, { question: "Enter value" });
-                return null;
-            } catch (e) {
-                return e;
-            }
+            return await monad(async () => await askText(ask, { question: "Enter value" }));
         },
-        ASSERT(result) {
-            Assert.ok(result instanceof Error);
-            Assert.strictEqual(result.name, "AbortError");
+        ASSERTS: {
+            "rejects with an Error"(res) {
+                res.should.error(Error);
+            },
+            "rejects with the AbortError name"(res) {
+                res.should.error({ name: "AbortError" });
+            }
         }
     });
 

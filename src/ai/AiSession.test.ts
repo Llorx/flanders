@@ -1,6 +1,6 @@
 import * as Assert from "assert";
 
-import test from "arrange-act-assert";
+import test, { monad } from "arrange-act-assert";
 
 import { AiSession } from "./AiSession";
 import type { AiSessionContexts, AiSessionOptions } from "./AiSession";
@@ -536,23 +536,22 @@ test.describe("AiSession", test => {
     });
 
     test("run after dispose throws", {
-        ARRANGE() {
+        async ARRANGE() {
             const events:ToolEvent[] = [{ type: "done" }];
             const { session } = buildSession(events);
+            await session.dispose();
             return { session };
         },
         async ACT({ session }) {
-            await session.dispose();
-            try {
-                await session.run();
-                return null;
-            } catch (e) {
-                return e;
-            }
+            return await monad(async () => await session.run());
         },
-        ASSERT(err) {
-            Assert.ok(err instanceof Error);
-            Assert.strictEqual(err.message, "AiSession disposed");
+        ASSERTS: {
+            "rejects with an Error"(res) {
+                res.should.error(Error);
+            },
+            "rejects with the disposed-session message"(res) {
+                res.should.error({ message: "AiSession disposed" });
+            }
         }
     });
 
@@ -611,16 +610,15 @@ test.describe("AiSession", test => {
             return buildSession(events);
         },
         async ACT({ session }) {
-            try {
-                await session.run();
-                return null;
-            } catch (e) {
-                return e;
-            }
+            return await monad(async () => await session.run());
         },
-        ASSERT(err) {
-            Assert.ok(err instanceof Error);
-            Assert.strictEqual(err.message, "fatal error");
+        ASSERTS: {
+            "rejects with an Error"(res) {
+                res.should.error(Error);
+            },
+            "propagates the runner's message unchanged"(res) {
+                res.should.error({ message: "fatal error" });
+            }
         }
     });
 

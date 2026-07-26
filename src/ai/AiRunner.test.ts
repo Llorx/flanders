@@ -1,6 +1,6 @@
 import * as Assert from "assert";
 
-import test from "arrange-act-assert";
+import test, { monad } from "arrange-act-assert";
 
 import { isFatalLoginError, run } from "./AiRunner";
 import type { RunArgs } from "./AiRunner";
@@ -331,37 +331,41 @@ test.describe("AiRunner", test => {
         }
     });
 
-    test("non-retryable error rejects with exact message", {
+    test("unmarked non-retryable error rejects as an ordinary error even when its message reads like a login failure", {
         ARRANGE() {
             const stub = stubAdapter([
-                [{ type: "error" as const, retryable: false, message: "bad" }]
+                [{ type: "error" as const, retryable: false, message: "not logged in · run /login" }]
             ]);
             const time = autoTimeContext();
             const abort = new AbortController();
             return { stub, time, abort };
         },
         async ACT({ stub, time, abort }) {
-            try {
-                await run(baseArgs({ adapter: stub.adapter, time, abortSignal: abort.signal }));
-                return { error: null as Error|null };
-            } catch (e) {
-                return { error: e as Error };
-            }
+            return await monad(async () => await run(baseArgs({ adapter: stub.adapter, time, abortSignal: abort.signal })));
         },
         ASSERTS: {
-            "rejects with the adapter's exact message"(result) {
-                Assert.strictEqual(result.error!.message, "bad");
+            "rejects with the adapter's exact message"(res) {
+                res.should.error({ message: "not logged in · run /login" });
             },
-            "the rejection is not identifiable as a fatal login failure"(result) {
-                Assert.strictEqual(isFatalLoginError(result.error), false);
+            "the rejection is not identifiable as a fatal login failure"(res) {
+                res.should.error(e => isFatalLoginError(e) === false);
+            },
+            "the rejection is an Error instance"(res) {
+                res.should.error(Error);
+            },
+            "the rejection is a plain Error, not a tagged error kind"(res) {
+                res.should.error({ name: "Error" });
+            },
+            "no backoff wait precedes the ordinary rejection"(_, { time }) {
+                Assert.deepStrictEqual(time.$durations, []);
             }
         }
     });
 
-    test("fatal non-retryable error rejects as a login failure without re-invoking", {
+    test("non-retryable error carrying an explicit fatal false rejects as an ordinary error", {
         ARRANGE() {
             const stub = stubAdapter([
-                [{ type: "error" as const, retryable: false, fatal: true, message: "not logged in" }],
+                [{ type: "error" as const, retryable: false, fatal: false, message: "max turns" }],
                 [{ type: "done" as const }]
             ]);
             const time = autoTimeContext();
@@ -369,25 +373,126 @@ test.describe("AiRunner", test => {
             return { stub, time, abort };
         },
         async ACT({ stub, time, abort }) {
-            try {
-                await run(baseArgs({ adapter: stub.adapter, time, abortSignal: abort.signal }));
-                return { error: null as Error|null, invocationCount: stub.$invokeArgs.length };
-            } catch (e) {
-                return { error: e as Error, invocationCount: stub.$invokeArgs.length };
-            }
+            return await monad(async () => await run(baseArgs({ adapter: stub.adapter, time, abortSignal: abort.signal })));
         },
         ASSERTS: {
-            "rejects with an error identifiable as a fatal login failure"(result) {
-                Assert.strictEqual(isFatalLoginError(result.error), true);
+            "rejects with the adapter's exact message"(res) {
+                res.should.error({ message: "max turns" });
             },
-            "the rejection carries the adapter's message"(result) {
-                Assert.strictEqual(result.error!.message, "not logged in");
+            "the rejection is not identifiable as a fatal login failure"(res) {
+                res.should.error(e => isFatalLoginError(e) === false);
             },
-            "the adapter is invoked exactly once"(result) {
-                Assert.strictEqual(result.invocationCount, 1);
+            "the rejection is an Error instance"(res) {
+                res.should.error(Error);
+            },
+            "the rejection is a plain Error, not a tagged error kind"(res) {
+                res.should.error({ name: "Error" });
+            },
+            "the adapter is invoked exactly once"(_, { stub }) {
+                Assert.strictEqual(stub.$invokeArgs.length, 1);
             },
             "no backoff wait is scheduled"(_, { time }) {
                 Assert.deepStrictEqual(time.$durations, []);
+            }
+        }
+    });
+
+    test("fatal non-retryable error rejects as a login failure without re-invoking", {
+        ARRANGE() {
+            const stub = stubAdapter([
+                [{ type: "error" as const, retryable: false, fatal: true, message: "widget factory jammed" }],
+                [{ type: "done" as const }]
+            ]);
+            const time = autoTimeContext();
+            const abort = new AbortController();
+            return { stub, time, abort };
+        },
+        async ACT({ stub, time, abort }) {
+            return await monad(async () => await run(baseArgs({ adapter: stub.adapter, time, abortSignal: abort.signal })));
+        },
+        ASSERTS: {
+            "rejects with an error identifiable as a fatal login failure"(res) {
+                res.should.error(e => isFatalLoginError(e) === true);
+            },
+            "the rejection carries the stable FatalLoginError name"(res) {
+                res.should.error({ name: "FatalLoginError" });
+            },
+            "the rejection is an Error instance"(res) {
+                res.should.error(Error);
+            },
+            "the rejection carries the adapter's message"(res) {
+                res.should.error({ message: "widget factory jammed" });
+            },
+            "the adapter is invoked exactly once"(_, { stub }) {
+                Assert.strictEqual(stub.$invokeArgs.length, 1);
+            },
+            "no backoff wait is scheduled"(_, { time }) {
+                Assert.deepStrictEqual(time.$durations, []);
+            }
+        }
+    });
+
+    test("a fatal error on a later invocation rejects as a login failure without re-invoking", {
+        ARRANGE() {
+            const stub = stubAdapter([
+                [
+                    { type: "session" as const, id: "sess-1" },
+                    { type: "error" as const, retryable: true, fatal: false, message: "transient" }
+                ],
+                [{ type: "error" as const, retryable: false, fatal: true, message: "session credentials expired" }],
+                [{ type: "done" as const }]
+            ]);
+            const time = autoTimeContext();
+            const abort = new AbortController();
+            return { stub, time, abort };
+        },
+        async ACT({ stub, time, abort }) {
+            return await monad(async () => await run(baseArgs({ adapter: stub.adapter, time, abortSignal: abort.signal })));
+        },
+        ASSERTS: {
+            "rejects with an error identifiable as a fatal login failure"(res) {
+                res.should.error(e => isFatalLoginError(e) === true);
+            },
+            "the rejection carries the stable FatalLoginError name"(res) {
+                res.should.error({ name: "FatalLoginError" });
+            },
+            "the rejection carries the message of the later invocation"(res) {
+                res.should.error({ message: "session credentials expired" });
+            },
+            "the adapter is not invoked again after the fatal error"(_, { stub }) {
+                Assert.strictEqual(stub.$invokeArgs.length, 2);
+            },
+            "only the transient backoff preceding the fatal error was waited"(_, { time }) {
+                Assert.deepStrictEqual(time.$durations, [1000]);
+            }
+        }
+    });
+
+    test("a retryable error followed by success still retries and resolves", {
+        ARRANGE() {
+            const stub = stubAdapter([
+                [
+                    { type: "session" as const, id: "sess-1" },
+                    { type: "error" as const, retryable: true, message: "transient" }
+                ],
+                [{ type: "done" as const }]
+            ]);
+            const time = autoTimeContext();
+            const abort = new AbortController();
+            return { stub, time, abort };
+        },
+        async ACT({ stub, time, abort }) {
+            return await run(baseArgs({ adapter: stub.adapter, time, abortSignal: abort.signal }));
+        },
+        ASSERTS: {
+            "resolves with the captured session id"(result) {
+                Assert.strictEqual(result.sessionId, "sess-1");
+            },
+            "the adapter is invoked exactly twice"(_, { stub }) {
+                Assert.strictEqual(stub.$invokeArgs.length, 2);
+            },
+            "the retry waits the initial transient backoff"(_, { time }) {
+                Assert.deepStrictEqual(time.$durations, [1000]);
             }
         }
     });
@@ -431,26 +536,21 @@ test.describe("AiRunner", test => {
             return { stub, time, abort };
         },
         async ACT({ stub, time, abort }) {
-            const runPromise = run(baseArgs({
+            const res = monad(async () => await run(baseArgs({
                 adapter: stub.adapter,
                 time,
                 abortSignal: abort.signal
-            }));
+            })));
             await new Promise<void>(r => setImmediate(r));
             abort.abort();
-            try {
-                await runPromise;
-                return { error: null as Error|null, invocationCount: stub.$invokeArgs.length };
-            } catch (e) {
-                return { error: e as Error, invocationCount: stub.$invokeArgs.length };
-            }
+            return await res;
         },
         ASSERTS: {
-            "rejects with an abort-shaped error"(result) {
-                Assert.strictEqual(result.error!.name, "AbortError");
+            "rejects with an abort-shaped error"(res) {
+                res.should.error({ name: "AbortError" });
             },
-            "adapter invoked exactly once"(result) {
-                Assert.strictEqual(result.invocationCount, 1);
+            "adapter invoked exactly once"(_, { stub }) {
+                Assert.strictEqual(stub.$invokeArgs.length, 1);
             }
         }
     });
@@ -481,19 +581,14 @@ test.describe("AiRunner", test => {
             return { stub, time, abort };
         },
         async ACT({ stub, time, abort }) {
-            try {
-                await run(baseArgs({ adapter: stub.adapter, time, abortSignal: abort.signal }));
-                return { error: null as Error|null, invocationCount: stub.$invokeArgs.length };
-            } catch (e) {
-                return { error: e as Error, invocationCount: stub.$invokeArgs.length };
-            }
+            return await monad(async () => await run(baseArgs({ adapter: stub.adapter, time, abortSignal: abort.signal })));
         },
         ASSERTS: {
-            "rejects with the error message unchanged"(result) {
-                Assert.strictEqual(result.error!.message, "rate limit hit");
+            "rejects with the error message unchanged"(res) {
+                res.should.error({ message: "rate limit hit" });
             },
-            "does not re-invoke the adapter"(result) {
-                Assert.strictEqual(result.invocationCount, 1);
+            "does not re-invoke the adapter"(_, { stub }) {
+                Assert.strictEqual(stub.$invokeArgs.length, 1);
             }
         }
     });
@@ -507,19 +602,14 @@ test.describe("AiRunner", test => {
             return { stub, time, abort };
         },
         async ACT({ stub, time, abort }) {
-            try {
-                await run(baseArgs({ adapter: stub.adapter, time, abortSignal: abort.signal }));
-                return { error: null as Error|null, invocationCount: stub.$invokeArgs.length };
-            } catch (e) {
-                return { error: e as Error, invocationCount: stub.$invokeArgs.length };
-            }
+            return await monad(async () => await run(baseArgs({ adapter: stub.adapter, time, abortSignal: abort.signal })));
         },
         ASSERTS: {
-            "rejects with an abort error"(result) {
-                Assert.strictEqual(result.error!.name, "AbortError");
+            "rejects with an abort error"(res) {
+                res.should.error({ name: "AbortError" });
             },
-            "adapter never invoked"(result) {
-                Assert.strictEqual(result.invocationCount, 0);
+            "adapter never invoked"(_, { stub }) {
+                Assert.strictEqual(stub.$invokeArgs.length, 0);
             }
         }
     });
@@ -544,7 +634,7 @@ test.describe("AiRunner", test => {
             } };
         },
         async ACT({ stub, time, abort, callbacks }) {
-            const runPromise = run({
+            const res = monad(async () => await run({
                 adapter: stub.adapter,
                 prompt: "test",
                 model: "",
@@ -553,22 +643,17 @@ test.describe("AiRunner", test => {
                 abortSignal: abort.signal,
                 callbacks,
                 time
-            });
+            }));
             await new Promise<void>(r => setImmediate(r));
             abort.abort();
-            try {
-                await runPromise;
-                return { error: null as Error|null, invocationCount: stub.$invokeArgs.length };
-            } catch (e) {
-                return { error: e as Error, invocationCount: stub.$invokeArgs.length };
-            }
+            return await res;
         },
         ASSERTS: {
-            "rejects with an abort error"(result) {
-                Assert.strictEqual(result.error!.name, "AbortError");
+            "rejects with an abort error"(res) {
+                res.should.error({ name: "AbortError" });
             },
-            "adapter not re-invoked"(result) {
-                Assert.strictEqual(result.invocationCount, 1);
+            "adapter not re-invoked"(_, { stub }) {
+                Assert.strictEqual(stub.$invokeArgs.length, 1);
             },
             "onWaitEnd still called"(_, { getWaitEndCalled }) {
                 Assert.strictEqual(getWaitEndCalled(), true);
@@ -618,15 +703,10 @@ test.describe("AiRunner", test => {
             return { adapter, time, abort };
         },
         async ACT({ adapter, time, abort }) {
-            try {
-                await run(baseArgs({ adapter, time, abortSignal: abort.signal }));
-                return { error: null as Error|null };
-            } catch (e) {
-                return { error: e as Error };
-            }
+            return await monad(async () => await run(baseArgs({ adapter, time, abortSignal: abort.signal })));
         },
-        ASSERT(result) {
-            Assert.strictEqual(result.error!.name, "AbortError");
+        ASSERT(res) {
+            res.should.error({ name: "AbortError" });
         }
     });
 });

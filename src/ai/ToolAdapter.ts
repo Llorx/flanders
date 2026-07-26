@@ -12,12 +12,14 @@ export type ToolEventSession = Readonly<{
     id:string;
 }>;
 
-export type ToolEventError = Readonly<{
+type ToolEventErrorBase = Readonly<{
     type:"error";
-    retryable:boolean;
-    fatal?:boolean;
     message:string;
 }>;
+
+export type ToolEventError =
+    | (ToolEventErrorBase & Readonly<{ retryable:boolean; fatal?:false }>)
+    | (ToolEventErrorBase & Readonly<{ retryable:false; fatal:true }>);
 
 export type ToolEventRateLimit = Readonly<{
     type:"rate_limit";
