@@ -8,8 +8,8 @@ import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedRev
 import { hardStopReviewSkillBody, planSkillBody, specSkillBody, workSkillBody } from "./skills";
 import { stripYamlFrontmatter } from "../commands/skillArtifacts";
 
-// A citation of a flanders-internal spec file: a path under contracts/, rules/, or plans/ that names a specific .md file. Skill bodies ship into arbitrary user projects where those files do not exist, so such a citation must never appear. The filename may begin with a digit and may contain dots (e.g. a timestamped plan name like plans/2026-07-13_01.47-subject.md), so the name segment allows leading digits and dots as well as letters, dashes, underscores, and nested path slashes. Shared by every skill-body self-containedness guard so the pattern has one source of truth.
-const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z0-9][A-Za-z0-9._/\-]*\.md/;
+// A citation of a flanders-internal spec file: a path under contracts/, rules/, flanders/, or plans/ that names a specific .md file. Skill bodies ship into arbitrary user projects where those files do not exist, so such a citation must never appear. The filename may begin with a digit and may contain dots (e.g. a timestamped plan name like plans/2026-07-13_01.47-subject.md), so the name segment allows leading digits and dots as well as letters, dashes, underscores, and nested path slashes. Shared by every skill-body self-containedness guard so the pattern has one source of truth.
+const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|flanders|plans)\/[A-Za-z0-9][A-Za-z0-9._/\-]*\.md/;
 
 // The AI-tool host name that the skill bodies no longer name. Assembled from fragments so the literal token never appears contiguously in this test file, while still letting each describe block assert — case-insensitively, over the public generated body string — that no occurrence of it survives anywhere in that body.
 const REMOVED_HOST_NAME = "Anti" + "gravity";
@@ -34,6 +34,20 @@ function userFacingVoiceSection(body: string): string {
     const start = body.indexOf("## Voice\n\nWhen the resolved interaction language you are addressing the user in is English, use a light Ned-Flanders touch");
     const end = body.indexOf(".", body.indexOf("git commit messages", start)) + 1;
     return body.slice(start, end);
+}
+
+function planValidatorCategory4(body: string): string {
+    return body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+}
+
+function validatorInputsSection(body: string): string {
+    return body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+}
+
+// Category 4's satisfiability item is a single line however long, so the protocol ends at the next newline.
+function jointSatisfiabilityProtocol(body: string): string {
+    const start = body.indexOf("The per-reference pass establishes only individual satisfiability.");
+    return body.slice(start, body.indexOf("\n", start));
 }
 
 // Slice out the /flanders-hard-stop-review body's "Interaction and reasoning language" section — from
@@ -613,8 +627,12 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(body.includes("The canonical rule listing captured in step 2 of the procedure"), "must pass canonical rule listing");
             },
             "passes the leaf-task count as a single non-negative integer"(body) {
-                const inputsSection = body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+                const inputsSection = validatorInputsSection(body);
                 Assert.ok(inputsSection.includes("- The number of leaf task lines you generated (a single non-negative integer)."), "Validator inputs must include the leaf-task count bullet verbatim");
+            },
+            "makes the host inline the verbatim text of the five check categories"(body) {
+                const inputsSection = validatorInputsSection(body);
+                Assert.ok(inputsSection.includes("- The verbatim text of the five check categories below. The host MUST inline these categories in the validator's prompt"), "Validator inputs must make the host inline the verbatim text of the five check categories — the carrier for every protocol stated inside them");
             }
         }
     });
@@ -755,7 +773,7 @@ Every message you address to the user during the run — your clarifying questio
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
-            "no path under contracts/, rules/, or plans/ names a specific .md file"(body) {
+            "no path under contracts/, rules/, flanders/, or plans/ names a specific .md file"(body) {
                 Assert.strictEqual(
                     INTERNAL_SPEC_PATH_CITATION.test(body),
                     false
@@ -1184,11 +1202,11 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return planSkillBody; },
         ASSERTS: {
             "reads the on-disk source the tasks build on"(body) {
-                const inputsSection = body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+                const inputsSection = validatorInputsSection(body);
                 Assert.ok(inputsSection.includes("the validator reads the on-disk source files the plan's tasks build on"), "Validator inputs must state the validator reads the on-disk source the tasks build on");
             },
             "audits each code-touching task against its baseline"(body) {
-                const inputsSection = body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+                const inputsSection = validatorInputsSection(body);
                 Assert.ok(inputsSection.includes("audits each code-touching task against its baseline: the current source, plus the changes earlier tasks in the plan it depends on prescribe"), "Validator inputs must state the validator audits each task against its baseline");
             }
         }
@@ -1199,23 +1217,23 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return planSkillBody; },
         ASSERTS: {
             "requires each task's claims be accurate to its baseline"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("Each code-touching task's claims about the code it builds on are accurate to its baseline — the current on-disk source, plus the changes any earlier task in the plan it depends on prescribes"), "category 4 must require each task's claims be accurate to its baseline");
             },
             "FAILs a task naming structure neither source nor an earlier task provides"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("A task that names a function, type, field, file, or behavior that neither the source nor any earlier task in the plan provides, or that removes or rewrites code on a mistaken account of what it does, is FAIL"), "category 4 must FAIL a task that misstates the code it builds on");
             },
             "carves out code an earlier task introduces"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("Do NOT FAIL a task merely for describing code the current on-disk source lacks when an earlier task in the plan introduces it"), "category 4 must not FAIL a task for code an earlier ordered task introduces");
             },
             "ties the earlier-task carve-out to the depended-on task being ordered first"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("confirm instead that the depended-on task is ordered first"), "category 4 must require the depended-on task be ordered first for the carve-out to apply");
             },
             "carves out behavior change as not itself a violation"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("Changing the code's behavior is the task's purpose and is not itself a violation — only a false claim about the code the task builds on is"), "category 4 must state that changing behavior is not itself a violation");
             }
         }
@@ -1226,19 +1244,19 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return planSkillBody; },
         ASSERTS: {
             "names the runtime-premise backed-or-escalated check"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("Runtime-behavior premises are backed or escalated"), "category 4 must name the runtime-premise backed-or-escalated check");
             },
             "qualifies the premise as a claim not confirmable from the source"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("a runtime- or observable-behavior claim not confirmable from the source"), "category 4 must qualify the premise as a runtime- or observable-behavior claim not confirmable from the source");
             },
             "FAILs an unbacked, unescalated runtime premise"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("that no contract, rule, existing test, or preceding task in the plan backs, and that was not escalated to the user — is FAIL"), "category 4 must FAIL an unbacked, unescalated runtime premise");
             },
             "includes code removal on the strength of such a premise"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("This explicitly includes a task that removes, weakens, or replaces existing code on the strength of such an unbacked claim"), "category 4 must include code removal on the strength of an unbacked premise");
             }
         }
@@ -1249,27 +1267,27 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return planSkillBody; },
         ASSERTS: {
             "requires acceptance criteria to pin the observable outcome"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("Each leaf task's acceptance criteria pin the task's observable outcome precisely"), "category 4 must require acceptance criteria to pin the observable outcome");
             },
             "FAILs acceptance criteria that leave the observable outcome open"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("Acceptance criteria that leave the observable outcome open — satisfiable by implementations that differ in observable behavior"), "category 4 must FAIL acceptance criteria that leave the observable outcome open");
             },
             "does not FAIL leaving an outcome-neutral internal mechanism choice open"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("is NOT a violation when left for the implementer to resolve"), "category 4 must not FAIL leaving an outcome-neutral mechanism choice open");
             },
             "FAILs a gratuitously frozen internal mechanism"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("a task that freezes an internal mechanism that no observable acceptance criterion and no explicitly required architectural property needs is FAIL"), "category 4 must FAIL a gratuitously frozen internal mechanism");
             },
             "includes code organization in the internal-mechanism notion"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("how its code and tests are organized across files and modules"), "category 4 must include code organization in the internal-mechanism notion left to the implementer");
             },
             "includes the evidence instrument in the internal-mechanism notion"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("how an outcome is evidenced (the test instrument or double that demonstrates it)"), "category 4 must include the evidence instrument in the internal-mechanism notion left to the implementer");
             }
         }
@@ -1280,19 +1298,19 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return planSkillBody; },
         ASSERTS: {
             "names the satisfiability check"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("Acceptance criteria are satisfiable under the plan's own design"), "category 4 must name the satisfiability check");
             },
             "confirms the prescribed evidence's required structure exists under the design"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("confirm at least one implementation can satisfy it while honoring every contract and rule the plan links and the design the plan prescribes — the structure the prescribed evidence requires exists, or is permitted to exist, under that design"), "category 4 must confirm the prescribed evidence's required structure exists under the plan's design");
             },
             "FAILs an evidence mechanism whose required structure the design forbids"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("A criterion whose evidence mechanism requires a structure the plan's design or a canonical rule forbids — non-exhaustively, an assertion of absent interaction observed through a test double on a component the design forbids from holding the doubled dependency — is FAIL"), "category 4 must FAIL a criterion whose evidence mechanism requires a structure the design forbids");
             },
             "scopes call-recording doubles to designs that provide the collaboration"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("A call-recording double is legitimate evidence only where the design provides the collaboration it records"), "category 4 must scope call-recording doubles to designs that provide the recorded collaboration");
             }
         }
@@ -1303,29 +1321,29 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return planSkillBody; },
         ASSERTS: {
             "forbids aggregate adjudication and requires per-item enumeration"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("Evidence-prescribing criteria are adjudicated one by one, never in aggregate: enumerate every acceptance criterion that prescribes an evidence instrument — a test double, fake, mock, spy, stub, or specific harness — or that asserts the absence of an interaction, each as its own numbered item, and produce for each item, before its verdict"), "category 4 must forbid aggregate adjudication, enumerate each evidence-prescribing criterion as its own item, and require the records before the item's verdict");
             },
             "requires the observed component as the first record"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("(1) the observed component — the code element the prescribed instrument attaches to or observes"), "category 4 must require naming the observed component per item");
             },
             "requires the design disposition quoted verbatim with a read-the-source fallback"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("(2) the design disposition, quoted verbatim — the statement, from the plan (the same task's body, another task, or the plan's narrative) or from a linked rule, that provides the observed component with the doubled collaboration or that denies it"), "category 4 must require the quoted design disposition per item, with its plan-or-linked-rule provenance and its provides-or-denies definition");
                 Assert.ok(category4.includes("when neither the plan nor the linked rules state the disposition, establish it by reading the observed component's on-disk source before adjudicating — a disposition is never assumed"), "category 4 must require reading the observed component's source when neither the plan nor the linked rules state the disposition");
             },
             "requires a single-branch verdict and bans conditional adjudication"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("(3) a single-branch verdict — satisfiable or FAIL, decided on the disposition established in record 2"), "category 4 must require a single-branch verdict per item");
                 Assert.ok(category4.includes("\"satisfiable whether or not the component holds the dependency\", \"in either case\", or any wording that leaves the branch unresolved — is not a verdict"), "category 4 must ban conditional adjudication as a verdict");
             },
             "FAILs a disposition the plan leaves open instead of passing the item"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("when the plan genuinely leaves the disposition open, that openness is itself a FAIL of this category, never a ground for passing the item"), "category 4 must FAIL an open disposition rather than pass the item");
             },
             "blocks the category while any enumerated item is unaudited"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("An item missing any of the three records is unaudited, and this category is not reported as passed while any enumerated item is unaudited"), "category 4 must not be reported as passed with unaudited items");
                 Assert.ok(category4.includes("a summary clause that disposes of several such criteria at once leaves every criterion it covers unaudited"), "category 4 must treat a summary clause as leaving its criteria unaudited");
             }
@@ -1337,28 +1355,72 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return planSkillBody; },
         ASSERTS: {
             "adjudicates each task-reference pair, never in aggregate"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("The satisfiability check in category 4 reaches beyond evidence instruments: a task's acceptance criteria must be satisfiable while honoring every contract and rule the task links, and that audit is never rendered in aggregate. For each leaf task, for each contract and rule the task links, the validator produces, before the pair's verdict"), "category 4 must adjudicate each task-reference pair one by one and never in aggregate");
             },
             "requires the constraining obligation quoted verbatim with a none-constrains option"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("(1) the constraining obligation, quoted verbatim — the obligation of that reference that constrains the task's acceptance criteria or the design the task prescribes; when no obligation of the reference constrains them, the record states that explicitly instead"), "category 4 must require the constraining obligation quoted verbatim per pair, with the explicit none-constrains option");
             },
             "requires a single-branch verdict per pair"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("(2) a single-branch verdict — satisfiable or FAIL, deciding whether at least one implementation can satisfy the task's acceptance criteria while honoring the quoted obligation and the design the plan prescribes"), "category 4 must require a single-branch verdict per pair over the quoted obligation and the plan's design");
             },
             "bans conditional adjudication of a pair"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("An adjudication conditioned on an unresolved question — \"satisfiable under either model\", \"in either case\", or any wording that leaves the question unresolved — is not a verdict: the validator resolves what the reference and the plan's design prescribe and judges that alone"), "category 4 must ban conditional adjudication of a pair and resolve what the reference and design prescribe");
             },
             "blocks the category while any pair is unaudited"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("A task-reference pair missing its record is unaudited, and the validator does not report category 4 as passed while any pair is unaudited"), "category 4 must not be reported as passed while any task-reference pair is unaudited");
             },
             "treats a summary clause as leaving its pairs unaudited"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("a summary clause that disposes of several pairs at once leaves every pair it covers unaudited"), "category 4 must treat a per-reference summary clause as leaving every pair it covers unaudited");
+            }
+        }
+    });
+
+    test("validator category 4 inlines the joint-satisfiability protocol", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "completes the per-reference pass instead of replacing it"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("The per-reference pass establishes only individual satisfiability."), "category 4 must frame the joint step as following a per-reference pass that establishes only individual satisfiability");
+            },
+            "sits alongside the per-reference protocol, after it"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.indexOf("Then issue a single-branch verdict per leaf task") > category4.indexOf("For each leaf task, for each contract and rule the task links, the validator produces, before the pair's verdict"), "the joint-satisfiability protocol must sit inside category 4 after the per-reference protocol");
+            },
+            "requires a single-branch verdict per leaf task"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("Then issue a single-branch verdict per leaf task:"), "category 4 must require a single-branch joint verdict per leaf task");
+            },
+            "requires one implementation to honor all linked references"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("at least one implementation must satisfy its acceptance criteria while honoring all linked contracts and rules"), "category 4 must require at least one implementation satisfying the leaf task's acceptance criteria while honoring all the contracts and rules it links");
+            },
+            "judges the joint verdict against the governed source read on disk"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("against the governed source read on disk"), "category 4 must judge the joint verdict against the governed source read on disk, not the linked texts alone");
+            },
+            "bounds the joint audit to the task's linked references"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("Audit only those references, never the whole corpus."), "category 4 must bound the joint audit to the references the task links and never a whole-corpus sweep");
+            },
+            "resolves what the source pins and rejects a conditional or unresolved reading"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("Resolve what the source pins; a conditional or unresolved reading is not a verdict."), "category 4 must resolve what the source pins and deny verdict status to a conditional or unresolved reading");
+            },
+            "makes every verdict name the consulted governed-source file:line"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("Every verdict names the governed-source file:line consulted"), "category 4 must make every joint verdict — satisfiable included — name the governed-source file:line consulted");
+            },
+            "pins the FAIL citation to the line showing the collision"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("— on FAIL, the line showing the collision."), "category 4 must pin the FAIL citation to the governed-source line showing the collision");
+            },
+            "FAILs a jointly unsatisfiable task naming and quoting the colliding obligations"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("If no implementation does, FAIL, naming and quoting the two or more colliding obligations."), "category 4 must FAIL a jointly unsatisfiable task, naming and quoting the two or more colliding obligations");
+            },
+            "the joint protocol names no path under contracts/, rules/, flanders/, or plans/"(body) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(jointSatisfiabilityProtocol(body)), false);
+            },
+            "the joint protocol contains no .md path at all"(body) {
+                Assert.strictEqual(jointSatisfiabilityProtocol(body).includes(".md"), false);
             }
         }
     });
@@ -1368,27 +1430,27 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return planSkillBody; },
         ASSERTS: {
             "renders one verdict line per leaf task, never in aggregate, with its grounding reason"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("Granularity is rendered task by task, never in aggregate: for every leaf task the validator produces one verdict line — sane, too broad, or too narrow — with the reason that grounds it"), "category 4 must render one granularity verdict line per leaf task, never in aggregate, with the reason that grounds it");
             },
             "grounds a too-broad verdict in the distinct kinds of work bundled"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("A too-broad verdict names the distinct kinds of work the task bundles that would each need their own AI invocation"), "category 4 must ground a too-broad verdict in the distinct kinds of work the task bundles that each need their own AI invocation");
             },
             "grounds a too-narrow verdict in the artificial fragmentation created"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("a too-narrow verdict names the artificial fragmentation the split created"), "category 4 must ground a too-narrow verdict in the artificial fragmentation the split created");
             },
             "grounds a sane verdict in the task fitting a single invocation without fragmentation"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("a sane verdict states that the task fits a single AI invocation without artificial fragmentation"), "category 4 must ground a sane verdict in the task fitting a single AI invocation without artificial fragmentation");
             },
             "leaves the category incomplete for a leaf task missing its verdict line"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("A leaf task without its verdict line leaves category 4 incomplete"), "category 4 must be left incomplete by a leaf task missing its granularity verdict line");
             },
             "treats a summary clause as leaving its tasks unaudited"(body) {
-                const category4 = body.slice(body.indexOf("4. Plan content rules"), body.indexOf("5. Active application of referenced contracts and rules"));
+                const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("a summary clause that disposes of several tasks at once leaves every task it covers unaudited"), "category 4 must treat a per-task summary clause as leaving every task it covers unaudited");
             }
         }
@@ -1978,7 +2040,7 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return specSkillBody; },
         ASSERTS: {
             "validator inputs name the protocol as part of the verbatim text the host inlines"(body) {
-                const inputsSection = body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+                const inputsSection = validatorInputsSection(body);
                 Assert.ok(inputsSection.includes("The verbatim text of the check categories below, together with the per-item adjudication protocol stated alongside them. The host MUST inline these categories and that protocol in the validator's prompt"), "Validator inputs must name the per-item adjudication protocol as part of the verbatim text the host inlines");
             },
             "forbids aggregate adjudication and requires one verdict line per applicable item per file"(body) {
@@ -2131,11 +2193,11 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return specSkillBody; },
         ASSERTS: {
             "passes the explicit list of renamed/relocated/removed term(s)"(body) {
-                const inputsSection = body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+                const inputsSection = validatorInputsSection(body);
                 Assert.ok(inputsSection.includes("When this run renamed, relocated, or removed a term that can recur across the corpus (per the Rename sweep obligation in the procedure above), the explicit list of those old term(s)."), "Validator inputs must pass the explicit list of renamed/relocated/removed terms");
             },
             "states the list is empty when no such term changed"(body) {
-                const inputsSection = body.slice(body.indexOf("### Validator inputs"), body.indexOf("### Validator checks"));
+                const inputsSection = validatorInputsSection(body);
                 Assert.ok(inputsSection.includes("The list is empty when the run changed no such term."), "Validator inputs must state the term list is empty when no such term changed");
             }
         }
@@ -2826,7 +2888,7 @@ test.describe("skills – workSkillBody", test => {
         ARRANGE() {},
         ACT() { return workSkillBody; },
         ASSERTS: {
-            "no path under contracts/, rules/, or plans/ names a specific .md file"(body) {
+            "no path under contracts/, rules/, flanders/, or plans/ names a specific .md file"(body) {
                 Assert.strictEqual(
                     INTERNAL_SPEC_PATH_CITATION.test(body),
                     false
