@@ -268,10 +268,8 @@ export type ReviewerEntry = {
     model:string;
     effort:string;
     state:ReviewerState;
-    // Absolute target end of this reviewer's rate-limit wait, present only while
-    // `state` is `"waiting"`. When set, the rendered `<state>` carries a live
-    // compact countdown recomputed from the current clock on every redraw.
     endTime?:number;
+    nextRetryAt?:number;
 };
 
 function reviewerEntryDescriptor(model:string, effort:string):string {
@@ -283,15 +281,18 @@ function reviewerEntryDescriptor(model:string, effort:string):string {
     return `(${modelToken} ${effortToken})`;
 }
 
-// Renders a reviewer's `<state>`: a waiting reviewer with a known end time
-// carries its compact countdown (`waiting 2h14m`), recomputed from `nowMs` so it
-// is never cached between redraws; every other state — including a waiting
-// reviewer with no end time — renders bare. Shared by the full and compact
-// builders so the countdown survives compaction and only the truncation tier may
-// cut it.
+function pendingReviewerRetryAt(r:ReviewerEntry):number|undefined {
+    if (r.state === "waiting" && r.endTime != null && r.nextRetryAt != null && r.nextRetryAt < r.endTime) {
+        return r.nextRetryAt;
+    }
+    return undefined;
+}
+
 function reviewerStateText(r:ReviewerEntry, nowMs:number):string {
     if (r.state === "waiting" && r.endTime != null) {
-        return `waiting ${formatCompactCountdown(Math.max(0, r.endTime - nowMs))}`;
+        const retryAt = pendingReviewerRetryAt(r);
+        const retry = retryAt == null ? "" : ` retry ${formatCompactCountdown(retryAt - nowMs)}`;
+        return `waiting ${formatCompactCountdown(Math.max(0, r.endTime - nowMs))}${retry}`;
     }
     return r.state;
 }
@@ -319,6 +320,9 @@ function buildReviewingSegments(frame:string, reviewers:readonly ReviewerEntry[]
         if (i > 0) segments.push({ text: ", ", color: ORANGE });
         const descriptor = compact ? "" : ` ${reviewerEntryDescriptor(r.model, r.effort)}`;
         segments.push({ text: `${r.tool}${descriptor}: ${reviewerStateText(r, nowMs)}`, color: reviewerEntryColor(r.state) });
+    }
+    if (reviewers.some(r => pendingReviewerRetryAt(r) != null)) {
+        segments.push({ text: " (F5)", color: ORANGE });
     }
     return segments;
 }
@@ -350,6 +354,7 @@ export function formatTerminalFooter(label:string, cols:number):string {
     return fitOrangeFooterLine(label, cols);
 }
 
-export function formatWaitingFooter(heading:string, dateTime:string, countdown:string, cols:number):string {
-    return fitOrangeFooterLine(`${heading} — ${dateTime} — ${countdown}`, cols);
+export function formatWaitingFooter(heading:string, dateTime:string, countdown:string, cols:number, retryRemainingMs?:number):string {
+    const retry = retryRemainingMs == null ? "" : ` · retrying in ${formatCompactCountdown(retryRemainingMs)} (F5)`;
+    return fitOrangeFooterLine(`${heading} — ${dateTime} — ${countdown}${retry}`, cols);
 }

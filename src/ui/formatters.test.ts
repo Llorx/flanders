@@ -1783,6 +1783,151 @@ test.describe("formatReviewingFooter", test => {
             Assert.strictEqual(stripAnsi(result), "⣋ review: claude (default): waiting 1h0m, codex (default): waiting 5m");
         }
     });
+
+    test("renders each waiting reviewer's pending retry and one trailing F5 hint", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [
+                {
+                    tool: "claude",
+                    model: "sonnet",
+                    effort: "high",
+                    state: "waiting",
+                    endTime: 134 * 60 * 1000,
+                    nextRetryAt: 12 * 60 * 1000
+                },
+                {
+                    tool: "codex",
+                    model: "gpt-5",
+                    effort: "xhigh",
+                    state: "waiting",
+                    endTime: 45 * 60 * 1000,
+                    nextRetryAt: 30 * 60 * 1000
+                }
+            ];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(FRAME, reviewers, 250, 0);
+        },
+        ASSERTS: {
+            "the first reviewer carries its own wait and retry countdowns"(result) {
+                Assert.ok(stripAnsi(result).includes("claude (sonnet high): waiting 2h14m retry 12m"));
+            },
+            "the second reviewer carries its own wait and retry countdowns"(result) {
+                Assert.ok(stripAnsi(result).includes("codex (gpt-5 xhigh): waiting 45m retry 30m"));
+            },
+            "the line ends with the F5 hint"(result) {
+                Assert.ok(stripAnsi(result).endsWith(" (F5)"));
+            },
+            "the line contains the F5 hint once"(result) {
+                Assert.strictEqual(stripAnsi(result).match(/\(F5\)/g)?.length, 1);
+            }
+        }
+    });
+
+    test("omits reviewer retry text and the F5 hint when no retry falls before its wait end", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [
+                {
+                    tool: "claude",
+                    model: "",
+                    effort: "",
+                    state: "waiting",
+                    endTime: 14 * 60 * 1000,
+                    nextRetryAt: 14 * 60 * 1000
+                },
+                {
+                    tool: "codex",
+                    model: "",
+                    effort: "",
+                    state: "waiting",
+                    endTime: 10 * 60 * 1000
+                }
+            ];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(FRAME, reviewers, 200, 0);
+        },
+        ASSERTS: {
+            "the reviewers keep their wait countdowns without retry text"(result) {
+                Assert.strictEqual(
+                    stripAnsi(result),
+                    "⣋ review: claude (default): waiting 14m, codex (default): waiting 10m"
+                );
+            },
+            "the line has no F5 hint"(result) {
+                Assert.ok(!stripAnsi(result).includes("(F5)"));
+            }
+        }
+    });
+
+    test("keeps reviewer retry text and the F5 hint in the compact tier", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [{
+                tool: "claude",
+                model: "sonnet",
+                effort: "high",
+                state: "waiting",
+                endTime: 134 * 60 * 1000,
+                nextRetryAt: 12 * 60 * 1000
+            }];
+            const compact = "⣋ review: claude: waiting 2h14m retry 12m (F5)";
+            return { reviewers, compact };
+        },
+        ACT({ reviewers, compact }) {
+            return formatReviewingFooter(FRAME, reviewers, compact.length, 0);
+        },
+        ASSERTS: {
+            "the compact line drops the model and effort descriptor"(result) {
+                Assert.ok(!stripAnsi(result).includes("(sonnet high)"));
+            },
+            "the compact line keeps the waiting countdown"(result) {
+                Assert.ok(stripAnsi(result).includes("waiting 2h14m"));
+            },
+            "the compact line keeps the retry countdown"(result) {
+                Assert.ok(stripAnsi(result).includes("retry 12m"));
+            },
+            "the compact line keeps the F5 hint"(result, { compact }) {
+                Assert.strictEqual(stripAnsi(result), compact);
+            }
+        }
+    });
+
+    test("keeps verdict colors while rendering retry-capable review content in orange", {
+        ARRANGE() {
+            const reviewers:ReviewerEntry[] = [
+                { tool: "claude", model: "sonnet", effort: "high", state: "pass" },
+                { tool: "codex", model: "gpt-5", effort: "xhigh", state: "fail" },
+                {
+                    tool: "claude",
+                    model: "",
+                    effort: "",
+                    state: "waiting",
+                    endTime: 14 * 60 * 1000,
+                    nextRetryAt: 12 * 60 * 1000
+                }
+            ];
+            return { reviewers };
+        },
+        ACT({ reviewers }) {
+            return formatReviewingFooter(FRAME, reviewers, 250, 0);
+        },
+        ASSERTS: {
+            "the passed entry stays green"(result) {
+                Assert.ok(result.includes(GREEN + "claude (sonnet high): pass" + RESET));
+            },
+            "the failed entry stays red"(result) {
+                Assert.ok(result.includes(RED + "codex (gpt-5 xhigh): fail" + RESET));
+            },
+            "the waiting entry including its retry stays orange"(result) {
+                Assert.ok(result.includes(ORANGE + "claude (default): waiting 14m retry 12m" + RESET));
+            },
+            "the F5 hint is orange"(result) {
+                Assert.ok(result.endsWith(ORANGE + " (F5)" + RESET));
+            }
+        }
+    });
 });
 
 test.describe("formatWorkingFooter", test => {
@@ -1872,15 +2017,23 @@ test.describe("formatWorkingFooter", test => {
 });
 
 test.describe("formatWaitingFooter", test => {
-    test("returns the full ORANGE-wrapped string when the plain text fits within cols", {
+    test("returns the legacy full ORANGE-wrapped string when there is no pending retry", {
         ARRANGE() {
             return { heading: "Waiting rate limit", dateTime: "2025-01-15 09:05", countdown: "15 minutes", cols: 120 };
         },
         ACT({ heading, dateTime, countdown, cols }) {
             return formatWaitingFooter(heading, dateTime, countdown, cols);
         },
-        ASSERT(result) {
-            Assert.strictEqual(result, ORANGE + "Waiting rate limit — 2025-01-15 09:05 — 15 minutes" + RESET);
+        ASSERTS: {
+            "the text is exactly the legacy footer"(result) {
+                Assert.strictEqual(result, ORANGE + "Waiting rate limit — 2025-01-15 09:05 — 15 minutes" + RESET);
+            },
+            "there is no middle-dot retry separator"(result) {
+                Assert.ok(!result.includes("·"));
+            },
+            "there is no retrying label"(result) {
+                Assert.ok(!result.includes("retrying in"));
+            }
         }
     });
 
@@ -1925,6 +2078,72 @@ test.describe("formatWaitingFooter", test => {
             "colors the surviving prefix in ORANGE with trailing RESET"(result) {
                 Assert.strictEqual(result, ORANGE + "Waiting rate l" + RESET + "…");
             }
+        }
+    });
+
+    test("appends a pending retry in compact minutes and an F5 hint", {
+        ARRANGE() {
+            return {
+                heading: "Waiting rate limit",
+                dateTime: "2026-07-28 14:30",
+                countdown: "1 day, 20 hours, 14 minutes",
+                cols: 200,
+                retryRemainingMs: 12 * 60 * 1000
+            };
+        },
+        ACT({ heading, dateTime, countdown, cols, retryRemainingMs }) {
+            return formatWaitingFooter(heading, dateTime, countdown, cols, retryRemainingMs);
+        },
+        ASSERT(result) {
+            Assert.strictEqual(
+                result,
+                ORANGE + "Waiting rate limit — 2026-07-28 14:30 — 1 day, 20 hours, 14 minutes · retrying in 12m (F5)" + RESET
+            );
+        }
+    });
+
+    test("renders a retry exactly thirty minutes away as 30m", {
+        ARRANGE() {
+            return { retryRemainingMs: 30 * 60 * 1000 };
+        },
+        ACT({ retryRemainingMs }) {
+            return formatWaitingFooter("Waiting rate limit", "2026-07-28 14:30", "1 day", 200, retryRemainingMs);
+        },
+        ASSERT(result) {
+            Assert.ok(stripAnsi(result).endsWith(" · retrying in 30m (F5)"));
+        }
+    });
+
+    test("renders a retry less than one minute away as 1m", {
+        ARRANGE() {
+            return { retryRemainingMs: 1000 };
+        },
+        ACT({ retryRemainingMs }) {
+            return formatWaitingFooter("Waiting rate limit", "2026-07-28 14:30", "1 day", 200, retryRemainingMs);
+        },
+        ASSERT(result) {
+            Assert.ok(stripAnsi(result).endsWith(" · retrying in 1m (F5)"));
+        }
+    });
+
+    test("truncates a pending-retry line from the end while keeping its visible text orange", {
+        ARRANGE() {
+            const plain = "Waiting rate limit — 2026-07-28 14:30 — 1 day, 20 hours, 14 minutes · retrying in 12m (F5)";
+            const cols = plain.length - 8;
+            const visible = plain.slice(0, cols - 1);
+            return { cols, visible };
+        },
+        ACT({ cols }) {
+            return formatWaitingFooter(
+                "Waiting rate limit",
+                "2026-07-28 14:30",
+                "1 day, 20 hours, 14 minutes",
+                cols,
+                12 * 60 * 1000
+            );
+        },
+        ASSERT(result, { visible }) {
+            Assert.strictEqual(result, ORANGE + visible + RESET + "…");
         }
     });
 });
