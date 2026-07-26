@@ -9,7 +9,7 @@ Execute a plan file end-to-end: implement each open task with a worker AI, valid
 - When `[plan]` is given, it is treated as the path to a plan markdown file under the `plans/` folder.
 - When `[plan]` is omitted:
   - If `plans/` contains exactly one file, that file is selected automatically.
-  - If `plans/` contains more than one file, the command exits non-zero with a diagnostic that lists the available plan files and instructs the user to re-run with the `[plan]` argument naming the one to implement.
+  - If `plans/` contains more than one file, the command presents an interactive selection of the available plans at startup, before the live UI block is drawn (see [.spec/contracts/cli-commands/implement/ui.md](/.spec/contracts/cli-commands/implement/ui.md)), and implements the plan the user chooses. The plans are listed in order of how recently each was last modified, the most recently modified plan last — at the bottom of the list, nearest the prompt — and that most recently modified plan is the entry initially highlighted, so it is the one chosen when the user accepts the list without moving off it. Each entry shows the plan's filename together with its last-modified date. This is the one interactive prompt the command shows (see [.spec/contracts/cli-commands/implement/non-interactive.md](/.spec/contracts/cli-commands/implement/non-interactive.md)).
   - If `plans/` contains no files, the command exits with an error.
 - The project must be a git repository; the command requires git and has no flag to disable it. See [.spec/contracts/cli-commands/implement/git-integration.md](/.spec/contracts/cli-commands/implement/git-integration.md).
 
@@ -26,7 +26,7 @@ Execute a plan file end-to-end: implement each open task with a worker AI, valid
 
 ## Outcomes
 - Missing configuration — exit non-zero at startup when neither a project-scope nor a global-scope `.flanders/` is found. The diagnostic points the user at `npx flanders install`.
-- Ambiguous plan selection — exit non-zero at startup when `[plan]` is omitted and `plans/` contains more than one file. The diagnostic lists the available plan files and instructs the user to re-run naming one.
+- Plan selection — when `[plan]` is omitted and `plans/` contains more than one file, the command prompts the user to choose one plan from an interactive list at startup (see [Invocation](#invocation)) and proceeds with the chosen plan.
 - Plan validation failure — exit non-zero at startup when the plan file is missing, empty, or contains malformed task lines. The diagnostic names the problem and the path to the file.
 - Git preflight failure — exit non-zero at startup when the project is not a git repository, or when the working tree has unstaged changes other than the selected plan file (staged changes do not cause failure). See [.spec/contracts/cli-commands/implement/git-integration.md](/.spec/contracts/cli-commands/implement/git-integration.md).
 - Already-complete noop — one variant of the tasks-completed message is printed, and the command exits successfully, when every task in the plan was already marked complete at startup.
