@@ -2,7 +2,7 @@ import { isFatalLoginError } from "../ai/AiRunner";
 import { AiSession } from "../ai/AiSession";
 import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import { CodexAdapter } from "../ai/CodexAdapter";
-import type { AskContext, ChoiceOption, FsContext, OutputContext, RandomContext, ScriptContext, TimeContext } from "../contexts";
+import type { AskContext, ChoiceOption, FsContext, OutputContext, RandomContext, ScriptContext, TerminalKeyInputContext, TimeContext } from "../contexts";
 import { disposeOnce } from "../disposeOnce";
 import type { ToolAdapter, ToolName, ToolTokenUsage } from "../ai/ToolAdapter";
 import type { FlandersConfig, FlandersRole } from "../workspace/FlandersConfig";
@@ -98,6 +98,7 @@ export type ImplementContexts = Readonly<{
     platform:PlatformContext;
     ask:AskContext;
     output:OutputContext;
+    keyInput:TerminalKeyInputContext;
     /**
      * Supplies the tool adapter for a configured tool instead of the built-in one. Production omits
      * it. Present for testing: how the orchestrator responds to a runner outcome is otherwise

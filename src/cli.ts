@@ -20,6 +20,7 @@ import { ShellScriptContext } from "./system/ShellScriptContext";
 import type { KillPrimitive, RawSpawnedChild, RawSpawner } from "./system/ShellScriptContext";
 import { ConsoleAsk } from "./ui/ConsoleAsk";
 import { PromptLineReader } from "./ui/PromptLineReader";
+import { TerminalKeyInputSource } from "./ui/TerminalKeyInputSource";
 import { TerminalSizeSource } from "./ui/TerminalSizeSource";
 import type { RawTerminalSizeReader } from "./ui/TerminalSizeSource";
 import type { PlatformContext } from "./workspace/Workspace";
@@ -213,7 +214,57 @@ const ask = (() => {
     };
 })();
 
-const flanders = new Flanders(
+let flanders:Flanders|null = null;
+let terminalKeyInput:TerminalKeyInputSource|null = null;
+const end = disposeOnce(async () => {
+    // Releasing the read in flight is not a teardown: the dispose below waits for the run, and a
+    // run still waiting on an answer would never settle.
+    ask.cancel();
+    try {
+        await flanders?.dispose();
+    } catch (e) {
+        outputContext.writeError(`${e instanceof Error ? e.stack ?? e.message : String(e)}\n`);
+    }
+    try {
+        await ask.close();
+    } finally {
+        terminalKeyInput?.dispose();
+        terminalSize.dispose();
+    }
+});
+
+const interrupt = () => {
+    process.exitCode = 130;
+    end().catch(() => {});
+};
+
+terminalKeyInput = new TerminalKeyInputSource(
+    {
+        isTerminal() {
+            return process.stdin.isTTY === true;
+        },
+        isRawMode() {
+            return process.stdin.isRaw === true;
+        },
+        setRawMode(enabled) {
+            process.stdin.setRawMode(enabled);
+        },
+        subscribeBytes(listener) {
+            const wasFlowing = process.stdin.readableFlowing === true;
+            process.stdin.on("data", listener);
+            process.stdin.resume();
+            return () => {
+                process.stdin.off("data", listener);
+                if (!wasFlowing) {
+                    process.stdin.pause();
+                }
+            };
+        }
+    },
+    interrupt
+);
+
+const application = new Flanders(
     process.argv.slice(2),
     { projectRoot: process.cwd() },
     {
@@ -224,31 +275,17 @@ const flanders = new Flanders(
         random: randomContext,
         platform: platformContext,
         ask: ask.context,
-        output: outputContext
+        output: outputContext,
+        keyInput: terminalKeyInput
     }
 );
+flanders = application;
 
-const end = disposeOnce(async () => {
-    // Releasing the read in flight is not a teardown: the dispose below waits for the run, and a
-    // run still waiting on an answer would never settle.
-    ask.cancel();
-    try {
-        await flanders.dispose();
-    } catch (e) {
-        flanders.output().writeError(`${e instanceof Error ? e.stack ?? e.message : String(e)}\n`);
-    }
-    try {
-        await ask.close();
-    } finally {
-        terminalSize.dispose();
-    }
-});
-
-process.on("SIGINT", () => { process.exitCode = 130; end().catch(() => {}); });
+process.on("SIGINT", interrupt);
 process.on("SIGTERM", () => { process.exitCode = 143; end().catch(() => {}); });
 process.on("SIGHUP", () => { process.exitCode = 129; end().catch(() => {}); });
 
-flanders.result().then(code => {
+application.result().then(code => {
     process.exitCode = code;
     end().catch(() => {});
 }, err => {

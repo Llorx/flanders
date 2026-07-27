@@ -53,6 +53,11 @@ export interface RandomContext {
     random():number; // a non-deterministic float in [0,1)
 }
 
+export interface TerminalKeyInputContext {
+    available():boolean;
+    onRetryKey(listener:() => void):() => void;
+}
+
 export type ChoiceOption = Readonly<{
     label:string;
     description?:string;

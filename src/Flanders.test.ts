@@ -5,6 +5,7 @@ import test, { monad } from "arrange-act-assert";
 import { Implement } from "./commands/Implement";
 import { Flanders } from "./Flanders";
 import type { FlandersContexts } from "./Flanders";
+import { unavailableTerminalKeyInputContext } from "./ui/TerminalKeyInputSource.fixtures";
 
 function stubContexts() {
     const written:string[] = [];
@@ -30,6 +31,7 @@ function stubContexts() {
             }
         },
         random: { random() { return 0; } },
+        keyInput: unavailableTerminalKeyInputContext,
         platform: {
             isWindows() { return false; },
             tmpdir() { return "/tmp"; },

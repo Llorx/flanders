@@ -17,6 +17,7 @@ import { abortError } from "../abortError";
 import { recordingOutput, STUB_COLUMNS, STUB_ROWS } from "../ui/recordingOutput.fixtures";
 import { workingPool, successPool, hardStopPool, interruptionPool, failurePool, tasksCompletedPool, allTasksCompletedPool } from "../voiceVariants";
 import { settleAsyncWork as flush } from "../system/settleAsyncWork.fixtures";
+import { unavailableTerminalKeyInputContext } from "../ui/TerminalKeyInputSource.fixtures";
 
 // The stub random context returns 0, so the rotating working footer label is
 // always workingPool[0] — the deterministic label the live footer renders here.
@@ -260,6 +261,7 @@ function stubContexts() {
             }
         },
         random: { random() { return 0; } },
+        keyInput: unavailableTerminalKeyInputContext,
         platform: {
             isWindows() { return false; },
             tmpdir() { return "/tmp"; },

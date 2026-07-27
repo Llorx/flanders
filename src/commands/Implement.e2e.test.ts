@@ -5,6 +5,7 @@ import test from "arrange-act-assert";
 import { Implement } from "./Implement";
 import type { ImplementContexts } from "./Implement";
 import type { FlandersConfig, SpawnedProcess, TimeoutHandle } from "..";
+import { unavailableTerminalKeyInputContext } from "../ui/TerminalKeyInputSource.fixtures";
 
 type FakeProcess = SpawnedProcess & {
     $emitStdout(chunk:string):void;
@@ -224,6 +225,7 @@ function stubContexts(config:FlandersConfig) {
             }
         },
         random: { random() { return 0; } },
+        keyInput: unavailableTerminalKeyInputContext,
         platform: {
             isWindows() { return false; },
             tmpdir() { return "/tmp"; },

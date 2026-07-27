@@ -10,6 +10,7 @@ export type {
     FsContext,
     FsDirEntry,
     OutputContext,
+    TerminalKeyInputContext,
     TimeContext,
     TimeoutHandle,
     SpawnedProcess,
