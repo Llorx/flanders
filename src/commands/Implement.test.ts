@@ -4339,12 +4339,6 @@ function rateLimitStub(rateLimitOnSpawn:number|Readonly<Record<number, number>>,
     };
 }
 
-async function flush(rounds = 20) {
-    for (let i = 0; i < rounds; i++) {
-        await new Promise(r => setImmediate(r));
-    }
-}
-
 async function until(condition:() => boolean, rounds = 500) {
     for (let i = 0; i < rounds && !condition(); i++) {
         await new Promise(r => setImmediate(r));
@@ -11879,7 +11873,9 @@ test.describe("Implement weighted-review round completion", test => {
             (s.contexts.output as { columns:() => number }).columns = () => 240;
             s.claudeQueue.push({ text: "detect" });
             s.claudeQueue.push({ text: "worker" });
-            const recording = recordFooterKinds();
+            const recording = recordFooterCalls<{ kind:string; reviewers?:ReviewerEntry[] }>(state => state.kind === "reviewing"
+                ? { kind: state.kind, reviewers: [...state.reviewers] }
+                : { kind: state.kind });
             return { s, time, recording, MINUTE_MS };
         },
         async ACT({ s, time, recording, MINUTE_MS }) {
@@ -11904,9 +11900,9 @@ test.describe("Implement weighted-review round completion", test => {
                 const code = await cmd.result();
                 await cmd.dispose();
 
-                const reviewingStates = recording.footerStates
-                    .filter((state):state is Extract<FooterState, { kind:"reviewing" }> => state.kind === "reviewing")
-                    .map(state => state.reviewers);
+                const reviewingStates = recording.calls
+                    .filter(state => state.kind === "reviewing")
+                    .map(state => state.reviewers!);
                 return {
                     code,
                     initialReviewDraw,
