@@ -6,6 +6,10 @@ import { synthesizeRateLimitEvent, UNKNOWN_TOOL_ERROR_MESSAGE } from "./toolErro
 
 const TOOL_INPUT_INLINE_MAX = 120;
 
+// The one `rate_limit_info` status that means the request was turned away; every other value the
+// field carries reports a standing the invocation is allowed to keep running under.
+const REJECTED_RATE_LIMIT_STATUS = "rejected";
+
 type ClaudeNativeContentBlock = Readonly<{
     type?:string;
     text?:string;
@@ -63,6 +67,23 @@ export type ClaudeAdapterContexts = Readonly<{
     time:TimeContext;
     random:RandomContext;
 }>;
+
+function marksRejection(info:ClaudeRateLimitInfo|null|undefined):boolean {
+    if (!info) {
+        return false;
+    }
+    return (info.isUsingOverage ? info.overageStatus : info.status) === REJECTED_RATE_LIMIT_STATUS;
+}
+
+function resetInstantMs(info:ClaudeRateLimitInfo|null|undefined):number|null {
+    if (!info) {
+        return null;
+    }
+    const resetsAtSeconds = info.isUsingOverage && typeof info.overageResetsAt === "number"
+        ? info.overageResetsAt
+        : info.resetsAt;
+    return typeof resetsAtSeconds === "number" ? resetsAtSeconds * 1000 : null;
+}
 
 export function formatToolInput(input:Readonly<Record<string, unknown>>|undefined):string {
     if (!input || typeof input !== "object") {
@@ -383,32 +404,27 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
         const errorDetail = typeof parsed.error === "object" ? parsed.error : undefined;
         const message = errorDetail?.message ?? UNKNOWN_TOOL_ERROR_MESSAGE;
 
-        // A rate-limit signal — Claude's earlier `rate_limit_event.rate_limit_info`, the terminal
-        // `result.rate_limit_info`, or an HTTP 429 — is detected ahead of status classification.
-        // Use the parseable reset (the overage reset when on overage, else the standard reset) when
-        // present; otherwise synthesize the same 8-to-12-minute wait the Codex and Antigravity
-        // adapters synthesize through the injected contexts.
-        const info = this._retainedRateLimitInfo ?? parsed.rate_limit_info;
-        if (info || status === 429) {
-            if (info) {
-                const target = info.isUsingOverage && typeof info.overageResetsAt === "number"
-                    ? info.overageResetsAt
-                    : info.resetsAt;
-                if (typeof target === "number") {
-                    return { type: "rate_limit", waitUntilMs: target * 1000 };
-                }
-            }
-            return synthesizeRateLimitEvent(this._contexts.time, this._contexts.random);
-        }
-
         // Claude signals a login failure as the `authentication_failed` identifier standing in place of
         // the error detail object, or as a 401 — and may carry it with no HTTP status at all, the shape
         // the ladder below reads as a retryable transport error and would re-invoke against forever.
         // Standing in place of the detail object, the identifier leaves the turn's human-readable text
-        // in the result's own `result` string.
+        // in the result's own `result` string. Credentials never come back by waiting, so this outranks
+        // the rate-limit branch below even when the same result reports a limit.
         if (parsed.error === "authentication_failed" || status === 401) {
             const loginMessage = errorDetail?.message ?? parsed.result ?? UNKNOWN_TOOL_ERROR_MESSAGE;
             return { type: "error", retryable: false, fatal: true, message: loginMessage };
+        }
+
+        // Claude emits `rate_limit_event` to report where the invocation stands against its usage
+        // limits whatever that standing is, so a retained info object is a utilization reading as
+        // often as a rejection and never says why this result failed. The result decides; the
+        // retained object only supplies the reset instant the result itself does not carry.
+        if (status === 429 || marksRejection(parsed.rate_limit_info)) {
+            const resetMs = resetInstantMs(parsed.rate_limit_info) ?? resetInstantMs(this._retainedRateLimitInfo);
+            if (resetMs !== null) {
+                return { type: "rate_limit", waitUntilMs: resetMs };
+            }
+            return synthesizeRateLimitEvent(this._contexts.time, this._contexts.random);
         }
 
         if (typeof status === "number" && status >= 500) {

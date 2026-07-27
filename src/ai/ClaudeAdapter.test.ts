@@ -608,7 +608,7 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
-    test("retained rate_limit_event info takes precedence over result rate_limit_info", {
+    test("result rate_limit_info takes precedence over the retained rate_limit_event info", {
         ARRANGE() {
             return classificationSubject([{
                 type: "rate_limit_event",
@@ -625,11 +625,11 @@ test.describe("ClaudeAdapter", test => {
             return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1800000000 * 1000 }]);
         }
     });
 
-    test("rate_limit_event before a non-429 result uses the retained reset timestamp", {
+    test("a retained rejection does not turn a 5xx result into a rate_limit", {
         ARRANGE() {
             return classificationSubject([{
                 type: "rate_limit_event",
@@ -645,27 +645,199 @@ test.describe("ClaudeAdapter", test => {
             return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: true, message: NEUTRAL_ERROR_MESSAGE }]);
         }
     });
 
-    test("rate_limit_event without parseable reset before a status-less result synthesizes rate_limit", {
+    test("a retained rejection does not turn a 408 result into a rate_limit", {
         ARRANGE() {
-            const time:TimeContext = { now() { return 1000; }, setTimeout() { return { cancel() {} }; } };
+            return classificationSubject([{
+                type: "rate_limit_event",
+                rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
+            }, {
+                type: "result",
+                is_error: true,
+                api_error_status: 408,
+                error: { message: NEUTRAL_ERROR_MESSAGE }
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: true, message: NEUTRAL_ERROR_MESSAGE }]);
+        }
+    });
+
+    test("a retained rejection does not turn a 425 result into a rate_limit", {
+        ARRANGE() {
+            return classificationSubject([{
+                type: "rate_limit_event",
+                rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
+            }, {
+                type: "result",
+                is_error: true,
+                api_error_status: 425,
+                error: { message: NEUTRAL_ERROR_MESSAGE }
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: true, message: NEUTRAL_ERROR_MESSAGE }]);
+        }
+    });
+
+    test("a retained rejection does not turn a transport-error result into a rate_limit", {
+        ARRANGE() {
             return classificationSubject([{
                 type: "rate_limit_event",
                 rate_limit_info: { status: "rejected" }
             }, {
                 type: "result",
                 is_error: true,
+                api_error_status: null,
                 error: { message: NEUTRAL_ERROR_MESSAGE }
-            }], { time, random: randomContext(0.5) });
+            }]);
         },
         ACT(subject) {
             return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 601_000 }]);
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: true, message: NEUTRAL_ERROR_MESSAGE }]);
+        }
+    });
+
+    test("a utilization rate_limit_event does not turn a 529 result into a rate_limit", {
+        ARRANGE() {
+            return classificationSubject([{
+                type: "rate_limit_event",
+                rate_limit_info: {
+                    status: "allowed_warning",
+                    resetsAt: 1700000000,
+                    utilization: 0.62,
+                    surpassedThreshold: 0.5
+                }
+            }, {
+                type: "result",
+                is_error: true,
+                api_error_status: 529,
+                error: { message: NEUTRAL_ERROR_MESSAGE }
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: true, message: NEUTRAL_ERROR_MESSAGE }]);
+        }
+    });
+
+    test("a utilization rate_limit_info on the result itself does not make a 5xx a rate_limit", {
+        ARRANGE() {
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                api_error_status: 503,
+                error: { message: NEUTRAL_ERROR_MESSAGE },
+                rate_limit_info: { status: "allowed_warning", resetsAt: 1700000000 }
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: true, message: NEUTRAL_ERROR_MESSAGE }]);
+        }
+    });
+
+    test("a result rate_limit_info with no parseable reset falls back to the retained reset", {
+        ARRANGE() {
+            return classificationSubject([{
+                type: "rate_limit_event",
+                rate_limit_info: { status: "rejected", resetsAt: 1700000000 }
+            }, {
+                type: "result",
+                is_error: true,
+                api_error_status: 429,
+                error: { message: NEUTRAL_ERROR_MESSAGE },
+                rate_limit_info: { status: "rejected" }
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
+        }
+    });
+
+    test("a utilization rate_limit_event still supplies the reset of a genuine 429", {
+        ARRANGE() {
+            return classificationSubject([{
+                type: "rate_limit_event",
+                rate_limit_info: { status: "allowed_warning", resetsAt: 1700000000 }
+            }, {
+                type: "result",
+                is_error: true,
+                api_error_status: 429,
+                error: { message: NEUTRAL_ERROR_MESSAGE }
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
+        }
+    });
+
+    test("on overage the overage status decides the rejection, not the standard one", {
+        ARRANGE() {
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                api_error_status: 503,
+                error: { message: NEUTRAL_ERROR_MESSAGE },
+                rate_limit_info: {
+                    status: "rejected",
+                    resetsAt: 1700000000,
+                    isUsingOverage: true,
+                    overageStatus: "allowed_warning",
+                    overageResetsAt: 1800000000
+                }
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: true, message: NEUTRAL_ERROR_MESSAGE }]);
+        }
+    });
+
+    test("an overage rejection under a non-429 status is a rate_limit ending at the overage reset", {
+        ARRANGE() {
+            return classificationSubject([{
+                type: "result",
+                is_error: true,
+                api_error_status: 503,
+                error: { message: NEUTRAL_ERROR_MESSAGE },
+                rate_limit_info: {
+                    status: "allowed",
+                    resetsAt: 1700000000,
+                    isUsingOverage: true,
+                    overageStatus: "rejected",
+                    overageResetsAt: 1800000000
+                }
+            }]);
+        },
+        ACT(subject) {
+            return emittedEventsOf(subject);
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1800000000 * 1000 }]);
         }
     });
 
@@ -712,8 +884,8 @@ test.describe("ClaudeAdapter", test => {
 
     test("rate_limit_info with a parseable reset under a non-429 status is detected as a rate_limit, not the status error", {
         ARRANGE() {
-            // The rate-limit JSON drives detection regardless of the HTTP status: a 503 that carries
-            // rate_limit_info is a rate-limit, not a retryable 5xx error. waitUntilMs is the reset.
+            // A rejection on the result's own rate_limit_info outranks the HTTP status: this 503 is a
+            // rate-limit, not a retryable 5xx error. waitUntilMs is the reset.
             return classificationSubject([{
                 type: "result",
                 is_error: true,
@@ -732,8 +904,9 @@ test.describe("ClaudeAdapter", test => {
 
     test("rate_limit_info with no parseable reset and no api_error_status is detected as a synthesized rate_limit", {
         ARRANGE() {
-            // No api_error_status at all: the rate-limit JSON alone drives detection. time.now() = 0
-            // and random() = 0 → the synthesized wait is the 8-minute lower bound of the window.
+            // No api_error_status at all: the rejection on the result's own rate_limit_info drives
+            // detection. time.now() = 0 and random() = 0 → the synthesized wait is the window's
+            // 8-minute lower bound.
             return classificationSubject([{
                 type: "result",
                 is_error: true,
@@ -850,7 +1023,7 @@ test.describe("ClaudeAdapter", test => {
         });
     }
 
-    test("rate-limit signal under a 401 status is still classified as a rate_limit event", {
+    test("a rejection under a 401 status is classified as the login failure, not a rate_limit", {
         ARRANGE() {
             return classificationSubject([{
                 type: "result",
@@ -864,11 +1037,11 @@ test.describe("ClaudeAdapter", test => {
             return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: NEUTRAL_ERROR_MESSAGE }]);
         }
     });
 
-    test("rate-limit signal alongside the authentication_failed identifier is still classified as a rate_limit event", {
+    test("a rejection alongside the authentication_failed identifier is classified as the login failure", {
         ARRANGE() {
             return classificationSubject([{
                 type: "result",
@@ -882,14 +1055,12 @@ test.describe("ClaudeAdapter", test => {
             return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: NEUTRAL_RESULT_TEXT }]);
         }
     });
 
-    test("a bare 429 alongside the authentication_failed identifier is still classified as a rate_limit event", {
+    test("a bare 429 alongside the authentication_failed identifier is classified as the login failure", {
         ARRANGE() {
-            // The 429 carries no rate_limit_info, so the wait is synthesized: time.now() = 0 and
-            // random() = 0 → the 8-minute lower bound of the window.
             return classificationSubject([{
                 type: "result",
                 is_error: true,
@@ -902,11 +1073,11 @@ test.describe("ClaudeAdapter", test => {
             return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 8 * 60_000 }]);
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: NEUTRAL_RESULT_TEXT }]);
         }
     });
 
-    test("retained rate_limit_event info before an authentication_failed result still yields the retained rate_limit", {
+    test("a retained rejection does not mask an authentication_failed result as a rate_limit", {
         ARRANGE() {
             return classificationSubject([{
                 type: "rate_limit_event",
@@ -922,11 +1093,11 @@ test.describe("ClaudeAdapter", test => {
             return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: NEUTRAL_RESULT_TEXT }]);
         }
     });
 
-    test("retained rate_limit_event info before a 401 result still yields the retained rate_limit", {
+    test("a retained rejection does not mask a 401 result as a rate_limit", {
         ARRANGE() {
             return classificationSubject([{
                 type: "rate_limit_event",
@@ -942,7 +1113,7 @@ test.describe("ClaudeAdapter", test => {
             return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
+            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: NEUTRAL_ERROR_MESSAGE }]);
         }
     });
 
