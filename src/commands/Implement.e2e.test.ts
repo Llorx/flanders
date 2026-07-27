@@ -180,7 +180,9 @@ function stubContexts(config:FlandersConfig) {
                     return proc;
                 }
                 const isGit = command === "git";
-                const response = (isGit ? gitQueue : scriptQueue).shift();
+                const response = isGit && args[0] === "diff"
+                    ? { code: 0, stdout: "", stderr: "" }
+                    : (isGit ? gitQueue : scriptQueue).shift();
                 if (!response) {
                     setImmediate(() => proc.$emit("error", new Error("no response in queue")));
                     return proc;
@@ -245,7 +247,7 @@ function stubContexts(config:FlandersConfig) {
 // Arranges a full git run for an e2e scenario: the version/rev-parse/clean-status preflight
 // triple plus, per task the scenario accepts in a single worker-success iteration, the three
 // {code:0} git calls that iteration makes — the post-worker `git add -A`, the commit-stage
-// `git add -A`, and the `git commit`.
+// `git add -A`, and the `git commit`. The stub answers the baseline diff separately.
 function gitRunQueue(gitQueue:ScriptResponse[], taskCount = 1):void {
     gitQueue.push({ code: 0, stdout: "git version 2.40.0\n", stderr: "" }); // git --version
     gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });                // rev-parse --is-inside-work-tree

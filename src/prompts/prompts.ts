@@ -9,7 +9,8 @@ export const enum Placeholders {
     CONTRACT_LIST = "<CONTRACT_LIST>",
     RULE_LIST = "<RULE_LIST>",
     BEHAVIOR_RULE_LIST = "<BEHAVIOR_RULE_LIST>",
-    SPEC_PATH = "<SPEC_PATH>"
+    SPEC_PATH = "<SPEC_PATH>",
+    RUN_BASELINE = "<RUN_BASELINE>"
 }
 
 // The consolidated-reference directive shared by the worker and reviewer prompts. Given the path
@@ -71,6 +72,7 @@ export interface ReviewerMethodologySurface {
     errorLogPath: string;
     nextWorkerActor: string;
     errorLogPlain: string;
+    baseline: string;
 }
 
 // The surface-agnostic adversarial-reviewer methodology, shared across every Flanders
@@ -87,7 +89,9 @@ export function buildReviewerMethodology(s: ReviewerMethodologySurface): { chang
 
 3. **Read content the right way per file kind.** For tracked modifications, inspect content with \`git diff\` (and \`git diff --cached\` for staged hunks). For untracked created files — which \`git diff\` does not surface — read the file directly from disk. A created file is never left uninspected on the grounds that \`git diff\` showed nothing for it.
 
-When the enumerated change set is empty — \`git status --porcelain\` reports no files and both the unstaged and staged diffs are empty — the empty change set is not, on its own, a failure. You must not record a violation for the sole reason that ${s.ownerProducedNoDiff} this cycle; an absent diff is the expected shape of an idempotent re-application of already-committed work. Judge each ${s.critRef} against the committed working tree at \`HEAD\` — through the build and test gates that already passed before this review, an existing test whose assertion a regression would trip, or your own inspection of the full working tree at \`HEAD\`, as the ${s.critRefShort} allows — and do not require its evidence to originate from an uncommitted diff. The verdict follows from the ${s.critRefShortPlural}, not from the diff's size: pass the ${s.passObject} — creating your per-reviewer ${s.errorLogInline} empty as your final act — when every ${s.critRef} is satisfied at \`HEAD\`, and record a violation only for a genuinely unsatisfied ${s.critRefShort}, contract, or rule at \`HEAD\`.${s.emptyChangeSetCitation}
+4. **Subtract the baseline by content.** ${s.baseline} A path whose only pending content belongs to the baseline drops out; a path the baseline also carries stays and contributes only content that postdates it.
+
+When the reduced change set is empty — either the enumeration is empty or baseline subtraction removes all pending content — the empty change set is not, on its own, a failure. You must not record a violation for the sole reason that ${s.ownerProducedNoDiff} this cycle; an absent post-baseline diff is the expected shape of an idempotent re-application of already-completed work. Judge each ${s.critRef} against the working tree as it stands — \`HEAD\` plus every pending change, including baseline content — through the build and test gates that already passed before this review, an existing test whose assertion a regression would trip, or your own inspection of that full tree, as the ${s.critRefShort} allows, and do not require its evidence to originate from an uncommitted diff. The verdict follows from the ${s.critRefShortPlural}, not from the diff's size: pass the ${s.passObject} — creating your per-reviewer ${s.errorLogInline} empty as your final act — when every ${s.critRef} is satisfied in that tree, and record a violation only for a genuinely unsatisfied ${s.critRefShort}, contract, or rule in that tree.${s.emptyChangeSetCitation}
 
 ${s.readOnlyParagraph}`;
 
@@ -175,7 +179,12 @@ const implementReviewerSurface: ReviewerMethodologySurface = {
     ownerChangesEvidence: "the worker's working-tree changes",
     errorLogPath: `\`${Placeholders.ERROR_LOG_PATH}\``,
     nextWorkerActor: "the next iteration's worker",
-    errorLogPlain: "`error.log`"
+    errorLogPlain: "`error.log`",
+    baseline: `The baseline is this fixed run snapshot, captured after preflight and before the first task's worker. Its JSON fields contain the startup staged diff and the excluded plan file's startup path and content:
+
+<run-baseline>
+${Placeholders.RUN_BASELINE}
+</run-baseline>`
 };
 
 // The surface-neutral, citation-free instantiation: this is the shared reviewer-methodology
@@ -201,7 +210,8 @@ const citationFreeReviewerSurface: ReviewerMethodologySurface = {
     ownerChangesEvidence: "the changes under review",
     errorLogPath: "the error-log file",
     nextWorkerActor: "the next round of work",
-    errorLogPlain: "the error-log file"
+    errorLogPlain: "the error-log file",
+    baseline: "The baseline is the latest commit (`HEAD`), so subtraction keeps every uncommitted change, whether or not this session produced it."
 };
 
 const implementReviewerMethodology = buildReviewerMethodology(implementReviewerSurface);

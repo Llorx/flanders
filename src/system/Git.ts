@@ -1,6 +1,7 @@
 import * as path from "path";
 
 import type { OutputContext, ScriptContext, TimeContext } from "../contexts";
+import { ScriptRunner } from "./ScriptRunner";
 
 type GitResult = { code:number; stdout:string; stderr:string };
 
@@ -96,6 +97,23 @@ export function countUnstagedChangesExcept(script:ScriptContext, _time:TimeConte
             resolve(count);
         });
     });
+}
+
+export async function readStagedDiff(script:ScriptContext, time:TimeContext, cwd:string):Promise<string> {
+    const runner = new ScriptRunner({
+        command: "git",
+        args: ["diff", "--cached", "--binary", "--no-ext-diff", "--"],
+        cwd
+    }, script, time);
+    try {
+        const result = await runner.result();
+        if (result.code !== 0) {
+            throw new Error(result.stderr);
+        }
+        return result.stdout;
+    } finally {
+        await runner.dispose();
+    }
 }
 
 export function listNonIgnoredFiles(script:ScriptContext, _time:TimeContext, cwd:string):Promise<string[]> {

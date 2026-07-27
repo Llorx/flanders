@@ -1140,22 +1140,62 @@ test.describe("prompts – reviewer – git-status change-set enumeration", test
     });
 });
 
-test.describe("prompts – reviewer – empty change set judged against HEAD", test => {
-    test("contains the new guidance for an empty enumerated change set", {
+test.describe("prompts – reviewer – baseline subtraction", test => {
+    test("the implement reviewer identifies the fixed run snapshot and subtracts it by content", {
         ARRANGE() {},
         ACT() { return prompts.reviewer; },
         ASSERTS: {
+            "identifies capture timing and fixed run scope"(template) {
+                Assert.ok(template.includes("fixed run snapshot, captured after preflight and before the first task's worker"));
+            },
+            "carries the injected startup staged diff and excluded-plan snapshot"(template) {
+                Assert.ok(template.includes("<run-baseline>\n<RUN_BASELINE>\n</run-baseline>"));
+            },
+            "removes a path whose only pending content belongs to the baseline"(template) {
+                Assert.ok(template.includes("A path whose only pending content belongs to the baseline drops out"));
+            },
+            "keeps post-baseline content on a path the baseline also carries"(template) {
+                Assert.ok(template.includes("a path the baseline also carries stays and contributes only content that postdates it"));
+            }
+        }
+    });
+
+    test("the citation-free methodology uses HEAD as an empty pending baseline", {
+        ARRANGE() {},
+        ACT() { return reviewerMethodologyCore; },
+        ASSERTS: {
+            "names the latest commit as the work-reviewer baseline"(core) {
+                Assert.ok(core.includes("The baseline is the latest commit (`HEAD`)"));
+            },
+            "keeps every uncommitted change regardless of session authorship"(core) {
+                Assert.ok(core.includes("subtraction keeps every uncommitted change, whether or not this session produced it"));
+            }
+        }
+    });
+});
+
+test.describe("prompts – reviewer – empty reduced change set judged against the tree as it stands", test => {
+    test("contains the guidance for an empty post-baseline change set", {
+        ARRANGE() {},
+        ACT() { return prompts.reviewer; },
+        ASSERTS: {
+            "triggers on the reduced set after baseline subtraction"(template) {
+                Assert.ok(template.includes("When the reduced change set is empty — either the enumeration is empty or baseline subtraction removes all pending content"));
+            },
             "states the empty change set is not on its own a failure"(template) {
                 Assert.ok(template.includes("the empty change set is not, on its own, a failure"));
             },
             "explicitly forbids recording a violation solely because the worker produced no diff"(template) {
                 Assert.ok(template.includes("You must not record a violation for the sole reason that the worker produced no diff this cycle"));
             },
-            "instructs judging acceptance criteria against the committed working tree at HEAD"(template) {
-                Assert.ok(template.includes("Judge each acceptance criterion against the committed working tree at `HEAD`"));
+            "instructs judging acceptance criteria against the working tree as it stands"(template) {
+                Assert.ok(template.includes("Judge each acceptance criterion against the working tree as it stands"));
             },
-            "names the HEAD evidence sources — already-passed gates, an existing test, or full-tree inspection"(template) {
-                Assert.ok(template.includes("through the build and test gates that already passed before this review, an existing test whose assertion a regression would trip, or your own inspection of the full working tree at `HEAD`, as the criterion allows"));
+            "keeps HEAD and every pending change including baseline content in judgment"(template) {
+                Assert.ok(template.includes("`HEAD` plus every pending change, including baseline content"));
+            },
+            "names the full-tree evidence sources — already-passed gates, an existing test, or inspection"(template) {
+                Assert.ok(template.includes("through the build and test gates that already passed before this review, an existing test whose assertion a regression would trip, or your own inspection of that full tree, as the criterion allows"));
             },
             "forbids requiring evidence to originate from an uncommitted diff"(template) {
                 Assert.ok(template.includes("and do not require its evidence to originate from an uncommitted diff"));
@@ -1163,17 +1203,17 @@ test.describe("prompts – reviewer – empty change set judged against HEAD", t
             "states the verdict follows from the criteria not from the diff's size"(template) {
                 Assert.ok(template.includes("The verdict follows from the criteria, not from the diff's size"));
             },
-            "ties pass + empty error file + satisfied-at-HEAD together in one sentence"(template) {
-                Assert.ok(template.includes("pass the task — creating your per-reviewer `error.log` empty as your final act — when every acceptance criterion is satisfied at `HEAD`"));
+            "ties pass + empty error file + satisfaction in that tree together in one sentence"(template) {
+                Assert.ok(template.includes("pass the task — creating your per-reviewer `error.log` empty as your final act — when every acceptance criterion is satisfied in that tree"));
             },
             "states a passing verdict creates the per-reviewer error file empty"(template) {
                 Assert.ok(template.includes("creating your per-reviewer `error.log` empty as your final act"));
             },
-            "conditions the pass on every acceptance criterion being satisfied at HEAD"(template) {
-                Assert.ok(template.includes("when every acceptance criterion is satisfied at `HEAD`"));
+            "conditions the pass on every acceptance criterion being satisfied in the full tree"(template) {
+                Assert.ok(template.includes("when every acceptance criterion is satisfied in that tree"));
             },
-            "limits recorded violations to criteria genuinely unsatisfied at HEAD"(template) {
-                Assert.ok(template.includes("record a violation only for a genuinely unsatisfied criterion, contract, or rule at `HEAD`"));
+            "limits recorded violations to obligations genuinely unsatisfied in the full tree"(template) {
+                Assert.ok(template.includes("record a violation only for a genuinely unsatisfied criterion, contract, or rule in that tree"));
             },
             "cites the empty-change-set rule"(template) {
                 Assert.ok(template.includes("rules/ai/review/reviewer-empty-change-set-judged-against-head.md"));
@@ -1193,8 +1233,8 @@ test.describe("prompts – reviewer – empty change set judged against HEAD", t
             "section opens with the change-set heading"(section) {
                 Assert.ok(section.startsWith("## Determining the worker's change set"));
             },
-            "section contains the empty-change-set opener"(section) {
-                Assert.ok(section.includes("When the enumerated change set is empty"));
+            "section contains the post-baseline empty-change-set opener"(section) {
+                Assert.ok(section.includes("When the reduced change set is empty"));
             },
             "section contains the not-on-its-own-a-failure phrase"(section) {
                 Assert.ok(section.includes("the empty change set is not, on its own, a failure"));
@@ -1202,14 +1242,14 @@ test.describe("prompts – reviewer – empty change set judged against HEAD", t
             "section contains the no-sole-diff-violation sentence"(section) {
                 Assert.ok(section.includes("You must not record a violation for the sole reason that the worker produced no diff this cycle"));
             },
-            "section contains the judge-against-HEAD instruction"(section) {
-                Assert.ok(section.includes("Judge each acceptance criterion against the committed working tree at `HEAD`"));
+            "section contains the judge-against-full-tree instruction"(section) {
+                Assert.ok(section.includes("Judge each acceptance criterion against the working tree as it stands"));
             },
             "section contains the verdict-follows-from-criteria sentence"(section) {
                 Assert.ok(section.includes("The verdict follows from the criteria, not from the diff's size"));
             },
-            "section contains the combined pass+empty+satisfied-at-HEAD sentence"(section) {
-                Assert.ok(section.includes("pass the task — creating your per-reviewer `error.log` empty as your final act — when every acceptance criterion is satisfied at `HEAD`"));
+            "section contains the combined pass+empty+satisfied-in-tree sentence"(section) {
+                Assert.ok(section.includes("pass the task — creating your per-reviewer `error.log` empty as your final act — when every acceptance criterion is satisfied in that tree"));
             },
             "section cites the empty-change-set rule"(section) {
                 Assert.ok(section.includes("rules/ai/review/reviewer-empty-change-set-judged-against-head.md"));
@@ -1383,15 +1423,21 @@ test.describe("reviewerMethodologyCore", test => {
         }
     });
 
-    test("states the empty-change-set-judged-against-HEAD obligation", {
+    test("states the empty-reduced-change-set-judged-against-the-full-tree obligation", {
         ARRANGE() {},
         ACT() { return reviewerMethodologyCore; },
         ASSERTS: {
+            "applies empty-set handling after baseline subtraction"(core) {
+                Assert.ok(core.includes("When the reduced change set is empty"));
+            },
             "an empty change set is not on its own a failure"(core) {
                 Assert.ok(core.includes("the empty change set is not, on its own, a failure"));
             },
-            "judges the spec against the committed working tree at HEAD"(core) {
-                Assert.ok(core.includes("against the committed working tree at `HEAD`"));
+            "judges the spec against the working tree as it stands"(core) {
+                Assert.ok(core.includes("against the working tree as it stands"));
+            },
+            "includes every pending change and baseline content in that tree"(core) {
+                Assert.ok(core.includes("`HEAD` plus every pending change, including baseline content"));
             }
         }
     });

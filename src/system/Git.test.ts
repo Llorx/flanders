@@ -1,10 +1,10 @@
 import * as Assert from "assert";
 
-import test from "arrange-act-assert";
+import test, { monad } from "arrange-act-assert";
 
 import * as path from "path";
 
-import { isGitAvailable, isInsideWorkTree, countUnstagedChangesExcept, addAll, commit, listNonIgnoredFiles, listIgnoredPaths } from "./Git";
+import { isGitAvailable, isInsideWorkTree, countUnstagedChangesExcept, readStagedDiff, addAll, commit, listNonIgnoredFiles, listIgnoredPaths } from "./Git";
 import type { OutputContext, ScriptContext, SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 
 type FakeProcess = SpawnedProcess & {
@@ -845,6 +845,70 @@ function fakeOutput():FakeOutput {
         onResize() { return () => {}; }
     };
 }
+
+test.describe("readStagedDiff", test => {
+    test("returns the staged binary diff through the injected script context after the child exits", {
+        ARRANGE() {
+            let captured:{ command:string; args:readonly string[]; cwd:string|undefined }|null = null;
+            const child = { live: false };
+            const script:ScriptContext = {
+                spawn(command, args, options) {
+                    captured = { command, args, cwd: options.cwd as string|undefined };
+                    child.live = true;
+                    const proc = fakeProcess();
+                    setImmediate(() => {
+                        proc.$emitStdout("diff --git a/src/a.ts b/src/a.ts\n");
+                        child.live = false;
+                        proc.$emit("exit", 0);
+                    });
+                    return proc;
+                }
+            };
+            return { script, time: stubTime(), child, captured: () => captured };
+        },
+        async ACT({ script, time, child }) {
+            const diff = await readStagedDiff(script, time, CWD);
+            return { diff, childLiveWhenResolved: child.live };
+        },
+        ASSERTS: {
+            "returns the complete staged diff"({ diff }) {
+                Assert.strictEqual(diff, "diff --git a/src/a.ts b/src/a.ts\n");
+            },
+            "uses the injected script context with a read-only binary-safe git command"(_result, { captured }) {
+                Assert.deepStrictEqual(captured(), {
+                    command: "git",
+                    args: ["diff", "--cached", "--binary", "--no-ext-diff", "--"],
+                    cwd: CWD
+                });
+            },
+            "has observed child exit before resolving"({ childLiveWhenResolved }) {
+                Assert.strictEqual(childLiveWhenResolved, false);
+            }
+        }
+    });
+
+    test("rejects with stderr when git diff exits non-zero", {
+        ARRANGE() {
+            const script:ScriptContext = {
+                spawn() {
+                    const proc = fakeProcess();
+                    setImmediate(() => {
+                        proc.$emitStderr("diff failed");
+                        proc.$emit("exit", 1);
+                    });
+                    return proc;
+                }
+            };
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await monad(() => readStagedDiff(script, time, CWD));
+        },
+        ASSERT(result) {
+            result.should.error({ name: "Error", message: "diff failed" });
+        }
+    });
+});
 
 test.describe("addAll", test => {
     test("resolves with code, stdout, stderr on success", {

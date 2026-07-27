@@ -8,7 +8,7 @@ import type { ToolAdapter, ToolName, ToolTokenUsage } from "../ai/ToolAdapter";
 import type { FlandersConfig, FlandersRole } from "../workspace/FlandersConfig";
 import { read as readConfig } from "../workspace/FlandersConfig";
 import { isNonEmptyFile, joinPath, listFilesRecursive } from "../system/fsUtils";
-import { isGitAvailable, isInsideWorkTree, countUnstagedChangesExcept, addAll, commit } from "../system/Git";
+import { isGitAvailable, isInsideWorkTree, countUnstagedChangesExcept, readStagedDiff, addAll, commit } from "../system/Git";
 import { discoverSpecs } from "../workspace/SpecDiscovery";
 import { PlanFile, PlanTask, buildSpecFileContent } from "../plan/PlanFile";
 import { Placeholders, linkedReferenceDirective, prompts } from "../prompts/prompts";
@@ -191,6 +191,7 @@ export class Implement {
     // task's live active time plus this constant, so it ticks in lockstep with the task
     // time instead of lagging behind the persisted `plan.planTotals().t`.
     private _otherTasksSeconds = 0;
+    private _runBaseline = "";
     private _runPromise:Promise<number>;
     /** Public for testing: the stashed config is otherwise observable only as downstream AI invocation arguments (tool/model/effort). */
     get config():FlandersConfig|null { return this._config; }
@@ -296,6 +297,13 @@ export class Implement {
                 this._finalizeBlock("Failed");
                 return 1;
             }
+            this._runBaseline = JSON.stringify({
+                stagedDiff: await readStagedDiff(this._contexts.script, this._contexts.time, this._options.projectRoot),
+                excludedPlan: {
+                    path: planPath,
+                    content: await this._contexts.fs.readFile(planPath)
+                }
+            });
             const specs = await discoverSpecs(this._contexts.script, this._contexts.time, this._options.projectRoot);
             this._contractList = specs.contracts;
             this._ruleList = specs.rules;
@@ -428,10 +436,11 @@ export class Implement {
         this._block!.mount();
     }
     private async _detectBuildAndTest(ws:WorkspacePaths):Promise<void> {
-        const prompt = prompts.detectBuildAndTest
-            .split(Placeholders.BUILD_SCRIPT_PATH).join(ws.buildScript)
-            .split(Placeholders.TEST_SCRIPT_PATH).join(ws.testScript)
-            .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList));
+        const prompt = this._renderPrompt(prompts.detectBuildAndTest, {
+            [Placeholders.BUILD_SCRIPT_PATH]: ws.buildScript,
+            [Placeholders.TEST_SCRIPT_PATH]: ws.testScript,
+            [Placeholders.RULE_LIST]: this._formatPathList(this._ruleList)
+        });
         await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, this._config!.worker.fast, prompt);
     }
     private _setActivity(activity:Activity):void {
@@ -641,19 +650,21 @@ export class Implement {
         } else {
             taskText = `(Your previous session for this task could not be resumed, so this is a fresh invocation. You are continuing work on the task at line ${task.line} of the plan file, titled "${task.title}". The task text and its referenced content are not re-injected here: re-read that task from the plan file, and for the contracts and rules it references reread the consolidated spec.md the orchestrator left in the temporary folder at ${ws.specFile} — read that single file rather than reopening each referenced file — then address the previous-iteration briefing below.)`;
         }
-        let prompt = prompts.worker
-            .split(Placeholders.PLAN_PATH).join(plan.path)
-            .split(Placeholders.TASK_TEXT).join(taskText)
-            .split(Placeholders.BUILD_SCRIPT_PATH).join(ws.buildScript)
-            .split(Placeholders.TEST_SCRIPT_PATH).join(ws.testScript)
-            .split(Placeholders.HARD_STOP_LOG_PATH).join(ws.hardStopLog)
-            .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
-            .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
-            .split(Placeholders.BEHAVIOR_RULE_LIST).join(this._formatPathList(this._behaviorRuleList));
+        let prompt = this._renderPrompt(prompts.worker, {
+            [Placeholders.PLAN_PATH]: plan.path,
+            [Placeholders.TASK_TEXT]: taskText,
+            [Placeholders.BUILD_SCRIPT_PATH]: ws.buildScript,
+            [Placeholders.TEST_SCRIPT_PATH]: ws.testScript,
+            [Placeholders.HARD_STOP_LOG_PATH]: ws.hardStopLog,
+            [Placeholders.CONTRACT_LIST]: this._formatPathList(this._contractList),
+            [Placeholders.RULE_LIST]: this._formatPathList(this._ruleList),
+            [Placeholders.BEHAVIOR_RULE_LIST]: this._formatPathList(this._behaviorRuleList)
+        });
         if (iteration > 1) {
-            const briefing = prompts.previousIterationBriefing
-                .split(Placeholders.ITERATION).join(String(iteration))
-                .split(Placeholders.ERROR_LOG_PATH).join(ws.errorLog);
+            const briefing = this._renderPrompt(prompts.previousIterationBriefing, {
+                [Placeholders.ITERATION]: String(iteration),
+                [Placeholders.ERROR_LOG_PATH]: ws.errorLog
+            });
             prompt = `${prompt}\n\n${briefing}`;
         }
         try {
@@ -948,14 +959,16 @@ export class Implement {
             // every referenced contract and rule consolidated into this reviewer's own `spec.md` (its
             // SPEC_PATH placeholder resolves to that file in this reviewer's temporary folder). A read
             // failure from _buildSpecContent propagates so the reviewer stage treats it as a failure.
-            const prompt = prompts.reviewer
-                .split(Placeholders.PLAN_PATH).join(plan.path)
-                .split(Placeholders.TASK_TEXT).join(plan.fullTaskText(task))
-                .split(Placeholders.CONTRACT_LIST).join(this._formatPathList(this._contractList))
-                .split(Placeholders.RULE_LIST).join(this._formatPathList(this._ruleList))
-                .split(Placeholders.BEHAVIOR_RULE_LIST).join(this._formatPathList(this._behaviorRuleList))
-                .split(Placeholders.ERROR_LOG_PATH).join(ws.reviewerErrorLog(reviewerNum))
-                .split(Placeholders.SPEC_PATH).join(ws.reviewerSpecFile(reviewerNum));
+            const prompt = this._renderPrompt(prompts.reviewer, {
+                [Placeholders.PLAN_PATH]: plan.path,
+                [Placeholders.TASK_TEXT]: plan.fullTaskText(task),
+                [Placeholders.CONTRACT_LIST]: this._formatPathList(this._contractList),
+                [Placeholders.RULE_LIST]: this._formatPathList(this._ruleList),
+                [Placeholders.BEHAVIOR_RULE_LIST]: this._formatPathList(this._behaviorRuleList),
+                [Placeholders.ERROR_LOG_PATH]: ws.reviewerErrorLog(reviewerNum),
+                [Placeholders.SPEC_PATH]: ws.reviewerSpecFile(reviewerNum),
+                [Placeholders.RUN_BASELINE]: this._runBaseline
+            });
             await this._contexts.fs.writeFile(ws.reviewerSpecFile(reviewerNum), await this._buildSpecContent(plan, task));
             const aggregateOutput:string[] = [];
             for (;;) {
@@ -1071,6 +1084,10 @@ export class Implement {
             return "(none)";
         }
         return items.join("\n");
+    }
+    private _renderPrompt(template:string, replacements:Readonly<Partial<Record<Placeholders, string>>>):string {
+        const placeholders = new RegExp(Object.keys(replacements).join("|"), "g");
+        return template.replace(placeholders, placeholder => replacements[placeholder as Placeholders]!);
     }
     private _getAdapter(tool:ToolName):ToolAdapter {
         if (this._contexts.adapter) {

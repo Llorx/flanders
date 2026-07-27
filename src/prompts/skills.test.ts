@@ -2604,8 +2604,14 @@ test.describe("skills – workSkillBody", test => {
             "core carries change-set determination via git status --porcelain"(body) {
                 Assert.ok(body.includes("git status --porcelain"), "embedded core must carry change-set determination via git status --porcelain");
             },
-            "core carries the empty-change-set judgment against HEAD"(body) {
-                Assert.ok(body.includes("Judge each spec element against the committed working tree at \`HEAD\`"), "embedded core must judge an empty change set against HEAD");
+            "core carries the empty-reduced-change-set judgment against the full tree"(body) {
+                Assert.ok(body.includes("Judge each spec element against the working tree as it stands"), "embedded core must judge an empty reduced set against the full working tree");
+            },
+            "core uses latest commit HEAD as its baseline"(body) {
+                Assert.ok(body.includes("The baseline is the latest commit (\`HEAD\`)"), "embedded core must use HEAD as its baseline");
+            },
+            "core keeps all uncommitted changes regardless of session authorship"(body) {
+                Assert.ok(body.includes("subtraction keeps every uncommitted change, whether or not this session produced it"), "embedded core must keep all uncommitted changes");
             },
             "core carries the five FAIL conditions"(body) {
                 Assert.ok(body.includes("You MUST check all five conditions below"), "embedded core must carry the five FAIL conditions");

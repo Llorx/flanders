@@ -128,6 +128,9 @@ function stubContexts() {
     const scriptQueue:ScriptResponse[] = [];
     const gitQueue:ScriptResponse[] = [];
     const gitSpawns:Array<{command:string; args:readonly string[]}> = [];
+    const runBaselineDiff = { value: "" };
+    const stagedDiffsAtCommit:string[] = [];
+    const liveGitProcesses = { count: 0 };
     const claudeSpawnedArgs:string[][] = [];
     const codexSpawnedArgs:string[][] = [];
 
@@ -203,15 +206,27 @@ function stubContexts() {
                 const isGit = command === "git";
                 if (isGit) {
                     gitSpawns.push({ command, args: [...args] });
+                    liveGitProcesses.count++;
                 }
-                const response = (isGit ? gitQueue : scriptQueue).shift();
+                const readsRunBaseline = isGit && args[0] === "diff";
+                const response = readsRunBaseline
+                    ? { code: 0, stdout: runBaselineDiff.value, stderr: "" }
+                    : (isGit ? gitQueue : scriptQueue).shift();
                 if (!response) {
-                    setImmediate(() => proc.$emit("error", new Error("no response in queue")));
+                    setImmediate(() => {
+                        if (isGit) liveGitProcesses.count--;
+                        proc.$emit("error", new Error("no response in queue"));
+                    });
                     return proc;
                 }
                 setImmediate(() => {
                     if (response.stdout) proc.$emitStdout(response.stdout);
                     if (response.stderr) proc.$emitStderr(response.stderr);
+                    if (isGit && args[0] === "commit" && response.code === 0) {
+                        stagedDiffsAtCommit.push(runBaselineDiff.value);
+                        runBaselineDiff.value = "";
+                    }
+                    if (isGit) liveGitProcesses.count--;
                     proc.$emit("exit", response.code);
                 });
                 return proc;
@@ -281,7 +296,7 @@ function stubContexts() {
         },
         output
     };
-    return { contexts, files, mtimes, rmCalls, written, errors, claudeQueue, codexQueue, promptQueue, scriptQueue, gitQueue, gitSpawns, claudeSpawnedArgs, codexSpawnedArgs, mkdtempCalls, askPick, askCalls };
+    return { contexts, files, mtimes, rmCalls, written, errors, claudeQueue, codexQueue, promptQueue, scriptQueue, gitQueue, gitSpawns, runBaselineDiff, stagedDiffsAtCommit, liveGitProcesses, claudeSpawnedArgs, codexSpawnedArgs, mkdtempCalls, askPick, askCalls };
 }
 
 const PLAN_PATH = "/project/plans/test.md";
@@ -303,6 +318,14 @@ function reviewerNumberFromPrompt(capturedPrompt:string):number {
 function targetErrorLogFromPrompt(capturedPrompt:string):string {
     const reviewerNum = reviewerNumberFromPrompt(capturedPrompt);
     return reviewerNum === 0 ? `${WS_ROOT}/error.log` : reviewerErrorLogPath(reviewerNum);
+}
+type RunBaseline = {
+    stagedDiff:string;
+    excludedPlan:{ path:string; content:string };
+};
+function runBaselineFromReviewerPrompt(prompt:string):RunBaseline {
+    const match = prompt.match(/<run-baseline>\n([\s\S]*?)\n<\/run-baseline>/);
+    return JSON.parse(match?.[1] ?? "") as RunBaseline;
 }
 const DEFAULT_CONFIG:FlandersConfig = { worker: { tool: "claude", model: "", effort: "", fast: false }, reviewers: [{ tool: "claude", model: "", effort: "", fast: false, optional: false }], minimumReviews: 1 };
 const CONFIG_PATH = "/project/.flanders/config.json";
@@ -4379,6 +4402,9 @@ function gatedGitAndClaudeStub(planContent:string) {
         if (command !== "git") {
             return (origScriptSpawn as any)(command, args, options);
         }
+        if (args[0] === "diff") {
+            return (origScriptSpawn as any)(command, args, options);
+        }
         s.gitSpawns.push({ command, args: [...args] });
         gitCount++;
         const mySpawn = gitCount;
@@ -6199,19 +6225,31 @@ test.describe("Implement git preflight", test => {
     test("working tree with only staged changes — preflight passes and the run proceeds to workspace setup", {
         ARRANGE() {
             const s = stubContexts();
+            const stagedDiff = "diff --git a/src/foo.ts b/src/foo.ts\n+startup staged content\n";
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false },
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false }
+                ],
+                minimumReviews: 2
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.runBaselineDiff.value = stagedDiff;
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });               // git --version
             s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });          // rev-parse --is-inside-work-tree
             s.gitQueue.push({ code: 0, stdout: "M  src/foo.ts\n", stderr: "" }); // status: staged-only change (index col set, worktree col is a space)
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });               // ls-files discovery (empty → empty lists)
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "worker" });
-            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            s.claudeQueue.push({ text: "reviewer 1 ok", errorLog: "" });
+            s.claudeQueue.push({ text: "reviewer 2 ok", errorLog: "" });
             // post-worker git add -A, then commit-stage git add + commit after task accepted
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (post-worker staging)
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git add -A (commit stage)
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // git commit
-            return s;
+            return { ...s, stagedDiff };
         },
         async ACT({ contexts }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
@@ -6228,6 +6266,16 @@ test.describe("Implement git preflight", test => {
             },
             "the run proceeds to workspace setup (mkdtemp recorded)"(_code, { mkdtempCalls }) {
                 Assert.ok(mkdtempCalls.length > 0);
+            },
+            "every reviewer receives the same startup staged baseline"(_code, { promptQueue, stagedDiff }) {
+                const baselines = promptQueue
+                    .filter(prompt => prompt.startsWith("You are the adversarial reviewer agent"))
+                    .map(runBaselineFromReviewerPrompt);
+                const expected:RunBaseline = {
+                    stagedDiff,
+                    excludedPlan: { path: PLAN_PATH, content: PLAN_ONE_TASK }
+                };
+                Assert.deepStrictEqual(baselines, [expected, expected]);
             }
         }
     });
@@ -6271,6 +6319,9 @@ test.describe("Implement git preflight", test => {
             },
             "never sets up a workspace (no temporary folder created)"(_code, { mkdtempCalls }) {
                 Assert.strictEqual(mkdtempCalls.length, 0);
+            },
+            "does not capture a baseline before the preflight passes"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.some(spawn => spawn.args[0] === "diff"), false);
             }
         }
     });
@@ -6303,22 +6354,28 @@ test.describe("Implement commit per task", test => {
             await cmd.dispose();
             return code;
         },
-        ASSERT(code, { gitSpawns, files, written }) {
-            Assert.strictEqual(code, 0);
-            const plan = files.get(COMPLETED_PLAN_PATH)!;
-            Assert.ok(plan.includes("[x]"), "plan should be marked done");
-            const plain = stripAnsi(written.join(""));
-            Assert.ok(plain.includes("done"), "snapshot should be emitted");
-            // After preflight (3 git calls) + ls-files discovery (1 call), expect the
-            // post-worker add, the commit-stage add, then commit — in that order.
-            const postPreflight = gitSpawns.slice(4);
-            Assert.strictEqual(postPreflight.length, 3, "should have exactly 3 git calls after preflight+discovery (post-worker add, commit-stage add, commit)");
-            Assert.deepStrictEqual(postPreflight[0]!.args, ["add", "-A"]);
-            Assert.deepStrictEqual(postPreflight[1]!.args, ["add", "-A"]);
-            Assert.strictEqual(postPreflight[2]!.args[0], "commit");
-            Assert.strictEqual(postPreflight[2]!.args[1], "--allow-empty");
-            Assert.strictEqual(postPreflight[2]!.args[2], "-m");
-            Assert.strictEqual(postPreflight[2]!.args[3], "3 3.1 Validate input");
+        ASSERTS: {
+            "the accepted task succeeds"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the accepted task is marked done"(_code, { files }) {
+                Assert.ok(files.get(COMPLETED_PLAN_PATH)!.includes("[x]"), "plan should be marked done");
+            },
+            "the completion snapshot is emitted"(_code, { written }) {
+                Assert.ok(stripAnsi(written.join("")).includes("done"), "snapshot should be emitted");
+            },
+            "exactly the task staging and commit calls follow startup"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.slice(5).length, 3, "should have exactly 3 git calls after preflight+baseline+discovery");
+            },
+            "post-worker staging runs first"(_code, { gitSpawns }) {
+                Assert.deepStrictEqual(gitSpawns[5]!.args, ["add", "-A"]);
+            },
+            "commit-stage staging runs second"(_code, { gitSpawns }) {
+                Assert.deepStrictEqual(gitSpawns[6]!.args, ["add", "-A"]);
+            },
+            "commit runs third with the exact task message"(_code, { gitSpawns }) {
+                Assert.deepStrictEqual(gitSpawns[7]!.args, ["commit", "--allow-empty", "-m", "3 3.1 Validate input"]);
+            }
         }
     });
 
@@ -6564,9 +6621,9 @@ test.describe("Implement post-worker staging", test => {
                 Assert.strictEqual(gitSpawns.filter(g => g.args[0] === "commit").length, 1);
             },
             "a post-worker git add -A runs on every iteration before the build gate"(_code, { gitSpawns }) {
-                // After preflight+discovery (4 git calls): iter1 post-worker add (failed), then iter2's
+                // After preflight+baseline+discovery (5 git calls): iter1 post-worker add (failed), then iter2's
                 // post-worker add, commit-stage add, and commit — three "add" then one "commit".
-                Assert.deepStrictEqual(gitSpawns.slice(4).map(g => g.args[0]), ["add", "add", "add", "commit"]);
+                Assert.deepStrictEqual(gitSpawns.slice(5).map(g => g.args[0]), ["add", "add", "add", "commit"]);
             }
         }
     });
@@ -6586,7 +6643,8 @@ const E2E_TWO_TASK_PLAN = [
 ].join("\n");
 
 // Arranges the git startup preflight (version / rev-parse / clean status) plus the
-// `.spec` discovery's `git ls-files` spawn that runs immediately after the preflight.
+// `.spec` discovery's `git ls-files`; the stub answers the intervening baseline diff
+// from `runBaselineDiff` without consuming this queue.
 // `lsFilesStdout` defaults to empty: an empty-stdout reply yields empty global lists
 // and no follow-up `git check-ignore` spawn, which is the correct arrangement for the
 // many tests that don't exercise the contract/rule lists. Tests that do exercise the
@@ -6598,7 +6656,8 @@ function gitActivationQueue(gitQueue:ScriptResponse[], lsFilesStdout = ""):void 
     gitQueue.push({ code: 0, stdout: lsFilesStdout, stderr: "" });          // ls-files discovery
 }
 
-// Arranges a full git run: the version/rev-parse/status preflight triple plus, for each
+// Arranges a full git run: the version/rev-parse/status preflight triple, the separately
+// stubbed baseline read, plus, for each
 // task the scenario accepts unconditionally in a single worker-success iteration, the
 // three {code:0} git calls that iteration makes — the post-worker `git add -A`, the
 // commit-stage `git add -A`, and the `git commit`.
@@ -6625,6 +6684,140 @@ function extraWorkerAdds(gitQueue:ScriptResponse[], n:number):void {
 }
 
 test.describe("Implement end-to-end git flow", test => {
+    test("template placeholders inside injected task and baseline content remain verbatim", {
+        ARRANGE() {
+            const s = stubContexts();
+            const taskText = [
+                '- [ ]{"it":0,"ot":0,"t":0} Preserve literal <RUN_BASELINE>',
+                "",
+                "  Task literals: <TASK_TEXT> <RULE_LIST> <SPEC_PATH>.",
+                ""
+            ].join("\n");
+            const planContent = `# Plan\n\n${taskText}`;
+            const stagedDiff = "Baseline literals: <TASK_TEXT> <RULE_LIST> <SPEC_PATH>.\n";
+            s.files.set(PLAN_PATH, planContent);
+            s.runBaselineDiff.value = stagedDiff;
+            gitRunQueue(s.gitQueue);
+            s.gitQueue[2] = { code: 0, stdout: "M  src/preexisting.ts\n", stderr: "" };
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            return { ...s, taskText, planContent, stagedDiff };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the run succeeds"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the worker receives the full task text verbatim"(_code, { promptQueue, taskText }) {
+                const workerPrompt = promptQueue.find(prompt => prompt.startsWith("You are the worker agent"));
+                Assert.ok(workerPrompt?.includes(taskText));
+            },
+            "the reviewer receives the full task text verbatim"(_code, { promptQueue, taskText }) {
+                const reviewerPrompt = promptQueue.find(prompt => prompt.startsWith("You are the adversarial reviewer agent"));
+                Assert.ok(reviewerPrompt?.includes(taskText));
+            },
+            "the reviewer receives baseline content without placeholder rewriting"(_code, { promptQueue, planContent, stagedDiff }) {
+                const reviewerPrompt = promptQueue.find(prompt => prompt.startsWith("You are the adversarial reviewer agent"))!;
+                Assert.deepStrictEqual(runBaselineFromReviewerPrompt(reviewerPrompt), {
+                    stagedDiff,
+                    excludedPlan: { path: PLAN_PATH, content: planContent }
+                });
+            }
+        }
+    });
+
+    test("one staged run baseline is injected unchanged into every reviewer across two tasks", {
+        ARRANGE() {
+            const s = stubContexts();
+            const stagedDiff = [
+                "diff --git a/src/preexisting.ts b/src/preexisting.ts",
+                "index 1111111..2222222 100644",
+                "--- a/src/preexisting.ts",
+                "+++ b/src/preexisting.ts",
+                "@@ -1 +1 @@",
+                "-before",
+                "+startup staged content",
+                ""
+            ].join("\n");
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "", effort: "", fast: false },
+                reviewers: [
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false },
+                    { tool: "claude", model: "", effort: "", fast: false, optional: false }
+                ],
+                minimumReviews: 2
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.files.set(PLAN_PATH, E2E_TWO_TASK_PLAN);
+            s.runBaselineDiff.value = stagedDiff;
+            gitRunQueue(s.gitQueue, 2);
+            s.claudeQueue.push({ text: "ok" });
+            s.claudeQueue.push({ text: "parser implemented" });
+            s.claudeQueue.push({ text: "reviewer 1 ok", errorLog: "" });
+            s.claudeQueue.push({ text: "reviewer 2 ok", errorLog: "" });
+            s.claudeQueue.push({ text: "validation added" });
+            s.claudeQueue.push({ text: "reviewer 1 ok", errorLog: "" });
+            s.claudeQueue.push({ text: "reviewer 2 ok", errorLog: "" });
+            return { ...s, stagedDiff };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "the complete two-task run succeeds"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "all four fresh reviewer invocations receive a run baseline"(_code, { promptQueue }) {
+                const reviewerPrompts = promptQueue.filter(prompt => prompt.startsWith("You are the adversarial reviewer agent"));
+                Assert.strictEqual(reviewerPrompts.length, 4);
+            },
+            "every reviewer receives the startup staged diff and original excluded plan"(_code, { promptQueue, stagedDiff }) {
+                const baselines = promptQueue
+                    .filter(prompt => prompt.startsWith("You are the adversarial reviewer agent"))
+                    .map(runBaselineFromReviewerPrompt);
+                const expected:RunBaseline = {
+                    stagedDiff,
+                    excludedPlan: { path: PLAN_PATH, content: E2E_TWO_TASK_PLAN }
+                };
+                Assert.deepStrictEqual(baselines, [expected, expected, expected, expected]);
+            },
+            "task two reviewers receive the same snapshot as task one reviewers"(_code, { promptQueue }) {
+                const baselines = promptQueue
+                    .filter(prompt => prompt.startsWith("You are the adversarial reviewer agent"))
+                    .map(runBaselineFromReviewerPrompt);
+                Assert.deepStrictEqual(baselines.slice(2), baselines.slice(0, 2));
+            },
+            "the baseline is captured exactly once"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.filter(spawn => spawn.args[0] === "diff").length, 1);
+            },
+            "the baseline read is binary-safe and read-only"(_code, { gitSpawns }) {
+                const capture = gitSpawns.find(spawn => spawn.args[0] === "diff");
+                Assert.deepStrictEqual(capture?.args, ["diff", "--cached", "--binary", "--no-ext-diff", "--"]);
+            },
+            "the baseline capture follows status and precedes spec discovery"(_code, { gitSpawns }) {
+                Assert.deepStrictEqual(gitSpawns.slice(0, 5).map(spawn => spawn.args[0]), ["--version", "rev-parse", "status", "diff", "ls-files"]);
+            },
+            "the first accepted task commit captures the startup staged baseline"(_code, { stagedDiffsAtCommit, stagedDiff }) {
+                Assert.strictEqual(stagedDiffsAtCommit[0], stagedDiff);
+            },
+            "the first accepted task leaves none of the startup staged baseline pending"(_code, { stagedDiffsAtCommit, runBaselineDiff, stagedDiff }) {
+                Assert.deepStrictEqual({ committed: stagedDiffsAtCommit, pending: runBaselineDiff.value }, { committed: [stagedDiff, ""], pending: "" });
+            },
+            "the completed command leaves no git child alive"(_code, { liveGitProcesses }) {
+                Assert.strictEqual(liveGitProcesses.count, 0);
+            }
+        }
+    });
+
     test("Scenario A — happy path with git active and two open tasks", {
         ARRANGE() {
             const s = stubContexts();
@@ -6657,22 +6850,34 @@ test.describe("Implement end-to-end git flow", test => {
             await cmd.dispose();
             return code;
         },
-        ASSERT(code, { gitSpawns, files, written }) {
-            Assert.strictEqual(code, 0);
-            const plan = files.get(COMPLETED_PLAN_PATH)!;
-            Assert.ok(plan.includes("[x]") && !plan.includes("[ ]"), "both tasks should be marked done");
-            const postPreflight = gitSpawns.slice(4);
-            Assert.strictEqual(postPreflight.length, 6, "should have exactly 6 git calls after preflight+discovery (post-worker add + commit-stage add + commit per task)");
-            Assert.deepStrictEqual(postPreflight[0]!.args, ["add", "-A"]);
-            Assert.deepStrictEqual(postPreflight[1]!.args, ["add", "-A"]);
-            Assert.strictEqual(postPreflight[2]!.args[0], "commit");
-            Assert.strictEqual(postPreflight[2]!.args[3], "1 Build the parser");
-            Assert.deepStrictEqual(postPreflight[3]!.args, ["add", "-A"]);
-            Assert.deepStrictEqual(postPreflight[4]!.args, ["add", "-A"]);
-            Assert.strictEqual(postPreflight[5]!.args[0], "commit");
-            Assert.strictEqual(postPreflight[5]!.args[3], "2 Add validation");
-            const plain = stripAnsi(written.join(""));
-            Assert.ok(plain.includes(allTasksCompletedPool[0]! + "\n"), "should print the all-tasks-completed pool entry followed by a newline");
+        ASSERTS: {
+            "the two-task scenario succeeds"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "both tasks are marked done"(_code, { files }) {
+                const plan = files.get(COMPLETED_PLAN_PATH)!;
+                Assert.ok(plan.includes("[x]") && !plan.includes("[ ]"), "both tasks should be marked done");
+            },
+            "exactly six task git calls follow startup"(_code, { gitSpawns }) {
+                Assert.strictEqual(gitSpawns.slice(5).length, 6, "should have 3 task git calls per task");
+            },
+            "task one stages twice and commits with its exact message"(_code, { gitSpawns }) {
+                Assert.deepStrictEqual(gitSpawns.slice(5, 8).map(spawn => spawn.args), [
+                    ["add", "-A"],
+                    ["add", "-A"],
+                    ["commit", "--allow-empty", "-m", "1 Build the parser"]
+                ]);
+            },
+            "task two stages twice and commits with its exact message"(_code, { gitSpawns }) {
+                Assert.deepStrictEqual(gitSpawns.slice(8, 11).map(spawn => spawn.args), [
+                    ["add", "-A"],
+                    ["add", "-A"],
+                    ["commit", "--allow-empty", "-m", "2 Add validation"]
+                ]);
+            },
+            "the all-tasks-completed line is emitted"(_code, { written }) {
+                Assert.ok(stripAnsi(written.join("")).includes(allTasksCompletedPool[0]! + "\n"), "should print the all-tasks-completed pool entry followed by a newline");
+            }
         }
     });
 
