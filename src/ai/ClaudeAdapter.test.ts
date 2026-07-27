@@ -1023,7 +1023,7 @@ test.describe("ClaudeAdapter", test => {
         });
     }
 
-    test("a rejection under a 401 status is classified as the login failure, not a rate_limit", {
+    test("rate-limit signal under a 401 status is still classified as a rate_limit event", {
         ARRANGE() {
             return classificationSubject([{
                 type: "result",
@@ -1037,11 +1037,11 @@ test.describe("ClaudeAdapter", test => {
             return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: NEUTRAL_ERROR_MESSAGE }]);
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
         }
     });
 
-    test("a rejection alongside the authentication_failed identifier is classified as the login failure", {
+    test("rate-limit signal alongside the authentication_failed identifier is still classified as a rate_limit event", {
         ARRANGE() {
             return classificationSubject([{
                 type: "result",
@@ -1055,12 +1055,14 @@ test.describe("ClaudeAdapter", test => {
             return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: NEUTRAL_RESULT_TEXT }]);
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 1700000000 * 1000 }]);
         }
     });
 
-    test("a bare 429 alongside the authentication_failed identifier is classified as the login failure", {
+    test("a bare 429 alongside the authentication_failed identifier is still classified as a rate_limit event", {
         ARRANGE() {
+            // The 429 carries no rate_limit_info, so the wait is synthesized: time.now() = 0 and
+            // random() = 0 → the 8-minute lower bound of the window.
             return classificationSubject([{
                 type: "result",
                 is_error: true,
@@ -1073,7 +1075,7 @@ test.describe("ClaudeAdapter", test => {
             return emittedEventsOf(subject);
         },
         ASSERT(result) {
-            Assert.deepStrictEqual(result, [{ type: "error", retryable: false, fatal: true, message: NEUTRAL_RESULT_TEXT }]);
+            Assert.deepStrictEqual(result, [{ type: "rate_limit", waitUntilMs: 8 * 60_000 }]);
         }
     });
 

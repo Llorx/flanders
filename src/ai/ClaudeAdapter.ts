@@ -404,17 +404,6 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
         const errorDetail = typeof parsed.error === "object" ? parsed.error : undefined;
         const message = errorDetail?.message ?? UNKNOWN_TOOL_ERROR_MESSAGE;
 
-        // Claude signals a login failure as the `authentication_failed` identifier standing in place of
-        // the error detail object, or as a 401 — and may carry it with no HTTP status at all, the shape
-        // the ladder below reads as a retryable transport error and would re-invoke against forever.
-        // Standing in place of the detail object, the identifier leaves the turn's human-readable text
-        // in the result's own `result` string. Credentials never come back by waiting, so this outranks
-        // the rate-limit branch below even when the same result reports a limit.
-        if (parsed.error === "authentication_failed" || status === 401) {
-            const loginMessage = errorDetail?.message ?? parsed.result ?? UNKNOWN_TOOL_ERROR_MESSAGE;
-            return { type: "error", retryable: false, fatal: true, message: loginMessage };
-        }
-
         // Claude emits `rate_limit_event` to report where the invocation stands against its usage
         // limits whatever that standing is, so a retained info object is a utilization reading as
         // often as a rejection and never says why this result failed. The result decides; the
@@ -425,6 +414,16 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
                 return { type: "rate_limit", waitUntilMs: resetMs };
             }
             return synthesizeRateLimitEvent(this._contexts.time, this._contexts.random);
+        }
+
+        // Claude signals a login failure as the `authentication_failed` identifier standing in place of
+        // the error detail object, or as a 401 — and may carry it with no HTTP status at all, the shape
+        // the ladder below reads as a retryable transport error and would re-invoke against forever.
+        // Standing in place of the detail object, the identifier leaves the turn's human-readable text
+        // in the result's own `result` string.
+        if (parsed.error === "authentication_failed" || status === 401) {
+            const loginMessage = errorDetail?.message ?? parsed.result ?? UNKNOWN_TOOL_ERROR_MESSAGE;
+            return { type: "error", retryable: false, fatal: true, message: loginMessage };
         }
 
         if (typeof status === "number" && status >= 500) {
