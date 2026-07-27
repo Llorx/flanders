@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import { TASK_LINE } from "../plan/PlanFile";
 import { flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
-import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
+import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, expectedReviewerJudgmentScope, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
 import { hardStopReviewSkillBody, planSkillBody, specSkillBody, workSkillBody } from "./skills";
 import { stripYamlFrontmatter } from "../commands/skillArtifacts";
 
@@ -2637,6 +2637,36 @@ test.describe("skills – workSkillBody", test => {
         }
     });
 
+    test("the embedded reviewer core carries the shared change-set judgment scope once", {
+        ARRANGE() {
+            return { expected: expectedReviewerJudgmentScope("the spec under review") };
+        },
+        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "workSkillBody carries the exact citation-free judgment scope"({ body }, { expected }) {
+                Assert.ok(body.includes(expected), "workSkillBody must carry the shared citation-free judgment scope");
+            },
+            "reviewerMethodologyCore carries the same judgment scope"({ core }, { expected }) {
+                Assert.ok(core.includes(expected), "reviewerMethodologyCore must carry the same judgment scope");
+            },
+            "workSkillBody carries no surface-specific duplicate"({ body }, { expected }) {
+                Assert.strictEqual(body.split(expected).length - 1, 1);
+            },
+            "reviewerMethodologyCore carries the scope once"({ core }, { expected }) {
+                Assert.strictEqual(core.split(expected).length - 1, 1);
+            },
+            "the scope records an obligation with no change-set trigger as untriggered"({ body }) {
+                Assert.ok(body.includes("classify it as untriggered, not violated"), "the reviewer must classify an obligation with no change-set trigger as untriggered");
+            },
+            "the scope enforces a triggered obligation even when its remedy is another file"({ body }) {
+                Assert.ok(body.includes("Enforce triggered obligations even when their remedy requires another file"), "the reviewer must enforce a triggered obligation across files");
+            },
+            "the scope leaves the whole project corpus in reach under conditions 4 and 5"({ body }) {
+                Assert.ok(body.includes("conditions 4 and 5 still cover every project contract, rule, and behavior rule"), "the reviewer must keep every project contract, rule, and behavior rule in reach");
+            }
+        }
+    });
+
     test("the embedded citation-free reviewer core carries the referenced-obligation enumeration paragraph", {
         ARRANGE() {},
         ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
@@ -2648,13 +2678,16 @@ test.describe("skills – workSkillBody", test => {
                 Assert.ok(core.includes(REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH), "reviewerMethodologyCore must carry the referenced-obligation enumeration paragraph verbatim");
             },
             "the paragraph forbids satisfying a multi-obligation contract or rule in general"({ body }) {
-                Assert.ok(body.includes("is never satisfied by confirming the contract or rule \"in general\": each enumerated obligation is its own item with its own confirmation"), "the referenced-obligation paragraph must forbid satisfying a multi-obligation contract or rule in general");
+                Assert.ok(body.includes("Never approve a multi-obligation reference in general: give each obligation its own confirmation or classification"), "the referenced-obligation paragraph must forbid satisfying a multi-obligation contract or rule in general");
             },
-            "the paragraph treats an unapplied or never-enumerated obligation as a violation"({ body }) {
-                Assert.ok(body.includes("an obligation the changes leave unapplied, or that you never enumerated, is a violation"), "the referenced-obligation paragraph must treat an unapplied or never-enumerated obligation as a violation");
+            "the paragraph confirms triggered obligations and classifies the rest under the judgment scope"({ body }) {
+                Assert.ok(body.includes("Confirm each triggered obligation in the changes and classify every other item under the scope above."), "the referenced-obligation paragraph must confirm triggered obligations and classify the rest under the judgment scope");
+            },
+            "the paragraph treats an omitted or unapplied triggered obligation as a violation"({ body }) {
+                Assert.ok(body.includes("treat an omitted or unapplied triggered obligation as a violation"), "the referenced-obligation paragraph must treat an omitted or unapplied triggered obligation as a violation");
             },
             "the paragraph expands an N-obligation reference into N items"({ body }) {
-                Assert.ok(body.includes("A reference whose obligations enumerate N discrete facts expands into N items."), "the referenced-obligation paragraph must expand an N-obligation reference into N items");
+                Assert.ok(body.includes("Expand N discrete obligations into N items."), "the referenced-obligation paragraph must expand an N-obligation reference into N items");
             }
         }
     });
@@ -2750,9 +2783,10 @@ test.describe("skills – workSkillBody", test => {
         }
     });
 
-    test("all four citation-free reviewer-core additions stay citation-free", {
+    test("all five citation-free reviewer-core additions stay citation-free", {
         ARRANGE() {
             return {
+                judgmentScope: expectedReviewerJudgmentScope("the spec under review"),
                 referenced: REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH,
                 commentAdjudication: COMMENT_ADJUDICATION_PARAGRAPH,
                 noOwnStandard: NO_OWN_TEST_STANDARD_SENTENCE,
@@ -2761,6 +2795,12 @@ test.describe("skills – workSkillBody", test => {
         },
         ACT(additions) { return additions; },
         ASSERTS: {
+            "the judgment-scope paragraph names no flanders-internal spec path"({ judgmentScope }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(judgmentScope), false);
+            },
+            "the judgment-scope paragraph contains no .md path at all"({ judgmentScope }) {
+                Assert.strictEqual(judgmentScope.includes(".md"), false);
+            },
             "the referenced-obligation paragraph names no flanders-internal spec path"({ referenced }) {
                 Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(referenced), false);
             },

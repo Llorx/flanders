@@ -1,15 +1,6 @@
-// Independent reproductions of the surface-neutral additions the shared reviewer methodology
-// carries, kept here as the single authoritative source so both `prompts.test.ts` and
-// `skills.test.ts` assert against one literal rather than duplicating it. The literals are
-// reproduced independently of the production string (not imported from `prompts.ts`) so any drift
-// in the shipped wording is caught by an exact-match. Every paragraph addition interpolates no
-// per-surface field, so each renders identically into the implement reviewer prompt
-// (`prompts.reviewer`), the citation-free `reviewerMethodologyCore`, and `workSkillBody`. Content
-// that varies per surface is reproduced as a builder instead: the code-comment discipline (the
-// channel its justification is routed to differs) and the five FAIL conditions (the name of the
-// spec under review and the first condition's wording differ).
-
-export const REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH = "Referenced-obligation enumeration. Before deciding conditions 2, 3, 4, and 5 are met, enumerate the discrete obligations of each contract and rule in scope — every contract and rule the work references, plus every corpus contract, rule, or behavior rule you judge should have applied — as separate items, and confirm each obligation is actively applied in the changes. A contract or rule that pins more than one discrete obligation — for example a required-exclusion list, a set of required surfaces, or several conditions stated in one section — is never satisfied by confirming the contract or rule \"in general\": each enumerated obligation is its own item with its own confirmation, and an obligation the changes leave unapplied, or that you never enumerated, is a violation. A reference whose obligations enumerate N discrete facts expands into N items.";
+// Expected strings stay independent of production; importing the implementation would make
+// exact-match drift tests tautological.
+export const REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH = "Referenced-obligation enumeration. Before deciding conditions 2–5, enumerate separately every obligation of each referenced contract or rule and every other corpus contract, rule, or behavior rule you judge applicable. Confirm each triggered obligation in the changes and classify every other item under the scope above. Never approve a multi-obligation reference in general: give each obligation its own confirmation or classification, and treat an omitted or unapplied triggered obligation as a violation. Expand N discrete obligations into N items.";
 
 export const COMMENT_ADJUDICATION_PARAGRAPH = "Comment adjudication. Judge every comment the changes add or modify. A comment earns its place only by stating what the code cannot show — an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong. One that instead argues the change is correct, cites the obligation or review finding behind it, or narrates what the code used to do is a violation, recorded with its `file:line`. The content a rule of the project requires at that construct is never a violation, and any further content the same comment carries beyond what the rule requires is judged by the same test as any other comment; comments in files the change set does not touch — or that a touched file carried unmodified — are out of scope.";
 
@@ -35,8 +26,12 @@ export function expectedReviewerFailConditions(specRef:string, failCondition1:st
 5. A behavior rule from the behavior-rule list above whose \`.spec/flanders\` scope encloses the files the working-tree changes touch is not honored by the changes, even if ${specRef} did not reference it, is FAIL.`;
 }
 
+export function expectedReviewerJudgmentScope(specRef:string):string {
+    return `Scope of judgment. Identify every violation as grounded in exactly one of two places: an unsatisfied element of ${specRef}, or change-set content that is defective or triggers an unapplied corpus obligation. This limits findings, not corpus reach: conditions 4 and 5 still cover every project contract, rule, and behavior rule, whether ${specRef} references it or not. If the change set does not trigger an obligation and ${specRef} does not commission its triggering code, classify it as untriggered, not violated. Enforce triggered obligations even when their remedy requires another file.`;
+}
+
 export function reviewerFailConditionsBlock(surface:string):string {
     const marker = "a violation of ANY of them is a FAIL:\n\n";
     const start = surface.indexOf(marker) + marker.length;
-    return surface.substring(start, surface.indexOf("\n\nExhaustiveness:", start));
+    return surface.substring(start, surface.indexOf("\n\nScope of judgment.", start));
 }

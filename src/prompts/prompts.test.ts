@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import * as promptsModule from "./prompts";
 import { prompts, reviewerMethodologyCore, linkedReferenceDirective } from "./prompts";
-import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
+import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, expectedReviewerJudgmentScope, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
 
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
 
@@ -1506,6 +1506,67 @@ test.describe("reviewerMethodologyCore", test => {
     });
 });
 
+test.describe("prompts – reviewer – change-set judgment scope", test => {
+    test("each reviewer surface carries its exact shared-methodology rendering once", {
+        ARRANGE() {
+            return {
+                implementScope: expectedReviewerJudgmentScope("the task spec"),
+                citationFreeScope: expectedReviewerJudgmentScope("the spec under review")
+            };
+        },
+        ACT() {
+            return { reviewer: prompts.reviewer, core: reviewerMethodologyCore };
+        },
+        ASSERTS: {
+            "the implement reviewer carries the task-framed rendering"({ reviewer }, { implementScope }) {
+                Assert.ok(reviewer.includes(implementScope));
+            },
+            "the citation-free core carries the spec-framed rendering"({ core }, { citationFreeScope }) {
+                Assert.ok(core.includes(citationFreeScope));
+            },
+            "the implement reviewer carries the rendering once"({ reviewer }, { implementScope }) {
+                Assert.strictEqual(reviewer.split(implementScope).length - 1, 1);
+            },
+            "the citation-free core carries the rendering once"({ core }, { citationFreeScope }) {
+                Assert.strictEqual(core.split(citationFreeScope).length - 1, 1);
+            }
+        }
+    });
+
+    test("both surfaces ground violations without narrowing the corpus or the remedy", {
+        ARRANGE() {},
+        ACT() {
+            return { reviewer: prompts.reviewer, core: reviewerMethodologyCore };
+        },
+        ASSERTS: {
+            "the implement reviewer grounds a violation in an unsatisfied task element or change-set content"({ reviewer }) {
+                Assert.ok(reviewer.includes("an unsatisfied element of the task spec, or change-set content that is defective or triggers an unapplied corpus obligation"));
+            },
+            "the citation-free core grounds a violation in an unsatisfied spec element or change-set content"({ core }) {
+                Assert.ok(core.includes("an unsatisfied element of the spec under review, or change-set content that is defective or triggers an unapplied corpus obligation"));
+            },
+            "the implement reviewer records an untriggered obligation instead of a violation"({ reviewer }) {
+                Assert.ok(reviewer.includes("If the change set does not trigger an obligation and the task spec does not commission its triggering code, classify it as untriggered, not violated."));
+            },
+            "the citation-free core records an untriggered obligation instead of a violation"({ core }) {
+                Assert.ok(core.includes("If the change set does not trigger an obligation and the spec under review does not commission its triggering code, classify it as untriggered, not violated."));
+            },
+            "the implement reviewer keeps every project contract, rule, and behavior rule in reach"({ reviewer }) {
+                Assert.ok(reviewer.includes("conditions 4 and 5 still cover every project contract, rule, and behavior rule, whether the task spec references it or not"));
+            },
+            "the citation-free core keeps every project contract, rule, and behavior rule in reach"({ core }) {
+                Assert.ok(core.includes("conditions 4 and 5 still cover every project contract, rule, and behavior rule, whether the spec under review references it or not"));
+            },
+            "the implement reviewer enforces a triggered obligation across files"({ reviewer }) {
+                Assert.ok(reviewer.includes("Enforce triggered obligations even when their remedy requires another file."));
+            },
+            "the citation-free core enforces a triggered obligation across files"({ core }) {
+                Assert.ok(core.includes("Enforce triggered obligations even when their remedy requires another file."));
+            }
+        }
+    });
+});
+
 test.describe("prompts – reviewer – referenced-obligation enumeration", test => {
     test("the implement reviewer carries the referenced-obligation enumeration paragraph verbatim", {
         ARRANGE() {},
@@ -1528,19 +1589,22 @@ test.describe("prompts – reviewer – referenced-obligation enumeration", test
         ACT() { return prompts.reviewer; },
         ASSERTS: {
             "requires enumerating discrete obligations before deciding conditions 2-5"(reviewer) {
-                Assert.ok(reviewer.includes("Before deciding conditions 2, 3, 4, and 5 are met, enumerate the discrete obligations of each contract and rule in scope"));
+                Assert.ok(reviewer.includes("Before deciding conditions 2–5, enumerate separately every obligation of each referenced contract or rule and every other corpus contract, rule, or behavior rule you judge applicable."));
             },
             "covers referenced contracts and rules plus corpus ones the reviewer judges should apply"(reviewer) {
-                Assert.ok(reviewer.includes("every contract and rule the work references, plus every corpus contract, rule, or behavior rule you judge should have applied — as separate items, and confirm each obligation is actively applied in the changes"));
+                Assert.ok(reviewer.includes("every obligation of each referenced contract or rule and every other corpus contract, rule, or behavior rule you judge applicable"));
+            },
+            "confirms triggered obligations and classifies the rest under the judgment scope"(reviewer) {
+                Assert.ok(reviewer.includes("Confirm each triggered obligation in the changes and classify every other item under the scope above."));
             },
             "forbids satisfying a multi-obligation contract or rule in general"(reviewer) {
-                Assert.ok(reviewer.includes("is never satisfied by confirming the contract or rule \"in general\": each enumerated obligation is its own item with its own confirmation"));
+                Assert.ok(reviewer.includes("Never approve a multi-obligation reference in general: give each obligation its own confirmation or classification"));
             },
-            "treats an unapplied or never-enumerated obligation as a violation"(reviewer) {
-                Assert.ok(reviewer.includes("an obligation the changes leave unapplied, or that you never enumerated, is a violation"));
+            "treats a triggered obligation omitted or left unapplied as a violation"(reviewer) {
+                Assert.ok(reviewer.includes("treat an omitted or unapplied triggered obligation as a violation"));
             },
             "expands an N-obligation reference into N items"(reviewer) {
-                Assert.ok(reviewer.includes("A reference whose obligations enumerate N discrete facts expands into N items."));
+                Assert.ok(reviewer.includes("Expand N discrete obligations into N items."));
             }
         }
     });
@@ -1568,6 +1632,29 @@ test.describe("prompts – reviewer – referenced-obligation enumeration", test
 });
 
 test.describe("prompts – reviewer – every addition appears identically across surfaces and stays citation-free", test => {
+    test("the judgment-scope paragraph differs only by the shared surface substitutions", {
+        ARRANGE() {
+            return {
+                implementScope: expectedReviewerJudgmentScope("the task spec"),
+                citationFreeScope: expectedReviewerJudgmentScope("the spec under review")
+            };
+        },
+        ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
+        ASSERTS: {
+            "the implement reviewer carries the exact task-framed fixture rendering"({ reviewer }, { implementScope }) {
+                Assert.strictEqual(reviewer.includes(implementScope), true);
+            },
+            "the citation-free core carries the exact spec-framed fixture rendering"({ core }, { citationFreeScope }) {
+                Assert.strictEqual(core.includes(citationFreeScope), true);
+            },
+            "substituting the two surface terms makes the renderings byte-equal"(_result, { implementScope, citationFreeScope }) {
+                const normalizedImplementScope = implementScope
+                    .split("the task spec").join("the spec under review");
+                Assert.strictEqual(normalizedImplementScope, citationFreeScope);
+            }
+        }
+    });
+
     test("the referenced-obligation paragraph is surface-neutral — the same literal appears in both reviewer surfaces", {
         ARRANGE() {},
         ACT() { return { reviewer: prompts.reviewer, core: reviewerMethodologyCore }; },
@@ -1632,9 +1719,10 @@ test.describe("prompts – reviewer – every addition appears identically acros
         }
     });
 
-    test("all four additions carry no flanders-internal spec-path citation", {
+    test("all five additions carry no flanders-internal spec-path citation", {
         ARRANGE() {
             return {
+                judgmentScope: expectedReviewerJudgmentScope("the spec under review"),
                 referenced: REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH,
                 commentAdjudication: COMMENT_ADJUDICATION_PARAGRAPH,
                 noOwnStandard: NO_OWN_TEST_STANDARD_SENTENCE,
@@ -1643,6 +1731,12 @@ test.describe("prompts – reviewer – every addition appears identically acros
         },
         ACT(additions) { return additions; },
         ASSERTS: {
+            "the judgment-scope paragraph matches no internal spec-path citation"({ judgmentScope }) {
+                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(judgmentScope), false);
+            },
+            "the judgment-scope paragraph contains no .md path at all"({ judgmentScope }) {
+                Assert.strictEqual(judgmentScope.includes(".md"), false);
+            },
             "the referenced-obligation paragraph matches no internal spec-path citation"({ referenced }) {
                 Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(referenced), false);
             },

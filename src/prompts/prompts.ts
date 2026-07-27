@@ -53,6 +53,7 @@ export function codeCommentEconomy(channel:string):string {
 export interface ReviewerMethodologySurface {
     changeSetIntro: string;
     specRef: string;
+    scopeSpecRef: string;
     ownerChanges: string;
     ownerProducedNoDiff: string;
     critRef: string;
@@ -99,13 +100,15 @@ ${s.readOnlyParagraph}`;
 4. A contract or rule from the global lists above that you determine should have been applied but was not, even if not referenced by ${s.specRef}, is FAIL.
 5. A behavior rule from the behavior-rule list above whose \`.spec/flanders\` scope encloses the files the working-tree changes touch is not honored by the changes, even if ${s.specRef} did not reference it, is FAIL.
 
+Scope of judgment. Identify every violation as grounded in exactly one of two places: an unsatisfied element of ${s.scopeSpecRef}, or change-set content that is defective or triggers an unapplied corpus obligation. This limits findings, not corpus reach: conditions 4 and 5 still cover every project contract, rule, and behavior rule, whether ${s.scopeSpecRef} references it or not. If the change set does not trigger an obligation and ${s.scopeSpecRef} does not commission its triggering code, classify it as untriggered, not violated. Enforce triggered obligations even when their remedy requires another file.
+
 Exhaustiveness: do not stop at the first violation. Run every verification you are required to run and every additional check your judgment deems applicable, even after one of them has already produced a FAIL. The five conditions above and the ${s.critProtocolName} are executed in full on every invocation; encountering a violation in one of them does not exempt you from completing the rest. The goal is that a single review produces the complete list of fixes ${s.nextWorker} needs to apply.
 
 Pattern-based violations require occurrence enumeration. When a violation you find is an instance of a pattern (e.g., "this catch block silently swallows the error", "this function lacks the input validation other similar functions perform", "this code path writes directly to stdout instead of using the injected logger", "this constant is duplicated across files"), do not stop at the first cited location. Grep the affected file — and every other file in the same module or test suite where the same pattern could plausibly recur — for every occurrence of the same violation. Enumerate ALL of them in the FAIL message, each as its own independently-actionable entry with its file:line. A FAIL message that cites only a subset of a pattern's occurrences forces the next iteration to rediscover the rest, which directly violates the exhaustiveness contract above.
 
 Comment adjudication. Judge every comment the changes add or modify. A comment earns its place only by stating what the code cannot show — an external constraint, an invariant the code cannot enforce, or a consequence a competent reader of the code alone would get wrong. One that instead argues the change is correct, cites the obligation or review finding behind it, or narrates what the code used to do is a violation, recorded with its \`file:line\`. The content a rule of the project requires at that construct is never a violation, and any further content the same comment carries beyond what the rule requires is judged by the same test as any other comment; comments in files the change set does not touch — or that a touched file carried unmodified — are out of scope.
 
-Referenced-obligation enumeration. Before deciding conditions 2, 3, 4, and 5 are met, enumerate the discrete obligations of each contract and rule in scope — every contract and rule the work references, plus every corpus contract, rule, or behavior rule you judge should have applied — as separate items, and confirm each obligation is actively applied in the changes. A contract or rule that pins more than one discrete obligation — for example a required-exclusion list, a set of required surfaces, or several conditions stated in one section — is never satisfied by confirming the contract or rule "in general": each enumerated obligation is its own item with its own confirmation, and an obligation the changes leave unapplied, or that you never enumerated, is a violation. A reference whose obligations enumerate N discrete facts expands into N items.
+Referenced-obligation enumeration. Before deciding conditions 2–5, enumerate separately every obligation of each referenced contract or rule and every other corpus contract, rule, or behavior rule you judge applicable. Confirm each triggered obligation in the changes and classify every other item under the scope above. Never approve a multi-obligation reference in general: give each obligation its own confirmation or classification, and treat an omitted or unapplied triggered obligation as a violation. Expand N discrete obligations into N items.
 
 ${s.critProtocolHeading} (mandatory before deciding PASS on condition 1):
 
@@ -155,6 +158,7 @@ Your streamed output — the text you print during the review — has no prescri
 const implementReviewerSurface: ReviewerMethodologySurface = {
     changeSetIntro: "the worker's complete change set from git, not from the task description alone",
     specRef: "the task",
+    scopeSpecRef: "the task spec",
     ownerChanges: "the worker's uncommitted changes",
     ownerProducedNoDiff: "the worker produced no diff",
     critRef: "acceptance criterion",
@@ -180,6 +184,7 @@ const implementReviewerSurface: ReviewerMethodologySurface = {
 const citationFreeReviewerSurface: ReviewerMethodologySurface = {
     changeSetIntro: "the complete change set under review from git, not from the spec under review alone",
     specRef: "the spec under review",
+    scopeSpecRef: "the spec under review",
     ownerChanges: "the changes under review",
     ownerProducedNoDiff: "no diff was produced",
     critRef: "spec element",
