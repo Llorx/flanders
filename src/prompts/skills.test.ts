@@ -650,7 +650,11 @@ Every message you address to the user during the run — your clarifying questio
             },
             "makes the host inline the verbatim text of the five check categories"(body) {
                 const inputsSection = validatorInputsSection(body);
-                Assert.ok(inputsSection.includes("- The verbatim text of the five check categories below. The host MUST inline these categories in the validator's prompt"), "Validator inputs must make the host inline the verbatim text of the five check categories — the carrier for every protocol stated inside them");
+                Assert.ok(inputsSection.includes("- The verbatim text of the five check categories below, including their per-criterion, per-reference, joint-satisfiability, per-task trigger-completeness, and per-task granularity protocols. The host MUST inline this text in the validator's prompt"), "Validator inputs must make the host inline the verbatim text of the five check categories — the carrier for every protocol stated inside them");
+            },
+            "includes trigger completeness in the protocols inlined verbatim"(body) {
+                const inputsSection = validatorInputsSection(body);
+                Assert.ok(inputsSection.includes("including their per-criterion, per-reference, joint-satisfiability, per-task trigger-completeness, and per-task granularity protocols"), "Validator inputs must include trigger completeness among the protocols inlined verbatim");
             }
         }
     });
@@ -1215,6 +1219,36 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("plan content rules cut every leaf task at trigger completeness", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "requires every leaf task to deliver every obligation its own work triggers"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("Every leaf task delivers complete every obligation its own work triggers"), "the Plan content rules list must require every leaf task to deliver every obligation its work triggers");
+            },
+            "keeps each trigger and its full remedy in the same task across files or layers"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("keep each trigger and its full remedy in the same task, however many files or layers the remedy spans"), "the Plan content rules list must keep each trigger and its full remedy in the same task");
+            },
+            "widens the task to carry a missing remedy or narrows it to remove the trigger"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("widen it to carry the remedy or narrow it to remove the trigger"), "the Plan content rules list must repair an incomplete draft by widening it for the remedy or narrowing it away from the trigger");
+            },
+            "never persists a task whose trigger precedes its remedy"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("never persist a task whose trigger remains while a later task delivers its remedy"), "the Plan content rules list must never persist a trigger/remedy split");
+            },
+            "leaves work whose obligations the task does not trigger to another task"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("Work whose obligations the task does not trigger belongs in another task"), "the Plan content rules list must not bundle work whose obligations the task does not trigger");
+            },
+            "repeats the completeness obligation in validator category 4"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("Every leaf task delivers complete every obligation its own work triggers"), "category 4 must carry the same trigger-completeness obligation");
+            }
+        }
+    });
+
     test("validator inputs state the validator reads the source and audits each task against its baseline", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
@@ -1443,10 +1477,65 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("validator category 4 inlines the per-task trigger-completeness protocol", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "renders trigger completeness for each leaf task before its verdict"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.includes("For each leaf task, produce before its verdict"), "category 4 must render the trigger-completeness records for every leaf task before its verdict");
+            },
+            "enumerates each triggered obligation from every canonical reference in scope"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.includes("(1) the obligations its code triggers, enumerated one by one from all canonical references in scope, not only the references the task links"), "category 4 must enumerate triggered obligations from all in-scope canonical references");
+            },
+            "records linked obligations that the task does not trigger as untriggered"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.includes("record a linked but untriggered obligation as untriggered"), "category 4 must distinguish linked obligations the task does not trigger");
+            },
+            "locates every remedy in the task that delivers it"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.includes("(2) for each triggered obligation, the task where its remedy lands — the task under audit or a named later task"), "category 4 must locate each triggered obligation's remedy in a named task");
+            },
+            "quotes a later task's statement when that task carries the remedy"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.includes("quoting the later task's carrying statement"), "category 4 must quote the later task statement that carries a remedy");
+            },
+            "requires a single-branch complete-or-FAIL verdict"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.includes("(3) one single-branch verdict — complete or FAIL"), "category 4 must require a single-branch trigger-completeness verdict");
+            },
+            "FAILs a remedy delivered outside the task under audit with all three identities"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.includes("Any remedy in another task is FAIL, naming the obligation, triggering task, and remedy task"), "category 4 must FAIL an external remedy and identify the obligation and both tasks");
+            },
+            "does not accept an unresolved remedy location as a verdict"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.includes("A conditional location such as \"this task or the next\" is not a verdict: resolve where the plan puts the remedy and judge that alone"), "category 4 must resolve a remedy's location rather than leaving it open");
+            },
+            "leaves category 4 incomplete when any record or verdict is missing"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.includes("A task missing any record or its trigger-completeness verdict is unaudited and leaves category 4 incomplete"), "category 4 must remain incomplete while any leaf task lacks a trigger-completeness record or verdict");
+            },
+            "does not let an aggregate summary stand in for per-task audits"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.includes("an aggregate summary leaves every task it covers unaudited"), "category 4 must reject aggregate trigger-completeness summaries");
+            }
+        }
+    });
+
     test("validator category 4 renders a per-task granularity verdict", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
         ASSERTS: {
+            "makes completeness the drafting floor above which doubt triggers subdivision"(body) {
+                const planContentRules = body.slice(body.indexOf("### Plan content rules"), body.indexOf("## Post-write verification"));
+                Assert.ok(planContentRules.includes("Completeness is the floor: a task whose size is what delivering its triggered obligations whole requires is sane, not too broad, and is never subdivided below that complete unit. Above that floor, when in doubt, subdivide"), "the Plan content rules list must make completeness the floor and subdivide only above it");
+            },
+            "judges a task whose size completeness requires as sane rather than too broad"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.includes("Trigger completeness is the floor: a task whose size is what delivering its triggered obligations whole requires is sane, not too broad"), "category 4 must judge a task whose size completeness requires as sane rather than too broad");
+            },
             "renders one verdict line per leaf task, never in aggregate, with its grounding reason"(body) {
                 const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("Granularity is rendered task by task, never in aggregate: for every leaf task the validator produces one verdict line — sane, too broad, or too narrow — with the reason that grounds it"), "category 4 must render one granularity verdict line per leaf task, never in aggregate, with the reason that grounds it");
@@ -1454,6 +1543,10 @@ Every message you address to the user during the run — your clarifying questio
             "grounds a too-broad verdict in the distinct kinds of work bundled"(body) {
                 const category4 = planValidatorCategory4(body);
                 Assert.ok(category4.includes("A too-broad verdict names the distinct kinds of work the task bundles that would each need their own AI invocation"), "category 4 must ground a too-broad verdict in the distinct kinds of work the task bundles that each need their own AI invocation");
+            },
+            "forbids a too-broad verdict from splitting a trigger from its remedy"(body) {
+                const category4 = planValidatorCategory4(body);
+                Assert.ok(category4.includes("holds only when they can be separated without splitting a trigger from its remedy"), "category 4 must forbid a too-broad verdict that would split a trigger from its remedy");
             },
             "grounds a too-narrow verdict in the artificial fragmentation created"(body) {
                 const category4 = planValidatorCategory4(body);
