@@ -1886,6 +1886,37 @@ test.describe("skills – specSkillBody", test => {
         }
     });
 
+    test("obliges the layout summary to name the committed behavior the new text puts in violation", {
+        ARRANGE() {},
+        ACT() { return specSkillBody; },
+        ASSERTS: {
+            "reports, per changed obligation, whether committed behavior is left in violation"(body) {
+                const draftingSection = sectionBetween(body, "Drafting phase", "Final validation");
+                Assert.ok(draftingSection.includes("whether the new text leaves behavior the project has already committed in violation"), "the layout summary must report whether committed behavior is left in violation");
+            },
+            "names what the new text puts in violation"(body) {
+                const draftingSection = sectionBetween(body, "Drafting phase", "Final validation");
+                Assert.ok(draftingSection.includes("the code path, the tests, or the corpus obligation the new text now contradicts"), "the layout summary must name what it puts in violation");
+            },
+            "establishes it by comparing against the current text and checking code and tests"(body) {
+                const draftingSection = sectionBetween(body, "Drafting phase", "Final validation");
+                Assert.ok(draftingSection.includes("checking whether the project's code and tests implement the current requirement"), "the drafter must check the project's code and tests against the current requirement");
+            },
+            "scopes that check to the obligations the run changes"(body) {
+                const draftingSection = sectionBetween(body, "Drafting phase", "Final validation");
+                Assert.ok(draftingSection.includes("scope that check to the obligations the run changes, not the whole project"), "the check must be scoped to the changed obligations");
+            },
+            "reports a wording-only change as such"(body) {
+                const draftingSection = sectionBetween(body, "Drafting phase", "Final validation");
+                Assert.ok(draftingSection.includes("A change that alters only wording is reported as such"), "a wording-only change must be reported as such");
+            },
+            "forbids resolving such a conflict silently"(body) {
+                const draftingSection = sectionBetween(body, "Drafting phase", "Final validation");
+                Assert.ok(draftingSection.includes("Never resolve such a conflict silently"), "the drafter must not resolve the conflict silently instead of naming it");
+            }
+        }
+    });
+
     test("carries the active no-historical-content prohibition in drafting guidance", {
         ARRANGE() {},
         ACT() { return specSkillBody; },

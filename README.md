@@ -226,7 +226,7 @@ From that one request it writes, for example:
 - a **colors contract** under `.spec/contracts/` — the operation buttons are teal, the result panel white, and the background slate;
 - a **frameworks rule** under `.spec/rules/` — the UI is built with React bundled by Vite, and no other UI framework is introduced.
 
-The skill shows you the planned layout first and writes the files once you approve.
+The skill shows you the planned layout first and writes the files once you approve. That preview also tells you, for each obligation it is changing, whether the new wording leaves behavior your project already committed in violation — and names what it puts there — so a rewrite never slips past you as a change of behavior.
 
 3. **Derive the plan** with `/flanders-plan` — one ordered, specification-aware plan under `plans/`, each task linked back to the contracts and rules it satisfies:
 

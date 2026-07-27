@@ -85,6 +85,27 @@ A concrete sample mannerism is reliably copied verbatim and crowds out the bread
 - The `/flanders-spec` skill body omits the active instruction to withhold voice examples when authoring a spec about the voice.
 - A run removes, trims, or rewrites the pinned variant strings of [src/.spec/rules/flanders-voice-cli-variants.md](/src/.spec/rules/flanders-voice-cli-variants.md) on the mistaken grounds that they are examples, when they are required normative output rather than illustrations.
 
+## The layout summary names the committed behavior the new text puts in violation
+
+The `specSkillBody` prompt obliges the drafting-phase layout summary to state, for every obligation the run changes, whether the new text leaves behavior the project has already committed in violation, and to name that behavior. A spec edit that reads as a restatement can silently invert what the code and its tests were built to do, and the layout summary is the only point at which the user can tell the two apart before the text is persisted and the code is dragged after it.
+
+### Who this applies to
+
+- **Subject:** the `specSkillBody` prompt text, for the drafting-phase layout summary it defines.
+- **Not subject:** `/flanders-plan` and `/flanders-work`, which do not author spec files, and a `/flanders-spec` run whose obligations are all new — one that adds an obligation nothing in the corpus previously stated leaves no committed behavior in violation and reports none.
+
+### What the summary states
+
+- For each obligation the run changes, whether the new text puts already-committed behavior in violation, and when it does, which behavior: the code path, the tests, or the corpus obligation that the new text now contradicts.
+- The drafter establishes that by comparing the new text against the obligation's current text and, where the two differ in what they require, checking whether the project's code and tests implement the current requirement. The check is scoped to the obligations the run changes; it is not an audit of the whole project.
+- A change that alters only wording — the same requirement said differently — is reported as such, so the distinction the summary draws is between a change of wording and a change of behavior rather than between a large edit and a small one.
+
+### Failure signals
+
+- The layout summary lists the files and their obligations and says nothing about whether committed behavior is left in violation, so the user approves a behavioral change believing it a rewrite.
+- The drafter notices that the new text contradicts existing code or tests and resolves it silently — narrowing the text, or planning to change the code — instead of naming it in the summary and letting the user decide.
+- The drafter reports a violation in the abstract ("some tests may need updating") without naming the behavior or the tests the new text contradicts.
+
 ## A term rename sweeps the whole corpus by token, not a curated subset
 
 When a `/flanders-spec` run renames, relocates, or removes a term that can recur in spec files beyond the ones it is editing — a folder name, a path segment, a flag, an identifier, a fixed string, or a namespace convention — the skill establishes the full set of files to touch by searching the entire corpus for the old term and triaging every occurrence individually. It does not curate a subset of "relevant" files by judgment and assume that subset is complete; coverage is driven by the token, not by which files the drafter believes are central.
