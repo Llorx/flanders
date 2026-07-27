@@ -8,7 +8,7 @@ import type { ToolAdapter, ToolName, ToolTokenUsage } from "../ai/ToolAdapter";
 import type { FlandersConfig, FlandersRole } from "../workspace/FlandersConfig";
 import { read as readConfig } from "../workspace/FlandersConfig";
 import { isNonEmptyFile, joinPath, listFilesRecursive } from "../system/fsUtils";
-import { isGitAvailable, isInsideWorkTree, countUnstagedChangesExcept, readStagedDiff, addAll, commit } from "../system/Git";
+import { isGitAvailable, isInsideWorkTree, inspectPreflightChanges, readStagedDiff, addAll, commit } from "../system/Git";
 import { discoverSpecs } from "../workspace/SpecDiscovery";
 import { PlanFile, PlanTask, buildSpecFileContent } from "../plan/PlanFile";
 import { Placeholders, linkedReferenceDirective, prompts } from "../prompts/prompts";
@@ -291,9 +291,17 @@ export class Implement {
                 this._finalizeBlock("Failed");
                 return 1;
             }
-            const pending = await countUnstagedChangesExcept(this._contexts.script, this._contexts.time, this._options.projectRoot, planPath);
-            if (pending > 0) {
-                this._buffered.writeError("Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n");
+            const preflight = await inspectPreflightChanges(this._contexts.script, this._contexts.time, this._options.projectRoot, planPath);
+            if (preflight.uncommittedSpecPaths.length > 0 || preflight.unstagedOutsideSpec > 0) {
+                if (preflight.uncommittedSpecPaths.length > 0) {
+                    this._buffered.writeError("Spec files have uncommitted changes. Please commit the spec before re-running:\n");
+                    for (const specPath of preflight.uncommittedSpecPaths) {
+                        this._buffered.writeError(`  ${specPath}\n`);
+                    }
+                }
+                if (preflight.unstagedOutsideSpec > 0) {
+                    this._buffered.writeError("Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n");
+                }
                 this._finalizeBlock("Failed");
                 return 1;
             }

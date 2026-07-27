@@ -4,7 +4,7 @@ import test, { monad } from "arrange-act-assert";
 
 import * as path from "path";
 
-import { isGitAvailable, isInsideWorkTree, countUnstagedChangesExcept, readStagedDiff, addAll, commit, listNonIgnoredFiles, listIgnoredPaths } from "./Git";
+import { isGitAvailable, isInsideWorkTree, inspectPreflightChanges, readStagedDiff, addAll, commit, listNonIgnoredFiles, listIgnoredPaths } from "./Git";
 import type { OutputContext, ScriptContext, SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
 
 type FakeProcess = SpawnedProcess & {
@@ -302,8 +302,25 @@ test.describe("isInsideWorkTree", test => {
 
 const CWD = path.resolve("/project");
 
-// Builds a ScriptContext whose `git status` spawn emits the given porcelain stdout and exits 0.
-function statusScript(stdout:string):ScriptContext {
+// Renders readable porcelain lines as the NUL-separated records `git status -z` emits: no trailing
+// newlines, and a rename or copy in either status column spelled as its destination record followed
+// by its origin record.
+function zRecords(...lines:string[]):string {
+    let out = "";
+    for (const line of lines) {
+        const carriesOrigin = [line[0], line[1]].some(status => status === "R" || status === "C");
+        const arrowIdx = carriesOrigin ? line.indexOf(" -> ") : -1;
+        if (arrowIdx === -1) {
+            out += `${line}\0`;
+        } else {
+            out += `${line.slice(0, 3)}${line.slice(arrowIdx + 4)}\0${line.slice(3, arrowIdx)}\0`;
+        }
+    }
+    return out;
+}
+
+// Builds a ScriptContext whose `git status` spawn emits the given stdout verbatim and exits 0.
+function rawStatusScript(stdout:string):ScriptContext {
     return {
         spawn() {
             const proc = fakeProcess();
@@ -316,266 +333,154 @@ function statusScript(stdout:string):ScriptContext {
     };
 }
 
-test.describe("countUnstagedChangesExcept", test => {
+// Builds a ScriptContext whose `git status` spawn emits the given porcelain lines as `-z` records.
+function statusScript(...lines:string[]):ScriptContext {
+    return rawStatusScript(zRecords(...lines));
+}
+
+test.describe("inspectPreflightChanges", test => {
     test("returns 0 with empty stdout", {
         ARRANGE() {
-            const script:ScriptContext = {
-                spawn() {
-                    const proc = fakeProcess();
-                    setImmediate(() => proc.$emit("exit", 0));
-                    return proc;
-                }
-            };
-            return { script, time: stubTime() };
+            return { script: statusScript(), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 0);
+            Assert.strictEqual(result.unstagedOutsideSpec, 0);
         }
     });
 
     test("returns 0 when the only entry matches excludePath", {
         ARRANGE() {
-            const script:ScriptContext = {
-                spawn() {
-                    const proc = fakeProcess();
-                    setImmediate(() => {
-                        proc.$emitStdout(" M plans/plan.md\n");
-                        proc.$emit("exit", 0);
-                    });
-                    return proc;
-                }
-            };
-            return { script, time: stubTime() };
+            return { script: statusScript(" M plans/plan.md"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 0);
+            Assert.strictEqual(result.unstagedOutsideSpec, 0);
         }
     });
 
     test("returns N for entries not matching excludePath", {
         ARRANGE() {
-            const script:ScriptContext = {
-                spawn() {
-                    const proc = fakeProcess();
-                    setImmediate(() => {
-                        proc.$emitStdout(" M plans/plan.md\n M src/foo.ts\n?? src/bar.ts\n");
-                        proc.$emit("exit", 0);
-                    });
-                    return proc;
-                }
-            };
-            return { script, time: stubTime() };
+            return { script: statusScript(" M plans/plan.md", " M src/foo.ts", "?? src/bar.ts"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 2);
+            Assert.strictEqual(result.unstagedOutsideSpec, 2);
         }
     });
 
     test("rename entry with newpath matching excludePath does not count", {
         ARRANGE() {
-            const script:ScriptContext = {
-                spawn() {
-                    const proc = fakeProcess();
-                    setImmediate(() => {
-                        proc.$emitStdout("RM old/plan.md -> plans/plan.md\n");
-                        proc.$emit("exit", 0);
-                    });
-                    return proc;
-                }
-            };
-            return { script, time: stubTime() };
+            return { script: statusScript("RM old/plan.md -> plans/plan.md"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 0);
+            Assert.strictEqual(result.unstagedOutsideSpec, 0);
         }
     });
 
     test("untracked file entry matching excludePath does not count", {
         ARRANGE() {
-            const script:ScriptContext = {
-                spawn() {
-                    const proc = fakeProcess();
-                    setImmediate(() => {
-                        proc.$emitStdout("?? plans/plan.md\n");
-                        proc.$emit("exit", 0);
-                    });
-                    return proc;
-                }
-            };
-            return { script, time: stubTime() };
+            return { script: statusScript("?? plans/plan.md"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 0);
+            Assert.strictEqual(result.unstagedOutsideSpec, 0);
         }
     });
 
     test("untracked files in a fresh dir count siblings but exclude the plan", {
         ARRANGE() {
-            const script:ScriptContext = {
-                spawn() {
-                    const proc = fakeProcess();
-                    setImmediate(() => {
-                        proc.$emitStdout("?? plans/plan.md\n?? plans/other.md\n?? plans/sub/extra.md\n");
-                        proc.$emit("exit", 0);
-                    });
-                    return proc;
-                }
-            };
-            return { script, time: stubTime() };
+            return { script: statusScript("?? plans/plan.md", "?? plans/other.md", "?? plans/sub/extra.md"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 2);
+            Assert.strictEqual(result.unstagedOutsideSpec, 2);
         }
     });
 
     test("excludePath with leading ./ still matches forward-slash entry", {
         ARRANGE() {
-            const script:ScriptContext = {
-                spawn() {
-                    const proc = fakeProcess();
-                    setImmediate(() => {
-                        proc.$emitStdout("?? plans/plan.md\n");
-                        proc.$emit("exit", 0);
-                    });
-                    return proc;
-                }
-            };
-            return { script, time: stubTime() };
+            return { script: statusScript("?? plans/plan.md"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "./plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "./plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 0);
+            Assert.strictEqual(result.unstagedOutsideSpec, 0);
         }
     });
 
     test("absolute excludePath still matches forward-slash entry", {
         ARRANGE() {
-            const script:ScriptContext = {
-                spawn() {
-                    const proc = fakeProcess();
-                    setImmediate(() => {
-                        proc.$emitStdout("?? plans/plan.md\n");
-                        proc.$emit("exit", 0);
-                    });
-                    return proc;
-                }
-            };
-            return { script, time: stubTime() };
+            return { script: statusScript("?? plans/plan.md"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, CWD + "/plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, CWD + "/plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 0);
+            Assert.strictEqual(result.unstagedOutsideSpec, 0);
         }
     });
 
     test("excludePath with redundant segments still matches forward-slash entry", {
         ARRANGE() {
-            const script:ScriptContext = {
-                spawn() {
-                    const proc = fakeProcess();
-                    setImmediate(() => {
-                        proc.$emitStdout("?? plans/plan.md\n");
-                        proc.$emit("exit", 0);
-                    });
-                    return proc;
-                }
-            };
-            return { script, time: stubTime() };
+            return { script: statusScript("?? plans/plan.md"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/sub/../plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/sub/../plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 0);
+            Assert.strictEqual(result.unstagedOutsideSpec, 0);
         }
     });
 
     if (process.platform === "win32") {
         test("Windows: excludePath with backslashes matches forward-slash entry", {
             ARRANGE() {
-                const script:ScriptContext = {
-                    spawn() {
-                        const proc = fakeProcess();
-                        setImmediate(() => {
-                            proc.$emitStdout("?? plans/plan.md\n");
-                            proc.$emit("exit", 0);
-                        });
-                        return proc;
-                    }
-                };
-                return { script, time: stubTime() };
+                return { script: statusScript("?? plans/plan.md"), time: stubTime() };
             },
             async ACT({ script, time }) {
-                return await countUnstagedChangesExcept(script, time, CWD, "plans\\plan.md");
+                return await inspectPreflightChanges(script, time, CWD, "plans\\plan.md");
             },
             ASSERT(result) {
-                Assert.strictEqual(result, 0);
+                Assert.strictEqual(result.unstagedOutsideSpec, 0);
             }
         });
 
         test("Windows: excludePath with leading .\\ and backslashes matches forward-slash entry", {
             ARRANGE() {
-                const script:ScriptContext = {
-                    spawn() {
-                        const proc = fakeProcess();
-                        setImmediate(() => {
-                            proc.$emitStdout("?? plans/plan.md\n");
-                            proc.$emit("exit", 0);
-                        });
-                        return proc;
-                    }
-                };
-                return { script, time: stubTime() };
+                return { script: statusScript("?? plans/plan.md"), time: stubTime() };
             },
             async ACT({ script, time }) {
-                return await countUnstagedChangesExcept(script, time, CWD, ".\\plans\\plan.md");
+                return await inspectPreflightChanges(script, time, CWD, ".\\plans\\plan.md");
             },
             ASSERT(result) {
-                Assert.strictEqual(result, 0);
+                Assert.strictEqual(result.unstagedOutsideSpec, 0);
             }
         });
 
         test("Windows: excludePath with mixed slashes matches forward-slash entry", {
             ARRANGE() {
-                const script:ScriptContext = {
-                    spawn() {
-                        const proc = fakeProcess();
-                        setImmediate(() => {
-                            proc.$emitStdout("?? plans/plan.md\n");
-                            proc.$emit("exit", 0);
-                        });
-                        return proc;
-                    }
-                };
-                return { script, time: stubTime() };
+                return { script: statusScript("?? plans/plan.md"), time: stubTime() };
             },
             async ACT({ script, time }) {
-                return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+                return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
             },
             ASSERT(result) {
-                Assert.strictEqual(result, 0);
+                Assert.strictEqual(result.unstagedOutsideSpec, 0);
             }
         });
     }
@@ -597,7 +502,7 @@ test.describe("countUnstagedChangesExcept", test => {
         async ACT({ script, time }) {
             let caught:Error|null = null;
             try {
-                await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+                await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
             } catch (e) {
                 caught = e as Error;
             }
@@ -609,7 +514,7 @@ test.describe("countUnstagedChangesExcept", test => {
         }
     });
 
-    test("spawns git status --porcelain=v1 --untracked-files=all with cwd", {
+    test("spawns git status --porcelain=v1 -z --untracked-files=all with cwd", {
         ARRANGE() {
             let captured:{ command:string; args:readonly string[]; cwd?:string }|null = null;
             const script:ScriptContext = {
@@ -623,14 +528,14 @@ test.describe("countUnstagedChangesExcept", test => {
             return { script, time: stubTime(), captured: () => captured };
         },
         async ACT({ script, time }) {
-            await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERTS: {
             "command is git"(_result, { captured }) {
                 Assert.strictEqual(captured()!.command, "git");
             },
-            "args are status --porcelain=v1 --untracked-files=all"(_result, { captured }) {
-                Assert.deepStrictEqual(captured()!.args, ["status", "--porcelain=v1", "--untracked-files=all"]);
+            "args are status --porcelain=v1 -z --untracked-files=all"(_result, { captured }) {
+                Assert.deepStrictEqual(captured()!.args, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
             },
             "cwd is the project directory"(_result, { captured }) {
                 Assert.strictEqual(captured()!.cwd, CWD);
@@ -652,7 +557,7 @@ test.describe("countUnstagedChangesExcept", test => {
         async ACT({ script, time }) {
             let caught:Error|null = null;
             try {
-                await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+                await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
             } catch (e) {
                 caught = e as Error;
             }
@@ -682,7 +587,7 @@ test.describe("countUnstagedChangesExcept", test => {
         async ACT({ script, time }) {
             let caught:Error|null = null;
             try {
-                await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+                await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
             } catch (e) {
                 caught = e as Error;
             }
@@ -698,119 +603,106 @@ test.describe("countUnstagedChangesExcept", test => {
         }
     });
 
-    test("rename entry without arrow uses rawPath as entryPath", {
+    test("a rename record truncated before its origin record counts only its own path", {
         ARRANGE() {
-            const script:ScriptContext = {
-                spawn() {
-                    const proc = fakeProcess();
-                    setImmediate(() => {
-                        proc.$emitStdout("RM some-renamed-file.ts\n");
-                        proc.$emit("exit", 0);
-                    });
-                    return proc;
-                }
-            };
-            return { script, time: stubTime() };
+            // Truncated stdout: the rename record arrives with no trailing NUL and therefore no
+            // origin record behind it.
+            return { script: rawStatusScript("RM some-renamed-file.ts"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
-        ASSERT(result) {
-            Assert.strictEqual(result, 1);
+        ASSERTS: {
+            "the surviving path still counts as an unstaged change"(result) {
+                Assert.strictEqual(result.unstagedOutsideSpec, 1);
+            },
+            "no spec path is reported"(result) {
+                Assert.deepStrictEqual(result.uncommittedSpecPaths, []);
+            }
         }
     });
 
     test("excludes by absolute path match, not substring", {
         ARRANGE() {
-            const script:ScriptContext = {
-                spawn() {
-                    const proc = fakeProcess();
-                    setImmediate(() => {
-                        proc.$emitStdout(" M plans/plan.md.bak\n");
-                        proc.$emit("exit", 0);
-                    });
-                    return proc;
-                }
-            };
-            return { script, time: stubTime() };
+            return { script: statusScript(" M plans/plan.md.bak"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 1);
+            Assert.strictEqual(result.unstagedOutsideSpec, 1);
         }
     });
 
     test("staged-only modification (\"M \") is not counted", {
         ARRANGE() {
-            return { script: statusScript("M  src/foo.ts\n"), time: stubTime() };
+            return { script: statusScript("M  src/foo.ts"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 0);
+            Assert.strictEqual(result.unstagedOutsideSpec, 0);
         }
     });
 
     test("staged-only addition (\"A \") is not counted", {
         ARRANGE() {
-            return { script: statusScript("A  src/foo.ts\n"), time: stubTime() };
+            return { script: statusScript("A  src/foo.ts"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 0);
+            Assert.strictEqual(result.unstagedOutsideSpec, 0);
         }
     });
 
     test("staged-only deletion (\"D \") is not counted", {
         ARRANGE() {
-            return { script: statusScript("D  src/foo.ts\n"), time: stubTime() };
+            return { script: statusScript("D  src/foo.ts"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 0);
+            Assert.strictEqual(result.unstagedOutsideSpec, 0);
         }
     });
 
     test("staged-only rename (\"R \") is not counted", {
         ARRANGE() {
-            return { script: statusScript("R  old.ts -> new.ts\n"), time: stubTime() };
+            return { script: statusScript("R  old.ts -> new.ts"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 0);
+            Assert.strictEqual(result.unstagedOutsideSpec, 0);
         }
     });
 
     test("partially-staged modification (\"MM\") is counted", {
         ARRANGE() {
-            return { script: statusScript("MM src/foo.ts\n"), time: stubTime() };
+            return { script: statusScript("MM src/foo.ts"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 1);
+            Assert.strictEqual(result.unstagedOutsideSpec, 1);
         }
     });
 
     test("partially-staged rename (\"RM\") is counted", {
         ARRANGE() {
-            return { script: statusScript("RM old.ts -> new.ts\n"), time: stubTime() };
+            return { script: statusScript("RM old.ts -> new.ts"), time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 1);
+            Assert.strictEqual(result.unstagedOutsideSpec, 1);
         }
     });
 
@@ -818,14 +710,292 @@ test.describe("countUnstagedChangesExcept", test => {
         ARRANGE() {
             // ` M` unstaged (counted), `M ` staged-only (not counted), `??` untracked (counted),
             // `MM` partially-staged on the plan path (excluded), `A ` staged-only (not counted).
-            const stdout = " M src/a.ts\nM  src/b.ts\n?? src/c.ts\nMM plans/plan.md\nA  src/d.ts\n";
-            return { script: statusScript(stdout), time: stubTime() };
+            const script = statusScript(" M src/a.ts", "M  src/b.ts", "?? src/c.ts", "MM plans/plan.md", "A  src/d.ts");
+            return { script, time: stubTime() };
         },
         async ACT({ script, time }) {
-            return await countUnstagedChangesExcept(script, time, CWD, "plans/plan.md");
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
         },
         ASSERT(result) {
-            Assert.strictEqual(result, 2);
+            Assert.strictEqual(result.unstagedOutsideSpec, 2);
+        }
+    });
+
+    test("reports no spec path when nothing under a .spec folder changed", {
+        ARRANGE() {
+            return { script: statusScript(" M src/a.ts", "M  src/b.ts", "?? src/c.ts"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result.uncommittedSpecPaths, []);
+        }
+    });
+
+    test("staged-only spec modification (\"M \") is reported as an uncommitted spec path", {
+        ARRANGE() {
+            return { script: statusScript("M  .spec/contracts/overview.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERTS: {
+            "the spec path is reported"(result) {
+                Assert.deepStrictEqual(result.uncommittedSpecPaths, [".spec/contracts/overview.md"]);
+            },
+            "it is not counted as an unstaged change"(result) {
+                Assert.strictEqual(result.unstagedOutsideSpec, 0);
+            }
+        }
+    });
+
+    test("unstaged spec modification (\" M\") is reported as a spec path instead of an unstaged change", {
+        ARRANGE() {
+            return { script: statusScript(" M .spec/rules/testing.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERTS: {
+            "the spec path is reported"(result) {
+                Assert.deepStrictEqual(result.uncommittedSpecPaths, [".spec/rules/testing.md"]);
+            },
+            "it does not also count toward the unstaged total"(result) {
+                Assert.strictEqual(result.unstagedOutsideSpec, 0);
+            }
+        }
+    });
+
+    test("untracked spec file (\"??\") is reported as an uncommitted spec path", {
+        ARRANGE() {
+            return { script: statusScript("?? .spec/flanders/behavior.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result.uncommittedSpecPaths, [".spec/flanders/behavior.md"]);
+        }
+    });
+
+    test("staged spec addition (\"A \") is reported as an uncommitted spec path", {
+        ARRANGE() {
+            return { script: statusScript("A  .spec/rules/added.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result.uncommittedSpecPaths, [".spec/rules/added.md"]);
+        }
+    });
+
+    test("unstaged spec deletion (\" D\") is reported as a spec path instead of an unstaged change", {
+        ARRANGE() {
+            return { script: statusScript(" D .spec/contracts/removed.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERTS: {
+            "the spec path is reported"(result) {
+                Assert.deepStrictEqual(result.uncommittedSpecPaths, [".spec/contracts/removed.md"]);
+            },
+            "it does not also count toward the unstaged total"(result) {
+                Assert.strictEqual(result.unstagedOutsideSpec, 0);
+            }
+        }
+    });
+
+    test("staged spec deletion (\"D \") is reported as an uncommitted spec path", {
+        ARRANGE() {
+            return { script: statusScript("D  .spec/rules/gone.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result.uncommittedSpecPaths, [".spec/rules/gone.md"]);
+        }
+    });
+
+    test("a spec path carrying non-ASCII characters is reported", {
+        ARRANGE() {
+            // `-z` is what makes this reachable: the default porcelain output would C-quote this
+            // path, gluing a quote to the leading `.spec` segment.
+            return { script: statusScript("M  .spec/rules/validación.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERTS: {
+            "the spec path is reported"(result) {
+                Assert.deepStrictEqual(result.uncommittedSpecPaths, [".spec/rules/validación.md"]);
+            },
+            "it is not counted as an unstaged change"(result) {
+                Assert.strictEqual(result.unstagedOutsideSpec, 0);
+            }
+        }
+    });
+
+    test("a .spec folder nested under source directories is reported", {
+        ARRANGE() {
+            return { script: statusScript("M  src/ai/.spec/rules/retry.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result.uncommittedSpecPaths, ["src/ai/.spec/rules/retry.md"]);
+        }
+    });
+
+    test("a file merely named .spec is not a spec path", {
+        ARRANGE() {
+            return { script: statusScript(" M src/.spec"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERTS: {
+            "no spec path is reported"(result) {
+                Assert.deepStrictEqual(result.uncommittedSpecPaths, []);
+            },
+            "it counts as an ordinary unstaged change"(result) {
+                Assert.strictEqual(result.unstagedOutsideSpec, 1);
+            }
+        }
+    });
+
+    test("a rename out of a .spec folder reports the path the move takes away", {
+        ARRANGE() {
+            return { script: statusScript("R  .spec/rules/moved.md -> docs/moved.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result.uncommittedSpecPaths, [".spec/rules/moved.md"]);
+        }
+    });
+
+    test("a rename into a .spec folder reports the destination path", {
+        ARRANGE() {
+            return { script: statusScript("R  docs/moved.md -> .spec/rules/moved.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result.uncommittedSpecPaths, [".spec/rules/moved.md"]);
+        }
+    });
+
+    test("a staged-only copy consumes its origin record instead of reading it as a status record", {
+        ARRANGE() {
+            return { script: statusScript("C  orig.md -> dest.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERTS: {
+            "the staged-only copy counts no unstaged change"(result) {
+                Assert.strictEqual(result.unstagedOutsideSpec, 0);
+            },
+            "no spec path is reported"(result) {
+                Assert.deepStrictEqual(result.uncommittedSpecPaths, []);
+            }
+        }
+    });
+
+    test("a copy inside a .spec folder reports only its destination, never its untouched origin", {
+        ARRANGE() {
+            return { script: statusScript("C  .spec/rules/orig.md -> .spec/rules/dest.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result.uncommittedSpecPaths, [".spec/rules/dest.md"]);
+        }
+    });
+
+    test("a work-tree copy consumes its origin record instead of reading it as a status record", {
+        ARRANGE() {
+            return { script: statusScript(" C orig.md -> dest.md", " M src/after.ts"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.strictEqual(result.unstagedOutsideSpec, 2);
+        }
+    });
+
+    test("a work-tree rename out of a .spec folder reports the path the move takes away", {
+        ARRANGE() {
+            return { script: statusScript(" R .spec/rules/moved.md -> docs/moved.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERTS: {
+            "the origin spec path is reported"(result) {
+                Assert.deepStrictEqual(result.uncommittedSpecPaths, [".spec/rules/moved.md"]);
+            },
+            "the non-spec destination counts as an unstaged change"(result) {
+                Assert.strictEqual(result.unstagedOutsideSpec, 1);
+            }
+        }
+    });
+
+    test("a rename between two .spec folders reports both ends, destination first", {
+        ARRANGE() {
+            return { script: statusScript("R  .spec/rules/moved.md -> src/.spec/rules/moved.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result.uncommittedSpecPaths, ["src/.spec/rules/moved.md", ".spec/rules/moved.md"]);
+        }
+    });
+
+    test("the excluded path is never reported as a spec path even when it sits inside a .spec folder", {
+        ARRANGE() {
+            return { script: statusScript(" M .spec/plans/plan.md"), time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, ".spec/plans/plan.md");
+        },
+        ASSERTS: {
+            "no spec path is reported"(result) {
+                Assert.deepStrictEqual(result.uncommittedSpecPaths, []);
+            },
+            "no unstaged change is counted either"(result) {
+                Assert.strictEqual(result.unstagedOutsideSpec, 0);
+            }
+        }
+    });
+
+    test("a mixed list reports every spec path in porcelain order alongside the unstaged total", {
+        ARRANGE() {
+            // `M ` staged spec (reported), ` M` unstaged non-spec (counted), `??` untracked spec
+            // (reported), `M ` staged non-spec (neither), ` M` unstaged spec (reported, not counted).
+            const script = statusScript("M  .spec/contracts/a.md", " M src/b.ts", "?? src/c/.spec/rules/c.md", "M  src/d.ts", " M .spec/rules/e.md");
+            return { script, time: stubTime() };
+        },
+        async ACT({ script, time }) {
+            return await inspectPreflightChanges(script, time, CWD, "plans/plan.md");
+        },
+        ASSERTS: {
+            "every spec path is reported in porcelain order"(result) {
+                Assert.deepStrictEqual(result.uncommittedSpecPaths, [".spec/contracts/a.md", "src/c/.spec/rules/c.md", ".spec/rules/e.md"]);
+            },
+            "only the non-spec unstaged entry counts toward the unstaged total"(result) {
+                Assert.strictEqual(result.unstagedOutsideSpec, 1);
+            }
         }
     });
 });

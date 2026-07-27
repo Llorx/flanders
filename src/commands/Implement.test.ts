@@ -2674,7 +2674,7 @@ test.describe("Implement block present on early routes", test => {
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: " M src/dirty.ts\n", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: " M src/dirty.ts\0", stderr: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -6199,7 +6199,7 @@ test.describe("Implement git preflight", test => {
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: ` M ${PLAN_PATH.replace("/project/", "")}\n`, stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: ` M ${PLAN_PATH.replace("/project/", "")}\0`, stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" }); // ls-files discovery (empty → empty lists)
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "worker" });
@@ -6218,7 +6218,7 @@ test.describe("Implement git preflight", test => {
         },
         ASSERT(code, { gitSpawns }) {
             Assert.strictEqual(code, 0, "preflight should pass when only planPath has changes");
-            Assert.deepStrictEqual(gitSpawns[2]!.args, ["status", "--porcelain=v1", "--untracked-files=all"]);
+            Assert.deepStrictEqual(gitSpawns[2]!.args, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
         }
     });
 
@@ -6239,7 +6239,7 @@ test.describe("Implement git preflight", test => {
             s.runBaselineDiff.value = stagedDiff;
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });               // git --version
             s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });          // rev-parse --is-inside-work-tree
-            s.gitQueue.push({ code: 0, stdout: "M  src/foo.ts\n", stderr: "" }); // status: staged-only change (index col set, worktree col is a space)
+            s.gitQueue.push({ code: 0, stdout: "M  src/foo.ts\0", stderr: "" }); // status: staged-only change (index col set, worktree col is a space)
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });               // ls-files discovery (empty → empty lists)
             s.claudeQueue.push({ text: "ok" });
             s.claudeQueue.push({ text: "worker" });
@@ -6262,7 +6262,7 @@ test.describe("Implement git preflight", test => {
                 Assert.strictEqual(code, 0);
             },
             "the preflight ran git status"(_code, { gitSpawns }) {
-                Assert.deepStrictEqual(gitSpawns[2]!.args, ["status", "--porcelain=v1", "--untracked-files=all"]);
+                Assert.deepStrictEqual(gitSpawns[2]!.args, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
             },
             "the run proceeds to workspace setup (mkdtemp recorded)"(_code, { mkdtempCalls }) {
                 Assert.ok(mkdtempCalls.length > 0);
@@ -6286,7 +6286,7 @@ test.describe("Implement git preflight", test => {
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: " M src/foo.ts\n M src/bar.ts\n", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: " M src/foo.ts\0 M src/bar.ts\0", stderr: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -6322,6 +6322,119 @@ test.describe("Implement git preflight", test => {
             },
             "does not capture a baseline before the preflight passes"(_code, { gitSpawns }) {
                 Assert.strictEqual(gitSpawns.some(spawn => spawn.args[0] === "diff"), false);
+            }
+        }
+    });
+
+    test("staged spec files — exit 1, commit-the-spec diagnostic listing every offending path, no workspace", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });      // git --version
+            s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" }); // rev-parse --is-inside-work-tree
+            // Staged-only spec changes at the root and in a nested .spec folder, plus a staged
+            // non-spec change that on its own would pass the preflight.
+            s.gitQueue.push({ code: 0, stdout: "M  .spec/contracts/overview.md\0M  src/ai/.spec/rules/retry.md\0M  src/foo.ts\0", stderr: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "emits the exact commit-the-spec diagnostic"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, "Spec files have uncommitted changes. Please commit the spec before re-running:\n");
+            },
+            "lists the root spec path"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, "  .spec/contracts/overview.md\n");
+            },
+            "lists the nested spec path"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, "  src/ai/.spec/rules/retry.md\n");
+            },
+            "does not emit the unstaged-changes diagnostic"(_code, { written }) {
+                Assert.ok(!written.join("").includes("Working tree has unstaged changes."));
+            },
+            "does not list the staged non-spec file"(_code, { written }) {
+                Assert.ok(!written.join("").includes("src/foo.ts"));
+            },
+            "finalizes the block as Failed"(_code, { written }) {
+                Assert.ok(stripAnsi(written.join("")).includes(FAILED_LABEL));
+            },
+            "never sets up a workspace (no temporary folder created)"(_code, { mkdtempCalls }) {
+                Assert.strictEqual(mkdtempCalls.length, 0);
+            }
+        }
+    });
+
+    test("unstaged spec files — exit 1, commit-the-spec diagnostic rather than the unstaged one", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: " M .spec/rules/testing.md\0", stderr: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "emits the exact commit-the-spec diagnostic"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, "Spec files have uncommitted changes. Please commit the spec before re-running:\n");
+            },
+            "lists the offending spec path"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, "  .spec/rules/testing.md\n");
+            },
+            "does not emit the unstaged-changes diagnostic"(_code, { written }) {
+                Assert.ok(!written.join("").includes("Working tree has unstaged changes."));
+            }
+        }
+    });
+
+    test("uncommitted spec files and unstaged external changes together — exit 1, both diagnostics in one run", {
+        ARRANGE() {
+            const s = stubContexts();
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: "M  .spec/contracts/overview.md\0 M src/foo.ts\0", stderr: "" });
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "emits the exact commit-the-spec diagnostic"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, "Spec files have uncommitted changes. Please commit the spec before re-running:\n");
+            },
+            "lists the offending spec path"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, "  .spec/contracts/overview.md\n");
+            },
+            "also emits the exact unstaged-changes diagnostic"(_code, { written }) {
+                assertDiagnosticWrittenOnce(written, "Working tree has unstaged changes. Please stage, commit, or stash them before re-running.\n");
+            },
+            "does not list the unstaged non-spec file"(_code, { written }) {
+                Assert.ok(!written.join("").includes("src/foo.ts"));
+            },
+            "never sets up a workspace (no temporary folder created)"(_code, { mkdtempCalls }) {
+                Assert.strictEqual(mkdtempCalls.length, 0);
             }
         }
     });
@@ -6946,7 +7059,7 @@ test.describe("Implement end-to-end git flow", test => {
             // status reply, then push a dirty status.
             s.gitQueue.pop();
             s.gitQueue.pop();
-            s.gitQueue.push({ code: 0, stdout: " M src/dirty.ts\n?? src/new.ts\n", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: " M src/dirty.ts\0?? src/new.ts\0", stderr: "" });
             return s;
         },
         async ACT({ contexts }) {
@@ -8011,7 +8124,7 @@ test.describe("Implement terminal label on exit", test => {
             s.files.set(PLAN_PATH, PLAN_ONE_TASK);
             s.gitQueue.push({ code: 0, stdout: "", stderr: "" });
             s.gitQueue.push({ code: 0, stdout: "true\n", stderr: "" });
-            s.gitQueue.push({ code: 0, stdout: " M src/dirty.ts\n", stderr: "" });
+            s.gitQueue.push({ code: 0, stdout: " M src/dirty.ts\0", stderr: "" });
             return s;
         },
         async ACT({ contexts }) {
