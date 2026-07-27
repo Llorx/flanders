@@ -148,6 +148,7 @@ export class Implement {
     // has to reach it.
     private _ownerChannel:OutputContext|null = null;
     private _buffered!:LineBufferedBlock;
+    private _stopRetryKeyInput:(() => void)|null = null;
     private _currentWorkerSessionId:string|null = null;
     // Running token total already attributed to the current worker session, fed back as the
     // resume baseline (priorSessionUsage) so a tool that reports session-cumulative usage surfaces
@@ -223,6 +224,9 @@ export class Implement {
         this._buffered = new LineBufferedBlock(block);
         this._ownerChannel = this._bufferedOutputContext();
         try {
+            if (this._contexts.keyInput.available()) {
+                this._stopRetryKeyInput = this._contexts.keyInput.onRetryKey(() => this._forceRetryActiveSessions());
+            }
             const positional:string[] = [];
             for (const arg of rawArgs) {
                 if (arg.startsWith("-")) {
@@ -1158,6 +1162,15 @@ export class Implement {
             }
         };
     }
+    private _forceRetryActiveSessions():void {
+        const activeSession = this._activeSession?.session;
+        const sessions = activeSession
+            ? [activeSession, ...this._activeReviewerSessions]
+            : [...this._activeReviewerSessions];
+        for (const session of sessions) {
+            session.forceRetry();
+        }
+    }
     private _runAi(tool:ToolName, model:string, effort:string, fast:boolean, prompt:string, initialSessionId?:string|null, priorSessionUsage?:ToolTokenUsage) {
         return this._runAiWith(tool, model, effort, fast, prompt, initialSessionId ?? null, this._defaultRunAiCallbacks(), priorSessionUsage);
     }
@@ -1305,6 +1318,8 @@ export class Implement {
     }
     private _dispose = disposeOnce(async () => {
         this._disposed = true;
+        const stopRetryKeyInput = this._stopRetryKeyInput;
+        this._stopRetryKeyInput = null;
         const promptControllers = [...this._promptControllers];
         const promptOperations = [...this._promptOperations];
         this._promptControllers.clear();
@@ -1350,6 +1365,7 @@ export class Implement {
             this._workspace = null;
             await ws.dispose();
         }
+        stopRetryKeyInput?.();
         if (this._block) {
             this._finalizeBlock("Interrupted");
             const block = this._block;

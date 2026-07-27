@@ -6,7 +6,7 @@ import { Terminal } from "@xterm/headless";
 import { Implement, completedPlanPath } from "./Implement";
 import type { ImplementContexts } from "./Implement";
 import type { FlandersConfig } from "../workspace/FlandersConfig";
-import type { AskAnswer, AskChoiceOptions, AskContext, FsContext, SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
+import type { AskAnswer, AskChoiceOptions, AskContext, FsContext, SpawnedProcess, TerminalKeyInputContext, TimeContext, TimeoutHandle } from "../contexts";
 import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent, ToolName } from "../ai/ToolAdapter";
 import { ConsoleAsk } from "../ui/ConsoleAsk";
 import { PromptLineReader } from "../ui/PromptLineReader";
@@ -4229,6 +4229,46 @@ function controllableTime() {
                 return { cancel() { t.cancelled = true; } };
             }
         } satisfies TimeContext
+    };
+}
+
+function controllableRetryKeyInput(available = true, onUnsubscribe:() => void = () => {}) {
+    const listeners = new Set<() => void>();
+    let subscriptions = 0;
+    let unsubscriptions = 0;
+    const context:TerminalKeyInputContext = {
+        available() {
+            return available;
+        },
+        onRetryKey(listener) {
+            subscriptions++;
+            listeners.add(listener);
+            let subscribed = true;
+            return () => {
+                if (!subscribed) return;
+                subscribed = false;
+                listeners.delete(listener);
+                unsubscriptions++;
+                onUnsubscribe();
+            };
+        }
+    };
+    return {
+        context,
+        press() {
+            for (const listener of [...listeners]) {
+                listener();
+            }
+        },
+        listenerCount() {
+            return listeners.size;
+        },
+        subscriptionCount() {
+            return subscriptions;
+        },
+        unsubscriptionCount() {
+            return unsubscriptions;
+        }
     };
 }
 
@@ -11412,7 +11452,12 @@ test.describe("Implement multiple parallel reviewers", test => {
     });
 });
 
-type ReviewerAction = { rateLimit:number; advanceBeforeMs?:number } | { verdict:string; advanceBeforeMs?:number };
+type ReviewerAction = (
+    { rateLimit:number } | { verdict:string }
+) & {
+    advanceBeforeMs?:number;
+    hold?:boolean;
+};
 
 // A controllable-time harness for the weighted-review round-completion tests. The worker and the
 // reviewers are all claude, so every spawn is a claude spawn handled here: detect and worker draw from claudeQueue,
@@ -11428,6 +11473,7 @@ function weightedReviewStub(reviewerActions:ReviewerAction[][]) {
     (s.contexts as { time:TimeContext }).time = time.ctx;
     s.files.set(PLAN_PATH, PLAN_ONE_TASK);
     const invocation:number[] = reviewerActions.map(() => 0);
+    const heldActions = new Map<number, () => void>();
     (s.contexts.claude as { spawn:typeof s.contexts.claude.spawn }).spawn = (_command:string, args:readonly string[]) => {
         s.claudeSpawnedArgs.push([...args]);
         const proc = fakeProcess();
@@ -11451,22 +11497,359 @@ function weightedReviewStub(reviewerActions:ReviewerAction[][]) {
             const inv = invocation[reviewerIdx]!;
             invocation[reviewerIdx] = inv + 1;
             const action = reviewerActions[reviewerIdx]![inv]!;
-            if (action.advanceBeforeMs !== undefined) {
-                time.advance(action.advanceBeforeMs);
-            }
-            if ("rateLimit" in action) {
-                proc.$emitStdout(rateLimitEvent(time.ctx.now(), action.rateLimit) + "\n");
-                proc.$emit("exit", 0);
+            const emitAction = () => {
+                if (action.advanceBeforeMs !== undefined) {
+                    time.advance(action.advanceBeforeMs);
+                }
+                if ("rateLimit" in action) {
+                    proc.$emitStdout(rateLimitEvent(time.ctx.now(), action.rateLimit) + "\n");
+                    proc.$emit("exit", 0);
+                } else {
+                    s.files.set(reviewerErrorLogPath(reviewerIdx + 1), action.verdict);
+                    proc.$emitStdout(claudeResultEvents("reviewer verdict"));
+                    proc.$emit("exit", 0);
+                }
+            };
+            if (action.hold) {
+                heldActions.set(reviewerIdx, emitAction);
             } else {
-                s.files.set(reviewerErrorLogPath(reviewerIdx + 1), action.verdict);
-                proc.$emitStdout(claudeResultEvents("reviewer verdict"));
-                proc.$emit("exit", 0);
+                emitAction();
             }
         });
         return proc;
     };
-    return { s, time };
+    return {
+        s,
+        time,
+        reviewerInvocationCounts() {
+            return [...invocation];
+        },
+        releaseReviewer(reviewerIdx:number) {
+            const action = heldActions.get(reviewerIdx);
+            if (!action) return;
+            heldActions.delete(reviewerIdx);
+            setImmediate(action);
+        }
+    };
 }
+
+function waitingActiveSessionRetryScenario(rateLimitOnSpawn:number, forcedSpawn:number) {
+    const FOUR_DAYS_SECONDS = 4 * 24 * 60 * 60;
+    const { s, time, hold, release } = rateLimitStub(rateLimitOnSpawn, FOUR_DAYS_SECONDS);
+    const keyInput = controllableRetryKeyInput();
+    (s.contexts as { keyInput:TerminalKeyInputContext }).keyInput = keyInput.context;
+    hold(forcedSpawn);
+    s.claudeQueue.push({ text: "detect" });
+    s.claudeQueue.push({ text: "worker" });
+    s.claudeQueue.push({ text: "reviewer", errorLog: "" });
+    return { s, time, keyInput, release, forcedSpawn };
+}
+
+async function forceWaitingActiveSession(scenario:ReturnType<typeof waitingActiveSessionRetryScenario>) {
+    const { s, time, keyInput, release, forcedSpawn } = scenario;
+    const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+    await flush();
+    const invocationsBeforePress = s.claudeSpawnedArgs.length;
+    keyInput.press();
+    await flush();
+    const afterPress = {
+        invocationCount: s.claudeSpawnedArgs.length,
+        now: time.ctx.now()
+    };
+    release(forcedSpawn);
+    await flush();
+    const code = await cmd.result();
+    await cmd.dispose();
+    return { code, invocationsBeforePress, afterPress };
+}
+
+test.describe("Implement retry-key fan-out", test => {
+    test("F5 advances a waiting worker invocation without advancing time", {
+        ARRANGE() {
+            return waitingActiveSessionRetryScenario(2, 3);
+        },
+        async ACT(scenario) {
+            return await forceWaitingActiveSession(scenario);
+        },
+        ASSERTS: {
+            "the waiting worker receives one immediate adapter invocation"({ invocationsBeforePress, afterPress }) {
+                Assert.strictEqual(afterPress.invocationCount, invocationsBeforePress + 1);
+            },
+            "the forced attempt happens without advancing the fake clock"({ afterPress }) {
+                Assert.strictEqual(afterPress.now, 0);
+            },
+            "the run completes after the forced worker attempt succeeds"({ code }) {
+                Assert.strictEqual(code, 0);
+            }
+        }
+    });
+
+    test("F5 also advances the waiting startup detection invocation", {
+        ARRANGE() {
+            return waitingActiveSessionRetryScenario(1, 2);
+        },
+        async ACT(scenario) {
+            return await forceWaitingActiveSession(scenario);
+        },
+        ASSERTS: {
+            "the waiting detection session receives one immediate adapter invocation"({ invocationsBeforePress, afterPress }) {
+                Assert.strictEqual(afterPress.invocationCount, invocationsBeforePress + 1);
+            },
+            "the detection attempt is forced without advancing the fake clock"({ afterPress }) {
+                Assert.strictEqual(afterPress.now, 0);
+            },
+            "the run proceeds into the ordinary task loop after detection succeeds"({ code }) {
+                Assert.strictEqual(code, 0);
+            }
+        }
+    });
+
+    test("one F5 press reaches every waiting reviewer before a held reviewer finishes", {
+        ARRANGE() {
+            const { s, time, reviewerInvocationCounts, releaseReviewer } = weightedReviewStub([
+                [{ rateLimit: 4 * 24 * 60 * 60 }, { verdict: "", hold: true }],
+                [{ rateLimit: 4 * 24 * 60 * 60 }, { verdict: "" }]
+            ]);
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "worker", effort: "", fast: false },
+                reviewers: [
+                    { tool: "claude", model: "r0", effort: "", fast: false, optional: false },
+                    { tool: "claude", model: "r1", effort: "", fast: false, optional: false }
+                ],
+                minimumReviews: 2
+            };
+            const keyInput = controllableRetryKeyInput();
+            (s.contexts as { keyInput:TerminalKeyInputContext }).keyInput = keyInput.context;
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker" });
+            return { s, time, reviewerInvocationCounts, releaseReviewer, keyInput };
+        },
+        async ACT({ s, time, reviewerInvocationCounts, releaseReviewer, keyInput }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+            await flush();
+            const beforePress = reviewerInvocationCounts();
+            keyInput.press();
+            await flush();
+            const afterPress = {
+                invocationCounts: reviewerInvocationCounts(),
+                secondVerdictExists: s.files.has(reviewerErrorLogPath(2)),
+                firstVerdictExists: s.files.has(reviewerErrorLogPath(1)),
+                now: time.ctx.now()
+            };
+            releaseReviewer(0);
+            await flush();
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, beforePress, afterPress };
+        },
+        ASSERTS: {
+            "both waiting reviewers begin one forced attempt from the same press"({ beforePress, afterPress }) {
+                Assert.deepStrictEqual(beforePress, [1, 1]);
+                Assert.deepStrictEqual(afterPress.invocationCounts, [2, 2]);
+            },
+            "reviewer two reaches its verdict while reviewer one's forced attempt is still held"({ afterPress }) {
+                Assert.strictEqual(afterPress.secondVerdictExists, true);
+                Assert.strictEqual(afterPress.firstVerdictExists, false);
+            },
+            "reviewer fan-out does not advance the fake clock"({ afterPress }) {
+                Assert.strictEqual(afterPress.now, 0);
+            },
+            "the review stage completes after the held reviewer is released"({ code }) {
+                Assert.strictEqual(code, 0);
+            }
+        }
+    });
+
+    test("F5 leaves an actively working session and its stage unchanged", {
+        ARRANGE() {
+            const gated = gatedClaudeStub(PLAN_ONE_TASK);
+            const keyInput = controllableRetryKeyInput();
+            (gated.s.contexts as { keyInput:TerminalKeyInputContext }).keyInput = keyInput.context;
+            gated.hold(2);
+            gated.s.claudeQueue.push({ text: "detect" });
+            gated.s.claudeQueue.push({ text: "worker" });
+            gated.s.claudeQueue.push({ text: "reviewer", errorLog: "" });
+            return { ...gated, keyInput };
+        },
+        async ACT({ s, keyInput, release }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+            await flush();
+            const invocationsBeforePress = s.claudeSpawnedArgs.length;
+            keyInput.press();
+            await flush();
+            const afterPress = {
+                invocationCount: s.claudeSpawnedArgs.length,
+                output: stripAnsi(s.written.join(""))
+            };
+            release(2);
+            await flush();
+            const code = await cmd.result();
+            await cmd.dispose();
+            return { code, invocationsBeforePress, afterPress };
+        },
+        ASSERTS: {
+            "the in-progress adapter invocation is not duplicated"({ invocationsBeforePress, afterPress }) {
+                Assert.strictEqual(afterPress.invocationCount, invocationsBeforePress);
+            },
+            "the command remains in the implementing stage while the worker is held"({ afterPress }) {
+                Assert.ok(afterPress.output.includes("1/1 iter 1 implementing"));
+                Assert.ok(!afterPress.output.includes("1/1 iter 1 reviewing"));
+            },
+            "the unchanged stage completes normally once its worker finishes"({ code }) {
+                Assert.strictEqual(code, 0);
+            }
+        }
+    });
+
+    test("F5 with no in-flight session is a no-op and is not queued for later sessions", {
+        ARRANGE() {
+            const s = stubContexts();
+            gitRunQueue(s.gitQueue);
+            s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+            const keyInput = controllableRetryKeyInput();
+            (s.contexts as { keyInput:TerminalKeyInputContext }).keyInput = keyInput.context;
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer", errorLog: "" });
+            return { s, keyInput };
+        },
+        async ACT({ s, keyInput }) {
+            const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+            keyInput.press();
+            const code = await cmd.result();
+            await cmd.dispose();
+            return {
+                code,
+                invocationCount: s.claudeSpawnedArgs.length,
+                errors: s.errors
+            };
+        },
+        ASSERTS: {
+            "the run completes with its ordinary success result"({ code }) {
+                Assert.strictEqual(code, 0);
+            },
+            "the press produces no diagnostic"({ errors }) {
+                Assert.deepStrictEqual(errors, []);
+            },
+            "the later detect, worker, and reviewer sessions each run exactly once"({ invocationCount }) {
+                Assert.strictEqual(invocationCount, 3);
+            }
+        }
+    });
+
+    test("dispose releases the retry-key subscription before later presses", {
+        ARRANGE() {
+            const { s } = rateLimitStub(2, 4 * 24 * 60 * 60);
+            const disposalOrder:string[] = [];
+            const originalRm = s.contexts.fs.rm.bind(s.contexts.fs);
+            (s.contexts.fs as { rm:typeof s.contexts.fs.rm }).rm = async (path, options) => {
+                if (path === reviewerRoot(1) || path === WS_ROOT) {
+                    disposalOrder.push(`workspace:${path}`);
+                }
+                await originalRm(path, options);
+            };
+            const originalBlockDispose = BottomBlock.prototype.dispose;
+            BottomBlock.prototype.dispose = function() {
+                disposalOrder.push("bottom-block");
+                originalBlockDispose.call(this);
+            };
+            const keyInput = controllableRetryKeyInput(true, () => disposalOrder.push("key-input"));
+            (s.contexts as { keyInput:TerminalKeyInputContext }).keyInput = keyInput.context;
+            s.claudeQueue.push({ text: "detect" });
+            return { s, keyInput, disposalOrder, originalBlockDispose };
+        },
+        async ACT({ s, keyInput, disposalOrder, originalBlockDispose }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+                await flush();
+                const invocationsBeforeDispose = s.claudeSpawnedArgs.length;
+                await cmd.dispose();
+                const afterDispose = {
+                    listenerCount: keyInput.listenerCount(),
+                    unsubscriptionCount: keyInput.unsubscriptionCount()
+                };
+                keyInput.press();
+                await flush();
+                return {
+                    invocationsBeforeDispose,
+                    invocationsAfterPress: s.claudeSpawnedArgs.length,
+                    afterDispose,
+                    disposalOrder
+                };
+            } finally {
+                BottomBlock.prototype.dispose = originalBlockDispose;
+            }
+        },
+        ASSERTS: {
+            "dispose removes the command's retry-key listener"({ afterDispose }) {
+                Assert.strictEqual(afterDispose.listenerCount, 0);
+            },
+            "dispose invokes the subscription's release exactly once"({ afterDispose }) {
+                Assert.strictEqual(afterDispose.unsubscriptionCount, 1);
+            },
+            "newer workspace resources are disposed before key input, then the older bottom block"({ disposalOrder }) {
+                Assert.deepStrictEqual(disposalOrder, [
+                    `workspace:${reviewerRoot(1)}`,
+                    `workspace:${WS_ROOT}`,
+                    "key-input",
+                    "bottom-block"
+                ]);
+            },
+            "a press after disposal cannot invoke an adapter"({ invocationsBeforeDispose, invocationsAfterPress }) {
+                Assert.strictEqual(invocationsAfterPress, invocationsBeforeDispose);
+            }
+        }
+    });
+
+    test("unavailable key input preserves the result and output of the unsubscribed run", {
+        ARRANGE() {
+            const baseline = stubContexts();
+            const unavailable = stubContexts();
+            for (const s of [baseline, unavailable]) {
+                gitRunQueue(s.gitQueue);
+                s.files.set(PLAN_PATH, PLAN_ONE_TASK);
+                s.claudeQueue.push({ text: "detect" });
+                s.claudeQueue.push({ text: "worker" });
+                s.claudeQueue.push({ text: "reviewer", errorLog: "" });
+            }
+            const keyInput = controllableRetryKeyInput(false);
+            (unavailable.contexts as { keyInput:TerminalKeyInputContext }).keyInput = keyInput.context;
+            return { baseline, unavailable, keyInput };
+        },
+        async ACT({ baseline, unavailable, keyInput }) {
+            const baselineCommand = new Implement([PLAN_PATH], { projectRoot: "/project" }, baseline.contexts);
+            const baselineCode = await baselineCommand.result();
+            await baselineCommand.dispose();
+            const unavailableCommand = new Implement([PLAN_PATH], { projectRoot: "/project" }, unavailable.contexts);
+            const unavailableCode = await unavailableCommand.result();
+            await unavailableCommand.dispose();
+            return {
+                baselineCode,
+                unavailableCode,
+                baselineOutput: baseline.written,
+                unavailableOutput: unavailable.written,
+                baselineErrors: baseline.errors,
+                unavailableErrors: unavailable.errors,
+                subscriptionCount: keyInput.subscriptionCount()
+            };
+        },
+        ASSERTS: {
+            "both runs return the same result"({ baselineCode, unavailableCode }) {
+                Assert.strictEqual(unavailableCode, baselineCode);
+            },
+            "both runs emit the same ordinary output"({ baselineOutput, unavailableOutput }) {
+                Assert.deepStrictEqual(unavailableOutput, baselineOutput);
+            },
+            "both runs emit the same error output"({ baselineErrors, unavailableErrors }) {
+                Assert.deepStrictEqual(unavailableErrors, baselineErrors);
+            },
+            "the unavailable context is never subscribed"({ subscriptionCount }) {
+                Assert.strictEqual(subscriptionCount, 0);
+            }
+        }
+    });
+});
 
 test.describe("Implement weighted-review round completion", test => {
     test("periodic reviewer attempts update independent retry displays without reopening the review pause or completing the round early", {
