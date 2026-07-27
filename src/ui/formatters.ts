@@ -281,17 +281,24 @@ function reviewerEntryDescriptor(model:string, effort:string):string {
     return `(${modelToken} ${effortToken})`;
 }
 
-function pendingReviewerRetryAt(r:ReviewerEntry):number|undefined {
-    if (r.state === "waiting" && r.endTime != null && r.nextRetryAt != null && r.nextRetryAt < r.endTime) {
-        return r.nextRetryAt;
+export function pendingRetryRemainingMs(endTime:number, nextRetryAt:number|undefined, nowMs:number):number|undefined {
+    if (nextRetryAt != null && nextRetryAt < endTime) {
+        return Math.max(0, nextRetryAt - nowMs);
+    }
+    return undefined;
+}
+
+function reviewerRetryRemainingMs(r:ReviewerEntry, nowMs:number):number|undefined {
+    if (r.state === "waiting" && r.endTime != null) {
+        return pendingRetryRemainingMs(r.endTime, r.nextRetryAt, nowMs);
     }
     return undefined;
 }
 
 function reviewerStateText(r:ReviewerEntry, nowMs:number):string {
     if (r.state === "waiting" && r.endTime != null) {
-        const retryAt = pendingReviewerRetryAt(r);
-        const retry = retryAt == null ? "" : ` retry ${formatCompactCountdown(retryAt - nowMs)}`;
+        const retryRemaining = reviewerRetryRemainingMs(r, nowMs);
+        const retry = retryRemaining == null ? "" : ` retry ${formatCompactCountdown(retryRemaining)}`;
         return `waiting ${formatCompactCountdown(Math.max(0, r.endTime - nowMs))}${retry}`;
     }
     return r.state;
@@ -321,7 +328,7 @@ function buildReviewingSegments(frame:string, reviewers:readonly ReviewerEntry[]
         const descriptor = compact ? "" : ` ${reviewerEntryDescriptor(r.model, r.effort)}`;
         segments.push({ text: `${r.tool}${descriptor}: ${reviewerStateText(r, nowMs)}`, color: reviewerEntryColor(r.state) });
     }
-    if (reviewers.some(r => pendingReviewerRetryAt(r) != null)) {
+    if (reviewers.some(r => reviewerRetryRemainingMs(r, nowMs) != null)) {
         segments.push({ text: " (F5)", color: ORANGE });
     }
     return segments;

@@ -1,29 +1,34 @@
 import * as Assert from "assert";
 
 import test from "arrange-act-assert";
+import type { After } from "arrange-act-assert";
 import { Terminal } from "@xterm/headless";
 
 import { BottomBlock } from "./BottomBlock";
-import type { BottomBlockIO, ReviewerEntry } from "./BottomBlock";
+import type { BottomBlockIO, FooterState, ReviewerEntry } from "./BottomBlock";
 import type { RandomContext, TimeoutHandle } from "../contexts";
 import { workingPool, successPool, hardStopPool, interruptionPool, failurePool } from "../voiceVariants";
 import { CYAN, YELLOW, MAGENTA, GREEN, ORANGE, RESET, SEPARATOR_GLYPH, formatDateTime, formatTerminalFooter, stripAnsi } from "./formatters";
 
-type FakeTimer = { handler:() => void; at:number };
+type FakeTimer = { handler:() => void; at:number; delay:number };
 
 function fakeTime() {
     const timers:FakeTimer[] = [];
+    const cancelledDelays:number[] = [];
     let now = 0;
     return {
         now() { return now; },
         setNow(ms:number) { now = ms; },
         setTimeout(handler:() => void, ms:number):TimeoutHandle {
-            const timer:FakeTimer = { handler, at: now + ms };
+            const timer:FakeTimer = { handler, at: now + ms, delay: ms };
             timers.push(timer);
             return {
                 cancel() {
                     const idx = timers.indexOf(timer);
-                    if (idx !== -1) timers.splice(idx, 1);
+                    if (idx !== -1) {
+                        timers.splice(idx, 1);
+                        cancelledDelays.push(timer.delay);
+                    }
                 }
             };
         },
@@ -43,6 +48,7 @@ function fakeTime() {
             }
             now = target;
         },
+        get cancelledDelays() { return [...cancelledDelays]; },
         get pendingCount() { return timers.length; }
     };
 }
@@ -103,6 +109,11 @@ function metricsLineOf(output:string):string {
     const lastDraw = output.split(CLEAR_SEQ).pop() ?? "";
     const lines = lastDraw.split("\n");
     return stripAnsi(lines[2] ?? "");
+}
+
+function footerLineOf(output:string):string {
+    const lastDraw = output.split(CLEAR_SEQ).pop() ?? "";
+    return stripAnsi(lastDraw.split("\n").pop() ?? "");
 }
 
 function makeBlock(io:BottomBlockIO, time:ReturnType<typeof fakeTime>, random:RandomContext = fakeRandom(0)) {
@@ -185,20 +196,18 @@ async function mountEmulatorBlock(cols:number, termRows:number, aboveContent?:re
     return { term, block, time, flush, resize };
 }
 
-// Mounts an emulator-backed block (via mountEmulatorBlock) and applies a single
-// shrink to `newCols` through the production resize path, returning the rendered
-// viewport rows. The full-width separator reflows into ceil(initialCols/newCols)
-// physical rows on a shrink, so this exercises the reflow the string-concatenating
-// fake IO cannot model. Thin wrapper so the shrink and transition tests share one
-// terminal/block setup, per docs/rules/code-deduplication.md.
-async function renderEmulatorShrink(initialCols:number, newCols:number, termRows:number):Promise<string[]> {
-    const { term, block, flush, resize } = await mountEmulatorBlock(initialCols, termRows);
-    resize(newCols);
+type MountedEmulatorBlock = Awaited<ReturnType<typeof mountEmulatorBlock>>;
+
+function ownEmulatorBlock(after:After, mounted:MountedEmulatorBlock):MountedEmulatorBlock {
+    return after(mounted, ({ block, term }) => {
+        block.dispose();
+        term.dispose();
+    });
+}
+
+async function readFlushedEmulatorViewport(term:Terminal, flush:() => Promise<void>):Promise<string[]> {
     await flush();
-    const rows = readEmulatorViewport(term);
-    block.dispose();
-    term.dispose();
-    return rows;
+    return readEmulatorViewport(term);
 }
 
 test.describe("BottomBlock", test => {
@@ -489,6 +498,106 @@ test.describe("BottomBlock", test => {
             }
         }
     });
+
+    test("waiting footer derives the pending retry from its structured instants on every countdown tick", {
+        ARRANGE() {
+            const io = stubIO(160);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            const fourDaysMs = 4 * 24 * 60 * 60 * 1000;
+            block.setFooter({
+                kind: "waiting",
+                waitKind: "rate-limit",
+                endTime: fourDaysMs,
+                nextRetryAt: 12 * 60 * 1000
+            });
+            block.mount();
+            return { io, time, block };
+        },
+        ACT({ io, time, block }) {
+            const initialFooter = footerLineOf(io.output);
+            io.reset();
+            time.advance(60 * 1000);
+            const afterMinuteFooter = footerLineOf(io.output);
+            block.dispose();
+            return { initialFooter, afterMinuteFooter };
+        },
+        ASSERTS: {
+            "the initial draw shows the retry twelve minutes away"(result) {
+                Assert.ok(result.initialFooter.includes("retrying in 12m (F5)"));
+            },
+            "a minute of countdown ticks redraws the same state with eleven minutes remaining"(result) {
+                Assert.ok(result.afterMinuteFooter.includes("retrying in 11m (F5)"));
+            }
+        }
+    });
+
+    test("waiting footer omits the pending-retry element when the next retry is the wait end", {
+        ARRANGE() {
+            const io = stubIO(160);
+            const time = fakeTime();
+            const block = makeBlock(io, time);
+            const endTime = 4 * 24 * 60 * 60 * 1000;
+            block.setFooter({ kind: "waiting", waitKind: "rate-limit", endTime, nextRetryAt: endTime });
+            return { io, block };
+        },
+        ACT({ io, block }) {
+            block.mount();
+            const footer = footerLineOf(io.output);
+            block.dispose();
+            return footer;
+        },
+        ASSERTS: {
+            "the footer has no retrying text"(footer) {
+                Assert.ok(!footer.includes("retrying in"));
+            },
+            "the footer has no F5 hint"(footer) {
+                Assert.ok(!footer.includes("(F5)"));
+            }
+        }
+    });
+
+    for (const teardown of ["dispose", "finalize"] as const) {
+        test(`waiting footer countdown timer is cancelled by ${teardown}`, {
+            ARRANGE() {
+                const io = stubIO(160);
+                const time = fakeTime();
+                const block = makeBlock(io, time);
+                block.setFooter({
+                    kind: "waiting",
+                    waitKind: "rate-limit",
+                    endTime: 4 * 24 * 60 * 60 * 1000,
+                    nextRetryAt: 12 * 60 * 1000
+                });
+                block.mount();
+                io.reset();
+                return { io, time, block, teardown };
+            },
+            ACT({ io, time, block, teardown }) {
+                const pendingBeforeTeardown = time.pendingCount;
+                if (teardown === "dispose") {
+                    block.dispose();
+                } else {
+                    block.finalize("Done");
+                }
+                const pendingAfterTeardown = time.pendingCount;
+                io.reset();
+                time.advance(5000);
+                return { pendingBeforeTeardown, pendingAfterTeardown, writesAfterAdvance: io.writes.length };
+            },
+            ASSERTS: {
+                "one countdown timer is live before teardown"(result) {
+                    Assert.strictEqual(result.pendingBeforeTeardown, 1);
+                },
+                "no timer remains after teardown"(result) {
+                    Assert.strictEqual(result.pendingAfterTeardown, 0);
+                },
+                "advancing the clock after teardown emits no redraw"(result) {
+                    Assert.strictEqual(result.writesAfterAdvance, 0);
+                }
+            }
+        });
+    }
 
     test("setFooter working from rate-limit cancels countdown and resumes animation", {
         ARRANGE() {
@@ -792,30 +901,30 @@ test.describe("BottomBlock", test => {
     }
 
     test("@xterm/headless: a long terminal variant at a narrow width is truncated to a single row with an ellipsis, keeping the block exactly four rows", {
-        ARRANGE() {
+        async ARRANGE(after) {
             // 0.5 * 10 = 5 -> interruptionPool[5] === "Hold the phone — interrupted" (28 chars),
             // wider than the 12-col terminal, so the finalized terminal footer (drawn with
             // autowrap off) must be truncated to one 12-cell row rather than wrapping into a
             // second physical row, keeping the block at its fixed four-row height.
-            return { cols: 12, termRows: 24, random: fakeRandom(0.5) };
+            const cols = 12;
+            const termRows = 24;
+            const mounted = ownEmulatorBlock(after, await mountEmulatorBlock(cols, termRows, undefined, fakeRandom(0.5)));
+            return { ...mounted, cols, termRows };
         },
-        async ACT({ cols, termRows, random }) {
-            const { term, block, flush } = await mountEmulatorBlock(cols, termRows, undefined, random);
+        ACT({ block }) {
             block.finalize("Interrupted");
-            await flush();
-            const rows = readEmulatorViewport(term);
-            block.dispose();
-            term.dispose();
-            return rows;
         },
         ASSERTS: {
-            "the finalized footer is the long variant truncated to the width with a trailing ellipsis on a single row"(rows) {
+            async "the finalized footer is the long variant truncated to the width with a trailing ellipsis on a single row"(_result, { term, flush }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.ok(rows.includes("Hold the ph…"));
             },
-            "a separator row spanning exactly the narrow width is present"(rows, { cols }) {
+            async "a separator row spanning exactly the narrow width is present"(_result, { term, flush, cols }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.ok(rows.includes(SEPARATOR_GLYPH.repeat(cols)));
             },
-            "the block occupies exactly four rows — the long label did not wrap into a fifth"(rows) {
+            async "the block occupies exactly four rows — the long label did not wrap into a fifth"(_result, { term, flush }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.strictEqual(rows.filter(r => r !== "").length, 4);
             }
         }
@@ -857,7 +966,13 @@ test.describe("BottomBlock", test => {
             const afterDispose = io.output;
             time.advance(1000);
             const afterAdvance = io.output;
-            return { afterDispose, afterAdvance, pendingCount: time.pendingCount, resizeCount: io.resizeListenerCount };
+            return {
+                afterDispose,
+                afterAdvance,
+                pendingCount: time.pendingCount,
+                resizeCount: io.resizeListenerCount,
+                cancelledDelays: time.cancelledDelays
+            };
         },
         ASSERTS: {
             "no writes from dispose itself"(result) {
@@ -871,6 +986,9 @@ test.describe("BottomBlock", test => {
             },
             "resize unsubscribed"(result) {
                 Assert.strictEqual(result.resizeCount, 0);
+            },
+            "working timers are cancelled in reverse creation order"(result) {
+                Assert.deepStrictEqual(result.cancelledDelays, [9000, 200]);
             }
         }
     });
@@ -1800,29 +1918,39 @@ test.describe("BottomBlock", test => {
     });
 
     test("@xterm/headless: after a k=2 shrink resize the rendered grid shows exactly four block rows at the bottom with the full fields and no stale separator row above them", {
-        ARRANGE() {
-            return { initialCols: 80, newCols: 40, termRows: 24 };
+        async ARRANGE(after) {
+            const initialCols = 80;
+            const newCols = 40;
+            const termRows = 24;
+            const mounted = ownEmulatorBlock(after, await mountEmulatorBlock(initialCols, termRows));
+            return { ...mounted, newCols, termRows };
         },
-        async ACT({ initialCols, newCols, termRows }) {
-            return await renderEmulatorShrink(initialCols, newCols, termRows);
+        ACT({ resize, newCols }) {
+            resize(newCols);
         },
         ASSERTS: {
-            "separator row at the third-from-bottom position spans the new width with only ─ glyphs"(rows, { newCols, termRows }) {
+            async "separator row at the third-from-bottom position spans the new width with only ─ glyphs"(_result, { term, flush, newCols, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(newCols));
             },
-            "header row at the second-from-bottom position carries the header fields"(rows, { termRows }) {
+            async "header row at the second-from-bottom position carries the header fields"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.strictEqual(rows[termRows - 3], "5/12 iter 2 implementing 7.3 Task title");
             },
-            "metrics row at the row-above-bottom position carries the metrics fields"(rows, { termRows }) {
+            async "metrics row at the row-above-bottom position carries the metrics fields"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.strictEqual(rows[termRows - 2], "task 100 5s  │  plan 200 10s");
             },
-            "footer row at the bottom carries the working label with the first animation frame"(rows, { termRows }) {
+            async "footer row at the bottom carries the working label with the first animation frame"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.strictEqual(rows[termRows - 1], `⣋ ${DEFAULT_LABEL}`);
             },
-            "row immediately above the block is not a stale all-─ separator"(rows, { newCols, termRows }) {
+            async "row immediately above the block is not a stale all-─ separator"(_result, { term, flush, newCols, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.notStrictEqual(rows[termRows - 5], SEPARATOR_GLYPH.repeat(newCols));
             },
-            "the block occupies exactly four terminal rows — every row above the bottom four is empty"(rows, { termRows }) {
+            async "the block occupies exactly four terminal rows — every row above the bottom four is empty"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.deepStrictEqual(rows.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
             }
         }
@@ -1837,23 +1965,29 @@ test.describe("BottomBlock", test => {
         { initialCols: 160, newCols: 20, k: 8 }
     ]) {
         test(`@xterm/headless: after a k=${k} shrink resize (${initialCols}->${newCols}) the block re-anchors to exactly four bottom rows with zero stale separator rows above`, {
-            ARRANGE() {
-                return { initialCols, newCols, termRows: 24 };
+            async ARRANGE(after) {
+                const termRows = 24;
+                const mounted = ownEmulatorBlock(after, await mountEmulatorBlock(initialCols, termRows));
+                return { ...mounted, newCols, termRows };
             },
-            async ACT(params) {
-                return await renderEmulatorShrink(params.initialCols, params.newCols, params.termRows);
+            ACT({ resize, newCols }) {
+                resize(newCols);
             },
             ASSERTS: {
-                "the separator row at the third-from-bottom position spans the new width with only ─ glyphs"(rows, { newCols, termRows }) {
+                async "the separator row at the third-from-bottom position spans the new width with only ─ glyphs"(_result, { term, flush, newCols, termRows }) {
+                    const rows = await readFlushedEmulatorViewport(term, flush);
                     Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(newCols));
                 },
-                "the footer row at the bottom carries the working label, proving the block re-anchored to the bottom"(rows, { termRows }) {
+                async "the footer row at the bottom carries the working label, proving the block re-anchored to the bottom"(_result, { term, flush, termRows }) {
+                    const rows = await readFlushedEmulatorViewport(term, flush);
                     Assert.strictEqual(rows[termRows - 1], `⣋ ${DEFAULT_LABEL}`);
                 },
-                "the row immediately above the block is not a stale all-─ separator chunk left by the reflow"(rows, { newCols, termRows }) {
+                async "the row immediately above the block is not a stale all-─ separator chunk left by the reflow"(_result, { term, flush, newCols, termRows }) {
+                    const rows = await readFlushedEmulatorViewport(term, flush);
                     Assert.notStrictEqual(rows[termRows - 5], SEPARATOR_GLYPH.repeat(newCols));
                 },
-                "every row above the bottom four is empty — no reflowed separator rows survive the redraw"(rows, { termRows }) {
+                async "every row above the bottom four is empty — no reflowed separator rows survive the redraw"(_result, { term, flush, termRows }) {
+                    const rows = await readFlushedEmulatorViewport(term, flush);
                     Assert.deepStrictEqual(rows.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
                 }
             }
@@ -1873,46 +2007,49 @@ test.describe("BottomBlock", test => {
         { initialCols: 40, wideCols: 160 }
     ]) {
         test(`@xterm/headless: after a widen resize (${initialCols}->${wideCols}) the block re-expands to the full new width with the header/metrics restored to their fuller form and no stale rows above`, {
-            ARRANGE() {
-                return { initialCols, wideCols, termRows: 24, title: WIDEN_TITLE };
-            },
-            async ACT({ initialCols, wideCols, termRows, title }) {
-                const { term, block, flush, resize } = await mountEmulatorBlock(initialCols, termRows);
+            async ARRANGE(after) {
+                const termRows = 24;
+                const title = WIDEN_TITLE;
+                const mounted = ownEmulatorBlock(after, await mountEmulatorBlock(initialCols, termRows));
+                const { term, block, flush } = mounted;
                 block.setHeader({ indexLabel: "5/12", iteration: 2, activity: "implementing", taskNumber: "7.3", title });
                 await flush();
                 const narrow = readEmulatorViewport(term);
+                return { ...mounted, wideCols, termRows, title, narrow };
+            },
+            ACT({ resize, wideCols }) {
                 resize(wideCols);
-                await flush();
-                const wide = readEmulatorViewport(term);
-                block.dispose();
-                term.dispose();
-                return { narrow, wide };
             },
             ASSERTS: {
-                "the header is truncated with a trailing ellipsis at the narrow width before the widen"(result, { termRows }) {
-                    Assert.ok(result.narrow[termRows - 3]!.endsWith("…"), "header must be truncated at the narrow width");
+                "the header is truncated with a trailing ellipsis at the narrow width before the widen"(_result, { narrow, termRows }) {
+                    Assert.ok(narrow[termRows - 3]!.endsWith("…"), "header must be truncated at the narrow width");
                 },
-                "the separator row spans exactly the new wider width with only ─ glyphs"(result, { wideCols, termRows }) {
-                    Assert.strictEqual(result.wide[termRows - 4], SEPARATOR_GLYPH.repeat(wideCols));
+                async "the separator row spans exactly the new wider width with only ─ glyphs"(_result, { term, flush, wideCols, termRows }) {
+                    const wide = await readFlushedEmulatorViewport(term, flush);
+                    Assert.strictEqual(wide[termRows - 4], SEPARATOR_GLYPH.repeat(wideCols));
                 },
-                "the header row is restored to its full untruncated form at the new width"(result, { termRows, title }) {
-                    Assert.strictEqual(result.wide[termRows - 3], `5/12 iter 2 implementing 7.3 ${title}`);
+                async "the header row is restored to its full untruncated form at the new width"(_result, { term, flush, termRows, title }) {
+                    const wide = await readFlushedEmulatorViewport(term, flush);
+                    Assert.strictEqual(wide[termRows - 3], `5/12 iter 2 implementing 7.3 ${title}`);
                 },
-                "the metrics row renders its full form at the new width"(result, { termRows }) {
-                    Assert.strictEqual(result.wide[termRows - 2], "task 100 5s  │  plan 200 10s");
+                async "the metrics row renders its full form at the new width"(_result, { term, flush, termRows }) {
+                    const wide = await readFlushedEmulatorViewport(term, flush);
+                    Assert.strictEqual(wide[termRows - 2], "task 100 5s  │  plan 200 10s");
                 },
-                "the footer row carries the working label at the bottom of the terminal"(result, { termRows }) {
-                    Assert.strictEqual(result.wide[termRows - 1], `⣋ ${DEFAULT_LABEL}`);
+                async "the footer row carries the working label at the bottom of the terminal"(_result, { term, flush, termRows }) {
+                    const wide = await readFlushedEmulatorViewport(term, flush);
+                    Assert.strictEqual(wide[termRows - 1], `⣋ ${DEFAULT_LABEL}`);
                 },
-                "every row above the four-row block is empty after the widen — no stale narrow separator or pre-widen content"(result, { termRows }) {
-                    Assert.deepStrictEqual(result.wide.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
+                async "every row above the four-row block is empty after the widen — no stale narrow separator or pre-widen content"(_result, { term, flush, termRows }) {
+                    const wide = await readFlushedEmulatorViewport(term, flush);
+                    Assert.deepStrictEqual(wide.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
                 }
             }
         });
     }
 
     test("@xterm/headless: shrinking with a populated wrapped output region above re-anchors the block to four bottom rows with the output preserved above and no stale separator rows", {
-        ARRANGE() {
+        async ARRANGE(after) {
             // Ten 120-char lines wrap to two rows each at 80 cols, filling the
             // 20 rows above the block exactly (no blank padding artifact) so the
             // setup mirrors a real run whose output has scrolled the block to the
@@ -1921,63 +2058,68 @@ test.describe("BottomBlock", test => {
             // tests never exercise.
             const aboveContent:string[] = [];
             for (let i = 0; i < 10; i++) aboveContent.push(`OUT${i} `.padEnd(120, "x"));
-            return { initialCols: 80, newCols: 40, termRows: 24, aboveContent };
+            const initialCols = 80;
+            const newCols = 40;
+            const termRows = 24;
+            const mounted = ownEmulatorBlock(after, await mountEmulatorBlock(initialCols, termRows, aboveContent));
+            return { ...mounted, newCols, termRows };
         },
-        async ACT({ initialCols, newCols, termRows, aboveContent }) {
-            const { term, block, flush, resize } = await mountEmulatorBlock(initialCols, termRows, aboveContent);
+        ACT({ resize, newCols }) {
             resize(newCols);
-            await flush();
-            const rows = readEmulatorViewport(term);
-            block.dispose();
-            term.dispose();
-            return rows;
         },
         ASSERTS: {
-            "the separator row spans exactly the new width with only ─ glyphs"(rows, { newCols, termRows }) {
+            async "the separator row spans exactly the new width with only ─ glyphs"(_result, { term, flush, newCols, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(newCols));
             },
-            "the header row carries the header fields at the new width"(rows, { termRows }) {
+            async "the header row carries the header fields at the new width"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.strictEqual(rows[termRows - 3], "5/12 iter 2 implementing 7.3 Task title");
             },
-            "the metrics row carries the metrics fields at the new width"(rows, { termRows }) {
+            async "the metrics row carries the metrics fields at the new width"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.strictEqual(rows[termRows - 2], "task 100 5s  │  plan 200 10s");
             },
-            "the footer row is the bottom row, proving the block re-anchored to the bottom"(rows, { termRows }) {
+            async "the footer row is the bottom row, proving the block re-anchored to the bottom"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.strictEqual(rows[termRows - 1], `⣋ ${DEFAULT_LABEL}`);
             },
-            "no row above the block is a stale separator chunk left by the reflow"(rows, { termRows }) {
+            async "no row above the block is a stale separator chunk left by the reflow"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.ok(rows.slice(0, termRows - 4).every(r => !/^─+$/.test(r)), "no row above the block may be an all-separator row");
             },
-            "the reflowed wrapped output region is preserved above the block"(rows, { termRows }) {
+            async "the reflowed wrapped output region is preserved above the block"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.ok(rows.slice(0, termRows - 4).some(r => r.includes("OUT")), "the seeded output must remain visible above the block");
             }
         }
     });
 
-    test("@xterm/headless: a long working variant at a narrow width is truncated to a single row with an ellipsis, keeping the block exactly four rows", {
-        ARRANGE() {
+    test("@xterm/headless: a spinner redraw keeps a long working variant truncated to one narrow row and the block at exactly four rows", {
+        async ARRANGE(after) {
             // 0.47 * 50 = 23 -> workingPool[23] === "Diddly-developin'" (17 chars).
             // "⣋ Diddly-developin'" is 19 visible cells, wider than the 12-col terminal,
             // so the block (drawn with autowrap off) must truncate it to one 12-cell row
             // rather than letting it wrap into a second physical row.
-            return { cols: 12, termRows: 24, random: fakeRandom(0.47) };
+            const cols = 12;
+            const termRows = 24;
+            const mounted = ownEmulatorBlock(after, await mountEmulatorBlock(cols, termRows, undefined, fakeRandom(0.47)));
+            return { ...mounted, cols, termRows };
         },
-        async ACT({ cols, termRows, random }) {
-            const { term, block, flush } = await mountEmulatorBlock(cols, termRows, undefined, random);
-            await flush();
-            const rows = readEmulatorViewport(term);
-            block.dispose();
-            term.dispose();
-            return rows;
+        ACT({ time }) {
+            time.advance(200);
         },
         ASSERTS: {
-            "the footer row is the long variant truncated to the width with a trailing ellipsis"(rows, { termRows }) {
-                Assert.strictEqual(rows[termRows - 1], "⣋ Diddly-de…");
+            async "the footer row is the long variant truncated to the width with a trailing ellipsis"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
+                Assert.strictEqual(rows[termRows - 1], "⣙ Diddly-de…");
             },
-            "the separator row spans exactly the narrow width with only ─ glyphs"(rows, { cols, termRows }) {
+            async "the separator row spans exactly the narrow width with only ─ glyphs"(_result, { term, flush, cols, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(cols));
             },
-            "the block occupies exactly four rows — every row above the bottom four is empty, so the long label did not wrap"(rows, { termRows }) {
+            async "the block occupies exactly four rows — every row above the bottom four is empty, so the long label did not wrap"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
                 Assert.deepStrictEqual(rows.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
             }
         }
@@ -2119,64 +2261,181 @@ test.describe("BottomBlock", test => {
         }
     });
 
-    test("reviewing footer with two waiting reviewers renders each reviewer's own countdown from its own endTime", {
+    test("reviewing footer derives each waiting reviewer's own wait and retry countdowns on animation ticks", {
         ARRANGE() {
-            const io = stubIO(120);
+            const io = stubIO(180);
             const time = fakeTime();
             time.setNow(0);
             const block = makeBlock(io, time);
-            block.mount();
-            io.reset();
-            // Two reviewers waiting at the same instant with distinct end times must
-            // each render their own compact countdown (2h14m vs 14m), proving the
-            // countdowns are recomputed independently and not shared.
             const reviewers:ReviewerEntry[] = [
-                { tool: "claude", model: "", effort: "", state: "waiting", endTime: 134 * 60 * 1000 },
-                { tool: "codex", model: "gpt-5", effort: "high", state: "waiting", endTime: 14 * 60 * 1000 }
+                {
+                    tool: "claude",
+                    model: "",
+                    effort: "",
+                    state: "waiting",
+                    endTime: 134 * 60 * 1000,
+                    nextRetryAt: 12 * 60 * 1000
+                },
+                {
+                    tool: "codex",
+                    model: "gpt-5",
+                    effort: "high",
+                    state: "waiting",
+                    endTime: 45 * 60 * 1000,
+                    nextRetryAt: 30 * 60 * 1000
+                }
             ];
-            return { io, block, reviewers };
-        },
-        ACT({ io, block, reviewers }) {
             block.setFooter({ kind: "reviewing", reviewers });
-            const output = io.output;
-            block.dispose();
-            return output;
+            block.mount();
+            return { io, time, block };
         },
-        ASSERT(output) {
-            const footerPlain = stripAnsi(output.split("\n").pop() ?? "");
-            Assert.strictEqual(footerPlain, "⣋ review: claude (default): waiting 2h14m, codex (gpt-5 high): waiting 14m");
+        ACT({ io, time, block }) {
+            const initialFooter = footerLineOf(io.output);
+            io.reset();
+            time.advance(60 * 1000);
+            const afterMinuteFooter = footerLineOf(io.output);
+            block.dispose();
+            return { initialFooter, afterMinuteFooter };
+        },
+        ASSERTS: {
+            "the initial draw shows the first reviewer's own wait and retry countdowns"(result) {
+                Assert.ok(result.initialFooter.includes("claude (default): waiting 2h14m retry 12m"));
+            },
+            "the initial draw shows the second reviewer's own wait and retry countdowns"(result) {
+                Assert.ok(result.initialFooter.includes("codex (gpt-5 high): waiting 45m retry 30m"));
+            },
+            "the initial draw contains one shared F5 hint"(result) {
+                Assert.strictEqual(result.initialFooter.match(/\(F5\)/g)?.length, 1);
+            },
+            "the first reviewer's wait and retry countdowns both advance without a new state push"(result) {
+                Assert.ok(result.afterMinuteFooter.includes("claude (default): waiting 2h13m retry 11m"));
+            },
+            "the second reviewer's wait and retry countdowns both advance without a new state push"(result) {
+                Assert.ok(result.afterMinuteFooter.includes("codex (gpt-5 high): waiting 44m retry 29m"));
+            },
+            "the redrawn line still contains only one F5 hint"(result) {
+                Assert.strictEqual(result.afterMinuteFooter.match(/\(F5\)/g)?.length, 1);
+            }
         }
     });
 
     test("@xterm/headless: a reviewing footer with a waiting reviewer renders its compact countdown on the bottom row and keeps the block at exactly four rows", {
-        ARRANGE() {
-            return { cols: 120, termRows: 24 };
-        },
-        async ACT({ cols, termRows }) {
-            const { term, block, flush } = await mountEmulatorBlock(cols, termRows);
+        async ARRANGE(after) {
+            const cols = 120;
+            const termRows = 24;
+            const mounted = ownEmulatorBlock(after, await mountEmulatorBlock(cols, termRows));
             const reviewers:ReviewerEntry[] = [
                 { tool: "claude", model: "", effort: "", state: "waiting", endTime: 134 * 60 * 1000 },
                 { tool: "codex", model: "gpt-5", effort: "high", state: "running" }
             ];
+            return { ...mounted, cols, termRows, reviewers };
+        },
+        ACT({ block, reviewers }) {
             block.setFooter({ kind: "reviewing", reviewers });
-            await flush();
-            const rows = readEmulatorViewport(term);
-            block.dispose();
-            term.dispose();
-            return { rows, termRows };
         },
         ASSERTS: {
-            "the footer row shows the reviewing line with the indicator and the compact countdown"(result) {
-                Assert.strictEqual(result.rows[result.termRows - 1], "⣋ review: claude (default): waiting 2h14m, codex (gpt-5 high): running");
+            async "the footer row shows the reviewing line with the indicator and the compact countdown"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
+                Assert.strictEqual(rows[termRows - 1], "⣋ review: claude (default): waiting 2h14m, codex (gpt-5 high): running");
             },
-            "the separator row spans the full width with only ─ glyphs"(result) {
-                Assert.strictEqual(result.rows[result.termRows - 4], SEPARATOR_GLYPH.repeat(120));
+            async "the separator row spans the full width with only ─ glyphs"(_result, { term, flush, cols, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
+                Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(cols));
             },
-            "the block occupies exactly four terminal rows — every row above the bottom four is empty"(result) {
-                Assert.deepStrictEqual(result.rows.slice(0, result.termRows - 4), new Array(result.termRows - 4).fill(""));
+            async "the block occupies exactly four terminal rows — every row above the bottom four is empty"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
+                Assert.deepStrictEqual(rows.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
             }
         }
     });
+
+    const geometryReviewer:ReviewerEntry = {
+        tool: "claude",
+        model: "sonnet",
+        effort: "high",
+        state: "waiting",
+        endTime: 134 * 60 * 1000,
+        nextRetryAt: 12 * 60 * 1000
+    };
+    const waitingGeometryEnd = 4 * 24 * 60 * 60 * 1000;
+    const footerGeometryCases:readonly {
+        name:string;
+        cols:number;
+        state:FooterState;
+        tickMs:number;
+        expectedFooter:string;
+    }[] = [
+        {
+            name: "waiting",
+            cols: 140,
+            state: {
+                kind: "waiting",
+                waitKind: "rate-limit",
+                endTime: waitingGeometryEnd,
+                nextRetryAt: 12 * 60 * 1000
+            },
+            tickMs: 1000,
+            expectedFooter: `Waiting rate limit — ${formatDateTime(new Date(waitingGeometryEnd))} — 4 days, 0 hours, 0 minutes · retrying in 12m (F5)`
+        },
+        {
+            name: "review full",
+            cols: 80,
+            state: { kind: "reviewing", reviewers: [geometryReviewer] },
+            tickMs: 200,
+            expectedFooter: "⣙ review: claude (sonnet high): waiting 2h14m retry 12m (F5)"
+        },
+        {
+            name: "review compact",
+            cols: 46,
+            state: { kind: "reviewing", reviewers: [geometryReviewer] },
+            tickMs: 200,
+            expectedFooter: "⣙ review: claude: waiting 2h14m retry 12m (F5)"
+        },
+        {
+            name: "review truncated",
+            cols: 30,
+            state: { kind: "reviewing", reviewers: [geometryReviewer] },
+            tickMs: 200,
+            expectedFooter: "⣙ review: claude: waiting 2h1…"
+        }
+    ];
+
+    for (const geometryCase of footerGeometryCases) {
+        test(`@xterm/headless: ${geometryCase.name} footer redraw occupies exactly four rows and leaves no stale grid rows`, {
+            async ARRANGE(after) {
+                const termRows = 24;
+                const mounted = ownEmulatorBlock(after, await mountEmulatorBlock(geometryCase.cols, termRows));
+                mounted.block.setFooter(geometryCase.state);
+                await mounted.flush();
+                return { ...mounted, ...geometryCase, termRows };
+            },
+            ACT({ time, tickMs }) {
+                time.advance(tickMs);
+            },
+            ASSERTS: {
+                async "the separator is the fourth row from the bottom and spans the terminal width"(_result, { term, flush, cols, termRows }) {
+                    const rows = await readFlushedEmulatorViewport(term, flush);
+                    Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(cols));
+                },
+                async "the header occupies the third row from the bottom"(_result, { term, flush, termRows }) {
+                    const rows = await readFlushedEmulatorViewport(term, flush);
+                    Assert.notStrictEqual(rows[termRows - 3], "");
+                },
+                async "the metrics line occupies the second row from the bottom"(_result, { term, flush, termRows }) {
+                    const rows = await readFlushedEmulatorViewport(term, flush);
+                    Assert.notStrictEqual(rows[termRows - 2], "");
+                },
+                async "the redrawn footer occupies the bottom row in its expected fit tier"(_result, { term, flush, expectedFooter, termRows }) {
+                    const rows = await readFlushedEmulatorViewport(term, flush);
+                    Assert.strictEqual(rows[termRows - 1], expectedFooter);
+                },
+                async "every row above the block is empty after the redraw"(_result, { term, flush, termRows }) {
+                    const rows = await readFlushedEmulatorViewport(term, flush);
+                    Assert.deepStrictEqual(rows.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
+                }
+            }
+        });
+    }
 
     test("the reviewing line's animated indicator advances on each spinner tick", {
         ARRANGE() {
@@ -2404,7 +2663,7 @@ test.describe("BottomBlock metrics-line live time counter", test => {
         }
     });
 
-    test("the metrics time freezes through a waiting state and resumes from the paused value with the elapsed wait excluded", {
+    test("updated waiting instants redraw without restarting the metrics pause, and work resumes with the whole wait excluded", {
         ARRANGE() {
             const io = stubIO(120);
             const time = fakeTime();
@@ -2418,10 +2677,30 @@ test.describe("BottomBlock metrics-line live time counter", test => {
             return { io, time, block };
         },
         ACT({ io, time, block }) {
-            block.setFooter({ kind: "waiting", waitKind: "rate-limit", endTime: 999000 });
+            const initialEnd = time.now() + 4 * 24 * 60 * 60 * 1000;
+            const initialRetry = time.now() + 12 * 60 * 1000;
+            block.setFooter({
+                kind: "waiting",
+                waitKind: "rate-limit",
+                endTime: initialEnd,
+                nextRetryAt: initialRetry
+            });
+            const initialWaitFooter = footerLineOf(io.output);
             const atWaitStart = metricsLineOf(io.output);
             io.reset();
-            time.advance(5000); // the wait elapses; countdown ticks redraw
+            time.advance(5000);
+            const updatedEnd = time.now() + 2 * 24 * 60 * 60 * 1000;
+            const updatedRetry = time.now() + 20 * 60 * 1000;
+            block.setFooter({
+                kind: "waiting",
+                waitKind: "rate-limit",
+                endTime: updatedEnd,
+                nextRetryAt: updatedRetry
+            });
+            const updatedWaitFooter = footerLineOf(io.output);
+            const atWaitUpdate = metricsLineOf(io.output);
+            io.reset();
+            time.advance(5000);
             const duringWait = metricsLineOf(io.output);
             io.reset();
             block.setFooter({ kind: "working" });
@@ -2429,13 +2708,39 @@ test.describe("BottomBlock metrics-line live time counter", test => {
             io.reset();
             time.advance(3000); // three active seconds after the wait
             const afterResume = metricsLineOf(io.output);
-            return { atWaitStart, duringWait, onResume, afterResume };
+            block.dispose();
+            return {
+                initialEnd,
+                updatedEnd,
+                initialWaitFooter,
+                updatedWaitFooter,
+                atWaitStart,
+                atWaitUpdate,
+                duringWait,
+                onResume,
+                afterResume
+            };
         },
         ASSERTS: {
+            "the first waiting draw carries its original expected end"(result) {
+                Assert.ok(result.initialWaitFooter.includes(formatDateTime(new Date(result.initialEnd))));
+            },
+            "the first waiting draw carries its original retry countdown"(result) {
+                Assert.ok(result.initialWaitFooter.includes("retrying in 12m (F5)"));
+            },
+            "the updated waiting draw carries the replacement expected end"(result) {
+                Assert.ok(result.updatedWaitFooter.includes(formatDateTime(new Date(result.updatedEnd))));
+            },
+            "the updated waiting draw carries the replacement retry countdown"(result) {
+                Assert.ok(result.updatedWaitFooter.includes("retrying in 20m (F5)"));
+            },
             "the metrics time freezes at its pre-wait value of 2s when the footer enters waiting"(result) {
                 Assert.strictEqual(result.atWaitStart, "task 100 2s  │  plan 200 2s");
             },
-            "advancing the clock during the wait does not change the metrics time"(result) {
+            "pushing replacement waiting instants preserves the original metrics freeze point"(result) {
+                Assert.strictEqual(result.atWaitUpdate, "task 100 2s  │  plan 200 2s");
+            },
+            "advancing the clock after the waiting update does not change the metrics time"(result) {
                 Assert.strictEqual(result.duringWait, "task 100 2s  │  plan 200 2s");
             },
             "the counter resumes from the paused value of 2s when work resumes"(result) {
@@ -2637,31 +2942,31 @@ test.describe("BottomBlock metrics-line live time counter", test => {
     });
 
     test("@xterm/headless: the live metrics time advances on the rendered grid while the block stays exactly four rows", {
-        ARRANGE() {
-            return { cols: 120, termRows: 24 };
-        },
-        async ACT({ cols, termRows }) {
-            const { term, block, time, flush } = await mountEmulatorBlock(cols, termRows);
+        async ARRANGE(after) {
+            const cols = 120;
+            const termRows = 24;
+            const mounted = ownEmulatorBlock(after, await mountEmulatorBlock(cols, termRows));
             // Replace the static seed with a live anchored pair, then let the clock
             // cross whole-second boundaries; the block's own animation ticks redraw it.
-            block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 0 } });
-            await flush();
+            mounted.block.setMetrics({ task: { tokens: 100, anchorMs: 0, baseSeconds: 0 }, plan: { tokens: 200, anchorMs: 0, baseSeconds: 0 } });
+            await mounted.flush();
+            return { ...mounted, cols, termRows };
+        },
+        ACT({ time }) {
             time.advance(3000);
-            await flush();
-            const rows = readEmulatorViewport(term);
-            block.dispose();
-            term.dispose();
-            return { rows, termRows };
         },
         ASSERTS: {
-            "the metrics row on the grid shows both times advanced to 3s"(result) {
-                Assert.strictEqual(result.rows[result.termRows - 2], "task 100 3s  │  plan 200 3s");
+            async "the metrics row on the grid shows both times advanced to 3s"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
+                Assert.strictEqual(rows[termRows - 2], "task 100 3s  │  plan 200 3s");
             },
-            "the separator row spans the full width with only ─ glyphs"(result) {
-                Assert.strictEqual(result.rows[result.termRows - 4], SEPARATOR_GLYPH.repeat(120));
+            async "the separator row spans the full width with only ─ glyphs"(_result, { term, flush, cols, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
+                Assert.strictEqual(rows[termRows - 4], SEPARATOR_GLYPH.repeat(cols));
             },
-            "the block occupies exactly four terminal rows while the counter ticks"(result) {
-                Assert.deepStrictEqual(result.rows.slice(0, result.termRows - 4), new Array(result.termRows - 4).fill(""));
+            async "the block occupies exactly four terminal rows while the counter ticks"(_result, { term, flush, termRows }) {
+                const rows = await readFlushedEmulatorViewport(term, flush);
+                Assert.deepStrictEqual(rows.slice(0, termRows - 4), new Array(termRows - 4).fill(""));
             }
         }
     });

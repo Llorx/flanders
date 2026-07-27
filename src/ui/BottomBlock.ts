@@ -1,6 +1,6 @@
 import type { RandomContext, TimeContext, TimeoutHandle } from "../contexts";
 import { pickVariant, terminalPools, workingPool } from "../voiceVariants";
-import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatTerminalFooter, formatWaitingFooter, formatWorkingFooter, SEPARATOR_GLYPH, stripAnsi } from "./formatters";
+import { formatCountdown, formatDateTime, formatHeaderLine, formatMetricsLine, formatReviewingFooter, formatTerminalFooter, formatWaitingFooter, formatWorkingFooter, pendingRetryRemainingMs, SEPARATOR_GLYPH, stripAnsi } from "./formatters";
 import type { MetricsPair, ReviewerEntry } from "./formatters";
 
 export type { ReviewerEntry, ReviewerState, ReviewerTool } from "./formatters";
@@ -53,7 +53,7 @@ const WAIT_HEADINGS:Record<WaitKind, string> = {
 export type FooterState =
     | { kind:"blank" }
     | { kind:"working" }
-    | { kind:"waiting"; waitKind:WaitKind; endTime:number }
+    | { kind:"waiting"; waitKind:WaitKind; endTime:number; nextRetryAt?:number }
     | { kind:"reviewing"; reviewers:readonly ReviewerEntry[] }
     | { kind:"terminal"; text:string };
 
@@ -216,13 +216,13 @@ export class BottomBlock {
     }
 
     private _cancelTimers():void {
-        if (this._animTimer) {
-            this._animTimer.cancel();
-            this._animTimer = null;
-        }
         if (this._labelTimer) {
             this._labelTimer.cancel();
             this._labelTimer = null;
+        }
+        if (this._animTimer) {
+            this._animTimer.cancel();
+            this._animTimer = null;
         }
         if (this._countdownTimer) {
             this._countdownTimer.cancel();
@@ -377,10 +377,12 @@ export class BottomBlock {
             case "working":
                 return formatWorkingFooter(FRAMES[this._animFrame]!, this._workingLabel, cols);
             case "waiting": {
-                const remaining = Math.max(0, this._footer.endTime - this._time.now());
+                const now = this._time.now();
+                const remaining = Math.max(0, this._footer.endTime - now);
+                const retryRemaining = pendingRetryRemainingMs(this._footer.endTime, this._footer.nextRetryAt, now);
                 const dateStr = formatDateTime(new Date(this._footer.endTime));
                 const countdown = formatCountdown(remaining);
-                return formatWaitingFooter(WAIT_HEADINGS[this._footer.waitKind], dateStr, countdown, cols);
+                return formatWaitingFooter(WAIT_HEADINGS[this._footer.waitKind], dateStr, countdown, cols, retryRemaining);
             }
             case "reviewing":
                 return formatReviewingFooter(FRAMES[this._animFrame]!, this._footer.reviewers, cols, this._time.now());
