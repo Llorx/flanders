@@ -1,5 +1,6 @@
 import { isFatalLoginError } from "../ai/AiRunner";
 import { AiSession } from "../ai/AiSession";
+import type { RateLimitWaitEndCallback, RateLimitWaitStartCallback, RateLimitWaitUpdateCallback } from "../ai/AiRunner";
 import { ClaudeAdapter } from "../ai/ClaudeAdapter";
 import { CodexAdapter } from "../ai/CodexAdapter";
 import type { AskContext, ChoiceOption, FsContext, OutputContext, RandomContext, ScriptContext, TerminalKeyInputContext, TimeContext } from "../contexts";
@@ -127,8 +128,9 @@ type RetainedErrorLog = { path:string; content:string };
 type ReviewerLogicalStatus = "running" | "waiting" | "done";
 
 type RunAiCallbacks = {
-    onLongWaitStart:(kind:"rate-limit", endTimeMs:number) => void;
-    onLongWaitEnd:() => void;
+    onLongWaitStart:RateLimitWaitStartCallback;
+    onLongWaitUpdate:RateLimitWaitUpdateCallback;
+    onLongWaitEnd:RateLimitWaitEndCallback;
     register:(session:AiSession) => void;
     unregister:(session:AiSession) => void;
 };
@@ -780,17 +782,15 @@ export class Implement {
         return true;
     }
     private _setReviewerState(reviewerIdx:number, state:ReviewerState):void {
-        this._writeReviewerEntry(reviewerIdx, state, undefined);
+        this._writeReviewerEntry(reviewerIdx, state, undefined, undefined, true);
     }
-    // The waiting variant carries the reviewer's own rate-limit end time so the
-    // reviewing footer renders that reviewer's compact countdown (recomputed from
-    // the live clock on every redraw, never cached). Non-waiting states go through
-    // _setReviewerState and carry no endTime; re-rendering with the non-waiting
-    // variant therefore clears any previously-shown countdown.
-    private _setReviewerWaiting(reviewerIdx:number, endTimeMs:number):void {
-        this._writeReviewerEntry(reviewerIdx, "waiting", endTimeMs);
+    private _setReviewerWaiting(reviewerIdx:number, endTimeMs:number, nextRetryAtMs:number):void {
+        this._writeReviewerEntry(reviewerIdx, "waiting", endTimeMs, nextRetryAtMs, true);
     }
-    private _writeReviewerEntry(reviewerIdx:number, state:ReviewerState, endTime:number|undefined):void {
+    private _updateReviewerWaiting(reviewerIdx:number, endTimeMs:number, nextRetryAtMs:number):void {
+        this._writeReviewerEntry(reviewerIdx, "waiting", endTimeMs, nextRetryAtMs, false);
+    }
+    private _writeReviewerEntry(reviewerIdx:number, state:ReviewerState, endTime:number|undefined, nextRetryAt:number|undefined, syncPause:boolean):void {
         /* coverage ignore next */ // — Defensive: _reviewerStates is initialized at the start of _reviewerStage before any reviewer launches.
         if (!this._reviewerStates) return;
         const entry = this._reviewerStates[reviewerIdx];
@@ -800,8 +800,13 @@ export class Implement {
         if (endTime !== undefined) {
             next.endTime = endTime;
         }
+        if (nextRetryAt !== undefined) {
+            next.nextRetryAt = nextRetryAt;
+        }
         this._reviewerStates[reviewerIdx] = next;
-        this._syncReviewPause();
+        if (syncPause) {
+            this._syncReviewPause();
+        }
         this._renderReviewingFooter();
     }
     // The review stage advances the task's active time only while at least one
@@ -1000,11 +1005,16 @@ export class Implement {
                     void currentSession.dispose();
                 };
                 const callbacks:RunAiCallbacks = {
-                    onLongWaitStart: (_kind, endTimeMs) => {
+                    onLongWaitStart: (_kind, endTimeMs, nextRetryAtMs) => {
                         /* coverage ignore next */ // — Defensive: disposed guard during long-wait callback.
                         if (this._disposed) return;
-                        this._setReviewerWaiting(idx, endTimeMs);
+                        this._setReviewerWaiting(idx, endTimeMs, nextRetryAtMs);
                         this._setReviewerLogicalStatus(idx, "waiting");
+                    },
+                    onLongWaitUpdate: (endTimeMs, nextRetryAtMs) => {
+                        /* coverage ignore next */ // — Defensive: disposed guard during long-wait callback.
+                        if (this._disposed) return;
+                        this._updateReviewerWaiting(idx, endTimeMs, nextRetryAtMs);
                     },
                     onLongWaitEnd: () => {
                         /* coverage ignore next */ // — Defensive: disposed guard during long-wait callback.
@@ -1117,13 +1127,18 @@ export class Implement {
     }
     private _defaultRunAiCallbacks():RunAiCallbacks {
         return {
-            onLongWaitStart: (kind, endTimeMs) => {
+            onLongWaitStart: (kind, endTimeMs, nextRetryAtMs) => {
                 /* coverage ignore next */ // — Defensive: rate-limit callback after dispose is a no-op.
                 if (this._disposed) return;
                 if (this._currentTask !== null) {
                     this._taskRateLimitStartedAt = this._contexts.time.now();
                 }
-                this._block!.setFooter({ kind: "waiting", waitKind: kind, endTime: endTimeMs });
+                this._block!.setFooter({ kind: "waiting", waitKind: kind, endTime: endTimeMs, nextRetryAt: nextRetryAtMs });
+            },
+            onLongWaitUpdate: (endTimeMs, nextRetryAtMs) => {
+                /* coverage ignore next */ // — Defensive: rate-limit callback after dispose is a no-op.
+                if (this._disposed) return;
+                this._block!.setFooter({ kind: "waiting", waitKind: "rate-limit", endTime: endTimeMs, nextRetryAt: nextRetryAtMs });
             },
             onLongWaitEnd: () => {
                 if (this._taskRateLimitStartedAt !== null) {
@@ -1177,6 +1192,7 @@ export class Implement {
             ...(initialSessionId != null ? { resumeSessionId: initialSessionId } : null),
             ...(priorSessionUsage != null ? { priorSessionUsage } : null),
             onLongWaitStart: callbacks.onLongWaitStart,
+            onLongWaitUpdate: callbacks.onLongWaitUpdate,
             onLongWaitEnd: callbacks.onLongWaitEnd
         }, {
             time: this._contexts.time,

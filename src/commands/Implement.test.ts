@@ -4238,7 +4238,7 @@ function controllableTime() {
 // rest after the wait resolves but before the next AI call produces any output (the hold mechanism
 // mirrors gatedClaudeStub; sharing it here avoids a near-duplicate stub per docs/rules/code-deduplication.md).
 // With no spawn held the dispatch is `setImmediate(emit)` for every spawn, identical to the original.
-function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
+function rateLimitStub(rateLimitOnSpawn:number|Readonly<Record<number, number>>, retryAfterSeconds?:number) {
     const s = stubContexts();
     gitRunQueue(s.gitQueue);
     const time = controllableTime();
@@ -4259,9 +4259,12 @@ function rateLimitStub(rateLimitOnSpawn:number, retryAfterSeconds:number) {
             end() { origStdin.end(); }
         };
         let emit:() => void;
-        if (mySpawn === rateLimitOnSpawn) {
+        const spawnRetryAfterSeconds = typeof rateLimitOnSpawn === "number"
+            ? (mySpawn === rateLimitOnSpawn ? retryAfterSeconds : undefined)
+            : rateLimitOnSpawn[mySpawn];
+        if (spawnRetryAfterSeconds !== undefined) {
             emit = () => {
-                proc.$emitStdout(rateLimitEvent(time.ctx.now(), retryAfterSeconds) + "\n");
+                proc.$emitStdout(rateLimitEvent(time.ctx.now(), spawnRetryAfterSeconds) + "\n");
                 proc.$emit("exit", 0);
             };
         } else {
@@ -4500,6 +4503,101 @@ test.describe("Implement rate-limit footer", test => {
             },
             "footer shows countdown"({ outputDuringRateLimit }) {
                 Assert.ok(outputDuringRateLimit.includes("5 minutes"));
+            }
+        }
+    });
+
+    test("a continuous worker wait repaints the reported end and next retry without resuming work or counting the interval", {
+        ARRANGE() {
+            const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
+            const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+            const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+            const { s, time } = rateLimitStub({
+                2: FOUR_DAYS_MS / 1000,
+                3: THREE_DAYS_MS / 1000
+            });
+            (s.contexts.output as { columns:() => number }).columns = () => 200;
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker" });
+            s.claudeQueue.push({ text: "reviewer ok", errorLog: "" });
+            const recording = recordFooterCalls<FooterState>(state => state);
+            return { s, time, recording, FOUR_DAYS_MS, THREE_DAYS_MS, THIRTY_MINUTES_MS };
+        },
+        async ACT({ s, time, recording, FOUR_DAYS_MS, THREE_DAYS_MS, THIRTY_MINUTES_MS }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+                await flush();
+                const initialWaitDraw = stripAnsi([...s.written].reverse().find(text => text.includes("Waiting rate limit")) ?? "");
+
+                time.advance(THIRTY_MINUTES_MS - 60_000);
+                await flush();
+                const oneMinuteDraw = stripAnsi([...s.written].reverse().find(text => text.includes("Waiting rate limit")) ?? "");
+                const writesBeforeUpdate = s.written.length;
+
+                time.advance(60_000);
+                await flush();
+                const updatedWaitDraw = stripAnsi([...s.written.slice(writesBeforeUpdate)].reverse().find(text => text.includes("Waiting rate limit")) ?? "");
+
+                time.advance(THIRTY_MINUTES_MS);
+                await flush();
+                const code = await cmd.result();
+                await cmd.dispose();
+                const waitingStates = recording.calls.filter(
+                    (state):state is Extract<FooterState, { kind:"waiting" }> => state.kind === "waiting"
+                );
+                return {
+                    code,
+                    initialWaitDraw,
+                    oneMinuteDraw,
+                    updatedWaitDraw,
+                    waitingStates,
+                    footerKinds: recording.calls.map(state => state.kind),
+                    plan: s.files.get(COMPLETED_PLAN_PATH)!,
+                    initialEnd: FOUR_DAYS_MS,
+                    updatedEnd: THIRTY_MINUTES_MS + THREE_DAYS_MS,
+                    firstRetry: THIRTY_MINUTES_MS,
+                    secondRetry: 2 * THIRTY_MINUTES_MS
+                };
+            } finally {
+                recording.restore();
+            }
+        },
+        ASSERTS: {
+            "the first waiting draw shows the expected end, full countdown, and pending retry"({ initialWaitDraw, initialEnd }) {
+                Assert.ok(initialWaitDraw.includes(
+                    `Waiting rate limit — ${formatDateTime(new Date(initialEnd))} — 4 days, 0 hours, 0 minutes · retrying in 30m (F5)`
+                ), initialWaitDraw);
+            },
+            "the pending retry counts down while the same wait remains active"({ oneMinuteDraw }) {
+                Assert.ok(oneMinuteDraw.includes("retrying in 1m (F5)"), oneMinuteDraw);
+            },
+            "the still-limited attempt repaints both reported instants and the fresh retry countdown"({ updatedWaitDraw, updatedEnd }) {
+                Assert.ok(updatedWaitDraw.includes(
+                    `Waiting rate limit — ${formatDateTime(new Date(updatedEnd))} — 3 days, 0 hours, 0 minutes · retrying in 30m (F5)`
+                ), updatedWaitDraw);
+            },
+            "the structured waiting states carry the initial and updated end instants"({ waitingStates, initialEnd, updatedEnd }) {
+                Assert.deepStrictEqual(waitingStates.map(state => state.endTime), [initialEnd, updatedEnd]);
+            },
+            "the structured waiting states carry the initial and updated retry instants"({ waitingStates, firstRetry, secondRetry }) {
+                Assert.deepStrictEqual(waitingStates.map(state => state.nextRetryAt), [firstRetry, secondRetry]);
+            },
+            "no working footer transition occurs between entry and the still-waiting update"({ footerKinds }) {
+                const firstWaiting = footerKinds.indexOf("waiting");
+                const secondWaiting = footerKinds.indexOf("waiting", firstWaiting + 1);
+                Assert.deepStrictEqual(footerKinds.slice(firstWaiting, secondWaiting + 1), ["waiting", "waiting"]);
+            },
+            "the live metrics are frozen when the continuous wait begins"({ initialWaitDraw }) {
+                Assert.ok(initialWaitDraw.includes("task 0 0s"));
+            },
+            "the live metrics remain frozen after the still-limited attempt"({ updatedWaitDraw }) {
+                Assert.ok(updatedWaitDraw.includes("task 0 0s"));
+            },
+            "the persisted task time excludes the continuous wait once"({ plan }) {
+                Assert.ok(plan.includes('[x]{"it":0,"ot":0,"t":0}'), plan);
+            },
+            "the run completes after the attempt passes the limit"({ code }) {
+                Assert.strictEqual(code, 0);
             }
         }
     });
@@ -11314,7 +11412,7 @@ test.describe("Implement multiple parallel reviewers", test => {
     });
 });
 
-type ReviewerAction = { rateLimit:number } | { verdict:string };
+type ReviewerAction = { rateLimit:number; advanceBeforeMs?:number } | { verdict:string; advanceBeforeMs?:number };
 
 // A controllable-time harness for the weighted-review round-completion tests. The worker and the
 // reviewers are all claude, so every spawn is a claude spawn handled here: detect and worker draw from claudeQueue,
@@ -11353,6 +11451,9 @@ function weightedReviewStub(reviewerActions:ReviewerAction[][]) {
             const inv = invocation[reviewerIdx]!;
             invocation[reviewerIdx] = inv + 1;
             const action = reviewerActions[reviewerIdx]![inv]!;
+            if (action.advanceBeforeMs !== undefined) {
+                time.advance(action.advanceBeforeMs);
+            }
             if ("rateLimit" in action) {
                 proc.$emitStdout(rateLimitEvent(time.ctx.now(), action.rateLimit) + "\n");
                 proc.$emit("exit", 0);
@@ -11368,6 +11469,139 @@ function weightedReviewStub(reviewerActions:ReviewerAction[][]) {
 }
 
 test.describe("Implement weighted-review round completion", test => {
+    test("periodic reviewer attempts update independent retry displays without reopening the review pause or completing the round early", {
+        ARRANGE() {
+            const MINUTE_MS = 60 * 1000;
+            const { s, time } = weightedReviewStub([
+                [
+                    { rateLimit: 3 * 60 * 60 },
+                    { rateLimit: 3 * 60 * 60 },
+                    { rateLimit: 3 * 60 * 60 },
+                    { verdict: "" }
+                ],
+                [
+                    { rateLimit: 3 * 60 * 60, advanceBeforeMs: 5 * MINUTE_MS },
+                    { verdict: "" }
+                ]
+            ]);
+            const config:FlandersConfig = {
+                worker: { tool: "claude", model: "worker", effort: "", fast: false },
+                reviewers: [
+                    { tool: "claude", model: "r0", effort: "r0", fast: false, optional: false },
+                    { tool: "claude", model: "r1", effort: "r1", fast: false, optional: true }
+                ],
+                minimumReviews: 1
+            };
+            s.files.set(CONFIG_PATH, JSON.stringify(config));
+            (s.contexts.output as { columns:() => number }).columns = () => 240;
+            s.claudeQueue.push({ text: "detect" });
+            s.claudeQueue.push({ text: "worker" });
+            const recording = recordFooterKinds();
+            return { s, time, recording, MINUTE_MS };
+        },
+        async ACT({ s, time, recording, MINUTE_MS }) {
+            try {
+                const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, s.contexts);
+                await flush();
+                const initialReviewDraw = stripAnsi([...s.written].reverse().find(text => text.includes("retry ")) ?? "");
+
+                time.advance(25 * MINUTE_MS);
+                await flush();
+                time.advance(5 * MINUTE_MS);
+                const writesBeforeReviewerResume = s.written.length;
+                await flush();
+                const runningReviewDraw = stripAnsi(
+                    [...s.written.slice(writesBeforeReviewerResume)].reverse().find(text => text.includes("claude (r1): running")) ?? ""
+                );
+
+                time.advance(25 * MINUTE_MS);
+                await flush();
+                time.advance(30 * MINUTE_MS);
+                await flush();
+                const code = await cmd.result();
+                await cmd.dispose();
+
+                const reviewingStates = recording.footerStates
+                    .filter((state):state is Extract<FooterState, { kind:"reviewing" }> => state.kind === "reviewing")
+                    .map(state => state.reviewers);
+                return {
+                    code,
+                    initialReviewDraw,
+                    runningReviewDraw,
+                    reviewingStates,
+                    files: s.files,
+                    plan: s.files.get(COMPLETED_PLAN_PATH)!
+                };
+            } finally {
+                recording.restore();
+            }
+        },
+        ASSERTS: {
+            "the first waiting reviewer renders its own countdown and retry countdown"({ initialReviewDraw }) {
+                Assert.ok(initialReviewDraw.includes("claude (r0): waiting 2h55m retry 25m"), initialReviewDraw);
+            },
+            "the second waiting reviewer renders its own countdown and retry countdown"({ initialReviewDraw }) {
+                Assert.ok(initialReviewDraw.includes("claude (r1): waiting 3h0m retry 30m"), initialReviewDraw);
+            },
+            "the reviewing line renders one F5 hint for both pending retries"({ initialReviewDraw }) {
+                Assert.strictEqual(initialReviewDraw.match(/\(F5\)/g)?.length, 1);
+            },
+            "a still-limited reviewer remains waiting across the periodic attempt"({ reviewingStates }) {
+                Assert.ok(reviewingStates.some(reviewers =>
+                    reviewers[0]!.state === "waiting"
+                    && reviewers[0]!.nextRetryAt === 60 * 60 * 1000
+                    && reviewers[1]!.state === "waiting"
+                ));
+            },
+            "a still-limited reviewer adopts the updated expected end"({ reviewingStates }) {
+                Assert.ok(reviewingStates.some(reviewers =>
+                    reviewers[0]!.state === "waiting"
+                    && reviewers[0]!.endTime === 210 * 60 * 1000
+                    && reviewers[1]!.state === "waiting"
+                ));
+            },
+            "a still-limited reviewer adopts the updated next retry"({ reviewingStates }) {
+                Assert.ok(reviewingStates.some(reviewers =>
+                    reviewers[0]!.state === "waiting"
+                    && reviewers[0]!.nextRetryAt === 60 * 60 * 1000
+                    && reviewers[1]!.state === "waiting"
+                ));
+            },
+            "the reviewer that passes its limit returns to running without a wait end"({ reviewingStates }) {
+                const resumed = reviewingStates.find(reviewers =>
+                    reviewers[0]!.state === "waiting" && reviewers[1]!.state === "running"
+                );
+                Assert.strictEqual(resumed?.[1]?.endTime, undefined);
+            },
+            "the reviewer that passes its limit returns to running without a next retry"({ reviewingStates }) {
+                const resumed = reviewingStates.find(reviewers =>
+                    reviewers[0]!.state === "waiting" && reviewers[1]!.state === "running"
+                );
+                Assert.strictEqual(resumed?.[1]?.nextRetryAt, undefined);
+            },
+            "the resumed reviewer's rendered entry has neither countdown nor retry text"({ runningReviewDraw }) {
+                Assert.ok(runningReviewDraw.includes("claude (r1): running (F5)"), runningReviewDraw);
+            },
+            "intermediate updates do not cancel the optional reviewer before the required reviewer has a verdict"({ files }) {
+                Assert.strictEqual(files.has(reviewerErrorLogPath(2)), true);
+            },
+            "the required reviewer also reaches its verdict after multiple still-limited attempts"({ files }) {
+                Assert.strictEqual(files.has(reviewerErrorLogPath(1)), true);
+            },
+            "the state transitions stay waiting across updates and return to running only after the limit clears"({ reviewingStates }) {
+                const states = reviewingStates.map(reviewers => reviewers[0]!.state);
+                const compressed = states.filter((state, index) => index === 0 || state !== states[index - 1]);
+                Assert.deepStrictEqual(compressed, ["running", "waiting", "running", "pass"]);
+            },
+            "the persisted time excludes the complete no-reviewer-running spans without restarting their anchors"({ plan }) {
+                Assert.ok(plan.includes('[x]{"it":0,"ot":0,"t":300}'), plan);
+            },
+            "the run completes when the unchanged three-condition review decision permits it"({ code }) {
+                Assert.strictEqual(code, 0);
+            }
+        }
+    });
+
     test("optional reviewer in a usage-limit wait is cancelled and excluded once the required reviewer's verdict meets the minimum", {
         ARRANGE() {
             // R0 required → PASS. R1 optional → enters a usage-limit wait and never clears on its own.
