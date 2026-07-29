@@ -74,7 +74,7 @@ For each AI tool you select for skills, `install` writes one skill artifact per 
 | Tool | Project scope | Global scope |
 | --- | --- | --- |
 | Claude Code | `.claude/skills/` | `~/.claude/skills/` |
-| Codex CLI | `.codex/prompts/` | `~/.codex/prompts/` |
+| Codex CLI | `.agents/skills/` | `~/.agents/skills/` |
 
 Select both tools and the artifacts are written for each, into its own folder. Alongside the skills, the command writes the `.flanders/` configuration at the chosen scope (see [Configuration](#configuration)).
 
@@ -138,7 +138,7 @@ Updated the lib and itching for the freshest skills, neighbor? Just run:
 flanders update
 ```
 
-`update` takes no flags. It scans the four skill destinations `install` writes to — Claude Code's `.claude/skills/` and `~/.claude/skills/`, and Codex CLI's `.codex/prompts/` and `~/.codex/prompts/` — and wherever it finds at least one Flanders skill artifact already in place, it rewrites the full `/flanders-spec`, `/flanders-plan`, `/flanders-work`, and `/flanders-hard-stop-review` set there with the current version. A destination where no Flanders skill artifact is present is left untouched, so `update` refreshes the installations you already have and never creates one where you had none.
+`update` takes no flags. It scans the four skill destinations `install` writes to — Claude Code's `.claude/skills/` and `~/.claude/skills/`, and Codex CLI's `.agents/skills/` and `~/.agents/skills/` — and wherever it finds at least one Flanders skill artifact already in place, it rewrites the full `/flanders-spec`, `/flanders-plan`, `/flanders-work`, and `/flanders-hard-stop-review` set there with the current version. A destination where no Flanders skill artifact is present is left untouched, so `update` refreshes the installations you already have and never creates one where you had none.
 
 ## Configuration
 
