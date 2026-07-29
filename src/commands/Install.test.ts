@@ -4,11 +4,12 @@ import test from "arrange-act-assert";
 
 import { Install, parseInstallFlags } from "./Install";
 import type { InstallContexts } from "./Install";
-import { stripYamlFrontmatter } from "./skillArtifacts";
 import type { AskAnswer, ScriptContext, SpawnedProcess } from "../contexts";
 import { read as readConfig } from "../workspace/FlandersConfig";
 import type { FlandersConfig } from "../workspace/FlandersConfig";
 import { planSkillBody, specSkillBody, workSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
+import { removeStoredPath } from "./memoryFs.fixtures";
+import { interceptAbortListenerRemoval } from "./abortController.fixtures";
 
 function stubContexts() {
     const written:string[] = [];
@@ -31,7 +32,7 @@ function stubContexts() {
             exists(p) { return Promise.resolve(files.has(p) || dirs.has(p)); },
             mkdir(p) { dirs.add(p); return Promise.resolve(); },
             mkdtemp() { return Promise.reject(new Error("unexpected mkdtemp")); },
-            rm() { return Promise.reject(new Error("unexpected rm")); }
+            rm(p) { removeStoredPath(files, dirs, p); return Promise.resolve(); }
         },
         ask: {
             askChoices(questions) {
@@ -565,7 +566,6 @@ test.describe("Install dispose", test => {
                 await origWriteFile(p, content);
                 writeCount++;
                 if (writeCount === 1 && cmdRef) {
-                    // Call dispose but do NOT await — it waits on _runPromise which is currently executing
                     void cmdRef.dispose();
                 }
             };
@@ -582,11 +582,14 @@ test.describe("Install dispose", test => {
             "exits with code 1"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "first skill file is written"(_code, { files }) {
-                Assert.ok(files.has("/proj/.claude/skills/flanders-spec/SKILL.md"));
+            "rolls back the first skill file"(_code, { files }) {
+                Assert.ok(!files.has("/proj/.claude/skills/flanders-spec/SKILL.md"));
             },
             "second skill file is not written"(_code, { files }) {
                 Assert.ok(!files.has("/proj/.claude/skills/flanders-plan/SKILL.md"));
+            },
+            "writes no diagnostic for disposal"(_code, { errors }) {
+                Assert.deepStrictEqual(errors, []);
             }
         }
     });
@@ -1208,17 +1211,17 @@ test.describe("Install writes regardless of tool CLI availability", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "writes the codex spec prompt"(_code, { files }) {
-                Assert.ok(files.has("/proj/.codex/prompts/flanders-spec.md"));
+            "writes the codex spec skill"(_code, { files }) {
+                Assert.ok(files.has("/proj/.agents/skills/flanders-spec/SKILL.md"));
             },
-            "writes the codex plan prompt"(_code, { files }) {
-                Assert.ok(files.has("/proj/.codex/prompts/flanders-plan.md"));
+            "writes the codex plan skill"(_code, { files }) {
+                Assert.ok(files.has("/proj/.agents/skills/flanders-plan/SKILL.md"));
             },
-            "writes the codex work prompt"(_code, { files }) {
-                Assert.ok(files.has("/proj/.codex/prompts/flanders-work.md"));
+            "writes the codex work skill"(_code, { files }) {
+                Assert.ok(files.has("/proj/.agents/skills/flanders-work/SKILL.md"));
             },
-            "writes the codex hard-stop-review prompt"(_code, { files }) {
-                Assert.ok(files.has("/proj/.codex/prompts/flanders-hard-stop-review.md"));
+            "writes the codex hard-stop-review skill"(_code, { files }) {
+                Assert.ok(files.has("/proj/.agents/skills/flanders-hard-stop-review/SKILL.md"));
             },
             "writes the flanders config"(_code, { files }) {
                 Assert.ok(files.has("/proj/.flanders/config.json"));
@@ -1232,7 +1235,7 @@ test.describe("Install writes regardless of tool CLI availability", test => {
         }
     });
 
-    test("flag-driven both-tools install writes claude skills and codex prompts", {
+    test("flag-driven both-tools install writes claude and codex skills", {
         ARRANGE() {
             const s = stubContexts();
             const spawnedInvocations:{ command:string; args:readonly string[] }[] = [];
@@ -1268,8 +1271,8 @@ test.describe("Install writes regardless of tool CLI availability", test => {
             "writes the claude spec skill"(_code, { files }) {
                 Assert.ok(files.has("/proj/.claude/skills/flanders-spec/SKILL.md"));
             },
-            "writes the codex spec prompt"(_code, { files }) {
-                Assert.ok(files.has("/proj/.codex/prompts/flanders-spec.md"));
+            "writes the codex spec skill"(_code, { files }) {
+                Assert.ok(files.has("/proj/.agents/skills/flanders-spec/SKILL.md"));
             },
             "no availability probe spawned anything"(_code, { spawnedInvocations }) {
                 Assert.strictEqual(spawnedInvocations.length, 0);
@@ -4990,10 +4993,6 @@ test.describe("Install worker pre-selection from an existing configuration (4.1)
 
     test("disposed during the configuration pre-selection read returns 1 without emitting any artifact on a fully flag-supplied run", {
         ARRANGE() {
-            // Every worker/reviewer answer is supplied by flags, so no interactive prompt's disposed
-            // guard can stop the run — only the unconditional guard right after readScope can. codex
-            // skills are used because writeSkillArtifacts mkdirs the codex prompts root before its own
-            // disposed check, so a missing guard would create that directory.
             const s = stubContexts();
             let resolveRead:(() => void) | null = null;
             const origReadFile = s.contexts.fs.readFile.bind(s.contexts.fs);
@@ -6227,70 +6226,8 @@ test.describe("Install fast mode (task 5)", test => {
     });
 });
 
-test.describe("stripYamlFrontmatter", test => {
-    test("strips a leading YAML frontmatter block", {
-        ARRANGE() {
-            return { body: "---\ndescription: foo\n---\n\nBody content here." };
-        },
-        ACT({ body }) {
-            return stripYamlFrontmatter(body);
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, "\nBody content here.");
-        }
-    });
-
-    test("returns body unchanged when no leading ---", {
-        ARRANGE() {
-            return { body: "No frontmatter here.\nJust text." };
-        },
-        ACT({ body }) {
-            return stripYamlFrontmatter(body);
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, "No frontmatter here.\nJust text.");
-        }
-    });
-
-    test("returns body unchanged when no closing ---", {
-        ARRANGE() {
-            return { body: "---\nunclosed frontmatter\nmore text" };
-        },
-        ACT({ body }) {
-            return stripYamlFrontmatter(body);
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, "---\nunclosed frontmatter\nmore text");
-        }
-    });
-
-    test("handles CRLF line endings", {
-        ARRANGE() {
-            return { body: "---\r\nkey: value\r\n---\r\nBody after CRLF." };
-        },
-        ACT({ body }) {
-            return stripYamlFrontmatter(body);
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, "Body after CRLF.");
-        }
-    });
-
-    test("preserves body verbatim after frontmatter", {
-        ARRANGE() {
-            return { body: "---\nkey: value\n---\nLine 1\nLine 2\n---\nLine 3" };
-        },
-        ACT({ body }) {
-            return stripYamlFrontmatter(body);
-        },
-        ASSERT(result) {
-            Assert.strictEqual(result, "Line 1\nLine 2\n---\nLine 3");
-        }
-    });
-});
-
 test.describe("Install skills-tool=codex", test => {
-    test("writes exactly four Codex prompt files and zero Claude files", {
+    test("writes exactly four Codex skill files and zero Claude files", {
         ARRANGE() {
             return stubContexts();
         },
@@ -6304,49 +6241,49 @@ test.describe("Install skills-tool=codex", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "creates flanders-plan.md under .codex/prompts"(_code, { files }) {
-                Assert.ok(files.has("/myproject/.codex/prompts/flanders-plan.md"));
+            "creates flanders-plan/SKILL.md under .agents/skills"(_code, { files }) {
+                Assert.ok(files.has("/myproject/.agents/skills/flanders-plan/SKILL.md"));
             },
-            "creates flanders-spec.md under .codex/prompts"(_code, { files }) {
-                Assert.ok(files.has("/myproject/.codex/prompts/flanders-spec.md"));
+            "creates flanders-spec/SKILL.md under .agents/skills"(_code, { files }) {
+                Assert.ok(files.has("/myproject/.agents/skills/flanders-spec/SKILL.md"));
             },
-            "creates flanders-work.md under .codex/prompts"(_code, { files }) {
-                Assert.ok(files.has("/myproject/.codex/prompts/flanders-work.md"));
+            "creates flanders-work/SKILL.md under .agents/skills"(_code, { files }) {
+                Assert.ok(files.has("/myproject/.agents/skills/flanders-work/SKILL.md"));
             },
-            "creates flanders-hard-stop-review.md under .codex/prompts"(_code, { files }) {
-                Assert.ok(files.has("/myproject/.codex/prompts/flanders-hard-stop-review.md"));
+            "creates flanders-hard-stop-review/SKILL.md under .agents/skills"(_code, { files }) {
+                Assert.ok(files.has("/myproject/.agents/skills/flanders-hard-stop-review/SKILL.md"));
             },
-            "flanders-plan.md filename is exactly flanders-plan.md"(_code, { files }) {
-                const paths = [...files.keys()].filter(p => p.includes(".codex/prompts/flanders-plan"));
+            "the flanders-plan artifact path ends in flanders-plan/SKILL.md"(_code, { files }) {
+                const paths = [...files.keys()].filter(p => p.includes(".agents/skills/flanders-plan"));
                 Assert.strictEqual(paths.length, 1);
-                Assert.strictEqual(paths[0], "/myproject/.codex/prompts/flanders-plan.md");
+                Assert.strictEqual(paths[0], "/myproject/.agents/skills/flanders-plan/SKILL.md");
             },
-            "flanders-spec.md filename is exactly flanders-spec.md"(_code, { files }) {
-                const paths = [...files.keys()].filter(p => p.includes(".codex/prompts/flanders-spec"));
+            "the flanders-spec artifact path ends in flanders-spec/SKILL.md"(_code, { files }) {
+                const paths = [...files.keys()].filter(p => p.includes(".agents/skills/flanders-spec"));
                 Assert.strictEqual(paths.length, 1);
-                Assert.strictEqual(paths[0], "/myproject/.codex/prompts/flanders-spec.md");
+                Assert.strictEqual(paths[0], "/myproject/.agents/skills/flanders-spec/SKILL.md");
             },
-            "flanders-work.md filename is exactly flanders-work.md"(_code, { files }) {
-                const paths = [...files.keys()].filter(p => p.includes(".codex/prompts/flanders-work"));
+            "the flanders-work artifact path ends in flanders-work/SKILL.md"(_code, { files }) {
+                const paths = [...files.keys()].filter(p => p.includes(".agents/skills/flanders-work"));
                 Assert.strictEqual(paths.length, 1);
-                Assert.strictEqual(paths[0], "/myproject/.codex/prompts/flanders-work.md");
+                Assert.strictEqual(paths[0], "/myproject/.agents/skills/flanders-work/SKILL.md");
             },
-            "flanders-hard-stop-review.md filename is exactly flanders-hard-stop-review.md"(_code, { files }) {
-                const paths = [...files.keys()].filter(p => p.includes(".codex/prompts/flanders-hard-stop-review"));
+            "the flanders-hard-stop-review artifact path ends in flanders-hard-stop-review/SKILL.md"(_code, { files }) {
+                const paths = [...files.keys()].filter(p => p.includes(".agents/skills/flanders-hard-stop-review"));
                 Assert.strictEqual(paths.length, 1);
-                Assert.strictEqual(paths[0], "/myproject/.codex/prompts/flanders-hard-stop-review.md");
+                Assert.strictEqual(paths[0], "/myproject/.agents/skills/flanders-hard-stop-review/SKILL.md");
             },
             "no files under .claude/skills"(_code, { files }) {
                 const claudePaths = [...files.keys()].filter(p => p.includes(".claude/skills"));
                 Assert.strictEqual(claudePaths.length, 0);
             },
-            "writes exactly 5 files total (4 codex + 1 config)"(_code, { files }) {
+            "writes exactly 5 files total (4 Codex skills + 1 config)"(_code, { files }) {
                 Assert.strictEqual(files.size, 5);
             }
         }
     });
 
-    test("Codex artifacts have YAML frontmatter stripped", {
+    test("Codex artifacts equal the exported skill bodies byte for byte", {
         ARRANGE() {
             return stubContexts();
         },
@@ -6356,37 +6293,21 @@ test.describe("Install skills-tool=codex", test => {
             await cmd.dispose();
         },
         ASSERTS: {
-            "flanders-plan codex artifact does not start with ---"(_, { files }) {
-                const content = files.get("/proj/.codex/prompts/flanders-plan.md")!;
-                Assert.ok(!content.startsWith("---"), "codex artifact must not start with YAML frontmatter");
+            "flanders-plan Codex artifact equals planSkillBody"(_, { files }) {
+                const content = files.get("/proj/.agents/skills/flanders-plan/SKILL.md")!;
+                Assert.strictEqual(content, planSkillBody);
             },
-            "flanders-spec codex artifact does not start with ---"(_, { files }) {
-                const content = files.get("/proj/.codex/prompts/flanders-spec.md")!;
-                Assert.ok(!content.startsWith("---"), "codex artifact must not start with YAML frontmatter");
+            "flanders-spec Codex artifact equals specSkillBody"(_, { files }) {
+                const content = files.get("/proj/.agents/skills/flanders-spec/SKILL.md")!;
+                Assert.strictEqual(content, specSkillBody);
             },
-            "flanders-work codex artifact does not start with ---"(_, { files }) {
-                const content = files.get("/proj/.codex/prompts/flanders-work.md")!;
-                Assert.ok(!content.startsWith("---"), "codex artifact must not start with YAML frontmatter");
+            "flanders-work Codex artifact equals workSkillBody"(_, { files }) {
+                const content = files.get("/proj/.agents/skills/flanders-work/SKILL.md")!;
+                Assert.strictEqual(content, workSkillBody);
             },
-            "flanders-hard-stop-review codex artifact does not start with ---"(_, { files }) {
-                const content = files.get("/proj/.codex/prompts/flanders-hard-stop-review.md")!;
-                Assert.ok(!content.startsWith("---"), "codex artifact must not start with YAML frontmatter");
-            },
-            "flanders-plan codex artifact equals stripYamlFrontmatter(planSkillBody)"(_, { files }) {
-                const content = files.get("/proj/.codex/prompts/flanders-plan.md")!;
-                Assert.strictEqual(content, stripYamlFrontmatter(planSkillBody));
-            },
-            "flanders-spec codex artifact equals stripYamlFrontmatter(specSkillBody)"(_, { files }) {
-                const content = files.get("/proj/.codex/prompts/flanders-spec.md")!;
-                Assert.strictEqual(content, stripYamlFrontmatter(specSkillBody));
-            },
-            "flanders-work codex artifact equals stripYamlFrontmatter(workSkillBody)"(_, { files }) {
-                const content = files.get("/proj/.codex/prompts/flanders-work.md")!;
-                Assert.strictEqual(content, stripYamlFrontmatter(workSkillBody));
-            },
-            "flanders-hard-stop-review codex artifact equals stripYamlFrontmatter(hardStopReviewSkillBody)"(_, { files }) {
-                const content = files.get("/proj/.codex/prompts/flanders-hard-stop-review.md")!;
-                Assert.strictEqual(content, stripYamlFrontmatter(hardStopReviewSkillBody));
+            "flanders-hard-stop-review Codex artifact equals hardStopReviewSkillBody"(_, { files }) {
+                const content = files.get("/proj/.agents/skills/flanders-hard-stop-review/SKILL.md")!;
+                Assert.strictEqual(content, hardStopReviewSkillBody);
             }
         }
     });
@@ -6405,17 +6326,17 @@ test.describe("Install skills-tool=codex", test => {
             "exits with code 0"(code) {
                 Assert.strictEqual(code, 0);
             },
-            "creates flanders-plan.md under homedir .codex/prompts"(_code, { files }) {
-                Assert.ok(files.has("/home/testuser/.codex/prompts/flanders-plan.md"));
+            "creates flanders-plan/SKILL.md under the home directory .agents/skills"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.agents/skills/flanders-plan/SKILL.md"));
             },
-            "creates flanders-spec.md under homedir .codex/prompts"(_code, { files }) {
-                Assert.ok(files.has("/home/testuser/.codex/prompts/flanders-spec.md"));
+            "creates flanders-spec/SKILL.md under the home directory .agents/skills"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.agents/skills/flanders-spec/SKILL.md"));
             },
-            "creates flanders-work.md under homedir .codex/prompts"(_code, { files }) {
-                Assert.ok(files.has("/home/testuser/.codex/prompts/flanders-work.md"));
+            "creates flanders-work/SKILL.md under the home directory .agents/skills"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.agents/skills/flanders-work/SKILL.md"));
             },
-            "creates flanders-hard-stop-review.md under homedir .codex/prompts"(_code, { files }) {
-                Assert.ok(files.has("/home/testuser/.codex/prompts/flanders-hard-stop-review.md"));
+            "creates flanders-hard-stop-review/SKILL.md under the home directory .agents/skills"(_code, { files }) {
+                Assert.ok(files.has("/home/testuser/.agents/skills/flanders-hard-stop-review/SKILL.md"));
             }
         }
     });
@@ -6448,17 +6369,17 @@ test.describe("Install skills-tool=both", test => {
             "creates Claude flanders-hard-stop-review SKILL.md"(_code, { files }) {
                 Assert.ok(files.has("/proj/.claude/skills/flanders-hard-stop-review/SKILL.md"));
             },
-            "creates Codex flanders-spec.md"(_code, { files }) {
-                Assert.ok(files.has("/proj/.codex/prompts/flanders-spec.md"));
+            "creates Codex flanders-spec SKILL.md"(_code, { files }) {
+                Assert.ok(files.has("/proj/.agents/skills/flanders-spec/SKILL.md"));
             },
-            "creates Codex flanders-plan.md"(_code, { files }) {
-                Assert.ok(files.has("/proj/.codex/prompts/flanders-plan.md"));
+            "creates Codex flanders-plan SKILL.md"(_code, { files }) {
+                Assert.ok(files.has("/proj/.agents/skills/flanders-plan/SKILL.md"));
             },
-            "creates Codex flanders-work.md"(_code, { files }) {
-                Assert.ok(files.has("/proj/.codex/prompts/flanders-work.md"));
+            "creates Codex flanders-work SKILL.md"(_code, { files }) {
+                Assert.ok(files.has("/proj/.agents/skills/flanders-work/SKILL.md"));
             },
-            "creates Codex flanders-hard-stop-review.md"(_code, { files }) {
-                Assert.ok(files.has("/proj/.codex/prompts/flanders-hard-stop-review.md"));
+            "creates Codex flanders-hard-stop-review SKILL.md"(_code, { files }) {
+                Assert.ok(files.has("/proj/.agents/skills/flanders-hard-stop-review/SKILL.md"));
             },
             "writes exactly 9 files total (8 skills + 1 config)"(_code, { files }) {
                 Assert.strictEqual(files.size, 9);
@@ -6466,8 +6387,8 @@ test.describe("Install skills-tool=both", test => {
             "Claude artifact has frontmatter"(_code, { files }) {
                 Assert.ok(files.get("/proj/.claude/skills/flanders-spec/SKILL.md")!.startsWith("---\n"));
             },
-            "Codex artifact has no frontmatter"(_code, { files }) {
-                Assert.ok(!files.get("/proj/.codex/prompts/flanders-spec.md")!.startsWith("---"));
+            "Codex artifact has frontmatter"(_code, { files }) {
+                Assert.ok(files.get("/proj/.agents/skills/flanders-spec/SKILL.md")!.startsWith("---\n"));
             }
         }
     });
@@ -6484,13 +6405,13 @@ test.describe("Install skills-tool stdout enumeration", test => {
             await cmd.dispose();
         },
         ASSERTS: {
-            "stdout is exactly the four Codex prompt paths then the config path, one per line in order"(_, { written }) {
+            "stdout is exactly the four Codex skill paths then the config path, one per line in order"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
                 Assert.deepStrictEqual(lines, [
-                    "/proj/.codex/prompts/flanders-spec.md",
-                    "/proj/.codex/prompts/flanders-plan.md",
-                    "/proj/.codex/prompts/flanders-work.md",
-                    "/proj/.codex/prompts/flanders-hard-stop-review.md",
+                    "/proj/.agents/skills/flanders-spec/SKILL.md",
+                    "/proj/.agents/skills/flanders-plan/SKILL.md",
+                    "/proj/.agents/skills/flanders-work/SKILL.md",
+                    "/proj/.agents/skills/flanders-hard-stop-review/SKILL.md",
                     "/proj/.flanders/config.json"
                 ]);
             }
@@ -6507,17 +6428,17 @@ test.describe("Install skills-tool stdout enumeration", test => {
             await cmd.dispose();
         },
         ASSERTS: {
-            "stdout is exactly the four Claude skill paths, then the four Codex prompt paths, then the config path, one per line in order"(_, { written }) {
+            "stdout is exactly the four Claude skill paths, then the four Codex skill paths, then the config path, one per line in order"(_, { written }) {
                 const lines = written.join("").split("\n").filter(l => l.length > 0);
                 Assert.deepStrictEqual(lines, [
                     "/proj/.claude/skills/flanders-spec/SKILL.md",
                     "/proj/.claude/skills/flanders-plan/SKILL.md",
                     "/proj/.claude/skills/flanders-work/SKILL.md",
                     "/proj/.claude/skills/flanders-hard-stop-review/SKILL.md",
-                    "/proj/.codex/prompts/flanders-spec.md",
-                    "/proj/.codex/prompts/flanders-plan.md",
-                    "/proj/.codex/prompts/flanders-work.md",
-                    "/proj/.codex/prompts/flanders-hard-stop-review.md",
+                    "/proj/.agents/skills/flanders-spec/SKILL.md",
+                    "/proj/.agents/skills/flanders-plan/SKILL.md",
+                    "/proj/.agents/skills/flanders-work/SKILL.md",
+                    "/proj/.agents/skills/flanders-hard-stop-review/SKILL.md",
                     "/proj/.flanders/config.json"
                 ]);
             }
@@ -6601,23 +6522,110 @@ test.describe("Install disposed during codex write", test => {
             "exits with code 1"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "first codex skill file is written"(_code, { files }) {
-                Assert.ok(files.has("/proj/.codex/prompts/flanders-spec.md"));
+            "rolls back the first Codex skill file"(_code, { files }) {
+                Assert.strictEqual([...files.keys()].some(path => path.includes("/.agents/skills/")), false);
             },
-            "second codex skill file is not written"(_code, { files }) {
-                Assert.ok(!files.has("/proj/.codex/prompts/flanders-plan.md"));
+            "rolls back the created Codex skill directories"(_code, { dirs }) {
+                Assert.strictEqual([...dirs].some(path => path.includes("/.agents")), false);
+            },
+            "writes no diagnostic for disposal"(_code, { errors }) {
+                Assert.deepStrictEqual(errors, []);
+            }
+        }
+    });
+});
+
+test.describe("Install disposal after skill emission settles", test => {
+    test("a settled first tool cannot be followed by a new tool controller after disposal", {
+        ARRANGE() {
+            return stubContexts();
+        },
+        async ACT({ contexts }) {
+            let cmd:Install|null = null;
+            const restoreAbortController = interceptAbortListenerRemoval(() => {
+                if (cmd !== null) {
+                    void cmd.dispose();
+                }
+            });
+            try {
+                cmd = new Install(["--project", "--skills-tool=claude,codex", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+                return await cmd.result();
+            } finally {
+                if (cmd !== null) {
+                    await cmd.dispose();
+                }
+                restoreAbortController();
+            }
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "keeps the already-settled Claude skill set"(_code, { files }) {
+                Assert.strictEqual([...files.keys()].filter(path => path.includes("/.claude/skills/")).length, 4);
+            },
+            "starts no Codex artifact emission"(_code, { files }) {
+                Assert.strictEqual([...files.keys()].some(path => path.includes("/.agents/skills/")), false);
+            },
+            "writes no configuration after disposal"(_code, { files }) {
+                Assert.strictEqual(files.has("/proj/.flanders/config.json"), false);
+            },
+            "prints no success paths"(_code, { written }) {
+                Assert.deepStrictEqual(written, []);
+            },
+            "prints no diagnostic"(_code, { errors }) {
+                Assert.deepStrictEqual(errors, []);
+            }
+        }
+    });
+
+    test("a settled filesystem failure result is silent when disposal wins the await race", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts.fs as { mkdir:typeof s.contexts.fs.mkdir }).mkdir = () => Promise.reject(new Error("pathless failure"));
+            return s;
+        },
+        async ACT({ contexts }) {
+            let cmd:Install|null = null;
+            const restoreAbortController = interceptAbortListenerRemoval(() => {
+                if (cmd !== null) {
+                    void cmd.dispose();
+                }
+            });
+            try {
+                cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+                return await cmd.result();
+            } finally {
+                if (cmd !== null) {
+                    await cmd.dispose();
+                }
+                restoreAbortController();
+            }
+        },
+        ASSERTS: {
+            "exits with code 1"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "prints no filesystem diagnostic"(_code, { errors }) {
+                Assert.deepStrictEqual(errors, []);
+            },
+            "prints no success paths"(_code, { written }) {
+                Assert.deepStrictEqual(written, []);
+            },
+            "writes no artifact or configuration file"(_code, { files }) {
+                Assert.deepStrictEqual([...files], []);
             }
         }
     });
 });
 
 test.describe("Install codex mkdir failure", test => {
-    test("codex prompts mkdir failure exits non-zero with path in diagnostic", {
+    test("codex skill-folder mkdir failure exits non-zero with path in diagnostic", {
         ARRANGE() {
             const s = stubContexts();
             const origMkdir = s.contexts.fs.mkdir.bind(s.contexts.fs);
             (s.contexts.fs as { mkdir:typeof s.contexts.fs.mkdir }).mkdir = (p:string, o?:unknown) => {
-                if (p.includes(".codex/prompts")) {
+                if (p.includes(".agents/skills")) {
                     return Promise.reject(new Error(`EACCES: ${p}`));
                 }
                 return origMkdir(p, o as { recursive?:boolean });
@@ -6634,8 +6642,8 @@ test.describe("Install codex mkdir failure", test => {
             "exits with non-zero code"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "diagnostic is exactly the Cannot create destination message for the codex prompts root"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Cannot create destination: /proj/.codex/prompts\n");
+            "diagnostic is exactly the Cannot create destination message for the Codex skill folder"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Cannot create destination: /proj/.agents/skills/flanders-spec\n");
             }
         }
     });
@@ -6645,7 +6653,7 @@ test.describe("Install codex mkdir failure", test => {
             const s = stubContexts();
             const origWriteFile = s.contexts.fs.writeFile.bind(s.contexts.fs);
             (s.contexts.fs as { writeFile:typeof s.contexts.fs.writeFile }).writeFile = (p:string, content:string) => {
-                if (p.includes(".codex/prompts")) {
+                if (p.includes(".agents/skills")) {
                     return Promise.reject(new Error(`EACCES: ${p}`));
                 }
                 return origWriteFile(p, content);
@@ -6662,8 +6670,59 @@ test.describe("Install codex mkdir failure", test => {
             "exits with non-zero code"(code) {
                 Assert.strictEqual(code, 1);
             },
-            "diagnostic is exactly the Cannot write file message for the offending codex prompt path"(_code, { errors }) {
-                Assert.strictEqual(errors.join(""), "Cannot write file: /proj/.codex/prompts/flanders-spec.md\n");
+            "diagnostic is exactly the Cannot write file message for the offending Codex skill path"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Cannot write file: /proj/.agents/skills/flanders-spec/SKILL.md\n");
+            }
+        }
+    });
+
+    test("codex snapshot existence failure exits non-zero with the inspected path", {
+        ARRANGE() {
+            const s = stubContexts();
+            (s.contexts.fs as { exists:typeof s.contexts.fs.exists }).exists = () => Promise.reject(new Error("pathless failure"));
+            return s;
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic names the inspected Codex tool root"(_code, { errors }) {
+                Assert.strictEqual(errors.join(""), "Cannot inspect path: /proj/.agents\n");
+            }
+        }
+    });
+
+    test("codex snapshot read failure exits non-zero with the artifact path", {
+        ARRANGE() {
+            const s = stubContexts();
+            const artifactPath = "/proj/.agents/skills/flanders-spec/SKILL.md";
+            s.files.set(artifactPath, "old content");
+            const readFile = s.contexts.fs.readFile.bind(s.contexts.fs);
+            (s.contexts.fs as { readFile:typeof s.contexts.fs.readFile }).readFile = path =>
+                path === artifactPath ? Promise.reject(new Error("pathless failure")) : readFile(path);
+            return { ...s, artifactPath };
+        },
+        async ACT({ contexts }) {
+            const cmd = new Install(["--project", "--skills-tool=codex", "--worker-tool=claude", "--worker-model=", "--worker-effort=", "--reviewer-tool=claude", "--reviewer-model=", "--reviewer-effort="], { projectRoot: "/proj" }, contexts);
+            const code = await cmd.result();
+            await cmd.dispose();
+            return code;
+        },
+        ASSERTS: {
+            "exits with non-zero code"(code) {
+                Assert.strictEqual(code, 1);
+            },
+            "diagnostic names the unreadable artifact"(_code, { errors, artifactPath }) {
+                Assert.strictEqual(errors.join(""), `Cannot read file: ${artifactPath}\n`);
+            },
+            "leaves the pre-existing artifact unchanged"(_code, { files, artifactPath }) {
+                Assert.strictEqual(files.get(artifactPath), "old content");
             }
         }
     });

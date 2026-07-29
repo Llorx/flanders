@@ -1,10 +1,14 @@
 import * as Assert from "assert";
 
-import test from "arrange-act-assert";
+import test, { monad } from "arrange-act-assert";
 
-import { writeSkillArtifacts, skillArtifactPaths, stripYamlFrontmatter } from "./skillArtifacts";
+import { isAbortError } from "../abortError";
+import { writeSkillArtifacts, skillArtifactPaths } from "./skillArtifacts";
 import type { FsContext } from "../contexts";
+import type { ToolName } from "../ai/ToolAdapter";
 import { planSkillBody, specSkillBody, workSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
+import { removeStoredPath } from "./memoryFs.fixtures";
+import { rejectThenSchedule, settleThenSchedule } from "./asyncSettlement.fixtures";
 
 function stubFs() {
     const files = new Map<string, string>();
@@ -23,7 +27,7 @@ function stubFs() {
         exists(p) { return Promise.resolve(files.has(p) || dirs.has(p)); },
         mkdir(p, options) { ops.push(`mkdir ${p} recursive=${options?.recursive === true}`); dirs.add(p); return Promise.resolve(); },
         mkdtemp() { return Promise.reject(new Error("unexpected mkdtemp")); },
-        rm() { return Promise.reject(new Error("unexpected rm")); }
+        rm(p) { removeStoredPath(files, dirs, p); return Promise.resolve(); }
     };
     return { fs, files, dirs, ops };
 }
@@ -34,7 +38,7 @@ test.describe("writeSkillArtifacts claude", test => {
             return stubFs();
         },
         ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "claude", () => false);
+            return writeSkillArtifacts(fs, "/root", "claude", new AbortController().signal);
         },
         ASSERTS: {
             "returns ok:true with the four SKILL.md paths in skill order"(result) {
@@ -85,7 +89,7 @@ test.describe("writeSkillArtifacts claude", test => {
             return s;
         },
         ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "claude", () => false);
+            return writeSkillArtifacts(fs, "/root", "claude", new AbortController().signal);
         },
         ASSERTS: {
             "returns the exact offending-path diagnostic"(result) {
@@ -107,7 +111,7 @@ test.describe("writeSkillArtifacts claude", test => {
             return s;
         },
         ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "claude", () => false);
+            return writeSkillArtifacts(fs, "/root", "claude", new AbortController().signal);
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, {
@@ -117,90 +121,72 @@ test.describe("writeSkillArtifacts claude", test => {
         }
     });
 
-    test("disposal mid-write stops further writes and returns ok:false with a null diagnostic", {
-        ARRANGE() {
-            let calls = 0;
-            const isDisposed = () => (++calls) > 1;
-            return { ...stubFs(), isDisposed };
-        },
-        ACT({ fs, isDisposed }) {
-            return writeSkillArtifacts(fs, "/root", "claude", isDisposed);
-        },
-        ASSERTS: {
-            "returns ok:false with a null diagnostic"(result) {
-                Assert.deepStrictEqual(result, { ok: false, diagnostic: null });
-            },
-            "writes the first skill before disposal"(_result, { files }) {
-                Assert.ok(files.has("/root/.claude/skills/flanders-spec/SKILL.md"));
-            },
-            "does not write the second skill after disposal"(_result, { files }) {
-                Assert.ok(!files.has("/root/.claude/skills/flanders-plan/SKILL.md"));
-            }
-        }
-    });
 });
 
 test.describe("writeSkillArtifacts codex", test => {
-    test("writes the codex set under <scopeRoot>/.codex/prompts/<name>.md with frontmatter stripped", {
+    test("writes the codex set under <scopeRoot>/.agents/skills/<name>/SKILL.md", {
         ARRANGE() {
             return stubFs();
         },
         ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "codex", () => false);
+            return writeSkillArtifacts(fs, "/root", "codex", new AbortController().signal);
         },
         ASSERTS: {
-            "returns ok:true with the four prompt paths in skill order"(result) {
+            "returns ok:true with the four SKILL.md paths in skill order"(result) {
                 Assert.deepStrictEqual(result, {
                     ok: true,
                     writtenPaths: [
-                        "/root/.codex/prompts/flanders-spec.md",
-                        "/root/.codex/prompts/flanders-plan.md",
-                        "/root/.codex/prompts/flanders-work.md",
-                        "/root/.codex/prompts/flanders-hard-stop-review.md"
+                        "/root/.agents/skills/flanders-spec/SKILL.md",
+                        "/root/.agents/skills/flanders-plan/SKILL.md",
+                        "/root/.agents/skills/flanders-work/SKILL.md",
+                        "/root/.agents/skills/flanders-hard-stop-review/SKILL.md"
                     ]
                 });
             },
-            "writes the spec body with frontmatter stripped"(_result, { files }) {
-                Assert.strictEqual(files.get("/root/.codex/prompts/flanders-spec.md"), stripYamlFrontmatter(specSkillBody));
+            "writes the spec body verbatim"(_result, { files }) {
+                Assert.strictEqual(files.get("/root/.agents/skills/flanders-spec/SKILL.md"), specSkillBody);
             },
-            "writes the plan body with frontmatter stripped"(_result, { files }) {
-                Assert.strictEqual(files.get("/root/.codex/prompts/flanders-plan.md"), stripYamlFrontmatter(planSkillBody));
+            "writes the plan body verbatim"(_result, { files }) {
+                Assert.strictEqual(files.get("/root/.agents/skills/flanders-plan/SKILL.md"), planSkillBody);
             },
-            "writes the work body with frontmatter stripped"(_result, { files }) {
-                Assert.strictEqual(files.get("/root/.codex/prompts/flanders-work.md"), stripYamlFrontmatter(workSkillBody));
+            "writes the work body verbatim"(_result, { files }) {
+                Assert.strictEqual(files.get("/root/.agents/skills/flanders-work/SKILL.md"), workSkillBody);
             },
-            "writes the hard-stop-review body with frontmatter stripped"(_result, { files }) {
-                Assert.strictEqual(files.get("/root/.codex/prompts/flanders-hard-stop-review.md"), stripYamlFrontmatter(hardStopReviewSkillBody));
+            "writes the hard-stop-review body verbatim"(_result, { files }) {
+                Assert.strictEqual(files.get("/root/.agents/skills/flanders-hard-stop-review/SKILL.md"), hardStopReviewSkillBody);
             },
             "writes exactly four files"(_result, { files }) {
                 Assert.strictEqual(files.size, 4);
             },
-            "creates the prompts root recursively before writing the four prompts, in order"(_result, { ops }) {
+            "creates each per-skill folder recursively, immediately before writing its SKILL.md, in order"(_result, { ops }) {
                 Assert.deepStrictEqual(ops, [
-                    "mkdir /root/.codex/prompts recursive=true",
-                    "writeFile /root/.codex/prompts/flanders-spec.md",
-                    "writeFile /root/.codex/prompts/flanders-plan.md",
-                    "writeFile /root/.codex/prompts/flanders-work.md",
-                    "writeFile /root/.codex/prompts/flanders-hard-stop-review.md"
+                    "mkdir /root/.agents/skills/flanders-spec recursive=true",
+                    "writeFile /root/.agents/skills/flanders-spec/SKILL.md",
+                    "mkdir /root/.agents/skills/flanders-plan recursive=true",
+                    "writeFile /root/.agents/skills/flanders-plan/SKILL.md",
+                    "mkdir /root/.agents/skills/flanders-work recursive=true",
+                    "writeFile /root/.agents/skills/flanders-work/SKILL.md",
+                    "mkdir /root/.agents/skills/flanders-hard-stop-review recursive=true",
+                    "writeFile /root/.agents/skills/flanders-hard-stop-review/SKILL.md"
                 ]);
             }
         }
     });
 
-    test("a prompts-root mkdir failure returns the exact Cannot create destination diagnostic and writes nothing", {
+    test("a skill-folder mkdir failure returns the exact Cannot create destination diagnostic and writes nothing", {
         ARRANGE() {
             const s = stubFs();
             (s.fs as { mkdir:FsContext["mkdir"] }).mkdir = (p:string) => Promise.reject(new Error(`EACCES: ${p}`));
             return s;
         },
         ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "codex", () => false);
+            return writeSkillArtifacts(fs, "/root", "codex", new AbortController().signal);
         },
         ASSERTS: {
             "returns the exact offending-path diagnostic"(result) {
                 Assert.deepStrictEqual(result, {
                     ok: false,
-                    diagnostic: "Cannot create destination: /root/.codex/prompts\n"
+                    diagnostic: "Cannot create destination: /root/.agents/skills/flanders-spec\n"
                 });
             },
             "writes no files"(_result, { files }) {
@@ -216,35 +202,313 @@ test.describe("writeSkillArtifacts codex", test => {
             return s;
         },
         ACT({ fs }) {
-            return writeSkillArtifacts(fs, "/root", "codex", () => false);
+            return writeSkillArtifacts(fs, "/root", "codex", new AbortController().signal);
         },
         ASSERT(result) {
             Assert.deepStrictEqual(result, {
                 ok: false,
-                diagnostic: "Cannot write file: /root/.codex/prompts/flanders-spec.md\n"
+                diagnostic: "Cannot write file: /root/.agents/skills/flanders-spec/SKILL.md\n"
             });
         }
     });
 
-    test("disposal mid-write stops further writes and returns ok:false with a null diagnostic", {
+});
+
+type PendingOperationCase = Readonly<{
+    tool:ToolName;
+    operation:"mkdir"|"writeFile";
+    outcome:"resolve"|"reject";
+}>;
+
+const PENDING_OPERATION_CASES:readonly PendingOperationCase[] = [
+    { tool: "claude", operation: "mkdir", outcome: "resolve" },
+    { tool: "claude", operation: "mkdir", outcome: "reject" },
+    { tool: "claude", operation: "writeFile", outcome: "resolve" },
+    { tool: "claude", operation: "writeFile", outcome: "reject" },
+    { tool: "codex", operation: "mkdir", outcome: "resolve" },
+    { tool: "codex", operation: "mkdir", outcome: "reject" },
+    { tool: "codex", operation: "writeFile", outcome: "resolve" },
+    { tool: "codex", operation: "writeFile", outcome: "reject" }
+];
+
+test.describe("writeSkillArtifacts cancellation", test => {
+    for (const pendingCase of PENDING_OPERATION_CASES) {
+        test(`${pendingCase.tool}: abort while ${pendingCase.operation} is pending, then ${pendingCase.outcome} it`, {
+            ARRANGE() {
+                const s = stubFs();
+                const controller = new AbortController();
+                let releasePending:(() => void)|null = null;
+                let markPendingStarted:() => void = () => {};
+                const pendingStarted = new Promise<void>(resolve => { markPendingStarted = resolve; });
+                if (pendingCase.operation === "mkdir") {
+                    const original = s.fs.mkdir.bind(s.fs);
+                    (s.fs as { mkdir:FsContext["mkdir"] }).mkdir = (path, options) => new Promise<void>((resolve, reject) => {
+                        releasePending = () => {
+                            if (pendingCase.outcome === "reject") {
+                                reject(new Error(`late mkdir failure: ${path}`));
+                            } else {
+                                void original(path, options).then(resolve, reject);
+                            }
+                        };
+                        markPendingStarted();
+                    });
+                } else {
+                    const original = s.fs.writeFile.bind(s.fs);
+                    (s.fs as { writeFile:FsContext["writeFile"] }).writeFile = (path, content) => new Promise<void>((resolve, reject) => {
+                        releasePending = () => {
+                            if (pendingCase.outcome === "reject") {
+                                reject(new Error(`late write failure: ${path}`));
+                            } else {
+                                void original(path, content).then(resolve, reject);
+                            }
+                        };
+                        markPendingStarted();
+                    });
+                }
+                return { ...s, controller, pendingStarted, getReleasePending: () => releasePending };
+            },
+            async ACT({ fs, controller, pendingStarted, getReleasePending }) {
+                const resultPromise = monad(() => writeSkillArtifacts(fs, "/root", pendingCase.tool, controller.signal));
+                await pendingStarted;
+                controller.abort();
+                getReleasePending()!();
+                return await resultPromise;
+            },
+            ASSERTS: {
+                "rejects with AbortError rather than a filesystem diagnostic"(result) {
+                    result.should.error(isAbortError);
+                },
+                "rolls back every created file"(_result, { files }) {
+                    Assert.deepStrictEqual([...files], []);
+                },
+                "rolls back every created directory"(_result, { dirs }) {
+                    Assert.deepStrictEqual([...dirs], []);
+                },
+                "does not start the second artifact"(_result, { ops }) {
+                    Assert.strictEqual(ops.some(operation => operation.includes("flanders-plan")), false);
+                }
+            }
+        });
+    }
+
+    test("a pre-aborted signal rejects before any filesystem work starts", {
         ARRANGE() {
-            let calls = 0;
-            const isDisposed = () => (++calls) > 1;
-            return { ...stubFs(), isDisposed };
+            return stubFs();
         },
-        ACT({ fs, isDisposed }) {
-            return writeSkillArtifacts(fs, "/root", "codex", isDisposed);
+        async ACT({ fs }) {
+            return await monad(() => writeSkillArtifacts(fs, "/root", "codex", AbortSignal.abort()));
         },
         ASSERTS: {
-            "returns ok:false with a null diagnostic"(result) {
-                Assert.deepStrictEqual(result, { ok: false, diagnostic: null });
+            "rejects with AbortError"(result) {
+                result.should.error(isAbortError);
             },
-            "writes the first prompt before disposal"(_result, { files }) {
-                Assert.ok(files.has("/root/.codex/prompts/flanders-spec.md"));
-            },
-            "does not write the second prompt after disposal"(_result, { files }) {
-                Assert.ok(!files.has("/root/.codex/prompts/flanders-plan.md"));
+            "performs no filesystem mutation"(_result, { ops }) {
+                Assert.deepStrictEqual(ops, []);
             }
+        }
+    });
+
+    test("an abort while the initial existence probe is pending stays silent when the probe later rejects", {
+        ARRANGE() {
+            const s = stubFs();
+            const controller = new AbortController();
+            let rejectExists:(() => void)|null = null;
+            const existsStarted = new Promise<void>(resolve => {
+                (s.fs as { exists:FsContext["exists"] }).exists = () => new Promise<boolean>((_resolve, reject) => {
+                    rejectExists = () => reject(new Error("late pathless failure"));
+                    resolve();
+                });
+            });
+            return { ...s, controller, existsStarted, getRejectExists: () => rejectExists };
+        },
+        async ACT({ fs, controller, existsStarted, getRejectExists }) {
+            const resultPromise = monad(() => writeSkillArtifacts(fs, "/root", "codex", controller.signal));
+            await existsStarted;
+            controller.abort();
+            getRejectExists()!();
+            return await resultPromise;
+        },
+        ASSERTS: {
+            "rejects with AbortError rather than the probe error"(result) {
+                result.should.error(isAbortError);
+            },
+            "starts no directory or file mutation"(_result, { ops }) {
+                Assert.deepStrictEqual(ops, []);
+            }
+        }
+    });
+
+    test("a completed emission removes its abort listener and cannot be rolled back by a later abort", {
+        ARRANGE() {
+            const s = stubFs();
+            const controller = new AbortController();
+            const signal = controller.signal;
+            const originalRemove = signal.removeEventListener.bind(signal);
+            let removedAbortListeners = 0;
+            (signal as { removeEventListener:AbortSignal["removeEventListener"] }).removeEventListener = (type, listener, options) => {
+                if (type === "abort") {
+                    removedAbortListeners++;
+                }
+                originalRemove(type, listener, options);
+            };
+            return { ...s, controller, signal, getRemovedAbortListeners: () => removedAbortListeners };
+        },
+        async ACT({ fs, controller, signal }) {
+            const result = await writeSkillArtifacts(fs, "/root", "codex", signal);
+            controller.abort();
+            return result;
+        },
+        ASSERTS: {
+            "returns the successful four-path result"(result) {
+                Assert.strictEqual(result.ok, true);
+            },
+            "removes the abort listener on settlement"(_result, { getRemovedAbortListeners }) {
+                Assert.strictEqual(getRemovedAbortListeners(), 1);
+            },
+            "keeps all emitted files after the later abort"(_result, { files }) {
+                Assert.strictEqual(files.size, 4);
+            }
+        }
+    });
+
+    test("an abort after emission settles but before its observer runs rolls the emission back", {
+        ARRANGE() {
+            const s = stubFs();
+            const controller = new AbortController();
+            const originalWriteFile = s.fs.writeFile.bind(s.fs);
+            let writeCount = 0;
+            (s.fs as { writeFile:FsContext["writeFile"] }).writeFile = (path, content) => {
+                writeCount++;
+                const write = originalWriteFile(path, content);
+                if (writeCount < 4) {
+                    return write;
+                }
+                return settleThenSchedule(undefined, () => controller.abort());
+            };
+            return { ...s, controller };
+        },
+        async ACT({ fs, controller }) {
+            return await monad(() => writeSkillArtifacts(fs, "/root", "codex", controller.signal));
+        },
+        ASSERTS: {
+            "rejects with AbortError"(result) {
+                result.should.error(isAbortError);
+            },
+            "rolls back every emitted file"(_result, { files }) {
+                Assert.deepStrictEqual([...files], []);
+            },
+            "rolls back every emitted directory"(_result, { dirs }) {
+                Assert.deepStrictEqual([...dirs], []);
+            }
+        }
+    });
+
+    test("an abort after the file-existence probe settles prevents the first mkdir", {
+        ARRANGE() {
+            const s = stubFs();
+            const controller = new AbortController();
+            let existsCalls = 0;
+            (s.fs as { exists:FsContext["exists"] }).exists = () => {
+                existsCalls++;
+                if (existsCalls === 4) {
+                    return settleThenSchedule(false, () => controller.abort());
+                }
+                return Promise.resolve(false);
+            };
+            return { ...s, controller };
+        },
+        async ACT({ fs, controller }) {
+            return await monad(() => writeSkillArtifacts(fs, "/root", "codex", controller.signal));
+        },
+        ASSERTS: {
+            "rejects with AbortError"(result) {
+                result.should.error(isAbortError);
+            },
+            "starts no directory or file mutation"(_result, { ops }) {
+                Assert.deepStrictEqual(ops, []);
+            }
+        }
+    });
+
+    test("an abort observed after a later snapshot-probe rejection rolls earlier artifacts back", {
+        ARRANGE() {
+            const s = stubFs();
+            const controller = new AbortController();
+            let existsCalls = 0;
+            (s.fs as { exists:FsContext["exists"] }).exists = () => {
+                existsCalls++;
+                if (existsCalls === 5) {
+                    return rejectThenSchedule(new Error("pathless failure"), () => controller.abort());
+                }
+                return Promise.resolve(false);
+            };
+            return { ...s, controller };
+        },
+        async ACT({ fs, controller }) {
+            return await monad(() => writeSkillArtifacts(fs, "/root", "codex", controller.signal));
+        },
+        ASSERTS: {
+            "rejects with AbortError"(result) {
+                result.should.error(isAbortError);
+            },
+            "rolls back the artifact written before the rejection"(_result, { files }) {
+                Assert.deepStrictEqual([...files], []);
+            },
+            "rolls back the directories created before the rejection"(_result, { dirs }) {
+                Assert.deepStrictEqual([...dirs], []);
+            },
+            "does not begin the second artifact mutation"(_result, { ops }) {
+                Assert.strictEqual(ops.some(operation => operation.includes("flanders-plan")), false);
+            }
+        }
+    });
+
+    const SNAPSHOT_EXISTENCE_PROBES:readonly Readonly<{ call:number; path:string }>[] = [
+        { call: 1, path: "/root/.agents" },
+        { call: 2, path: "/root/.agents/skills" },
+        { call: 3, path: "/root/.agents/skills/flanders-spec" },
+        { call: 4, path: "/root/.agents/skills/flanders-spec/SKILL.md" }
+    ];
+    for (const probe of SNAPSHOT_EXISTENCE_PROBES) {
+        test(`snapshot existence failure ${probe.call} names ${probe.path}`, {
+            ARRANGE() {
+                const s = stubFs();
+                let existsCalls = 0;
+                (s.fs as { exists:FsContext["exists"] }).exists = () => {
+                    existsCalls++;
+                    return existsCalls === probe.call
+                        ? Promise.reject(new Error("pathless failure"))
+                        : Promise.resolve(false);
+                };
+                return s;
+            },
+            async ACT({ fs }) {
+                return await monad(() => writeSkillArtifacts(fs, "/root", "codex", new AbortController().signal));
+            },
+            ASSERTS: {
+                "rejects with an error naming the inspected path"(result) {
+                    result.should.error(error => error instanceof Error && error.message === `Cannot inspect path: ${probe.path}`);
+                },
+                "performs no directory or file mutation"(_result, { ops }) {
+                    Assert.deepStrictEqual(ops, []);
+                }
+            }
+        });
+    }
+
+    test("a snapshot read failure names the file path", {
+        ARRANGE() {
+            const s = stubFs();
+            const filePath = "/root/.agents/skills/flanders-spec/SKILL.md";
+            s.files.set(filePath, "old content");
+            (s.fs as { readFile:FsContext["readFile"] }).readFile = () => Promise.reject(new Error("snapshot failed"));
+            return s;
+        },
+        async ACT({ fs }) {
+            return await monad(() => writeSkillArtifacts(fs, "/root", "codex", new AbortController().signal));
+        },
+        ASSERT(result) {
+            result.should.error(error => error instanceof Error && error.message === "Cannot read file: /root/.agents/skills/flanders-spec/SKILL.md");
         }
     });
 });
@@ -269,14 +533,14 @@ test.describe("skillArtifactPaths", test => {
         }
     });
 
-    test("codex paths use .codex/prompts/<name>.md", {
+    test("codex paths use .agents/skills/<name>/SKILL.md", {
         ARRANGE() {
             return {
                 expected: [
-                    "/root/.codex/prompts/flanders-spec.md",
-                    "/root/.codex/prompts/flanders-plan.md",
-                    "/root/.codex/prompts/flanders-work.md",
-                    "/root/.codex/prompts/flanders-hard-stop-review.md"
+                    "/root/.agents/skills/flanders-spec/SKILL.md",
+                    "/root/.agents/skills/flanders-plan/SKILL.md",
+                    "/root/.agents/skills/flanders-work/SKILL.md",
+                    "/root/.agents/skills/flanders-hard-stop-review/SKILL.md"
                 ]
             };
         },

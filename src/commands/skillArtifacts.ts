@@ -1,4 +1,6 @@
 import type { FsContext } from "../contexts";
+import type { ToolName } from "../ai/ToolAdapter";
+import { abortError } from "../abortError";
 import { joinPath } from "../system/fsUtils";
 import { planSkillBody, specSkillBody, workSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
 
@@ -14,113 +16,202 @@ export const SKILLS:readonly SkillDef[] = [
     { name: "flanders-hard-stop-review", body: hardStopReviewSkillBody }
 ];
 
-// The per-tool subfolders, under a scope root, where each tool keeps its user-installed artifacts.
-const CLAUDE_SKILLS_SUBDIR = ".claude/skills";
-const CODEX_PROMPTS_SUBDIR = ".codex/prompts";
+const TOOL_SUBDIRS:Readonly<Record<ToolName, string>> = {
+    claude: ".claude",
+    codex: ".agents"
+};
+const SKILLS_SUBDIR = "skills";
 
-// The single source of the artifact path scheme for one skill under a scope root: for `claude`,
-// `<scopeRoot>/.claude/skills/<name>/SKILL.md`; for `codex`, `<scopeRoot>/.codex/prompts/<name>.md`.
-// Neither tool's path depends on the install scope, so only the scope root is threaded in. Both the
-// writer below and `update`'s installation detection derive their paths from here, so the detected and
-// written locations never drift apart.
-export function skillArtifactPath(scopeRoot:string, tool:"claude"|"codex", skillName:string):string {
-    if (tool === "codex") {
-        return joinPath(scopeRoot, CODEX_PROMPTS_SUBDIR, `${skillName}.md`);
-    }
-    return joinPath(scopeRoot, CLAUDE_SKILLS_SUBDIR, skillName, "SKILL.md");
+export function skillArtifactPath(scopeRoot:string, tool:ToolName, skillName:string):string {
+    return joinPath(scopeRoot, TOOL_SUBDIRS[tool], SKILLS_SUBDIR, skillName, "SKILL.md");
 }
 
-// The full set of one tool's Flanders skill artifact paths under a scope root, in `SKILLS` order.
-export function skillArtifactPaths(scopeRoot:string, tool:"claude"|"codex"):readonly string[] {
+export function skillArtifactPaths(scopeRoot:string, tool:ToolName):readonly string[] {
     return SKILLS.map(skill => skillArtifactPath(scopeRoot, tool, skill.name));
 }
 
-export function stripYamlFrontmatter(body:string):string {
-    if (!body.startsWith("---\n") && !body.startsWith("---\r\n")) {
-        return body;
-    }
-    const newlineAfterOpener = body.indexOf("\n") + 1;
-    const closerIndex = body.indexOf("\n---\n", newlineAfterOpener);
-    if (closerIndex === -1) {
-        const closerCrlf = body.indexOf("\n---\r\n", newlineAfterOpener);
-        if (closerCrlf === -1) {
-            return body;
-        }
-        return body.slice(closerCrlf + "\n---\r\n".length);
-    }
-    return body.slice(closerIndex + "\n---\n".length);
-}
-
-// The outcome of emitting one tool's skill set for a destination. On success the caller obtains every
-// written path; on failure `diagnostic` carries the exact message to surface (or `null` when the run was
-// disposed mid-write, which stops further writes without surfacing a diagnostic). The caller decides how
-// to react — print the diagnostic, append the paths, and pick the exit code — so this shared emission
-// path stays free of the output context and is reused verbatim by both `install` and `update`.
 export type WriteSkillArtifactsResult =
     | Readonly<{ ok:true; writtenPaths:readonly string[] }>
-    | Readonly<{ ok:false; diagnostic:string|null }>;
+    | Readonly<{ ok:false; diagnostic:string }>;
 
-// Writes the `claude` directory-plus-`SKILL.md` set: each skill is written as
-// `<skillsRoot>/<name>/SKILL.md` holding the full skill body, with the per-skill folder created
-// recursively immediately before its `SKILL.md`. `isDisposed` is consulted before each artifact so a
-// mid-write disposal stops further writes.
-async function writeDirectorySkillArtifacts(fs:FsContext, scopeRoot:string, tool:"claude", isDisposed:() => boolean):Promise<WriteSkillArtifactsResult> {
-    const skillsRoot = joinPath(scopeRoot, CLAUDE_SKILLS_SUBDIR);
-    const writtenPaths:string[] = [];
-    for (const skill of SKILLS) {
-        if (isDisposed()) {
-            return { ok: false, diagnostic: null };
-        }
-        const skillFolder = joinPath(skillsRoot, skill.name);
-        try {
-            await fs.mkdir(skillFolder, { recursive: true });
-        } catch {
-            return { ok: false, diagnostic: `Cannot create destination: ${skillFolder}\n` };
-        }
-        const filePath = skillArtifactPath(scopeRoot, tool, skill.name);
-        try {
-            await fs.writeFile(filePath, skill.body);
-            writtenPaths.push(filePath);
-        } catch {
-            return { ok: false, diagnostic: `Cannot write file: ${filePath}\n` };
-        }
+type ArtifactSnapshot = Readonly<{
+    folderPath:string;
+    folderExisted:boolean;
+    filePath:string;
+    fileExisted:boolean;
+    originalContent:string|null;
+}>;
+
+type RevertibleOutcome<T> =
+    | Readonly<{ ok:true; value:T; revert:() => Promise<void> }>
+    | Readonly<{ ok:false; error:unknown; revert:() => Promise<void> }>;
+
+function throwIfAborted(signal:AbortSignal):void {
+    if (signal.aborted) {
+        throw abortError();
     }
-    return { ok: true, writtenPaths };
 }
 
-// Writes the given tool's full Flanders skill set under `scopeRoot`, going through the injected
-// `FsContext` only. `claude` writes `<scopeRoot>/.claude/skills/<name>/SKILL.md` with the full body,
-// creating each per-skill folder; `codex` writes `<scopeRoot>/.codex/prompts/<name>.md` with the YAML
-// frontmatter stripped. `isDisposed` is consulted before each artifact so a mid-write disposal stops
-// further writes. The diagnostics are reproduced verbatim from `install`'s original inline blocks.
-export async function writeSkillArtifacts(fs:FsContext, scopeRoot:string, tool:"claude"|"codex", isDisposed:() => boolean):Promise<WriteSkillArtifactsResult> {
-    for (const skill of SKILLS) {
-        /* coverage ignore next 3 */ // — Defensive: skill bodies are compile-time constants that are always non-empty.
-        if (!skill.body) {
-            return { ok: false, diagnostic: `Skill "${skill.name}" has no content.\n` };
+async function existsBeforeMutation(fs:FsContext, path:string, signal:AbortSignal):Promise<boolean> {
+    let existed:boolean;
+    try {
+        existed = await fs.exists(path);
+    } catch {
+        throw new Error(`Cannot inspect path: ${path}`);
+    }
+    throwIfAborted(signal);
+    return existed;
+}
+
+async function settleRollback(operation:() => Promise<void>):Promise<void> {
+    await Promise.allSettled([Promise.resolve().then(operation)]);
+}
+
+async function rollbackArtifacts(
+    fs:FsContext,
+    snapshots:readonly ArtifactSnapshot[],
+    toolRoot:string,
+    toolRootExisted:boolean,
+    skillsRoot:string,
+    skillsRootExisted:boolean
+):Promise<void> {
+    const destinationExisted = skillsRootExisted || snapshots.some(snapshot => snapshot.folderExisted || snapshot.fileExisted);
+    for (const snapshot of [...snapshots].reverse()) {
+        if (snapshot.fileExisted) {
+            await settleRollback(() => fs.writeFile(snapshot.filePath, snapshot.originalContent!));
+        } else {
+            await settleRollback(() => fs.rm(snapshot.filePath, { force: true }));
+        }
+        if (!snapshot.folderExisted && !snapshot.fileExisted) {
+            await settleRollback(() => fs.rm(snapshot.folderPath, { recursive: true, force: true }));
         }
     }
-    if (tool === "codex") {
-        const codexPromptsRoot = joinPath(scopeRoot, CODEX_PROMPTS_SUBDIR);
-        try {
-            await fs.mkdir(codexPromptsRoot, { recursive: true });
-        } catch {
-            return { ok: false, diagnostic: `Cannot create destination: ${codexPromptsRoot}\n` };
+    if (!skillsRootExisted && !destinationExisted) {
+        await settleRollback(() => fs.rm(skillsRoot, { recursive: true, force: true }));
+    }
+    if (!toolRootExisted && !destinationExisted) {
+        await settleRollback(() => fs.rm(toolRoot, { recursive: true, force: true }));
+    }
+}
+
+function runCancellable<T>(signal:AbortSignal, operation:() => Promise<RevertibleOutcome<T>>):Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        if (signal.aborted) {
+            reject(abortError());
+            return;
         }
-        const writtenPaths:string[] = [];
-        for (const skill of SKILLS) {
-            if (isDisposed()) {
-                return { ok: false, diagnostic: null };
+        let settled = false;
+        let operationPromise:Promise<RevertibleOutcome<T>>;
+        let revertPromise:Promise<void>|null = null;
+        const finish = (settle:() => void) => {
+            if (settled) {
+                return;
             }
-            const filePath = skillArtifactPath(scopeRoot, "codex", skill.name);
+            settled = true;
+            signal.removeEventListener("abort", onAbort);
+            settle();
+        };
+        const rejectAsAborted = () => finish(() => reject(abortError()));
+        const revertAndRejectAsAborted = (outcome:RevertibleOutcome<T>) => {
+            revertPromise ??= Promise.resolve().then(outcome.revert);
+            void revertPromise.then(rejectAsAborted, rejectAsAborted);
+        };
+        const onAbort = () => {
+            void operationPromise.then(revertAndRejectAsAborted, rejectAsAborted);
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        operationPromise = Promise.resolve().then(operation);
+        operationPromise.then(
+            outcome => {
+                if (signal.aborted) {
+                    revertAndRejectAsAborted(outcome);
+                    return;
+                }
+                if (!outcome.ok) {
+                    finish(() => reject(outcome.error));
+                    return;
+                }
+                finish(() => resolve(outcome.value));
+            },
+            error => {
+                if (signal.aborted) {
+                    rejectAsAborted();
+                    return;
+                }
+                finish(() => reject(error));
+            }
+        );
+    });
+}
+
+async function writeDirectorySkillArtifacts(fs:FsContext, scopeRoot:string, tool:ToolName, signal:AbortSignal):Promise<RevertibleOutcome<WriteSkillArtifactsResult>> {
+    throwIfAborted(signal);
+    const toolRoot = joinPath(scopeRoot, TOOL_SUBDIRS[tool]);
+    const skillsRoot = joinPath(toolRoot, SKILLS_SUBDIR);
+    const toolRootExisted = await existsBeforeMutation(fs, toolRoot, signal);
+    throwIfAborted(signal);
+    const skillsRootExisted = await existsBeforeMutation(fs, skillsRoot, signal);
+    throwIfAborted(signal);
+    const snapshots:ArtifactSnapshot[] = [];
+    const writtenPaths:string[] = [];
+    const revert = () => rollbackArtifacts(fs, snapshots, toolRoot, toolRootExisted, skillsRoot, skillsRootExisted);
+    try {
+        for (const skill of SKILLS) {
+            throwIfAborted(signal);
+            const folderPath = joinPath(skillsRoot, skill.name);
+            const filePath = skillArtifactPath(scopeRoot, tool, skill.name);
+            const folderExisted = await existsBeforeMutation(fs, folderPath, signal);
+            throwIfAborted(signal);
+            const fileExisted = await existsBeforeMutation(fs, filePath, signal);
+            throwIfAborted(signal);
+            let originalContent:string|null = null;
+            if (fileExisted) {
+                try {
+                    originalContent = await fs.readFile(filePath);
+                } catch {
+                    throw new Error(`Cannot read file: ${filePath}`);
+                }
+                throwIfAborted(signal);
+            }
+            snapshots.push({ folderPath, folderExisted, filePath, fileExisted, originalContent });
             try {
-                await fs.writeFile(filePath, stripYamlFrontmatter(skill.body));
+                await fs.mkdir(folderPath, { recursive: true });
+                throwIfAborted(signal);
+            } catch {
+                if (signal.aborted) {
+                    throw abortError();
+                }
+                return { ok: true, value: { ok: false, diagnostic: `Cannot create destination: ${folderPath}\n` }, revert };
+            }
+            try {
+                await fs.writeFile(filePath, skill.body);
+                throwIfAborted(signal);
                 writtenPaths.push(filePath);
             } catch {
-                return { ok: false, diagnostic: `Cannot write file: ${filePath}\n` };
+                if (signal.aborted) {
+                    throw abortError();
+                }
+                return { ok: true, value: { ok: false, diagnostic: `Cannot write file: ${filePath}\n` }, revert };
             }
         }
-        return { ok: true, writtenPaths };
+        return { ok: true, value: { ok: true, writtenPaths }, revert };
+    } catch (error) {
+        return { ok: false, error, revert };
     }
-    return writeDirectorySkillArtifacts(fs, scopeRoot, tool, isDisposed);
+}
+
+export function writeSkillArtifacts(fs:FsContext, scopeRoot:string, tool:ToolName, signal:AbortSignal):Promise<WriteSkillArtifactsResult> {
+    return runCancellable(signal, () => {
+        for (const skill of SKILLS) {
+            /* coverage ignore next 7 */ // — Defensive: skill bodies are compile-time constants that are always non-empty.
+            if (!skill.body) {
+                return Promise.resolve({
+                    ok: true,
+                    value: { ok: false, diagnostic: `Skill "${skill.name}" has no content.\n` } as const,
+                    revert: () => Promise.resolve()
+                });
+            }
+        }
+        return writeDirectorySkillArtifacts(fs, scopeRoot, tool, signal);
+    });
 }

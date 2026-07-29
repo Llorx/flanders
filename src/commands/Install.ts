@@ -11,6 +11,7 @@ import type { ModelProbeResult } from "./InstallModelProbe";
 import type { ToolName } from "../ai/ToolAdapter";
 import { TOOL_NAMES } from "../toolNames";
 import { modelSupportsFastMode } from "../fastMode";
+import { abortError } from "../abortError";
 
 export type InstallContexts = Readonly<{
     fs:FsContext;
@@ -472,6 +473,7 @@ export function parseInstallFlags(rawArgs:readonly string[]):Readonly<{ok:true; 
 export class Install {
     private _disposed = false;
     private _modelProbeCache = new Map<"codex", ModelProbeResult>();
+    private _skillArtifactControllers = new Set<AbortController>();
     private _runPromise:Promise<number>;
     constructor(
         rawArgs:readonly string[],
@@ -484,6 +486,11 @@ export class Install {
     }
     result():Promise<number> {
         return this._runPromise;
+    }
+    private _throwIfDisposed():void {
+        if (this._disposed) {
+            throw abortError();
+        }
     }
     private async _resolveFreeTextAnswer(question:string, placeholder:string, contexts:InstallContexts, preselect?:string):Promise<string|null> {
         const text = await promptText(contexts, {
@@ -1072,11 +1079,18 @@ export class Install {
             const writtenPaths:string[] = [];
             // Emit each selected tool's skill set into its own destination, in selection order.
             for (const tool of skillsTools) {
-                const result = await writeSkillArtifacts(contexts.fs, scopeRoot, tool, () => this._disposed);
+                this._throwIfDisposed();
+                const controller = new AbortController();
+                this._skillArtifactControllers.add(controller);
+                let result;
+                try {
+                    result = await writeSkillArtifacts(contexts.fs, scopeRoot, tool, controller.signal);
+                    this._throwIfDisposed();
+                } finally {
+                    this._skillArtifactControllers.delete(controller);
+                }
                 if (!result.ok) {
-                    if (result.diagnostic !== null) {
-                        contexts.output.writeError(result.diagnostic);
-                    }
+                    contexts.output.writeError(result.diagnostic);
                     return 1;
                 }
                 writtenPaths.push(...result.writtenPaths);
@@ -1117,6 +1131,10 @@ export class Install {
     }
     private _dispose = disposeOnce(async () => {
         this._disposed = true;
+        for (const controller of this._skillArtifactControllers) {
+            controller.abort();
+        }
+        this._skillArtifactControllers.clear();
         try {
             await this._runPromise;
         /* coverage ignore next 2 */ // — Defensive: _run always resolves with a number, so this catch is unreachable.

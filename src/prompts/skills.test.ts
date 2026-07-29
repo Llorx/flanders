@@ -6,7 +6,6 @@ import { TASK_LINE } from "../plan/PlanFile";
 import { flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
 import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, expectedReviewerJudgmentScope, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
 import { hardStopReviewSkillBody, planSkillBody, specSkillBody, workSkillBody } from "./skills";
-import { stripYamlFrontmatter } from "../commands/skillArtifacts";
 
 // A citation of a flanders-internal spec file: a path under contracts/, rules/, flanders/, or plans/ that names a specific .md file. Skill bodies ship into arbitrary user projects where those files do not exist, so such a citation must never appear. The filename may begin with a digit and may contain dots (e.g. a timestamped plan name like plans/2026-07-13_01.47-subject.md), so the name segment allows leading digits and dots as well as letters, dashes, underscores, and nested path slashes. Shared by every skill-body self-containedness guard so the pattern has one source of truth.
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|flanders|plans)\/[A-Za-z0-9][A-Za-z0-9._/\-]*\.md/;
@@ -3237,7 +3236,7 @@ test.describe("skills – workSkillBody", test => {
 });
 
 test.describe("skills – hardStopReviewSkillBody", test => {
-    test("is a non-empty string beginning with a frontmatter block that strips away", {
+    test("is a non-empty string beginning with a frontmatter block", {
         ARRANGE() {},
         ACT() { return hardStopReviewSkillBody; },
         ASSERTS: {
@@ -3255,15 +3254,6 @@ test.describe("skills – hardStopReviewSkillBody", test => {
             },
             "frontmatter carries a description key on its own line"(body) {
                 Assert.ok(/^description: .+$/m.test(yamlFrontmatter(body)), "frontmatter must carry a real description key, on its own line, with a value");
-            },
-            "stripping the frontmatter the delivery-path way actually removes content"(body) {
-                Assert.notStrictEqual(stripYamlFrontmatter(body), body);
-            },
-            "stripping the frontmatter leaves no leading frontmatter block"(body) {
-                Assert.strictEqual(stripYamlFrontmatter(body).trimStart().startsWith("---"), false);
-            },
-            "stripping the frontmatter leaves a non-empty body"(body) {
-                Assert.ok(stripYamlFrontmatter(body).trim().length > 0, "the frontmatter must be followed by a non-empty body");
             }
         }
     });

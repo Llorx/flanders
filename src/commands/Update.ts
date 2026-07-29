@@ -1,7 +1,9 @@
 import type { FsContext, OutputContext } from "../contexts";
+import type { ToolName } from "../ai/ToolAdapter";
 import { disposeOnce } from "../disposeOnce";
 import type { PlatformContext } from "../workspace/Workspace";
 import { skillArtifactPaths, writeSkillArtifacts } from "./skillArtifacts";
+import { abortError } from "../abortError";
 
 export type UpdateContexts = Readonly<{
     fs:FsContext;
@@ -13,18 +15,11 @@ export type UpdateOptions = Readonly<{
     projectRoot:string;
 }>;
 
-type Destination = Readonly<{ scopeRoot:string; tool:"claude"|"codex" }>;
+type Destination = Readonly<{ scopeRoot:string; tool:ToolName }>;
 
-// `update` refreshes the Flanders skills already delivered to the user's AI-tool environments. It is
-// non-interactive: it never reads or writes `.flanders/config.json`, asks the user nothing, and uses
-// no prompt helper. It scans the four destinations (the project and home scope roots crossed with the
-// claude and codex tools), rewrites the full skill set at every destination that already holds at
-// least one Flanders skill artifact through the shared `writeSkillArtifacts` emission path, and leaves
-// untouched destinations the user never installed to. With no installation anywhere it points the user
-// at `npx flanders install` and exits non-zero. It is a disposable owner: its only async resource is
-// the in-flight run, which `dispose()` awaits and whose mid-run disposal stops further writes.
 export class Update {
     private _disposed = false;
+    private _skillArtifactControllers = new Set<AbortController>();
     private _runPromise:Promise<number>;
     constructor(
         rawArgs:readonly string[],
@@ -38,9 +33,16 @@ export class Update {
     result():Promise<number> {
         return this._runPromise;
     }
-    private async _isInstalled(fs:FsContext, scopeRoot:string, tool:"claude"|"codex"):Promise<boolean> {
+    private _throwIfDisposed():void {
+        if (this._disposed) {
+            throw abortError();
+        }
+    }
+    private async _isInstalled(fs:FsContext, scopeRoot:string, tool:ToolName):Promise<boolean> {
         for (const path of skillArtifactPaths(scopeRoot, tool)) {
-            if (await fs.exists(path)) {
+            const exists = await fs.exists(path);
+            this._throwIfDisposed();
+            if (exists) {
                 return true;
             }
         }
@@ -65,29 +67,29 @@ export class Update {
             const writtenPaths:string[] = [];
             let found = false;
             for (const dest of destinations) {
-                if (this._disposed) {
-                    return 1;
-                }
-                if (!(await this._isInstalled(contexts.fs, dest.scopeRoot, dest.tool))) {
+                this._throwIfDisposed();
+                const installed = await this._isInstalled(contexts.fs, dest.scopeRoot, dest.tool);
+                this._throwIfDisposed();
+                if (!installed) {
                     continue;
                 }
                 found = true;
-                const result = await writeSkillArtifacts(contexts.fs, dest.scopeRoot, dest.tool, () => this._disposed);
+                const controller = new AbortController();
+                this._skillArtifactControllers.add(controller);
+                let result;
+                try {
+                    result = await writeSkillArtifacts(contexts.fs, dest.scopeRoot, dest.tool, controller.signal);
+                    this._throwIfDisposed();
+                } finally {
+                    this._skillArtifactControllers.delete(controller);
+                }
                 if (!result.ok) {
-                    if (result.diagnostic !== null) {
-                        contexts.output.writeError(result.diagnostic);
-                    }
+                    contexts.output.writeError(result.diagnostic);
                     return 1;
                 }
                 writtenPaths.push(...result.writtenPaths);
             }
-            // A disposal observed during the write phase exits non-zero with no success output, even
-            // when it lands while the final artifact write is in flight (after `writeSkillArtifacts`
-            // has already returned `ok`). The per-artifact `isDisposed()` check inside the shared
-            // writer cannot catch that last-write race, so this guard does (`disposables.md`).
-            if (this._disposed) {
-                return 1;
-            }
+            this._throwIfDisposed();
             if (!found) {
                 contexts.output.writeError("Well, hi-diddly-ho! There are no Flanders skills installed anywhere to refresh. Run npx flanders install to set them up first.\n");
                 return 1;
@@ -108,6 +110,10 @@ export class Update {
     }
     private _dispose = disposeOnce(async () => {
         this._disposed = true;
+        for (const controller of this._skillArtifactControllers) {
+            controller.abort();
+        }
+        this._skillArtifactControllers.clear();
         try {
             await this._runPromise;
         /* coverage ignore next 2 */ // — Defensive: _run always resolves with a number, so this catch is unreachable.

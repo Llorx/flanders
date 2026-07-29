@@ -233,6 +233,12 @@ test.describe("Flanders dispatch", test => {
             const { contexts, written, errors } = stubContexts();
             const files:Record<string, string> = { "/proj/.claude/skills/flanders-spec/SKILL.md": "old content" };
             contexts.fs.exists = async (p) => p in files;
+            contexts.fs.readFile = async (p) => {
+                if (p in files) {
+                    return files[p]!;
+                }
+                throw new Error(`not found: ${p}`);
+            };
             contexts.fs.writeFile = async (p, content) => { files[p] = content; };
             contexts.fs.mkdir = async () => {};
             return { contexts, written, errors, files };
