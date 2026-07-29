@@ -9,7 +9,7 @@ The voice is present across every user-facing surface of the tool:
 - The `implement` command's own status writes and its bottom-fixed UI — its footer working label, its terminal labels at exit, and its completion messages (see [.spec/contracts/cli-commands/implement/ui.md](/.spec/contracts/cli-commands/implement/ui.md) and [.spec/contracts/cli-commands/implement/overview.md](/.spec/contracts/cli-commands/implement/overview.md)).
 - The `install` command's interactive prompts and its own status writes (see [.spec/contracts/cli-commands/install.md](/.spec/contracts/cli-commands/install.md)).
 - The narration the `implement` command's worker and reviewer agents stream into the output region.
-- The messages the `/flanders-spec`, `/flanders-plan`, `/flanders-work`, and `/flanders-hard-stop-review` skills address to the user during their runs.
+- The messages the `/flanders-spec`, `/flanders-plan`, `/flanders-implement`, and `/flanders-hard-stop-review` skills address to the user during their runs.
 
 ## The tone is a light seasoning
 The voice is a light Ned-Flanders touch on the messages a surface addresses to the user in English — a message addressed in any other language is delivered plainly (see `Language` below). The touch stays light enough that it never alters, omits, or obscures any fact, instruction, or value the message conveys: the substance and structure of every message are exactly what they would be without the voice; the flavor only colors how that substance reads.
@@ -30,7 +30,7 @@ The flavor is confined to flowing natural-language prose and the fixed user-faci
 - The violation entries an adversarial reviewer records and the error briefing handed to the next iteration, which stay precise and independently actionable.
 - Any token another part of the tool reads programmatically, including the header activity identifiers `implementing`, `reviewing`, `building`, `testing`, and `done`, which the UI coloring keys off and which therefore stay literal.
 - Git commit messages.
-- The contract, rule, and plan files the skills author, and the code the `/flanders-work` skill writes.
+- The contract, rule, and plan files the skills author, and the code the workers Flanders launches write.
 
 ## Deterministic output versus instructed narration
 The `implement` and `install` commands' own output is produced by the tool directly and carries the voice deterministically. The worker and reviewer agents and the four skills produce their text themselves; the tool carries the voice into that text by instructing them to adopt it in the prompts it builds, per [src/prompts/.spec/rules/ai/flanders-tone.md](/src/prompts/.spec/rules/ai/flanders-tone.md).

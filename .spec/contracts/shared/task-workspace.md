@@ -1,0 +1,39 @@
+# Task Workspace — Shared Contract
+
+## Purpose
+Define, once for every Flanders surface that runs the single-task cycle of [.spec/contracts/shared/task-cycle.md](/.spec/contracts/shared/task-cycle.md), the per-run scratch space that cycle works in and the helper scripts it uses for the build and test validation gates. The `implement` command (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)) and the `/flanders-implement` skill (see [.spec/contracts/ai-skills/implement-skill.md](/.spec/contracts/ai-skills/implement-skill.md)) both set up this workspace before their first iteration.
+
+## Temporary folder
+At the start of every run, a main temporary folder is created. It directly holds:
+- The build script and the test script (see below).
+- Per-iteration log files: worker output, build output, test output, each reviewer's streamed output, and `error.log` — a single fixed-name file used to brief subsequent iterations (see [.spec/contracts/shared/task-cycle.md#previous-iteration-error-briefing](/.spec/contracts/shared/task-cycle.md#previous-iteration-error-briefing)).
+- `hard-stop.log` — the worker-declared structural-impossibility report, present only when a worker declared one (see [.spec/contracts/shared/task-cycle.md#hard-stop](/.spec/contracts/shared/task-cycle.md#hard-stop)).
+- Any further material a surface consolidates for its worker, defined where that surface is defined.
+
+Immediately after the main temporary folder is created, one additional temporary folder is created for each reviewer configured in the Flanders configuration (see [.spec/contracts/shared/flanders-config.md](/.spec/contracts/shared/flanders-config.md)). Each per-reviewer folder is allocated the same way as the main temporary folder — its own independently created temporary folder, never a subfolder of the main temporary folder and never a subfolder of any other reviewer's folder. Each per-reviewer folder holds exactly that reviewer's verdict file, named `error.log`, together with any material the surface consolidates for that reviewer, and holds no other reviewer's verdict or material. The `error.log` briefing file named above lives in the main temporary folder and is a distinct file from these per-reviewer `error.log` files.
+
+All of these temporary folders — the main folder together with every per-reviewer folder — are removed automatically when the run ends in any way other than a hard stop. On a hard stop the per-iteration error logs are first materialized and the briefing `error.log` removed (see [Hard-stop per-iteration error logs](#hard-stop-per-iteration-error-logs)), and all of these folders are then intentionally preserved on disk so the per-iteration logs, the materialized per-iteration, per-stage error logs, the worker-declared `hard-stop.log` when present, and each per-reviewer folder's own `error.log` and consolidated material can be inspected. If the host platform offers a built-in cleanup-on-exit API, that API is used for the automatic-removal cases; otherwise an explicit cleanup hook is registered that runs on normal exit and on common termination signals. The hard stop suppresses this cleanup regardless of which mechanism is in use.
+
+## Hard-stop per-iteration error logs
+Across the run, for every iteration whose build, test, adversarial-review, or commit stage failed, that iteration's captured failure content for the stage that failed is kept — the build, test, or commit stage's captured output, and for the review stage each reviewer's recorded violations. This per-iteration history is distinct from the single briefing `error.log`, which only ever holds the most recent failing iteration.
+
+On a hard stop, before the temporary folders are preserved, this history is written into the main temporary folder as one error log file per stage failure, using the names below, and the briefing `error.log` is then removed. The preserved folder makes explicit which stage failed in each iteration and carries no single-file briefing. The files are named:
+
+- `build.<iteration>.error.log` — the captured build output of the iteration whose build gate failed.
+- `test.<iteration>.error.log` — the captured test output of the iteration whose test gate failed.
+- `commit.<iteration>.error.log` — the captured git output of the iteration whose commit stage failed.
+- `reviewer.<iteration>.<position>.error.log` — the violations a single reviewer recorded in the iteration whose review stage failed, where `<position>` is that reviewer's 1-based position in the configured reviewers order. Only a reviewer that recorded violations in that iteration produces a file; a reviewer whose verdict for that iteration was empty produces none.
+
+`<iteration>` is the 1-based iteration counter (see [.spec/contracts/shared/task-cycle.md#per-cycle-state](/.spec/contracts/shared/task-cycle.md#per-cycle-state)). A stage that did not fail in a given iteration produces no file for that iteration: only the stage that failed is materialized, and because a failing stage restarts the cycle immediately, at most one of the build, test, review, and commit stages fails in any single iteration — the review stage being the one that can yield more than one file, one per reviewer that recorded violations.
+
+## Build and test script detection
+Once the temporary folder exists and before the first iteration starts, the surface determines how to build and test the current project. How the build and test commands are determined — by inspecting the project, without asking the user or consulting a configuration file, leaving a command undetermined when it cannot be confidently found — is defined in [.spec/contracts/shared/build-test-validation.md](/.spec/contracts/shared/build-test-validation.md). This section pins only how those determined commands are captured:
+
+1. The surface itself decides the build and test script paths based on the host platform — `build.bat` and `test.bat` on a Windows host, `build.sh` and `test.sh` on any other host — and stores both paths. The agent is never asked to pick the platform or the extension; that decision belongs to flanders.
+2. Spawn a detect agent that determines the build and test commands per [.spec/contracts/shared/build-test-validation.md](/.spec/contracts/shared/build-test-validation.md) and writes them into the two specific paths supplied in the prompt. The prompt names those paths verbatim. The detect agent runs with the same tool, model, effort, and fast-mode setting as the worker (see [src/ai/.spec/rules/runner.md#the-detect-agent-inherits-tool-model-effort-and-fast-from-the-worker](/src/ai/.spec/rules/runner.md#the-detect-agent-inherits-tool-model-effort-and-fast-from-the-worker)).
+3. The agent edits the two named files. It does not invent alternative filenames, alternative extensions, or alternative locations.
+4. After the agent finishes, the surface verifies that each of the two named files exists and is non-empty. The build script and test script are tracked independently — either may be missing while the other is present. A command the agent left undetermined yields an absent or empty script at the path flanders supplied, which is treated as that validation gate being skipped.
+
+The same two paths are passed downstream to every other AI invocation that may need to read or modify the build or test scripts — for example the worker, when the task changes how the project builds or tests. The surface is the single source of truth for these paths; no other component decides them.
+
+The detect agent must not write to any file outside the two named build/test script paths. In particular, it may not write to any `.spec/contracts` folder, any `.spec/rules` folder, any `.spec/flanders` folder, or the `plans/` folder per [.spec/contracts/shared/spec-folder-write-authority.md](/.spec/contracts/shared/spec-folder-write-authority.md).

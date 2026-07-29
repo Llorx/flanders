@@ -9,9 +9,9 @@ Every prompt Flanders authors expresses each obligation it carries in the fewest
 - **Subject:** the construction of every prompt Flanders authors as fixed scaffolding — the prompt text Flanders bakes in, as opposed to the per-run content it passes through:
   - the `implement` command's worker prompt;
   - the `implement` command's reviewer prompt(s);
-  - the `/flanders-work` skill's reviewer subagent prompt;
+  - the `/flanders-implement` skill's reviewer prompt;
   - the shared voice and tone instruction text those prompts carry;
-  - the `/flanders-spec`, `/flanders-plan`, `/flanders-work`, and `/flanders-hard-stop-review` skill artifact bodies.
+  - the `/flanders-spec`, `/flanders-plan`, `/flanders-implement`, and `/flanders-hard-stop-review` skill artifact bodies.
 - **Not subject:** the per-run content the orchestrator passes through a prompt rather than authors as scaffolding — the task text and its acceptance criteria, the consolidated reference content an agent reads, the change-set instructions tied to a single run, and the user's own request. The economy of the spec and plan files that become that reference content is governed where those files are authored, by [src/prompts/.spec/rules/ai/skills/skills-common.md#the-flanders-spec-and-flanders-plan-skill-bodies-instruct-economy-of-files-and-words](/src/prompts/.spec/rules/ai/skills/skills-common.md#the-flanders-spec-and-flanders-plan-skill-bodies-instruct-economy-of-files-and-words). Other agents and commands, and any non-prompt source, are out of scope.
 
 ### How to apply

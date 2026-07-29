@@ -16,11 +16,11 @@ A claim is an assertion the subagent must back with evidence in the report. Thre
 
 ### Worker-lightweight vs reviewer-heavyweight
 
-The deliverable subagent's self-audit is bounded by its diff and the task's links per [src/commands/.spec/rules/ai/evidence.md#a-deliverable-subagent-scopes-rule-and-contract-claims-by-its-own-diff-not-by-the-tasks-link-list](/src/commands/.spec/rules/ai/evidence.md#a-deliverable-subagent-scopes-rule-and-contract-claims-by-its-own-diff-not-by-the-tasks-link-list); the adversarial reviewer audits the full working tree per [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md). The worker's report is the first line of defence, scoped to what it changed; the reviewer's audit is the gate, scoped to the whole tree.
+The deliverable subagent's self-audit is bounded by its diff and the task's links per [src/commands/.spec/rules/ai/evidence.md#a-deliverable-subagent-scopes-rule-and-contract-claims-by-its-own-diff-not-by-the-tasks-link-list](/src/commands/.spec/rules/ai/evidence.md#a-deliverable-subagent-scopes-rule-and-contract-claims-by-its-own-diff-not-by-the-tasks-link-list); the adversarial reviewer audits the full working tree per [.spec/contracts/shared/task-cycle.md](/.spec/contracts/shared/task-cycle.md). The worker's report is the first line of defence, scoped to what it changed; the reviewer's audit is the gate, scoped to the whole tree.
 
 ### Subject
 
-The prompt of any Flanders-launched subagent whose **deliverable** — not its verdict — is graded PASS/FAIL by an adversarial reviewer. A deliverable is source code, tests, configuration, or behavior-affecting documentation produced by the subagent in the working tree. The canonical case today is the `worker` subagent of the `implement` command's inner loop. Any future role with the same shape — produce a deliverable, then be reviewed — falls under this rule.
+The prompt of any Flanders-launched subagent whose **deliverable** — not its verdict — is graded PASS/FAIL by an adversarial reviewer. A deliverable is source code, tests, configuration, or behavior-affecting documentation produced by the subagent in the working tree. The canonical case today is the `worker` of the single-task cycle (see [.spec/contracts/shared/task-cycle.md](/.spec/contracts/shared/task-cycle.md)), on whichever surface runs it. Any future role with the same shape — produce a deliverable, then be reviewed — falls under this rule.
 
 The rule pins how the subagent's prompt is constructed, not how the subagent happens to reason. A prompt without the Evidence Report instruction violates this rule even if the subagent self-audits on its own initiative.
 
@@ -32,7 +32,7 @@ The reviewer signals that verdict by writing the violations it finds into the `e
 
 **Subagents that do not produce reviewable deliverables.** For example, the build/test detection agent writes scripts but is not adversarially reviewed; it is out of scope. Any subagent that only inspects or summarizes without producing artifacts that are subsequently graded is also out of scope.
 
-**The in-session worker of the `/flanders-work` skill.** `/flanders-work` performs its work in the user's own session rather than through a Flanders-launched subagent, so it is not a subject of this rule even though its result is subsequently reviewed. It is not required to produce an Evidence Report; its result is validated directly by the `/flanders-work` reviewer (see [src/prompts/.spec/rules/ai/skills/work.md#the-flanders-work-review-loop-is-driven-by-the-presence-and-content-of-a-temporary-error-log-file](/src/prompts/.spec/rules/ai/skills/work.md#the-flanders-work-review-loop-is-driven-by-the-presence-and-content-of-a-temporary-error-log-file)). The "future role with the same shape" clause in the Subject above scopes future Flanders-launched subagents, not the in-session worker.
+**The orchestrating session of the `/flanders-implement` skill.** That session drives the cycle and implements nothing itself (see [src/prompts/.spec/rules/ai/skills/implement.md#the-flanders-implement-skill-orchestrates-the-cycle-and-implements-nothing-itself](/src/prompts/.spec/rules/ai/skills/implement.md#the-flanders-implement-skill-orchestrates-the-cycle-and-implements-nothing-itself)), so it produces no deliverable to self-audit. The worker that skill launches does produce one and is a subject of this rule like any other worker of the cycle.
 
 ### What the Evidence Report must contain
 
@@ -106,7 +106,7 @@ When a deliverable-producing subagent (today the `worker` of `implement`'s inner
 
 ### Who this applies to
 
-- **Subject:** every Flanders-launched subagent whose deliverable is graded PASS/FAIL by an adversarial reviewer. The canonical case today is the `worker` subagent of the `implement` command's inner loop. Any future role with the same shape — produce a deliverable in the working tree, then be reviewed — falls under this rule.
+- **Subject:** every Flanders-launched subagent whose deliverable is graded PASS/FAIL by an adversarial reviewer. The canonical case today is the `worker` of the single-task cycle (see [.spec/contracts/shared/task-cycle.md](/.spec/contracts/shared/task-cycle.md)), on whichever surface runs it. Any future role with the same shape — produce a deliverable in the working tree, then be reviewed — falls under this rule.
 - **Not subject:** the adversarial `reviewer` subagent. Its mandate, pinned in [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md) and reinforced in [src/commands/.spec/rules/ai/evidence.md#adversarially-reviewed-subagents-self-audit-via-an-evidence-report](/src/commands/.spec/rules/ai/evidence.md#adversarially-reviewed-subagents-self-audit-via-an-evidence-report), is to audit the full working tree against every rule and contract that should have applied, whether the task linked it or not. The reviewer must not bound its audit by the worker's diff; doing so would defeat the adversarial-review point.
 - **Not subject:** the `/flanders-spec` and `/flanders-plan` post-write validators. They grade markdown spec and plan files, not code under test.
 

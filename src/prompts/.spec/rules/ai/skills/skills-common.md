@@ -179,7 +179,7 @@ The self-review loop ends only when the draft passes every item on the checklist
 
 ## Flanders skill artifact prompts are self-contained — no citations of flanders-internal spec paths
 
-The body of every Flanders skill artifact — the prompt text that the `install` command writes to the user's AI-tool skill folders, where each artifact represents `/flanders-spec`, `/flanders-plan`, `/flanders-work`, or `/flanders-hard-stop-review` — is self-contained. Every obligation the artifact enforces is inline in its body. The body never cites a specific spec file from flanders' own development spec — a file inside one of flanders' own `.spec/contracts` or `.spec/rules` folders, or inside flanders' `plans/` folder — because that specific file does not exist in the user's project where the artifact runs, so the citation resolves to nothing.
+The body of every Flanders skill artifact — the prompt text that the `install` command writes to the user's AI-tool skill folders, where each artifact represents `/flanders-spec`, `/flanders-plan`, `/flanders-implement`, or `/flanders-hard-stop-review` — is self-contained. Every obligation the artifact enforces is inline in its body. The body never cites a specific spec file from flanders' own development spec — a file inside one of flanders' own `.spec/contracts` or `.spec/rules` folders, or inside flanders' `plans/` folder — because that specific file does not exist in the user's project where the artifact runs, so the citation resolves to nothing.
 
 ### Who this applies to
 
@@ -220,7 +220,7 @@ Every cross-reference link a Flanders content skill produces in the user's proje
 
 - **Subject:** the source content that produces the `/flanders-spec` and `/flanders-plan` skill artifact bodies — every place in the flanders codebase where that prompt text is authored or assembled.
 - **Subject:** the resulting `/flanders-spec` and `/flanders-plan` skill artifact files that `install` writes into the user's AI-tool skill folders.
-- **Not subject:** `/flanders-work` — it implements code and produces no contract/rule cross-references or plan task links. Other agents and commands are likewise out of scope.
+- **Not subject:** `/flanders-implement` — it carries a request through the single-task cycle and produces no contract/rule cross-references or plan task links. Other agents and commands are likewise out of scope.
 - **Not subject:** the files inside flanders' own `.spec/contracts` and `.spec/rules` folders, whose cross-reference form is governed directly by [.spec/contracts/shared/cross-file-reference-links.md](/.spec/contracts/shared/cross-file-reference-links.md) rather than by a generated skill body.
 
 ### What the body instructs
@@ -251,7 +251,7 @@ Every markdown file the two Flanders content skills write expresses each paragra
 ### Who this applies to
 
 - **Subject:** the source content that produces the `/flanders-spec` and `/flanders-plan` skill artifact bodies — the prompt text the `install` command ships — at the point where it tells the skill how to draft; and those two skills at runtime, for every markdown file they write: the contracts and rules `/flanders-spec` writes or updates under a `.spec/contracts` or `.spec/rules` folder, and the plan file `/flanders-plan` writes under `plans/`.
-- **Not subject:** `/flanders-work`, which implements code and whose deliverable is not an authored markdown document; the skill artifact body files themselves, which `install` writes into the user's AI-tool skill folders; and every other agent or command.
+- **Not subject:** `/flanders-implement`, whose deliverable is implemented code rather than an authored markdown document; the skill artifact body files themselves, which `install` writes into the user's AI-tool skill folders; and every other agent or command.
 
 ### What "a single unwrapped line" means
 
@@ -277,7 +277,7 @@ The body of the `/flanders-spec` and `/flanders-plan` skill artifacts states, ac
 
 - **Subject:** the source content that produces the `/flanders-spec` and `/flanders-plan` skill artifact bodies — every place in the flanders codebase where that prompt text is authored or assembled.
 - **Subject:** the resulting `/flanders-spec` and `/flanders-plan` skill artifact files that `install` writes into the user's AI-tool skill folders.
-- **Not subject:** `/flanders-work` and the worker, reviewer, and other agent prompts, which author no spec or plan document and so carry no instruction to produce economical spec or plan documents. The economy of those prompts' own wording — and of the `/flanders-work` body's wording — is a separate obligation, pinned by [src/prompts/.spec/rules/ai/prompt-wording-economy.md#every-prompt-flanders-authors-is-worded-economically](/src/prompts/.spec/rules/ai/prompt-wording-economy.md#every-prompt-flanders-authors-is-worded-economically), and the economy of the code the `implement` worker and the `/flanders-work` session author is pinned by [src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express](/src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express).
+- **Not subject:** `/flanders-implement` and the worker, reviewer, and other agent prompts, which author no spec or plan document and so carry no instruction to produce economical spec or plan documents. The economy of those prompts' own wording — and of the `/flanders-implement` body's wording — is a separate obligation, pinned by [src/prompts/.spec/rules/ai/prompt-wording-economy.md#every-prompt-flanders-authors-is-worded-economically](/src/prompts/.spec/rules/ai/prompt-wording-economy.md#every-prompt-flanders-authors-is-worded-economically), and the economy of the code the cycle's worker authors is pinned by [src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express](/src/prompts/.spec/rules/ai/code-comment-economy.md#flanders-code-authoring-prompts-instruct-the-agent-that-a-source-comment-carries-only-what-the-code-cannot-express).
 
 ### How to apply
 

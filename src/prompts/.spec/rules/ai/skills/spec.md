@@ -92,7 +92,7 @@ The `specSkillBody` prompt obliges the drafting-phase layout summary to state, f
 ### Who this applies to
 
 - **Subject:** the `specSkillBody` prompt text, for the drafting-phase layout summary it defines.
-- **Not subject:** `/flanders-plan` and `/flanders-work`, which do not author spec files, and a `/flanders-spec` run whose obligations are all new — one that adds an obligation nothing in the corpus previously stated leaves no committed behavior in violation and reports none.
+- **Not subject:** `/flanders-plan` and `/flanders-implement`, which do not author spec files, and a `/flanders-spec` run whose obligations are all new — one that adds an obligation nothing in the corpus previously stated leaves no committed behavior in violation and reports none.
 
 ### What the summary states
 

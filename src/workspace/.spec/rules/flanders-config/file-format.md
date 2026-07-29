@@ -1,10 +1,10 @@
 # The `.flanders/` folder contains a single `config.json` file
 
-The persistent Flanders configuration pinned by [.spec/contracts/shared/flanders-config.md](/.spec/contracts/shared/flanders-config.md) is materialized as a single JSON file at `.flanders/config.json` inside the chosen scope's folder. The file is written by `install` and read by every Flanders command that needs the configuration (today, `implement`). There are no other files inside `.flanders/`.
+The persistent Flanders configuration pinned by [.spec/contracts/shared/flanders-config.md](/.spec/contracts/shared/flanders-config.md) is materialized as a single JSON file at `.flanders/config.json` inside the chosen scope's folder. The file is written by `install` and read by every Flanders surface that needs the configuration (today, the `implement` command and the `/flanders-implement` skill). There are no other files inside `.flanders/`.
 
 ## Who this applies to
 
-- **Subject:** the `install` command (writer) and every Flanders command that reads the configuration (reader, currently `implement`).
+- **Subject:** the `install` command (writer) and every Flanders surface that reads the configuration (reader, currently the `implement` command and the `/flanders-implement` skill).
 - **Not subject:** code outside Flanders. The folder is owned by Flanders; other tools must not place files inside it.
 
 ## File location
@@ -48,7 +48,7 @@ The file is a UTF-8 JSON object parseable by Node.js's built-in `JSON.parse`. It
   - `effort` — the reasoning-effort identifier the user supplied at install time, or an empty string `""` to mean "default configured effort" (the runner does not pass an explicit effort flag to the CLI).
   - `fast` — a JSON boolean. `true` means the role runs with Claude Code's fast mode enabled; `false` means it does not. It is `true` only when `tool` is `"claude"` and `model` is a model identifier that supports Claude Code's fast mode (the set of such identifiers is pinned in [src/commands/.spec/rules/install.md#fast-mode-is-offered-only-for-a-claude-role-whose-model-supports-it](/src/commands/.spec/rules/install.md#fast-mode-is-offered-only-for-a-claude-role-whose-model-supports-it)); for any other `tool`, or a `claude` model that does not support fast mode, it is always `false`.
 - Inside each `reviewers` entry only:
-  - `optional` — a JSON boolean. `true` marks the reviewer optional: it may be cancelled before it finishes once its review round can complete without it. `false` marks it required: it always runs to a verdict and is never cancelled. See [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md).
+  - `optional` — a JSON boolean. `true` marks the reviewer optional: it may be cancelled before it finishes once its review round can complete without it. `false` marks it required: it always runs to a verdict and is never cancelled. See [.spec/contracts/shared/task-cycle.md](/.spec/contracts/shared/task-cycle.md).
 
 The `worker` object, the `reviewers` array, and the `minimumReviews` integer are all mandatory; `reviewers` holds at least one entry; and every field inside `worker` and inside each reviewer entry — including each role's `fast` and each reviewer's `optional` — is mandatory. A missing top-level key, an empty `reviewers` array, a `minimumReviews` outside `[1, reviewers.length]`, or a missing inner field is a malformed configuration.
 
@@ -58,7 +58,7 @@ The `worker` object, the `reviewers` array, and the `minimumReviews` integer are
 
 ## Reads
 
-A reader parses the file with `JSON.parse`. On any parse error, missing top-level key (`worker`, `reviewers`, or `minimumReviews`), a `reviewers` value that is not a non-empty array, a `minimumReviews` that is not an integer in `[1, reviewers.length]`, a reviewer `optional` that is not a boolean, a `fast` that is not a boolean, a missing inner field, or a value outside the allowed shape above, the reader treats the configuration as malformed and exits non-zero with a diagnostic that names the offending field and the path to the file. The reader does not silently fill in defaults for missing fields — a malformed file is a hard error, not an opportunity for inference.
+A reader parses the file with `JSON.parse`. On any parse error, missing top-level key (`worker`, `reviewers`, or `minimumReviews`), a `reviewers` value that is not a non-empty array, a `minimumReviews` that is not an integer in `[1, reviewers.length]`, a reviewer `optional` that is not a boolean, a `fast` that is not a boolean, a missing inner field, or a value outside the allowed shape above, the reader treats the configuration as malformed and fails with a diagnostic that names the offending field and the path to the file, in the failure mode its own surface pins — a non-zero exit for the `implement` command, stopping and reporting in session for the `/flanders-implement` skill. The reader does not silently fill in defaults for missing fields — a malformed file is a hard error, not an opportunity for inference.
 
 ## Why one file and not several
 

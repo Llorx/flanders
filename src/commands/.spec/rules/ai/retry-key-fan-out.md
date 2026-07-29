@@ -6,7 +6,7 @@ When the retry key reaches the `implement` orchestrator (the F5 press the termin
 
 ### Who this applies to
 
-- **Subject:** the orchestrator of the `implement` command, in every stage where it holds AI invocations — the worker stage, the startup build and test command detection stage (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)), and the adversarial review stage, where several invocations run at once (see [src/commands/.spec/rules/ai/agents.md#reviewers-run-concurrently-one-independent-runner-invocation-each-and-the-stage-ends-when-the-last-finishes](/src/commands/.spec/rules/ai/agents.md#reviewers-run-concurrently-one-independent-runner-invocation-each-and-the-stage-ends-when-the-last-finishes)).
+- **Subject:** the orchestrator of the `implement` command, in every stage where it holds AI invocations — the worker stage, the startup build and test command detection stage (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)), and the adversarial review stage, where several invocations run at once (see [src/commands/.spec/rules/ai/agents.md#reviewers-run-concurrently-one-independent-invocation-each](/src/commands/.spec/rules/ai/agents.md#reviewers-run-concurrently-one-independent-invocation-each)).
 - **Not subject:** the AI runner, which receives the trigger per invocation and decides what it means for that invocation's wait; and the terminal context, which decodes the key and takes no part in what it triggers.
 
 ### Behavior

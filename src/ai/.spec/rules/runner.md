@@ -115,11 +115,11 @@ Spawned children may inherit a piped stdout/stderr that the adapter reads — th
 
 ## The detect agent inherits tool, model, effort and fast from the worker
 
-The build/test detection agent spawned by `implement` at workspace setup time (see [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)) is not separately configured in `.flanders/config.json`. It runs through the AI runner with the same `tool`, `model`, `effort`, and `fast` the runner uses for the worker.
+The build/test detection agent spawned at workspace setup time (see [.spec/contracts/shared/task-workspace.md](/.spec/contracts/shared/task-workspace.md)) is not separately configured in `.flanders/config.json`. It runs with the same `tool`, `model`, `effort`, and `fast` used for the worker.
 
 ### Who this applies to
 
-- **Subject:** the workspace-setup code path in `implement` that spawns the detect agent.
+- **Subject:** the workspace-setup path of every surface that runs the single-task cycle and spawns the detect agent — the `implement` command through the AI runner, and the `/flanders-implement` skill as its own process.
 - **Not subject:** the AI runner itself. The runner receives tool, model, effort, and fast as arguments and does not know the call is a detect call.
 
 ### Behavior
@@ -127,22 +127,22 @@ The build/test detection agent spawned by `implement` at workspace setup time (s
 When the workspace setup spawns the detect agent:
 
 1. The orchestrator reads `.flanders/config.json` per [src/workspace/.spec/rules/flanders-config/file-format.md](/src/workspace/.spec/rules/flanders-config/file-format.md).
-2. It takes the `worker.tool`, `worker.model`, `worker.effort`, and `worker.fast` values verbatim and passes them to the AI runner along with the detect prompt and the two target script paths (`build.bat`/`test.bat` on Windows, `build.sh`/`test.sh` elsewhere).
-3. The runner invokes the resulting tool with that model, effort, and fast setting, per [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface) or [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface).
+2. It takes the `worker.tool`, `worker.model`, `worker.effort`, and `worker.fast` values verbatim and uses them for the detect invocation, along with the detect prompt and the two target script paths (`build.bat`/`test.bat` on Windows, `build.sh`/`test.sh` elsewhere).
+3. The resulting tool is invoked with that model, effort, and fast setting, per [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface) or [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface).
 
 The orchestrator does not consult `reviewer.*` for the detect agent, and does not invent a third "detect" set of fields.
 
 ### Why inherit from worker
 
 - The detect agent writes scripts in the project's working tree — same shape of write as the worker. Inheriting the worker's `tool`/`model`/`effort` keeps the detect quality coherent with the implementation quality.
-- Adding a separate set of fields just for detect would expand `.flanders/config.json` to satisfy a role that runs once per `implement` run and never gets adversarially reviewed.
+- Adding a separate set of fields just for detect would expand `.flanders/config.json` to satisfy a role that runs once per run and never gets adversarially reviewed.
 
 ### Failure signals
 
 - The orchestrator passes the reviewer's tool/model/effort/fast (or any mix) to the detect agent.
 - The orchestrator hardcodes a tool/model/effort/fast for the detect agent instead of reading the worker's values from `.flanders/config.json`.
 - The orchestrator introduces a `detect.*` section in `.flanders/config.json` and consumes it.
-- The orchestrator bypasses the AI runner to spawn the detect agent directly.
+- The `implement` command spawns the detect agent directly instead of through the AI runner.
 
 ## Every AI adapter invokes its tool non-interactively
 
