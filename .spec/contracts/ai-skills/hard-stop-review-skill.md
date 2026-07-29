@@ -4,14 +4,10 @@
 Diagnose a hard stop of the `implement` command and recommend the concrete Flanders action that lets `implement` be relaunched so the same task completes instead of stopping again. When `implement` hard-stops — exceeding the per-task iteration cap, or acting on the worker's own declaration that the task is structurally impossible — it ends the run, preserves its temporary folder on disk, and points the user at it (see [.spec/contracts/cli-commands/implement/iteration-loop.md#hard-stop](/.spec/contracts/cli-commands/implement/iteration-loop.md#hard-stop) and [.spec/contracts/cli-commands/implement/workspace.md](/.spec/contracts/cli-commands/implement/workspace.md)). This skill reads that preserved evidence, determines why the task never reached a clean iteration, and tells the user what to change before the next run. The skill runs inside the user's own AI-tool session and delivers its analysis in chat.
 
 ## Provisioning
-The skill becomes available only after the user runs `npx flanders install` (see [.spec/contracts/cli-commands/install.md](/.spec/contracts/cli-commands/install.md)). The skill is installed for each AI tool the user picked at install time (Claude Code, Codex CLI, or both). The invocation form below is the same regardless of which AI tool the user is invoking it from.
+The skill becomes available only after the user runs `npx flanders install` (see [.spec/contracts/cli-commands/install.md](/.spec/contracts/cli-commands/install.md)). The skill is installed for each AI tool the user picked at install time (Claude Code, Codex CLI, or both). The user reaches the installed skill through the invoking tool's own skill-invocation mechanism, pinned in [.spec/contracts/ai-skills/skill-invocation.md](/.spec/contracts/ai-skills/skill-invocation.md).
 
 ## Invocation
-The user invokes the skill from inside an AI-tool session as:
-
-    /flanders-hard-stop-review [<data>]
-
-`<data>` is the filesystem path of the preserved hard-stop temporary folder — the path the hard stop printed. When `<data>` is supplied, it names the folder the skill analyzes. When `<data>` is omitted, the skill takes that path from the conversation.
+The user invokes the skill by its name from inside an AI-tool session, optionally supplying one `<data>` argument after it (see [.spec/contracts/ai-skills/skill-invocation.md](/.spec/contracts/ai-skills/skill-invocation.md)). `<data>` is the filesystem path of the preserved hard-stop temporary folder — the path the hard stop printed. When `<data>` is supplied, it names the folder the skill analyzes. When `<data>` is omitted, the skill takes that path from the conversation.
 
 ## Behavior
 The skill's work is read-only: it inspects evidence and reports its findings, carrying the request through the steps below.

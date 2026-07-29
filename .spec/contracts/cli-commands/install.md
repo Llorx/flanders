@@ -39,7 +39,7 @@ Any tool, model, effort, or fast question whose answer was not supplied via flag
 When run interactively, the command asks the following questions, in order, skipping any question whose answer was provided via flags:
 
 1. Skills tool — a selection of one or more of `claude` and `codex` (any non-empty subset).
-2. Scope — `--project` vs `--global`. The two options are labelled with the concrete destination path(s) implied by the skills tools chosen in question 1: `claude` contributes `.claude/skills/` (project) and `~/.claude/skills/` (global); `codex` contributes `.codex/prompts/` (project) and `~/.codex/prompts/` (global). Each option is labelled with the destination path of every tool the skills-tool selection names. When the skills tools were supplied via `--skills-tool`, the scope prompt uses that flag's value to derive the same labels.
+2. Scope — `--project` vs `--global`. The two options are labelled with the concrete destination path(s) implied by the skills tools chosen in question 1: `claude` contributes `.claude/skills/` (project) and `~/.claude/skills/` (global); `codex` contributes `.agents/skills/` (project) and `~/.agents/skills/` (global). Each option is labelled with the destination path of every tool the skills-tool selection names. When the skills tools were supplied via `--skills-tool`, the scope prompt uses that flag's value to derive the same labels.
 3. Worker tool — `claude` or `codex`.
 4. Worker model — see `Model selection`.
 5. Worker effort — see `Effort selection`.
@@ -102,11 +102,11 @@ Accepting every pre-selected default — pressing through the configuration-deri
 ## Skills produced
 For each AI tool the user picked for skills, the command writes one skill artifact per Flanders skill (`/flanders-spec`, `/flanders-plan`, `/flanders-work`, `/flanders-hard-stop-review`) into that tool's skill folder for the selected scope:
 - Claude Code skills are written to `.claude/skills/` (project scope) or `~/.claude/skills/` (global scope), in the directory-plus-`SKILL.md` form Claude Code requires for user-installed skills.
-- Codex CLI prompts are written to `.codex/prompts/` (project scope) or `~/.codex/prompts/` (global scope), in the form Codex CLI requires for user-installed prompts.
+- Codex CLI skills are written to `.agents/skills/` (project scope) or `~/.agents/skills/` (global scope), in the directory-plus-`SKILL.md` form Codex CLI requires for user-installed skills.
 
 When the skills-tool selection names more than one tool, the artifacts for every named tool are written, each into its own tool-specific folder.
 
-The textual obligations a user sees when invoking a skill are pinned by the contract files in `.spec/contracts/ai-skills/`. The internal form of each skill artifact (frontmatter fields, body shape) is an implementation detail (see `Out of scope`).
+The textual obligations a user sees when invoking a skill are pinned by the contract files in `.spec/contracts/ai-skills/`, and the mechanism through which the user reaches an installed skill is pinned in [.spec/contracts/ai-skills/skill-invocation.md](/.spec/contracts/ai-skills/skill-invocation.md). The internal form of each skill artifact (frontmatter fields, body shape) is an implementation detail (see `Out of scope`).
 
 ## Configuration written
 The command writes the persistent Flanders configuration at the chosen scope, as defined in [.spec/contracts/shared/flanders-config.md](/.spec/contracts/shared/flanders-config.md). Only the answers downstream Flanders commands consume are persisted (worker tool, model, effort, and fast; for each reviewer in the configured order, its tool, model, effort, fast, and whether it is optional; and the minimum number of reviewers that must run to a verdict in each review round). The skills-tool answer is consumed by `install` itself to decide which skill folders to write into and is not persisted to `.flanders/`.
