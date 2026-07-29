@@ -18,16 +18,21 @@ const EXPECTED_SPEC_FOLDER_WRITE_BOUNDARY = "Spec-folder write boundary: you mus
 // `prompts.ts` so that drift in the shipped wording trips the exact-match assertions instead of
 // moving with them. Each labelled section is pinned on its own and composed into the whole block,
 // so a failure names the section that drifted.
-// The module's runtime export surface. `Placeholders` is a `const enum` and the two interfaces are
-// types, so TypeScript erases all three and none of them reach this list.
 const EXPECTED_MODULE_EXPORTS = [
+    "buildBuildTestDetectionPrompt",
     "buildFlandersVoiceSection",
+    "buildHardStopDiagnosis",
     "buildReviewerMethodology",
+    "buildWorkerPrompt",
     "codeCommentEconomy",
+    "detectBuildAndTestPromptCore",
     "flandersToneInstruction",
+    "hardStopDiagnosisCore",
+    "hardStopReviewDiagnosis",
     "linkedReferenceDirective",
     "prompts",
-    "reviewerMethodologyCore"
+    "reviewerMethodologyCore",
+    "workerPromptCore"
 ];
 
 const EXPECTED_WORKER_EVIDENCE_REPORT_LEAD = "5. Before declaring completion, end your output with an Evidence Report — a lightweight self-audit; the reviewer audits the full working tree. It has three sections, in order; every entry cites the working-tree file:line — code, test, or both — that satisfies its claim:";

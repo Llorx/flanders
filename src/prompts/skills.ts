@@ -1,5 +1,5 @@
 import { TASK_LINE } from "../plan/PlanFile";
-import { buildFlandersVoiceSection, codeCommentEconomy, flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
+import { buildFlandersVoiceSection, codeCommentEconomy, flandersToneInstruction, hardStopReviewDiagnosis, reviewerMethodologyCore } from "./prompts";
 
 // The user-facing Flanders-voice section each installed skill body carries, so the skill seasons the
 // messages it addresses to the user with the voice on top of the resolved interaction language while
@@ -585,21 +585,7 @@ The user invokes you as: /flanders-hard-stop-review [<data>]
 
 Your work is read-only, drawing only on the preserved hard-stop temporary folder, the plan file, and the project's spec corpus — not the AI tools' own session transcripts.
 
-1. **Read the preserved evidence.** Read the preserved folder's per-iteration worker, build, test, and reviewer output logs; the per-stage error logs the hard stop materializes — \`build.<iteration>.error.log\`, \`test.<iteration>.error.log\`, \`reviewer.<iteration>.<position>.error.log\`, and \`commit.<iteration>.error.log\` — making explicit which stage failed in each iteration and by which reviewer (the single briefing \`error.log\` has been removed at the hard stop); the worker-declared \`hard-stop.log\`, when the stop was the worker's own declaration; its consolidated \`spec.md\`; and each per-reviewer folder's \`error.log\`. From that evidence identify the task that hard-stopped — its plan-file line number and title — and the plan file the run was implementing.
-
-2. **Ground the analysis in the project's specs.** Read the identified plan file and the contracts and rules the hard-stopped task references, consulting the wider spec corpus as far as the diagnosis needs.
-
-3. **Classify the hard stop.** Examine how the iterations progressed — what each iteration changed and how the recorded failures evolved from one iteration to the next — and classify the hard stop as one of two cases:
-   - The task made real progress across iterations, so the hard stop reflects a task larger than the iteration cap can finish or a transient failure, and a fresh run or a smaller task would carry it through.
-   - The iterations circled the same unresolved failure with no net progress — a loop — driven by a cause the next run must remove first: a contradictory or ambiguous contract or rule, an acceptance criterion no implementation can satisfy as written, a task premise about runtime behavior the code does not bear out, a task scoped too large or ordered ahead of a dependency it needs, or a review that keeps re-failing the change for the same reason.
-
-   When the preserved folder carries a worker-declared \`hard-stop.log\`, its declared cause is evidence, not a conclusion: verify the declaration against the iteration history, the plan, and the specs, and classify the stop by what that verification sustains.
-
-4. **Map the cause to the action that removes it:**
-   - Re-run \`flanders implement\` unchanged, when the failure was transient or the task was progressing and needs only a fresh iteration budget. The per-task iteration cap is a fixed five and is not configurable, so the remedy for a task that needs more attempts is a fresh run — which resets the per-task iteration counter to zero — or a task split into smaller tasks, and never a raised cap.
-   - Revise the plan through \`/flanders-plan\`: split the hard-stopped task into smaller tasks, correct acceptance criteria or a task premise the iterations proved wrong, or reorder the task against the dependency it needs.
-   - Fix the spec through \`/flanders-spec\`: resolve the contradictory or ambiguous contract or rule that left the task unsatisfiable.
-   - A combination of the above, when the evidence shows more than one cause.
+${hardStopReviewDiagnosis}
 
 5. **Present your root-cause finding and recommendation in chat.** ${launchQuestionInstruction("that diagnosis", "the launch question of the next section")}
 

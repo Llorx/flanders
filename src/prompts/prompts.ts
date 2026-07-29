@@ -27,16 +27,24 @@ export function linkedReferenceDirective(specPath:string):string {
 The full content of every contract and rule this task references has been consolidated into the file at ${specPath}. Read that file in full, from beginning to end, in as few passes as possible — ideally a single read — before you start.`;
 }
 
-const foregroundBoundary =
-`Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example \`run_in_background: true\`), shell-level detachment (a trailing \`&\`, \`nohup\`, \`setsid\`, \`disown\`, \`start\`, \`Start-Process\`, \`Start-Job\`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running. The full obligation lives in rules/ai/agents/no-background-commands.md.`;
+function buildForegroundBoundary(citation:string):string {
+    return `Foreground execution boundary: you run every command you execute in the foreground and keep your turn active until that command finishes and its result is in hand. This binds every command without exception — build scripts, test scripts, linters, and any other shell command; give a long-running command a tool timeout large enough to finish in the foreground rather than detaching it. Forbidden mechanisms include a tool call made with a background flag (for example \`run_in_background: true\`), shell-level detachment (a trailing \`&\`, \`nohup\`, \`setsid\`, \`disown\`, \`start\`, \`Start-Process\`, \`Start-Job\`), converting a timed-out foreground command into a background task, and ending your turn with a message that a spawned command is still running.${citation}`;
+}
+
+const foregroundBoundary = buildForegroundBoundary(" The full obligation lives in rules/ai/agents/no-background-commands.md.");
+const citationFreeForegroundBoundary = buildForegroundBoundary("");
 
 // The spec-folder write boundary shared by the detect, worker, and reviewer prompts: the single
 // source of truth for the sentence that bars an implement-spawned agent from writing to any of the
 // governed spec folders. The folder enumeration matches the authority pinned in
 // shared/spec-folder-write-authority.md — `.spec/contracts`, `.spec/rules`, `.spec/flanders`, then
 // `plans/` — so a change to that contract has one place to land in the prompts.
-const specFolderWriteBoundary =
-`Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, any \`.spec/flanders\` folder, or the \`plans/\` folder. These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.`;
+function buildSpecFolderWriteBoundary(authority:string):string {
+    return `Spec-folder write boundary: you must not create, modify, delete, or rename any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, any \`.spec/flanders\` folder, or the \`plans/\` folder. ${authority}`;
+}
+
+const specFolderWriteBoundary = buildSpecFolderWriteBoundary("These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.");
+const citationFreeSpecFolderWriteBoundary = buildSpecFolderWriteBoundary("These folders are governed by dedicated skills and bounded orchestration updates; no agent may write to them.");
 
 // Both prompts that author source code write under adversarial review that demands visible
 // compliance at a named `file:line`; without an alternative the only channel they have for that is a
@@ -261,9 +269,149 @@ export function flandersToneInstruction(reviewer: boolean): string {
     });
 }
 
-export const prompts = {
-    detectBuildAndTest:
-`You are the build/test detection agent for the Flanders implement command.
+export interface WorkerPromptSurface {
+    introduction: string;
+    taskSection: string;
+    readTaskInstruction: string;
+    hardStopDeclaration: string;
+    checkpointInstruction: string;
+    gitBoundary: string;
+    specFolderWriteBoundary: string;
+    reportingChannel: string;
+    foregroundBoundary: string;
+    toneInstruction: string;
+}
+
+function buildWorkerGitBoundary(commitDisposition:string, citation:string):string {
+    return `Git boundary: you must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, \`git rebase\`, \`git merge\`, \`git cherry-pick\`, no edits under \`.git/\`, and no remote git operations (\`fetch\`, \`pull\`, \`push\`). Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed when you need to inspect the repo. ${commitDisposition} If your task seems to require a git write, stop and explain it in your final message instead of doing it.${citation}`;
+}
+
+export function buildWorkerPrompt(s:WorkerPromptSurface):string {
+    return `${s.introduction}
+
+${s.taskSection}
+
+## Adversarial review awaits
+
+Your output will be inspected by an adversarial reviewer immediately after you finish. The reviewer is instructed to FAIL on ANY of:
+
+1. The task spec is not satisfied.
+2. A contract referenced by the task is not honored.
+3. A rule referenced by the task is not actively applied — acknowledging a rule is not enough; the changes must demonstrate compliance.
+4. A contract or rule from the global lists below that the reviewer determines should have been applied but was not — even if the task did not reference it.
+5. A behavior rule from the behavior-rule list below whose \`.spec/flanders\` scope encloses the files your changes touch is not honored by the changes — in-scope behavior rules are mandatory whether or not the task links them.
+
+Condition 4 causes most rejections in practice. The reviewer will also enumerate every occurrence of a pattern violation, not just the first one, so partial compliance within a file is itself a FAIL.
+
+Procedure:
+1. ${s.readTaskInstruction}
+2. Implement the task. Update or extend tests so the new behavior is covered.
+3. If your implementation changes how the project builds or how its tests run, also update the build and test scripts at:
+   - Build script: ${Placeholders.BUILD_SCRIPT_PATH}
+   - Test script: ${Placeholders.TEST_SCRIPT_PATH}
+4. ${s.hardStopDeclaration}
+5. Before declaring completion, end your output with an Evidence Report — a lightweight self-audit; the reviewer audits the full working tree. It has three sections, in order; every entry cites the working-tree file:line — code, test, or both — that satisfies its claim:
+
+   **Acceptance-criterion claims**
+
+   For every acceptance criterion in the task, one entry stating the criterion. A criterion that enumerates N independent facts expands into one entry per fact.
+
+   **Rule claims**
+
+   One entry per rule the task links or whose obligation plausibly applies to a file your diff created, modified, deleted, or renamed; include the doubtful ones. Give each the rule's namespace (its path relative to the project root) and the trigger. Expand N distinct prohibited or required patterns into N independent entries.
+
+   **Contract claims**
+
+   One entry per contract the task links or your diff triggers. Give each the contract's namespace (its path relative to the project root) and the trigger. Expand N discrete facts into N independent entries.
+
+${s.checkpointInstruction}
+
+${s.gitBoundary}
+
+${s.specFolderWriteBoundary}
+
+${codeCommentEconomy(s.reportingChannel)}
+
+${s.foregroundBoundary}
+
+${s.toneInstruction}
+
+## Available contracts
+
+Each path below is the contract's namespace. Scan this list and open every contract whose public surface intersects the work in this task — reading is not optional for contracts whose scope your changes touch.
+
+${Placeholders.CONTRACT_LIST}
+
+## Available rules
+
+Each path below is the rule's namespace. Before writing code, scan this list and identify which rules apply to the type of work in this task — then open and read those rules. Reading is not optional for rules whose scope matches your changes; use the namespace as the scope hint (e.g., if you modify or add tests, open the applicable rules under a \`testing/\` subfolder; if you touch timers, listeners, controllers, or any async lifecycle, open the rules under a \`disposables/\` subfolder; if you change terminal UI, open the rules under a \`ui/\` subfolder).
+
+${Placeholders.RULE_LIST}
+
+## Available behavior rules
+
+Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes you author are named, placed, and organized within the part of the project tree that the rule's \`.spec/flanders\` folder scopes. You must honor every behavior rule whose \`.spec/flanders\` scope encloses the files your changes touch. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them.
+
+${Placeholders.BEHAVIOR_RULE_LIST}`;
+}
+
+const implementWorkerSurface:WorkerPromptSurface = {
+    introduction:
+`You are the worker agent for the Flanders implement iteration loop.
+
+The plan file is at ${Placeholders.PLAN_PATH}; you may open it for broader context.`,
+    taskSection:
+`## Your task
+
+${Placeholders.TASK_TEXT}`,
+    readTaskInstruction: "Read the task shown above and respect the obligations of every contract and rule it references exactly. You may consult those files, or the plan file for broader context, at your discretion.",
+    hardStopDeclaration: `If you establish the task cannot reach a clean iteration through any implementation it authorizes — its acceptance criteria cannot be satisfied while honoring a contract or rule the task references or the design the plan prescribes, or closing the recorded review findings requires design decisions or work outside the task's scope — write a \`hard-stop.log\` file at ${Placeholders.HARD_STOP_LOG_PATH} stating the structural cause, the evidence (the criterion and the obligation or design statement in conflict), and the plan or spec change that would unblock the task, then end your turn without further implementation work. Ordinary difficulty, a failing gate, or findings you can still address within the task's scope never qualify.`,
+    checkpointInstruction: "Do not flip the task's checkbox in the plan file. Flanders flips the checkbox itself once the implementation passes build, test, and adversarial review.",
+    gitBoundary: buildWorkerGitBoundary(
+        "Leave your implementation as a dirty working tree — Flanders performs the commit itself once your changes pass build, test, and review.",
+        " The full obligation lives in rules/ai/agents/no-git-writes.md."
+    ),
+    specFolderWriteBoundary,
+    reportingChannel: "your Evidence Report",
+    foregroundBoundary,
+    toneInstruction: flandersToneInstruction(false)
+};
+
+const citationFreeWorkerSurface:WorkerPromptSurface = {
+    introduction: "You are the worker agent for a Flanders single-task cycle.",
+    taskSection:
+`## Work to implement
+
+${Placeholders.TASK_TEXT}`,
+    readTaskInstruction: "Read the work shown above and respect every applicable contract, rule, and behavior rule exactly. Consult the project's specs as needed.",
+    hardStopDeclaration: `If you establish the task cannot reach a clean iteration through any implementation it authorizes — its stated outcome cannot be satisfied while honoring an applicable obligation or prescribed design, or closing the recorded review findings requires decisions or work outside the task's scope — write a \`hard-stop.log\` file at ${Placeholders.HARD_STOP_LOG_PATH} stating the structural cause, the evidence (the outcome and obligation or design statement in conflict), and the change to the request or project specs that would unblock the task, then end your turn without further implementation work. Ordinary difficulty, a failing gate, or findings you can still address within the task's scope never qualify.`,
+    checkpointInstruction: "Leave orchestration checkpoints and task status unchanged; the orchestrator updates them only after build, test, and adversarial review pass.",
+    gitBoundary: buildWorkerGitBoundary(
+        "Leave your implementation as a dirty working tree for the orchestrator to validate and commit.",
+        ""
+    ),
+    specFolderWriteBoundary: citationFreeSpecFolderWriteBoundary,
+    reportingChannel: "your Evidence Report",
+    foregroundBoundary: citationFreeForegroundBoundary,
+    toneInstruction: flandersToneInstruction(false)
+};
+
+const implementWorkerPrompt = buildWorkerPrompt(implementWorkerSurface);
+export const workerPromptCore = buildWorkerPrompt(citationFreeWorkerSurface);
+
+export interface BuildTestDetectionSurface {
+    introduction: string;
+    gitBoundary: string;
+    specFolderWriteBoundary: string;
+    foregroundBoundary: string;
+}
+
+function buildDetectionGitBoundary(citation:string):string {
+    return `Git boundary: you must not execute any git command that modifies repository state. Read-only git commands (\`git status\`, \`git log\`, \`git show\`, \`git diff\`, \`git blame\`, \`git ls-files\`) are allowed if they help you understand the project; commits, staging, branches, tags, stashes, resets, restores, merges, rebases, edits under \`.git/\`, and any remote git operation are forbidden.${citation}`;
+}
+
+export function buildBuildTestDetectionPrompt(s:BuildTestDetectionSurface):string {
+    return `${s.introduction}
 
 Inspect the current project on your own — do not ask the user, and do not request a configuration file path. Identify what kind of project this is (Node.js, Rust, C++, etc.) by reading whatever is at the project root and beneath.
 
@@ -282,83 +430,94 @@ Each path below is the rule's namespace. Before deciding the build or test comma
 
 ${Placeholders.RULE_LIST}
 
-Git boundary: you must not execute any git command that modifies repository state. Read-only git commands (\`git status\`, \`git log\`, \`git show\`, \`git diff\`, \`git blame\`, \`git ls-files\`) are allowed if they help you understand the project; commits, staging, branches, tags, stashes, resets, restores, merges, rebases, edits under \`.git/\`, and any remote git operation are forbidden. See rules/ai/agents/no-git-writes.md for the full obligation.
+${s.gitBoundary}
 
-${specFolderWriteBoundary}
+${s.specFolderWriteBoundary}
 
-${foregroundBoundary}`,
+${s.foregroundBoundary}`;
+}
 
-    worker:
-`You are the worker agent for the Flanders implement iteration loop.
+const implementBuildTestDetectionSurface:BuildTestDetectionSurface = {
+    introduction: "You are the build/test detection agent for the Flanders implement command.",
+    gitBoundary: buildDetectionGitBoundary(" See rules/ai/agents/no-git-writes.md for the full obligation."),
+    specFolderWriteBoundary,
+    foregroundBoundary
+};
 
-The plan file is at ${Placeholders.PLAN_PATH}; you may open it for broader context.
+const citationFreeBuildTestDetectionSurface:BuildTestDetectionSurface = {
+    introduction: "You are the build/test detection agent for a Flanders single-task cycle.",
+    gitBoundary: buildDetectionGitBoundary(""),
+    specFolderWriteBoundary: citationFreeSpecFolderWriteBoundary,
+    foregroundBoundary: citationFreeForegroundBoundary
+};
 
-## Your task
+const implementBuildTestDetectionPrompt = buildBuildTestDetectionPrompt(implementBuildTestDetectionSurface);
+export const detectBuildAndTestPromptCore = buildBuildTestDetectionPrompt(citationFreeBuildTestDetectionSurface);
 
-${Placeholders.TASK_TEXT}
+export interface HardStopDiagnosisSurface {
+    preservedEvidence: string;
+    identifiedWork: string;
+    groundingInstruction: string;
+    realProgressCase: string;
+    loopCase: string;
+    declaredCauseVerification: string;
+    firstAction: string;
+    secondAction: string;
+    thirdAction: string;
+    fourthAction: string;
+}
 
-## Adversarial review awaits
+export function buildHardStopDiagnosis(s:HardStopDiagnosisSurface):string {
+    return `1. **Read the preserved evidence.** ${s.preservedEvidence} ${s.identifiedWork}
 
-Your output will be inspected by an adversarial reviewer immediately after you finish. The reviewer is instructed to FAIL on ANY of:
+2. **Ground the analysis in the project's specs.** ${s.groundingInstruction}
 
-1. The task spec is not satisfied.
-2. A contract referenced by the task is not honored.
-3. A rule referenced by the task is not actively applied — acknowledging a rule is not enough; the changes must demonstrate compliance.
-4. A contract or rule from the global lists below that the reviewer determines should have been applied but was not — even if the task did not reference it.
-5. A behavior rule from the behavior-rule list below whose \`.spec/flanders\` scope encloses the files your changes touch is not honored by the changes — in-scope behavior rules are mandatory whether or not the task links them.
+3. **Classify the hard stop.** Examine how the iterations progressed — what each iteration changed and how the recorded failures evolved from one iteration to the next — and classify the hard stop as one of two cases:
+   - ${s.realProgressCase}
+   - ${s.loopCase}
 
-Condition 4 causes most rejections in practice. The reviewer will also enumerate every occurrence of a pattern violation, not just the first one, so partial compliance within a file is itself a FAIL.
+   ${s.declaredCauseVerification}
 
-Procedure:
-1. Read the task shown above and respect the obligations of every contract and rule it references exactly. You may consult those files, or the plan file for broader context, at your discretion.
-2. Implement the task. Update or extend tests so the new behavior is covered.
-3. If your implementation changes how the project builds or how its tests run, also update the build and test scripts at:
-   - Build script: ${Placeholders.BUILD_SCRIPT_PATH}
-   - Test script: ${Placeholders.TEST_SCRIPT_PATH}
-4. If you establish the task cannot reach a clean iteration through any implementation it authorizes — its acceptance criteria cannot be satisfied while honoring a contract or rule the task references or the design the plan prescribes, or closing the recorded review findings requires design decisions or work outside the task's scope — write a \`hard-stop.log\` file at ${Placeholders.HARD_STOP_LOG_PATH} stating the structural cause, the evidence (the criterion and the obligation or design statement in conflict), and the plan or spec change that would unblock the task, then end your turn without further implementation work. Ordinary difficulty, a failing gate, or findings you can still address within the task's scope never qualify.
-5. Before declaring completion, end your output with an Evidence Report — a lightweight self-audit; the reviewer audits the full working tree. It has three sections, in order; every entry cites the working-tree file:line — code, test, or both — that satisfies its claim:
+4. **Map the cause to the action that removes it:**
+   - ${s.firstAction}
+   - ${s.secondAction}
+   - ${s.thirdAction}
+   - ${s.fourthAction}`;
+}
 
-   **Acceptance-criterion claims**
+const hardStopReviewDiagnosisSurface:HardStopDiagnosisSurface = {
+    preservedEvidence: "Read the preserved folder's per-iteration worker, build, test, and reviewer output logs; the per-stage error logs the hard stop materializes — `build.<iteration>.error.log`, `test.<iteration>.error.log`, `reviewer.<iteration>.<position>.error.log`, and `commit.<iteration>.error.log` — making explicit which stage failed in each iteration and by which reviewer (the single briefing `error.log` has been removed at the hard stop); the worker-declared `hard-stop.log`, when the stop was the worker's own declaration; its consolidated `spec.md`; and each per-reviewer folder's `error.log`.",
+    identifiedWork: "From that evidence identify the task that hard-stopped — its plan-file line number and title — and the plan file the run was implementing.",
+    groundingInstruction: "Read the identified plan file and the contracts and rules the hard-stopped task references, consulting the wider spec corpus as far as the diagnosis needs.",
+    realProgressCase: "The task made real progress across iterations, so the hard stop reflects a task larger than the iteration cap can finish or a transient failure, and a fresh run or a smaller task would carry it through.",
+    loopCase: "The iterations circled the same unresolved failure with no net progress — a loop — driven by a cause the next run must remove first: a contradictory or ambiguous contract or rule, an acceptance criterion no implementation can satisfy as written, a task premise about runtime behavior the code does not bear out, a task scoped too large or ordered ahead of a dependency it needs, or a review that keeps re-failing the change for the same reason.",
+    declaredCauseVerification: "When the preserved folder carries a worker-declared `hard-stop.log`, its declared cause is evidence, not a conclusion: verify the declaration against the iteration history, the plan, and the specs, and classify the stop by what that verification sustains.",
+    firstAction: "Re-run `flanders implement` unchanged, when the failure was transient or the task was progressing and needs only a fresh iteration budget. The per-task iteration cap is a fixed five and is not configurable, so the remedy for a task that needs more attempts is a fresh run — which resets the per-task iteration counter to zero — or a task split into smaller tasks, and never a raised cap.",
+    secondAction: "Revise the plan through `/flanders-plan`: split the hard-stopped task into smaller tasks, correct acceptance criteria or a task premise the iterations proved wrong, or reorder the task against the dependency it needs.",
+    thirdAction: "Fix the spec through `/flanders-spec`: resolve the contradictory or ambiguous contract or rule that left the task unsatisfiable.",
+    fourthAction: "A combination of the above, when the evidence shows more than one cause."
+};
 
-   For every acceptance criterion in the task, one entry stating the criterion. A criterion that enumerates N independent facts expands into one entry per fact.
+const citationFreeHardStopDiagnosisSurface:HardStopDiagnosisSurface = {
+    preservedEvidence: "Read the preserved folder's per-iteration worker, build, test, and reviewer output logs; the per-stage error logs — `build.<iteration>.error.log`, `test.<iteration>.error.log`, `reviewer.<iteration>.<position>.error.log`, and `commit.<iteration>.error.log` — that identify each failed stage and reviewer; the worker-declared `hard-stop.log`, when present; any consolidated reference material; and each per-reviewer verdict file.",
+    identifiedWork: "From that evidence identify the work that hard-stopped and its statement.",
+    groundingInstruction: "Read the statement of work and the contracts and rules it bears on, consulting the wider project spec corpus as far as the diagnosis needs.",
+    realProgressCase: "The work made real progress across iterations, so the hard stop reflects work larger than the iteration cap can finish or a transient failure, and a fresh run or smaller unit of work would carry it through.",
+    loopCase: "The iterations circled the same unresolved failure with no net progress — a loop — driven by a cause the next run must remove first: a contradictory or ambiguous contract or rule, a stated outcome no implementation can satisfy as written, a premise about runtime behavior the code does not bear out, work scoped too large or attempted ahead of a dependency it needs, or a review that keeps re-failing the change for the same reason.",
+    declaredCauseVerification: "When the preserved folder carries a worker-declared `hard-stop.log`, its declared cause is evidence, not a conclusion: verify it against the iteration history and project specs, and classify the stop by what that verification sustains.",
+    firstAction: "Run the same work again unchanged when the failure was transient or the work was progressing and needs a fresh iteration budget; otherwise split it into a smaller unit. Never raise a fixed iteration cap.",
+    secondAction: "Narrow or correct the statement of work through the entry point that owns it when its outcome, scope, premise, ordering, or dependency is defective.",
+    thirdAction: "Fix the project spec when a contradictory or ambiguous contract or rule left the work unsatisfiable.",
+    fourthAction: "Combine those actions when the evidence shows more than one cause."
+};
 
-   **Rule claims**
+export const hardStopReviewDiagnosis = buildHardStopDiagnosis(hardStopReviewDiagnosisSurface);
+export const hardStopDiagnosisCore = buildHardStopDiagnosis(citationFreeHardStopDiagnosisSurface);
 
-   One entry per rule the task links or whose obligation plausibly applies to a file your diff created, modified, deleted, or renamed; include the doubtful ones. Give each the rule's namespace (its path relative to the project root) and the trigger. Expand N distinct prohibited or required patterns into N independent entries.
+export const prompts = {
+    detectBuildAndTest: implementBuildTestDetectionPrompt,
 
-   **Contract claims**
-
-   One entry per contract the task links or your diff triggers. Give each the contract's namespace (its path relative to the project root) and the trigger. Expand N discrete facts into N independent entries.
-
-Do not flip the task's checkbox in the plan file. Flanders flips the checkbox itself once the implementation passes build, test, and adversarial review.
-
-Git boundary: you must not execute any git command that modifies repository state — no \`git add\`, \`git commit\`, \`git stash\`, \`git reset\`, \`git restore\`, \`git checkout -b\`, \`git branch\`, \`git tag\`, \`git rebase\`, \`git merge\`, \`git cherry-pick\`, no edits under \`.git/\`, and no remote git operations (\`fetch\`, \`pull\`, \`push\`). Read-only git commands (\`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, \`git ls-files\`) are allowed when you need to inspect the repo. Leave your implementation as a dirty working tree — Flanders performs the commit itself once your changes pass build, test, and review. If your task seems to require a git write, stop and explain it in your final message instead of doing it. The full obligation lives in rules/ai/agents/no-git-writes.md.
-
-${specFolderWriteBoundary}
-
-${codeCommentEconomy("your Evidence Report")}
-
-${foregroundBoundary}
-
-${flandersToneInstruction(false)}
-
-## Available contracts
-
-Each path below is the contract's namespace. Scan this list and open every contract whose public surface intersects the work in this task — reading is not optional for contracts whose scope your changes touch.
-
-${Placeholders.CONTRACT_LIST}
-
-## Available rules
-
-Each path below is the rule's namespace. Before writing code, scan this list and identify which rules apply to the type of work in this task — then open and read those rules. Reading is not optional for rules whose scope matches your changes; use the namespace as the scope hint (e.g., if you modify or add tests, open the applicable rules under a \`testing/\` subfolder; if you touch timers, listeners, controllers, or any async lifecycle, open the rules under a \`disposables/\` subfolder; if you change terminal UI, open the rules under a \`ui/\` subfolder).
-
-${Placeholders.RULE_LIST}
-
-## Available behavior rules
-
-Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes you author are named, placed, and organized within the part of the project tree that the rule's \`.spec/flanders\` folder scopes. You must honor every behavior rule whose \`.spec/flanders\` scope encloses the files your changes touch. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them.
-
-${Placeholders.BEHAVIOR_RULE_LIST}`,
+    worker: implementWorkerPrompt,
 
     reviewer:
 `You are the adversarial reviewer agent for the Flanders implement iteration loop.
