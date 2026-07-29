@@ -45,6 +45,7 @@ function launchQuestionInstruction(report: string, question: string): string {
 
 export const planSkillBody =
 `---
+name: flanders-plan
 description: Produce a contract-aware work plan inside the project's plans/ folder.
 ---
 
@@ -265,6 +266,7 @@ If no \`.spec/contracts\` folder contains any file, warn the user in chat and pr
 
 export const specSkillBody =
 `---
+name: flanders-spec
 description: Translate a free-form request into one or more spec markdown files inside the project's .spec/contracts, .spec/rules, and .spec/flanders folders.
 ---
 
@@ -451,6 +453,7 @@ Existing files in the project's \`.spec/contracts\`, \`.spec/rules\`, and \`.spe
 
 export const workSkillBody =
 `---
+name: flanders-work
 description: Carry a single self-contained piece of work from request to reviewed completion in the current session, gating the result through one adversarial reviewer subagent, without authoring a plan or running the implement pipeline.
 ---
 
@@ -566,6 +569,7 @@ ${skillVoiceSection("the code you write")}`;
 // .spec/contracts/ai-skills/interaction-language.md, and src/prompts/.spec/rules/ai/flanders-tone.md.
 export const hardStopReviewSkillBody =
 `---
+name: flanders-hard-stop-review
 description: Diagnose a hard stop of the implement command and recommend how to relaunch it so the same task completes.
 ---
 

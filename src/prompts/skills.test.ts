@@ -40,6 +40,10 @@ function sectionBetween(body: string, startMarker: string, endMarker: string): s
     return body.slice(body.indexOf(startMarker), body.indexOf(endMarker));
 }
 
+function yamlFrontmatter(body: string): string {
+    return sectionBetween(body, "---\n", "\n---\n");
+}
+
 // A skill body writes each paragraph as one continuous line however long, so a paragraph runs from its
 // opening words to the next newline.
 function paragraphAt(body: string, opening: string): string {
@@ -82,6 +86,14 @@ test.describe("skills – planSkillBody", test => {
         ASSERT(body) {
             Assert.strictEqual(typeof body, "string");
             Assert.ok(body.length > 0);
+        }
+    });
+
+    test("frontmatter declares the flanders-plan name", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERT(body) {
+            Assert.match(yamlFrontmatter(body), /^name: flanders-plan$/m);
         }
     });
 
@@ -1678,10 +1690,13 @@ test.describe("skills – specSkillBody", test => {
         }
     });
 
-    test("frontmatter description and opening sole-deliverable sentence name the three writable folders", {
+    test("frontmatter metadata and opening sole-deliverable sentence name the skill and its three writable folders", {
         ARRANGE() {},
         ACT() { return specSkillBody; },
         ASSERTS: {
+            "frontmatter declares the flanders-spec name"(body) {
+                Assert.match(yamlFrontmatter(body), /^name: flanders-spec$/m);
+            },
             "frontmatter description names .spec/contracts, .spec/rules, and .spec/flanders"(body) {
                 Assert.ok(body.includes("description: Translate a free-form request into one or more spec markdown files inside the project's .spec/contracts, .spec/rules, and .spec/flanders folders."), "the frontmatter description must name .spec/contracts, .spec/rules, and .spec/flanders as the writable folders");
             },
@@ -2540,7 +2555,7 @@ Every message you address to the user during the run — your clarifying questio
 });
 
 test.describe("skills – workSkillBody", test => {
-    test("is a non-empty string beginning with a description frontmatter block", {
+    test("is a non-empty string beginning with a frontmatter block", {
         ARRANGE() {},
         ACT() { return workSkillBody; },
         ASSERTS: {
@@ -2553,9 +2568,11 @@ test.describe("skills – workSkillBody", test => {
             "begins with a YAML frontmatter opener"(body) {
                 Assert.ok(body.startsWith("---\n"), "must begin with a YAML frontmatter opener");
             },
+            "frontmatter declares the flanders-work name"(body) {
+                Assert.match(yamlFrontmatter(body), /^name: flanders-work$/m);
+            },
             "frontmatter carries a description field"(body) {
-                const frontmatter = body.slice(0, body.indexOf("\n---\n"));
-                Assert.ok(frontmatter.includes("description:"), "frontmatter must carry a description field");
+                Assert.ok(yamlFrontmatter(body).includes("description:"), "frontmatter must carry a description field");
             }
         }
     });
@@ -3220,7 +3237,7 @@ test.describe("skills – workSkillBody", test => {
 });
 
 test.describe("skills – hardStopReviewSkillBody", test => {
-    test("is a non-empty string beginning with a description frontmatter block that strips away", {
+    test("is a non-empty string beginning with a frontmatter block that strips away", {
         ARRANGE() {},
         ACT() { return hardStopReviewSkillBody; },
         ASSERTS: {
@@ -3233,9 +3250,11 @@ test.describe("skills – hardStopReviewSkillBody", test => {
             "begins with a YAML frontmatter opener"(body) {
                 Assert.ok(body.startsWith("---\n"), "must begin with a YAML frontmatter opener");
             },
+            "frontmatter declares the flanders-hard-stop-review name"(body) {
+                Assert.match(yamlFrontmatter(body), /^name: flanders-hard-stop-review$/m);
+            },
             "frontmatter carries a description key on its own line"(body) {
-                const frontmatter = body.slice(0, body.indexOf("\n---\n"));
-                Assert.ok(/^description: .+$/m.test(frontmatter), "frontmatter must carry a real description key, on its own line, with a value");
+                Assert.ok(/^description: .+$/m.test(yamlFrontmatter(body)), "frontmatter must carry a real description key, on its own line, with a value");
             },
             "stripping the frontmatter the delivery-path way actually removes content"(body) {
                 Assert.notStrictEqual(stripYamlFrontmatter(body), body);
