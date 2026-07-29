@@ -106,7 +106,7 @@ const TOOL_CHOICE_OPTIONS:readonly ChoiceOption[] = [
 // `joinPath` subfolder fragments in `skillArtifacts.ts`.
 const SKILLS_TOOL_DESTINATIONS:Readonly<Record<ToolName, Readonly<{ project:string; global:string }>>> = {
     claude: { project: ".claude/skills/", global: "~/.claude/skills/" },
-    codex: { project: ".codex/prompts/", global: "~/.codex/prompts/" }
+    codex: { project: ".agents/skills/", global: "~/.agents/skills/" }
 };
 
 const CLAUDE_EFFORT_LEVELS:readonly string[] = ["low", "medium", "high", "xhigh", "max"];

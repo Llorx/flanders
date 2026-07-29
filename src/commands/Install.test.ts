@@ -1703,16 +1703,16 @@ test.describe("Install scope prompt descriptions derived from skills tool", test
             "global description contains ~/.claude/skills/"(_code, { getScopeOptions }) {
                 Assert.ok(getScopeOptions()[1]!.description!.includes("~/.claude/skills/"));
             },
-            "project description does not contain .codex/prompts/"(_code, { getScopeOptions }) {
-                Assert.ok(!getScopeOptions()[0]!.description!.includes(".codex/prompts/"));
+            "project description does not contain .agents/skills/"(_code, { getScopeOptions }) {
+                Assert.ok(!getScopeOptions()[0]!.description!.includes(".agents/skills/"));
             },
-            "global description does not contain .codex/prompts/"(_code, { getScopeOptions }) {
-                Assert.ok(!getScopeOptions()[1]!.description!.includes(".codex/prompts/"));
+            "global description does not contain .agents/skills/"(_code, { getScopeOptions }) {
+                Assert.ok(!getScopeOptions()[1]!.description!.includes(".agents/skills/"));
             }
         }
     });
 
-    test("skills tool codex (--skills-tool flag): scope descriptions name .codex/prompts/ paths only", {
+    test("skills tool codex (--skills-tool flag): scope descriptions name .agents/skills/ paths only", {
         ARRANGE() {
             const s = stubContexts();
             let scopeOptions:readonly { label:string; description?:string }[] = [];
@@ -1753,11 +1753,11 @@ test.describe("Install scope prompt descriptions derived from skills tool", test
             "global option label is exactly 'global'"(_code, { getScopeOptions }) {
                 Assert.strictEqual(getScopeOptions()[1]!.label, "global");
             },
-            "project description contains .codex/prompts/"(_code, { getScopeOptions }) {
-                Assert.ok(getScopeOptions()[0]!.description!.includes(".codex/prompts/"));
+            "project description contains .agents/skills/"(_code, { getScopeOptions }) {
+                Assert.ok(getScopeOptions()[0]!.description!.includes(".agents/skills/"));
             },
-            "global description contains ~/.codex/prompts/"(_code, { getScopeOptions }) {
-                Assert.ok(getScopeOptions()[1]!.description!.includes("~/.codex/prompts/"));
+            "global description contains ~/.agents/skills/"(_code, { getScopeOptions }) {
+                Assert.ok(getScopeOptions()[1]!.description!.includes("~/.agents/skills/"));
             },
             "project description does not contain .claude/skills/"(_code, { getScopeOptions }) {
                 Assert.ok(!getScopeOptions()[0]!.description!.includes(".claude/skills/"));
@@ -1768,7 +1768,7 @@ test.describe("Install scope prompt descriptions derived from skills tool", test
         }
     });
 
-    test("skills tool both (interactive): scope descriptions name both .claude/skills/ and .codex/prompts/", {
+    test("skills tool both (interactive): scope descriptions name both .claude/skills/ and .agents/skills/", {
         ARRANGE() {
             const s = stubContexts();
             let scopeOptions:readonly { label:string; description?:string }[] = [];
@@ -1814,14 +1814,14 @@ test.describe("Install scope prompt descriptions derived from skills tool", test
             "project description contains .claude/skills/"(_code, { getScopeOptions }) {
                 Assert.ok(getScopeOptions()[0]!.description!.includes(".claude/skills/"));
             },
-            "project description contains .codex/prompts/"(_code, { getScopeOptions }) {
-                Assert.ok(getScopeOptions()[0]!.description!.includes(".codex/prompts/"));
+            "project description contains .agents/skills/"(_code, { getScopeOptions }) {
+                Assert.ok(getScopeOptions()[0]!.description!.includes(".agents/skills/"));
             },
             "global description contains ~/.claude/skills/"(_code, { getScopeOptions }) {
                 Assert.ok(getScopeOptions()[1]!.description!.includes("~/.claude/skills/"));
             },
-            "global description contains ~/.codex/prompts/"(_code, { getScopeOptions }) {
-                Assert.ok(getScopeOptions()[1]!.description!.includes("~/.codex/prompts/"));
+            "global description contains ~/.agents/skills/"(_code, { getScopeOptions }) {
+                Assert.ok(getScopeOptions()[1]!.description!.includes("~/.agents/skills/"));
             }
         }
     });
