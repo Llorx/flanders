@@ -598,7 +598,7 @@ After the cycle's commit succeeds, remove every temporary folder automatically a
 
 ## Hard stops and evidence
 
-The hard-stop conditions are iteration greater than 5, a worker-declared \`hard-stop.log\`, and fatal authentication failure. Before preserving folders for any hard stop, materialize the retained failure history in the main folder, then delete the briefing \`error.log\`:
+There are exactly three hard-stop conditions: iteration greater than 5; a worker-declared \`hard-stop.log\`; and fatal authentication failure. Before preserving folders for any hard stop, materialize the retained failure history in the main folder, then delete the briefing \`error.log\`:
 
 - \`build.<iteration>.error.log\` for each failed build stage;
 - \`test.<iteration>.error.log\` for each failed test stage;
@@ -625,7 +625,7 @@ Do not diagnose or identify the work and do not ask a launch question. Report th
 
 ## Write boundaries
 
-This session orchestrates only. It writes temporary evidence, stages and commits as specified, and reports; it edits no project code or test and performs no worker or reviewer pass. Neither this session nor the detect agent, worker, or any reviewer creates, modifies, deletes, or renames a file inside any \`.spec/contracts\`, \`.spec/rules\`, or \`.spec/flanders\` directory or inside \`plans/\`. The pending-spec commit records existing user changes without altering their contents. The skill never writes inside \`.flanders/\`.
+This session orchestrates only. It writes temporary evidence, stages and commits as specified, and reports; it edits no project code or tests and performs no worker or reviewer pass. Neither this session nor the detect agent, worker, or any reviewer creates, modifies, deletes, or renames a file inside any \`.spec/contracts\`, \`.spec/rules\`, or \`.spec/flanders\` directory or inside \`plans/\`. The pending-spec commit records existing user changes without altering their contents. The skill never writes inside \`.flanders/\`.
 
 Every agent prompt states that it runs git read-only, writes no governed folder, executes every command in the foreground, and ends no turn with a process still running. The worker leaves its implementation in the working tree for this orchestrator to stage and commit; reviewers are inspection-only; detect writes only the two chosen scripts.
 

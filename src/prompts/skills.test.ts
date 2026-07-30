@@ -13,8 +13,8 @@ import {
 import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, expectedReviewerJudgmentScope, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
 import { hardStopReviewSkillBody, planSkillBody, specSkillBody, implementSkillBody } from "./skills";
 
-// A citation of a flanders-internal spec file: a path under contracts/, rules/, flanders/, or plans/ that names a specific .md file. Skill bodies ship into arbitrary user projects where those files do not exist, so such a citation must never appear. The filename may begin with a digit and may contain dots (e.g. a timestamped plan name like plans/2026-07-13_01.47-subject.md), so the name segment allows leading digits and dots as well as letters, dashes, underscores, and nested path slashes. Shared by every skill-body self-containedness guard so the pattern has one source of truth.
-const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|flanders|plans)\/[A-Za-z0-9][A-Za-z0-9._/\-]*\.md/;
+// Folder-only references end at a delimiter; another path segment names a governed file.
+const INTERNAL_SPEC_PATH_CITATION = /(?:\.spec[\\/](?:contracts|rules|flanders)|plans)[\\/](?![`'"\s)\]}.,;:])[^\s`'")\]}]+/;
 
 // The AI-tool host name that the skill bodies no longer name. Assembled from fragments so the literal token never appears contiguously in this test file, while still letting each describe block assert — case-insensitively, over the public generated body string — that no occurrence of it survives anywhere in that body.
 const REMOVED_HOST_NAME = "Anti" + "gravity";
@@ -3256,6 +3256,9 @@ test.describe("skills – implementSkillBody", test => {
         ARRANGE() {},
         ACT() { return implementSkillBody; },
         ASSERTS: {
+            "carries the successful-completion section"(body) {
+                Assert.ok(body.includes("## Successful completion"));
+            },
             "stages the whole tree at commit"(body) {
                 Assert.ok(body.includes("Run `git add -A`, derive an English single-line message"));
             },
@@ -3267,6 +3270,9 @@ test.describe("skills – implementSkillBody", test => {
             },
             "cycles on commit failure"(body) {
                 Assert.ok(body.includes("records commit-stage history, and restarts at step 1"));
+            },
+            "automatically removes every temporary folder after the cycle commit"(body) {
+                Assert.ok(body.includes("After the cycle's commit succeeds, remove every temporary folder automatically"));
             },
             "reports what was implemented"(body) {
                 Assert.ok(body.includes("report what was implemented"));
@@ -3292,6 +3298,12 @@ test.describe("skills – implementSkillBody", test => {
             },
             "identifies the request that hard-stopped"(body) {
                 Assert.ok(body.includes("Present the resolved request as the work that hard-stopped"));
+            },
+            "presents the verified root cause"(body) {
+                Assert.ok(body.includes("the verified root cause"));
+            },
+            "presents the recommendation"(body) {
+                Assert.ok(body.includes("and the recommendation in chat"));
             },
             "reproduces the worker declaration facts"(body) {
                 Assert.ok(body.includes("reproduce verbatim the structural cause, evidence, and proposed unblocker recorded in the main `hard-stop.log`"));
@@ -3322,6 +3334,12 @@ test.describe("skills – implementSkillBody", test => {
             },
             "launches a chosen next skill in the same session without data"(body) {
                 Assert.ok(body.includes("launch that skill in this same session with no `<data>` argument"));
+            },
+            "launches nothing when the user chooses neither"(body) {
+                Assert.ok(body.includes("When the user chooses neither, or the remedy is a narrower or unchanged reinvocation, launch nothing."));
+            },
+            "launches nothing for a narrower or unchanged reinvocation remedy"(body) {
+                Assert.ok(body.includes("the remedy is a narrower or unchanged reinvocation, launch nothing"));
             }
         }
     });
@@ -3355,6 +3373,21 @@ test.describe("skills – implementSkillBody", test => {
         ARRANGE() {},
         ACT() { return implementSkillBody; },
         ASSERTS: {
+            "carries the hard-stops-and-evidence section"(body) {
+                Assert.ok(body.includes("## Hard stops and evidence"));
+            },
+            "enumerates exactly three hard-stop conditions"(body) {
+                Assert.strictEqual(
+                    paragraphAt(body, "There are exactly three hard-stop conditions:"),
+                    "There are exactly three hard-stop conditions: iteration greater than 5; a worker-declared `hard-stop.log`; and fatal authentication failure. Before preserving folders for any hard stop, materialize the retained failure history in the main folder, then delete the briefing `error.log`:"
+                );
+            },
+            "carries the diagnosed hard-stop subsection"(body) {
+                Assert.ok(body.includes("### Iteration-cap or worker-declared hard stop"));
+            },
+            "carries the authentication hard-stop subsection"(body) {
+                Assert.ok(body.includes("### Authentication hard stop"));
+            },
             "cleans every non-hard-stop ending"(body) {
                 Assert.ok(body.includes("register it for automatic cleanup on every ending that is not a hard stop"));
             },
@@ -3376,8 +3409,20 @@ test.describe("skills – implementSkillBody", test => {
             "materializes only violating reviewer histories"(body) {
                 Assert.ok(body.includes("`reviewer.<iteration>.<position>.error.log` for each reviewer that recorded violations"));
             },
+            "uses each reviewer's one-based configured position"(body) {
+                Assert.ok(body.includes("using its one-based configured position"));
+            },
+            "does not materialize an empty reviewer verdict"(body) {
+                Assert.ok(body.includes("produce none for an empty reviewer verdict"));
+            },
             "removes the briefing before preservation"(body) {
                 Assert.ok(body.includes("then delete the briefing `error.log`"));
+            },
+            "materializes failure history before preserving folders"(body) {
+                Assert.ok(
+                    body.indexOf("Before preserving folders for any hard stop, materialize") <
+                    body.indexOf("Preserve the main and every reviewer folder after materialization.")
+                );
             },
             "preserves all folders after materialization"(body) {
                 Assert.ok(body.includes("Preserve the main and every reviewer folder after materialization."));
@@ -3392,8 +3437,11 @@ test.describe("skills – implementSkillBody", test => {
         ARRANGE() {},
         ACT() { return implementSkillBody; },
         ASSERTS: {
+            "carries the write-boundaries section"(body) {
+                Assert.ok(body.includes("## Write boundaries"));
+            },
             "keeps this session from project code and tests"(body) {
-                Assert.ok(body.includes("it edits no project code or test and performs no worker or reviewer pass"));
+                Assert.ok(body.includes("it edits no project code or tests and performs no worker or reviewer pass"));
             },
             "forbids all governed spec folders"(body) {
                 Assert.ok(body.includes("Neither this session nor the detect agent, worker, or any reviewer creates, modifies, deletes, or renames a file inside any `.spec/contracts`, `.spec/rules`, or `.spec/flanders` directory"));
@@ -3403,6 +3451,9 @@ test.describe("skills – implementSkillBody", test => {
             },
             "writes no Flanders configuration"(body) {
                 Assert.ok(body.includes("The skill never writes inside `.flanders/`."));
+            },
+            "records pending user spec without altering its contents"(body) {
+                Assert.ok(body.includes("The pending-spec commit records existing user changes without altering their contents."));
             },
             "keeps reviewers inspection-only"(body) {
                 Assert.ok(body.includes("reviewers are inspection-only"));
@@ -3457,6 +3508,12 @@ test.describe("skills – implementSkillBody", test => {
             },
             "follows language switches"(body) {
                 Assert.ok(body.includes("When the user switches language, every subsequent message follows the latest message."));
+            },
+            "resolves interaction language independently of worker code"(body) {
+                Assert.ok(body.includes("This is independent of the code the worker writes"));
+            },
+            "resolves interaction language independently of English commit messages"(body) {
+                Assert.ok(body.includes("and of the English commit messages."));
             },
             "contains the exact skill voice section"(body, { voice }) {
                 Assert.ok(body.includes(voice));
