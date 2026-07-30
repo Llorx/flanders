@@ -10,7 +10,6 @@ import {
     reviewerMethodologyCore,
     workerPromptCore
 } from "./prompts";
-import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, expectedReviewerJudgmentScope, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
 import { hardStopReviewSkillBody, planSkillBody, specSkillBody, implementSkillBody } from "./skills";
 
 // Folder-only references end at a delimiter; another path segment names a governed file.

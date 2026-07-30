@@ -26,7 +26,7 @@ test.describe("citation-free prompt cores", test => {
             return {
                 workerDigest: "6c91263ac47f149b5ade0ba788308a4b2f8cb520771c346c423665da0850b43e",
                 detectionDigest: "863088173249cfd8c35d6c8756a1056503d4a41d9dc799f556410c7c5cdd856f",
-                hardStopReviewDigest: "db0040833f34bd835e0cdacf7a72f5d77b2bd5d2f0ef2a87792dee7576ecceb4"
+                hardStopReviewDigest: "d2e839291c806a247d7c95810b8c790e234c61882c9252224308402740a56899"
             };
         },
         ACT() {
