@@ -2,7 +2,7 @@ import type { FsContext, OutputContext } from "../contexts";
 import type { ToolName } from "../ai/ToolAdapter";
 import { disposeOnce } from "../disposeOnce";
 import type { PlatformContext } from "../workspace/Workspace";
-import { skillArtifactDetectionPaths, writeSkillArtifacts } from "./skillArtifacts";
+import { skillArtifactPaths, writeSkillArtifacts } from "./skillArtifacts";
 import { abortError } from "../abortError";
 
 export type UpdateContexts = Readonly<{
@@ -39,7 +39,7 @@ export class Update {
         }
     }
     private async _isInstalled(fs:FsContext, scopeRoot:string, tool:ToolName):Promise<boolean> {
-        for (const path of skillArtifactDetectionPaths(scopeRoot, tool)) {
+        for (const path of skillArtifactPaths(scopeRoot, tool)) {
             const exists = await fs.exists(path);
             this._throwIfDisposed();
             if (exists) {

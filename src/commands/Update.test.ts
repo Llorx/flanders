@@ -4,6 +4,7 @@ import test from "arrange-act-assert";
 
 import { Update } from "./Update";
 import type { UpdateContexts } from "./Update";
+import { skillArtifactPaths } from "./skillArtifacts";
 import { planSkillBody, specSkillBody, implementSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
 import { removeStoredPath } from "./memoryFs.fixtures";
 import { interceptAbortListenerRemoval } from "./abortController.fixtures";
@@ -90,9 +91,6 @@ const HOME_CODEX = {
     implement: "/home/testuser/.agents/skills/flanders-implement/SKILL.md",
     hardStop: "/home/testuser/.agents/skills/flanders-hard-stop-review/SKILL.md"
 };
-const FORMER_IMPLEMENT_SKILL_NAME = ["flanders", "work"].join("-");
-const PROJ_CLAUDE_FORMER_IMPLEMENT = `/proj/.claude/skills/${FORMER_IMPLEMENT_SKILL_NAME}/SKILL.md`;
-const PROJ_CODEX_FORMER_IMPLEMENT = `/proj/.agents/skills/${FORMER_IMPLEMENT_SKILL_NAME}/SKILL.md`;
 
 test.describe("Update refresh by scope and tool", test => {
     test("refreshes a project-scope Claude installation to the full set", {
@@ -311,9 +309,7 @@ test.describe("Update refresh by scope and tool", test => {
         { title: "completes a project Codex installation detected via the plan artifact alone", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, seededPath: PROJ_CODEX.plan },
         { title: "completes a project Codex installation detected via the implement artifact alone", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, seededPath: PROJ_CODEX.implement },
         { title: "completes a project Codex installation detected via the hard-stop-review artifact alone", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, seededPath: PROJ_CODEX.hardStop },
-        { title: "completes a global Codex installation detected via the hard-stop-review artifact alone", dest: HOME_CODEX, destDir: HOME_CODEX_DIR, seededPath: HOME_CODEX.hardStop },
-        { title: "migrates a project Claude installation detected only through the former implement artifact", dest: PROJ_CLAUDE, destDir: PROJ_CLAUDE_DIR, seededPath: PROJ_CLAUDE_FORMER_IMPLEMENT },
-        { title: "migrates a project Codex installation detected only through the former implement artifact", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, seededPath: PROJ_CODEX_FORMER_IMPLEMENT }
+        { title: "completes a global Codex installation detected via the hard-stop-review artifact alone", dest: HOME_CODEX, destDir: HOME_CODEX_DIR, seededPath: HOME_CODEX.hardStop }
     ];
     for (const detectionCase of DETECTION_CASES) {
         test(detectionCase.title, {
@@ -338,16 +334,11 @@ test.describe("Update refresh by scope and tool", test => {
                         Assert.strictEqual(files.get(detectionCase.dest[skill.key]), skill.body);
                     }
                 },
-                "ends holding the published set plus any distinct former marker"(_code, { files }) {
-                    Assert.strictEqual(files.size, new Set([...Object.values(detectionCase.dest), detectionCase.seededPath]).size);
+                "ends holding exactly the four published artifacts"(_code, { files }) {
+                    Assert.strictEqual(files.size, Object.values(detectionCase.dest).length);
                 },
                 "prints exactly the four current artifact paths"(_code, { written }) {
                     Assert.deepStrictEqual(written, Object.values(detectionCase.dest).map(path => `${path}\n`));
-                },
-                "never writes the former marker while migrating"(_code, { mutationPaths }) {
-                    if (!Object.values(detectionCase.dest).includes(detectionCase.seededPath)) {
-                        Assert.strictEqual(mutationPaths.includes(detectionCase.seededPath), false);
-                    }
                 },
                 "confines every filesystem mutation to the installed destination"(_code, { mutationPaths }) {
                     assertMutationsConfinedTo(mutationPaths, [detectionCase.destDir]);
@@ -404,7 +395,16 @@ test.describe("Update refresh by scope and tool", test => {
 test.describe("Update with no installation", test => {
     test("errors directing the user to install and exits non-zero", {
         ARRANGE() {
-            return stubContexts();
+            const s = stubContexts();
+            const unrelatedPath = "/proj/.claude/skills/unrelated/SKILL.md";
+            const expectedDetectionPaths = [
+                ...skillArtifactPaths(PROJ, "claude"),
+                ...skillArtifactPaths(PROJ, "codex"),
+                ...skillArtifactPaths("/home/testuser", "claude"),
+                ...skillArtifactPaths("/home/testuser", "codex")
+            ];
+            s.files.set(unrelatedPath, "unrelated content");
+            return { ...s, unrelatedPath, expectedDetectionPaths };
         },
         async ACT({ contexts }) {
             const cmd = new Update([], { projectRoot: PROJ }, contexts);
@@ -422,8 +422,14 @@ test.describe("Update with no installation", test => {
             "writes nothing to standard output"(_code, { written }) {
                 Assert.strictEqual(written.length, 0);
             },
-            "writes no skill artifacts"(_code, { files }) {
-                Assert.strictEqual(files.size, 0);
+            "leaves the unrelated artifact untouched"(_code, { files, unrelatedPath }) {
+                Assert.deepStrictEqual([...files], [[unrelatedPath, "unrelated content"]]);
+            },
+            "performs no filesystem mutations"(_code, { mutationPaths }) {
+                Assert.deepStrictEqual(mutationPaths, []);
+            },
+            "checks exactly the published artifact paths at all four destinations"(_code, { allPaths, expectedDetectionPaths }) {
+                Assert.deepStrictEqual(allPaths, expectedDetectionPaths);
             }
         }
     });

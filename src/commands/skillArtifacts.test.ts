@@ -3,7 +3,7 @@ import * as Assert from "assert";
 import test, { monad } from "arrange-act-assert";
 
 import { isAbortError } from "../abortError";
-import { writeSkillArtifacts, skillArtifactDetectionPaths, skillArtifactPaths } from "./skillArtifacts";
+import { writeSkillArtifacts, skillArtifactPaths } from "./skillArtifacts";
 import type { FsContext } from "../contexts";
 import type { ToolName } from "../ai/ToolAdapter";
 import { planSkillBody, specSkillBody, implementSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
@@ -526,26 +526,6 @@ test.describe("skillArtifactPaths", test => {
         },
         ASSERT(paths, { removedName }) {
             Assert.strictEqual(paths.some(path => path.includes(removedName)), false);
-        }
-    });
-
-    test("extends update detection with the former implement artifact without publishing it", {
-        ARRANGE() {
-            return { formerName: ["flanders", "work"].join("-") };
-        },
-        ACT() {
-            return {
-                published: skillArtifactPaths("/root", "claude"),
-                detected: skillArtifactDetectionPaths("/root", "claude")
-            };
-        },
-        ASSERTS: {
-            "keeps the former path out of the publication set"({ published }, { formerName }) {
-                Assert.strictEqual(published.some(path => path.includes(formerName)), false);
-            },
-            "recognizes the former path during update detection"({ detected }, { formerName }) {
-                Assert.ok(detected.includes(`/root/.claude/skills/${formerName}/SKILL.md`));
-            }
         }
     });
 

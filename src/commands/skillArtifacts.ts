@@ -21,7 +21,6 @@ const TOOL_SUBDIRS:Readonly<Record<ToolName, string>> = {
     codex: ".agents"
 };
 const SKILLS_SUBDIR = "skills";
-const FORMER_IMPLEMENT_SKILL_NAME = ["flanders", "work"].join("-");
 
 export function skillArtifactPath(scopeRoot:string, tool:ToolName, skillName:string):string {
     return joinPath(scopeRoot, TOOL_SUBDIRS[tool], SKILLS_SUBDIR, skillName, "SKILL.md");
@@ -29,13 +28,6 @@ export function skillArtifactPath(scopeRoot:string, tool:ToolName, skillName:str
 
 export function skillArtifactPaths(scopeRoot:string, tool:ToolName):readonly string[] {
     return SKILLS.map(skill => skillArtifactPath(scopeRoot, tool, skill.name));
-}
-
-export function skillArtifactDetectionPaths(scopeRoot:string, tool:ToolName):readonly string[] {
-    return [
-        ...skillArtifactPaths(scopeRoot, tool),
-        skillArtifactPath(scopeRoot, tool, FORMER_IMPLEMENT_SKILL_NAME)
-    ];
 }
 
 
