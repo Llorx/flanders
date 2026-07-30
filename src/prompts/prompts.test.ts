@@ -3,10 +3,16 @@ import * as Assert from "assert";
 import test from "arrange-act-assert";
 
 import * as promptsModule from "./prompts";
-import { prompts, reviewerMethodologyCore, linkedReferenceDirective } from "./prompts";
+import {
+    detectBuildAndTestPromptCore,
+    linkedReferenceDirective,
+    prompts,
+    reviewerMethodologyCore,
+    workerPromptCore
+} from "./prompts";
 import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, expectedReviewerJudgmentScope, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
 
-const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
+const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|flanders|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
 
 // The spec-folder write boundary the detect, worker, and reviewer prompts share, byte-exact.
 // Independent literal — pinned here so a regression in the prompt's enumeration (a dropped or
@@ -26,6 +32,7 @@ const EXPECTED_MODULE_EXPORTS = [
     "buildWorkerPrompt",
     "codeCommentEconomy",
     "detectBuildAndTestPromptCore",
+    "flandersEntryPointBoundary",
     "flandersToneInstruction",
     "hardStopDiagnosisCore",
     "hardStopReviewDiagnosis",
@@ -88,6 +95,104 @@ test.describe("prompts – prep prompt removed", test => {
         ACT() { return prompts; },
         ASSERT(p) {
             Assert.strictEqual((p as Record<string, unknown>).prep, undefined);
+        }
+    });
+});
+
+test.describe("Flanders entry-point boundary in cycle agent prompts", test => {
+    test("bars direct and indirect entry-point invocation with the reason and role-specific outlet", {
+        ARRANGE() {
+            return [
+                { text: prompts.worker, reportingChannel: "your Evidence Report" },
+                { text: prompts.detectBuildAndTest, reportingChannel: "your final report" },
+                {
+                    text: prompts.reviewer,
+                    reportingChannel: "a violation entry in your own verdict file, not your streamed output, which the orchestrator does not parse"
+                },
+                { text: workerPromptCore, reportingChannel: "your Evidence Report" },
+                { text: detectBuildAndTestPromptCore, reportingChannel: "your final report" },
+                {
+                    text: reviewerMethodologyCore,
+                    reportingChannel: "a violation entry in your own verdict file, not your streamed output, which the orchestrator does not parse"
+                }
+            ];
+        },
+        ACT(cyclePrompts) {
+            return cyclePrompts;
+        },
+        ASSERTS: {
+            "each exported prompt carries exactly one boundary"(cyclePrompts) {
+                Assert.deepStrictEqual(
+                    cyclePrompts.map(({ text }) => text.split("Flanders entry-point boundary:").length - 1),
+                    [1, 1, 1, 1, 1, 1]
+                );
+            },
+            "each prompt bars every Flanders skill in its AI tool"(cyclePrompts) {
+                Assert.deepStrictEqual(
+                    cyclePrompts.map(({ text }) => text.includes("do not invoke any Flanders skill in your AI tool")),
+                    [true, true, true, true, true, true]
+                );
+            },
+            "each prompt bars every Flanders CLI command"(cyclePrompts) {
+                Assert.deepStrictEqual(
+                    cyclePrompts.map(({ text }) => text.includes("run any Flanders CLI command")),
+                    [true, true, true, true, true, true]
+                );
+            },
+            "each prompt bars direct and indirect invocation"(cyclePrompts) {
+                Assert.deepStrictEqual(
+                    cyclePrompts.map(({ text }) => text.includes("directly or indirectly")),
+                    [true, true, true, true, true, true]
+                );
+            },
+            "each prompt bars slash commands and skill-invocation tools"(cyclePrompts) {
+                Assert.deepStrictEqual(
+                    cyclePrompts.map(({ text }) => text.includes("not as a slash command; not through a skill-invocation tool")),
+                    [true, true, true, true, true, true]
+                );
+            },
+            "each prompt bars package runners scripts and wrappers"(cyclePrompts) {
+                Assert.deepStrictEqual(
+                    cyclePrompts.map(({ text }) => text.includes("package runner, script, or wrapper that reaches either entry point")),
+                    [true, true, true, true, true, true]
+                );
+            },
+            "each prompt bars asking another agent or process"(cyclePrompts) {
+                Assert.deepStrictEqual(
+                    cyclePrompts.map(({ text }) => text.includes("not by asking another agent or process to do so")),
+                    [true, true, true, true, true, true]
+                );
+            },
+            "each prompt says the agent already runs inside Flanders"(cyclePrompts) {
+                Assert.deepStrictEqual(
+                    cyclePrompts.map(({ text }) => text.includes("You already run inside a Flanders execution")),
+                    [true, true, true, true, true, true]
+                );
+            },
+            "each prompt says implementation invocation nests a new cycle"(cyclePrompts) {
+                Assert.deepStrictEqual(
+                    cyclePrompts.map(({ text }) => text.includes("invoking its implementation skill or implementation command would nest a new cycle inside the one you serve")),
+                    [true, true, true, true, true, true]
+                );
+            },
+            "each prompt says installation or update rewrites the executing artifacts"(cyclePrompts) {
+                Assert.deepStrictEqual(
+                    cyclePrompts.map(({ text }) => text.includes("installing or updating mid-flight would rewrite the skill artifacts this execution is running from")),
+                    [true, true, true, true, true, true]
+                );
+            },
+            "each prompt sends the need through its role-specific channel"(cyclePrompts) {
+                Assert.deepStrictEqual(
+                    cyclePrompts.map(({ text, reportingChannel }) => text.includes(`report that need through ${reportingChannel}`)),
+                    [true, true, true, true, true, true]
+                );
+            },
+            "each prompt continues the role and leaves invocation to the user"(cyclePrompts) {
+                Assert.deepStrictEqual(
+                    cyclePrompts.map(({ text }) => text.includes("continue with what your role can do, and leave invocation to the user")),
+                    [true, true, true, true, true, true]
+                );
+            }
         }
     });
 });
@@ -1165,15 +1270,15 @@ test.describe("prompts – reviewer – baseline subtraction", test => {
         }
     });
 
-    test("the citation-free methodology uses HEAD as an empty pending baseline", {
+    test("the citation-free methodology receives the fixed run baseline", {
         ARRANGE() {},
         ACT() { return reviewerMethodologyCore; },
         ASSERTS: {
-            "names the latest commit as the work-reviewer baseline"(core) {
-                Assert.ok(core.includes("The baseline is the latest commit (`HEAD`)"));
+            "names the snapshot timing"(core) {
+                Assert.ok(core.includes("Use this fixed run snapshot, captured before the first worker invocation"));
             },
-            "keeps every uncommitted change regardless of session authorship"(core) {
-                Assert.ok(core.includes("subtraction keeps every uncommitted change, whether or not this session produced it"));
+            "carries the baseline placeholder"(core) {
+                Assert.ok(core.includes("<run-baseline>\n<RUN_BASELINE>\n</run-baseline>"));
             }
         }
     });

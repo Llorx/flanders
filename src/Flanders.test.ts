@@ -259,8 +259,8 @@ test.describe("Flanders dispatch", test => {
             "rewrites the pre-existing spec skill"(_code, { files }) {
                 Assert.notStrictEqual(files["/proj/.claude/skills/flanders-spec/SKILL.md"], "old content");
             },
-            "completes the full Claude trio"(_code, { files }) {
-                Assert.ok("/proj/.claude/skills/flanders-plan/SKILL.md" in files && "/proj/.claude/skills/flanders-work/SKILL.md" in files);
+            "completes the full Claude skill set"(_code, { files }) {
+                Assert.ok("/proj/.claude/skills/flanders-plan/SKILL.md" in files && "/proj/.claude/skills/flanders-implement/SKILL.md" in files);
             }
         }
     });

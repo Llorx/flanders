@@ -3,10 +3,10 @@ import * as Assert from "assert";
 import test, { monad } from "arrange-act-assert";
 
 import { isAbortError } from "../abortError";
-import { writeSkillArtifacts, skillArtifactPaths } from "./skillArtifacts";
+import { writeSkillArtifacts, skillArtifactDetectionPaths, skillArtifactPaths } from "./skillArtifacts";
 import type { FsContext } from "../contexts";
 import type { ToolName } from "../ai/ToolAdapter";
-import { planSkillBody, specSkillBody, workSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
+import { planSkillBody, specSkillBody, implementSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
 import { removeStoredPath } from "./memoryFs.fixtures";
 import { rejectThenSchedule, settleThenSchedule } from "./asyncSettlement.fixtures";
 
@@ -47,7 +47,7 @@ test.describe("writeSkillArtifacts claude", test => {
                     writtenPaths: [
                         "/root/.claude/skills/flanders-spec/SKILL.md",
                         "/root/.claude/skills/flanders-plan/SKILL.md",
-                        "/root/.claude/skills/flanders-work/SKILL.md",
+                        "/root/.claude/skills/flanders-implement/SKILL.md",
                         "/root/.claude/skills/flanders-hard-stop-review/SKILL.md"
                     ]
                 });
@@ -58,8 +58,8 @@ test.describe("writeSkillArtifacts claude", test => {
             "writes the plan body verbatim"(_result, { files }) {
                 Assert.strictEqual(files.get("/root/.claude/skills/flanders-plan/SKILL.md"), planSkillBody);
             },
-            "writes the work body verbatim"(_result, { files }) {
-                Assert.strictEqual(files.get("/root/.claude/skills/flanders-work/SKILL.md"), workSkillBody);
+            "writes the implement body verbatim"(_result, { files }) {
+                Assert.strictEqual(files.get("/root/.claude/skills/flanders-implement/SKILL.md"), implementSkillBody);
             },
             "writes the hard-stop-review body verbatim"(_result, { files }) {
                 Assert.strictEqual(files.get("/root/.claude/skills/flanders-hard-stop-review/SKILL.md"), hardStopReviewSkillBody);
@@ -73,8 +73,8 @@ test.describe("writeSkillArtifacts claude", test => {
                     "writeFile /root/.claude/skills/flanders-spec/SKILL.md",
                     "mkdir /root/.claude/skills/flanders-plan recursive=true",
                     "writeFile /root/.claude/skills/flanders-plan/SKILL.md",
-                    "mkdir /root/.claude/skills/flanders-work recursive=true",
-                    "writeFile /root/.claude/skills/flanders-work/SKILL.md",
+                    "mkdir /root/.claude/skills/flanders-implement recursive=true",
+                    "writeFile /root/.claude/skills/flanders-implement/SKILL.md",
                     "mkdir /root/.claude/skills/flanders-hard-stop-review recursive=true",
                     "writeFile /root/.claude/skills/flanders-hard-stop-review/SKILL.md"
                 ]);
@@ -138,7 +138,7 @@ test.describe("writeSkillArtifacts codex", test => {
                     writtenPaths: [
                         "/root/.agents/skills/flanders-spec/SKILL.md",
                         "/root/.agents/skills/flanders-plan/SKILL.md",
-                        "/root/.agents/skills/flanders-work/SKILL.md",
+                        "/root/.agents/skills/flanders-implement/SKILL.md",
                         "/root/.agents/skills/flanders-hard-stop-review/SKILL.md"
                     ]
                 });
@@ -149,8 +149,8 @@ test.describe("writeSkillArtifacts codex", test => {
             "writes the plan body verbatim"(_result, { files }) {
                 Assert.strictEqual(files.get("/root/.agents/skills/flanders-plan/SKILL.md"), planSkillBody);
             },
-            "writes the work body verbatim"(_result, { files }) {
-                Assert.strictEqual(files.get("/root/.agents/skills/flanders-work/SKILL.md"), workSkillBody);
+            "writes the implement body verbatim"(_result, { files }) {
+                Assert.strictEqual(files.get("/root/.agents/skills/flanders-implement/SKILL.md"), implementSkillBody);
             },
             "writes the hard-stop-review body verbatim"(_result, { files }) {
                 Assert.strictEqual(files.get("/root/.agents/skills/flanders-hard-stop-review/SKILL.md"), hardStopReviewSkillBody);
@@ -164,8 +164,8 @@ test.describe("writeSkillArtifacts codex", test => {
                     "writeFile /root/.agents/skills/flanders-spec/SKILL.md",
                     "mkdir /root/.agents/skills/flanders-plan recursive=true",
                     "writeFile /root/.agents/skills/flanders-plan/SKILL.md",
-                    "mkdir /root/.agents/skills/flanders-work recursive=true",
-                    "writeFile /root/.agents/skills/flanders-work/SKILL.md",
+                    "mkdir /root/.agents/skills/flanders-implement recursive=true",
+                    "writeFile /root/.agents/skills/flanders-implement/SKILL.md",
                     "mkdir /root/.agents/skills/flanders-hard-stop-review recursive=true",
                     "writeFile /root/.agents/skills/flanders-hard-stop-review/SKILL.md"
                 ]);
@@ -514,13 +514,48 @@ test.describe("writeSkillArtifacts cancellation", test => {
 });
 
 test.describe("skillArtifactPaths", test => {
+    test("publishes no path under the former skill name", {
+        ARRANGE() {
+            return { removedName: "flanders" + "-work" };
+        },
+        ACT() {
+            return [
+                ...skillArtifactPaths("/root", "claude"),
+                ...skillArtifactPaths("/root", "codex")
+            ];
+        },
+        ASSERT(paths, { removedName }) {
+            Assert.strictEqual(paths.some(path => path.includes(removedName)), false);
+        }
+    });
+
+    test("extends update detection with the former implement artifact without publishing it", {
+        ARRANGE() {
+            return { formerName: ["flanders", "work"].join("-") };
+        },
+        ACT() {
+            return {
+                published: skillArtifactPaths("/root", "claude"),
+                detected: skillArtifactDetectionPaths("/root", "claude")
+            };
+        },
+        ASSERTS: {
+            "keeps the former path out of the publication set"({ published }, { formerName }) {
+                Assert.strictEqual(published.some(path => path.includes(formerName)), false);
+            },
+            "recognizes the former path during update detection"({ detected }, { formerName }) {
+                Assert.ok(detected.includes(`/root/.claude/skills/${formerName}/SKILL.md`));
+            }
+        }
+    });
+
     test("claude paths use .claude/skills/<name>/SKILL.md", {
         ARRANGE() {
             return {
                 expected: [
                     "/root/.claude/skills/flanders-spec/SKILL.md",
                     "/root/.claude/skills/flanders-plan/SKILL.md",
-                    "/root/.claude/skills/flanders-work/SKILL.md",
+                    "/root/.claude/skills/flanders-implement/SKILL.md",
                     "/root/.claude/skills/flanders-hard-stop-review/SKILL.md"
                 ]
             };
@@ -539,7 +574,7 @@ test.describe("skillArtifactPaths", test => {
                 expected: [
                     "/root/.agents/skills/flanders-spec/SKILL.md",
                     "/root/.agents/skills/flanders-plan/SKILL.md",
-                    "/root/.agents/skills/flanders-work/SKILL.md",
+                    "/root/.agents/skills/flanders-implement/SKILL.md",
                     "/root/.agents/skills/flanders-hard-stop-review/SKILL.md"
                 ]
             };

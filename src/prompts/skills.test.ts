@@ -3,9 +3,15 @@ import * as Assert from "assert";
 import test from "arrange-act-assert";
 
 import { TASK_LINE } from "../plan/PlanFile";
-import { flandersToneInstruction, reviewerMethodologyCore } from "./prompts";
+import {
+    detectBuildAndTestPromptCore,
+    flandersToneInstruction,
+    hardStopDiagnosisCore,
+    reviewerMethodologyCore,
+    workerPromptCore
+} from "./prompts";
 import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, expectedReviewerJudgmentScope, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
-import { hardStopReviewSkillBody, planSkillBody, specSkillBody, workSkillBody } from "./skills";
+import { hardStopReviewSkillBody, planSkillBody, specSkillBody, implementSkillBody } from "./skills";
 
 // A citation of a flanders-internal spec file: a path under contracts/, rules/, flanders/, or plans/ that names a specific .md file. Skill bodies ship into arbitrary user projects where those files do not exist, so such a citation must never appear. The filename may begin with a digit and may contain dots (e.g. a timestamped plan name like plans/2026-07-13_01.47-subject.md), so the name segment allows leading digits and dots as well as letters, dashes, underscores, and nested path slashes. Shared by every skill-body self-containedness guard so the pattern has one source of truth.
 const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|flanders|plans)\/[A-Za-z0-9][A-Za-z0-9._/\-]*\.md/;
@@ -77,6 +83,81 @@ function jointSatisfiabilityProtocol(body: string): string {
 function interactionAndReasoningLanguageSection(body: string): string {
     return sectionBetween(body, "## Interaction and reasoning language", "## Voice");
 }
+
+test.describe("content-skill validator Flanders entry-point boundary", test => {
+    test("puts the complete boundary only in each spawned validator prompt", {
+        ARRANGE() {
+            return [planSkillBody, specSkillBody];
+        },
+        ACT(bodies) {
+            return bodies.map(body => ({ body, inputs: validatorInputsSection(body) }));
+        },
+        ASSERTS: {
+            "each skill scopes the boundary to its validator and excludes its own session"(skills) {
+                Assert.deepStrictEqual(
+                    skills.map(({ inputs }) => inputs.includes("The following boundary applies only to the validator subagent, not this skill session")),
+                    [true, true]
+                );
+            },
+            "each skill carries the boundary exactly once and inside Validator inputs"(skills) {
+                Assert.deepStrictEqual(
+                    skills.map(({ body, inputs }) => [
+                        body.split("Flanders entry-point boundary:").length - 1,
+                        inputs.split("Flanders entry-point boundary:").length - 1
+                    ]),
+                    [[1, 1], [1, 1]]
+                );
+            },
+            "each validator prompt bars every Flanders skill and CLI command"(skills) {
+                Assert.deepStrictEqual(
+                    skills.map(({ inputs }) =>
+                        inputs.includes("do not invoke any Flanders skill in your AI tool or run any Flanders CLI command")
+                    ),
+                    [true, true]
+                );
+            },
+            "each validator prompt bars every indirect path"(skills) {
+                Assert.deepStrictEqual(
+                    skills.map(({ inputs }) =>
+                        inputs.includes("not as a slash command; not through a skill-invocation tool, package runner, script, or wrapper that reaches either entry point; and not by asking another agent or process to do so")
+                    ),
+                    [true, true]
+                );
+            },
+            "each validator prompt carries the nested-cycle reason"(skills) {
+                Assert.deepStrictEqual(
+                    skills.map(({ inputs }) =>
+                        inputs.includes("You already run inside a Flanders execution: invoking its implementation skill or implementation command would nest a new cycle inside the one you serve")
+                    ),
+                    [true, true]
+                );
+            },
+            "each validator prompt carries the mid-flight rewrite reason"(skills) {
+                Assert.deepStrictEqual(
+                    skills.map(({ inputs }) =>
+                        inputs.includes("installing or updating mid-flight would rewrite the skill artifacts this execution is running from")
+                    ),
+                    [true, true]
+                );
+            },
+            "each validator reports through its own verdict"(skills) {
+                Assert.deepStrictEqual(
+                    skills.map(({ inputs }) => inputs.includes("report that need through your own verdict")),
+                    [true, true]
+                );
+            },
+            "each validator continues its role and leaves invocation to the user"(skills) {
+                Assert.deepStrictEqual(
+                    skills.map(({ inputs }) => inputs.includes("continue with what your role can do, and leave invocation to the user")),
+                    [true, true]
+                );
+            },
+            "the spec skill still launches the user's chosen next skill in its own session"() {
+                Assert.ok(specSkillBody.includes("launch it by invoking it in the same session with no <data> argument"));
+            }
+        }
+    });
+});
 
 test.describe("skills – planSkillBody", test => {
     test("is a non-empty string", {
@@ -774,8 +855,8 @@ Every message you address to the user during the run — your clarifying questio
             "does not offer to launch nor launch any AI-tool skill"(body) {
                 Assert.ok(body.includes("you do not offer to launch, nor launch, any AI-tool skill"), "must state it does not offer to launch, nor launch, any AI-tool skill");
             },
-            "names /flanders-work as a skill it must not launch to implement the plan"(body) {
-                Assert.ok(body.includes("including /flanders-work"), "must name /flanders-work as a skill it must not launch to implement the plan");
+            "names /flanders-implement as a skill it must not launch to implement the plan"(body) {
+                Assert.ok(body.includes("including /flanders-implement"), "must name /flanders-implement as a skill it must not launch to implement the plan");
             },
             "section appears after the Summary section"(body) {
                 Assert.ok(body.indexOf("## After completion: implementing the plan") > body.indexOf("## Summary"), "the After completion section must appear after the Summary section");
@@ -2483,7 +2564,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(body.includes("surface the last FAIL report and stop, and make no such offer"), "must make no offer when the validation loop exhausts without a PASS");
             },
             "asks which skill to launch: plan, work, or neither"(body) {
-                Assert.ok(body.includes("which skill to launch next: /flanders-plan, /flanders-work, or neither"), "must ask which skill to launch next, offering plan, work, or neither");
+                Assert.ok(body.includes("which skill to launch next: /flanders-plan, /flanders-implement, or neither"), "must ask which skill to launch next, offering plan, work, or neither");
             },
             "ends the completion declaration with the launch question as plain chat text"(body) {
                 Assert.ok(body.includes("End the same chat message that carries your completion declaration with that launch question asked as plain chat text"), "must end the completion-declaration message with the launch question as plain chat text");
@@ -2496,7 +2577,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(body.includes("so the report and its question arrive together in one message"), "must state the report and its question arrive together in one message");
             },
             "recommends work for a single small self-contained change"(body) {
-                Assert.ok(body.includes("recommend /flanders-work when the spec describes a single, small, self-contained change"), "must recommend /flanders-work for a single, small, self-contained change");
+                Assert.ok(body.includes("recommend /flanders-implement when the spec describes a single, small, self-contained change"), "must recommend /flanders-implement for a single, small, self-contained change");
             },
             "recommends plan for larger multi-step or multi-scope work"(body) {
                 Assert.ok(body.includes("recommend /flanders-plan when the spec describes larger work that spans multiple obligations or scopes or needs an ordered, multi-step implementation"), "must recommend /flanders-plan for larger multi-step or multi-scope work");
@@ -2553,683 +2634,645 @@ Every message you address to the user during the run — your clarifying questio
     });
 });
 
-test.describe("skills – workSkillBody", test => {
-    test("is a non-empty string beginning with a frontmatter block", {
+test.describe("skills – implementSkillBody", test => {
+    test("publishes the orchestrator identity and invocation contract", {
         ARRANGE() {},
-        ACT() { return workSkillBody; },
+        ACT() { return implementSkillBody; },
         ASSERTS: {
-            "is a string"(body) {
-                Assert.strictEqual(typeof body, "string");
+            "starts with YAML frontmatter"(body) {
+                Assert.ok(body.startsWith("---\n"));
             },
-            "is non-empty"(body) {
-                Assert.ok(body.length > 0);
+            "describes the same single-task cycle as the implement command"(body) {
+                Assert.ok(body.includes("description: Orchestrate one request through the same single-task cycle that the implement command runs per task, without authoring a plan."));
             },
-            "begins with a YAML frontmatter opener"(body) {
-                Assert.ok(body.startsWith("---\n"), "must begin with a YAML frontmatter opener");
+            "names the installed skill"(body) {
+                Assert.ok(body.includes("You are the /flanders-implement skill."));
             },
-            "frontmatter declares the flanders-work name"(body) {
-                Assert.match(yamlFrontmatter(body), /^name: flanders-work$/m);
+            "frontmatter declares the flanders-implement name"(body) {
+                Assert.match(yamlFrontmatter(body), /^name: flanders-implement$/m);
             },
             "frontmatter carries a description field"(body) {
                 Assert.ok(yamlFrontmatter(body).includes("description:"), "frontmatter must carry a description field");
+            },
+            "makes the resolved request the single task"(body) {
+                Assert.ok(body.includes("The request you resolve is the cycle's single task."));
+            },
+            "orchestrates without implementing"(body) {
+                Assert.ok(body.includes("you implement nothing yourself and author no plan"));
             }
         }
     });
 
-    test("names no occurrence of the removed AI-tool host, case-insensitively", {
-        ARRANGE() {
-            return { removedHost: REMOVED_HOST_NAME };
-        },
-        ACT() { return workSkillBody; },
-        ASSERT(body, { removedHost }) {
-            Assert.strictEqual(body.toLowerCase().includes(removedHost.toLowerCase()), false);
-        }
-    });
-
-    test("resolves the [<data>] argument with the three documented cases", {
+    test("resolves all three data forms and preserves the request", {
         ARRANGE() {},
-        ACT() { return workSkillBody; },
+        ACT() { return implementSkillBody; },
         ASSERTS: {
-            "omitted: takes the request from the conversation"(body) {
-                Assert.ok(body.includes("If <data> is omitted, take the user's natural-language request from the conversation."), "must take the request from the conversation when <data> is omitted");
+            "takes omitted data from the conversation"(body) {
+                Assert.ok(body.includes("If <data> is omitted, take the user's natural-language request from the conversation."));
             },
-            "existing file path: reads the file's content"(body) {
-                Assert.ok(body.includes("resolves to an existing file path, read the file's content and use it as input."), "must read the file's content when <data> resolves to an existing file path");
+            "reads an existing path"(body) {
+                Assert.ok(body.includes("resolves to an existing file path, read the file's content and use it as the request."));
             },
-            "otherwise: uses the value verbatim"(body) {
-                Assert.ok(body.includes("does not resolve to an existing file, use the value verbatim as inline input."), "must use the value verbatim when <data> does not resolve to an existing file");
+            "uses non-path data verbatim"(body) {
+                Assert.ok(body.includes("does not resolve to an existing file, use the value verbatim as the inline request."));
+            },
+            "keeps the request verbatim for worker and reviewers"(body) {
+                Assert.ok(body.includes("Keep the resolved request verbatim. It is the task text injected into the first worker invocation and every reviewer invocation."));
             }
         }
     });
 
-    test("instructs in-session work honoring the in-scope spec corpus and updating tests", {
+    test("loads one whole Flanders configuration by scope precedence", {
         ARRANGE() {},
-        ACT() { return workSkillBody; },
+        ACT() { return implementSkillBody; },
         ASSERTS: {
-            "implements the request directly in this session"(body) {
-                Assert.ok(body.includes("Implement the request directly in this session"), "must implement the request directly in this session");
+            "uses the project configuration first"(body) {
+                Assert.ok(body.includes("If the project root contains a `.flanders/` folder, select its `.flanders/config.json` and ignore the global scope completely"));
             },
-            "updates or extends tests so the new behavior is covered"(body) {
-                Assert.ok(body.includes("update or extend its tests so the new behavior is covered"), "must update or extend tests so the new behavior is covered");
+            "uses global only when project is absent"(body) {
+                Assert.ok(body.includes("Otherwise, if `~/.flanders/` exists, select `~/.flanders/config.json`."));
             },
-            "honors every contract, rule, and behavior rule whose scope the changes touch"(body) {
-                Assert.ok(body.includes("Honor every contract, rule, and behavior rule in the project's spec corpus whose scope your changes touch"), "must honor every contract, rule, and behavior rule whose scope the changes touch");
+            "never merges fields"(body) {
+                Assert.ok(body.includes("Resolve the Flanders configuration by scope, never field by field"));
             },
-            "discovers the corpus across the project's .spec folders"(body) {
-                Assert.ok(body.includes("discovered across the project's \`.spec\` folders"), "must discover the corpus across the project's .spec folders");
+            "directs a missing configuration to install"(body) {
+                Assert.ok(body.includes("stop and tell the user to run `npx flanders install`"));
             },
-            "applies whether or not the request names them"(body) {
-                Assert.ok(body.includes("whether or not the request names them"), "must apply whether or not the request names them");
+            "does not fall back from a malformed selected file"(body) {
+                Assert.ok(body.includes("do not fall back to or merge the other scope"));
+            },
+            "does not fall back when the selected file is missing or unreadable"(body) {
+                Assert.ok(body.includes("even when the selected file is missing, unreadable, or malformed"));
+            },
+            "requires weighted reviewer fields"(body) {
+                Assert.ok(body.includes("`minimumReviews`, an integer from 1 through the reviewer count"));
+            },
+            "requires the exact top-level configuration keys"(body) {
+                Assert.ok(body.includes("top-level keys to be exactly `worker`, `reviewers`, and `minimumReviews`"));
+            },
+            "validates fast-mode compatibility"(body) {
+                Assert.ok(body.includes("Require `fast` to be false unless the role uses Claude Code with a model that supports fast mode."));
             }
         }
     });
 
-    test("the Procedure runs a build-and-test gate between work and review and re-runs it on iterate", {
+    test("commits every pending spec path before work and baseline capture", {
         ARRANGE() {},
-        ACT() { return workSkillBody; },
+        ACT() { return implementSkillBody; },
         ASSERTS: {
-            "Procedure lists a build-and-test gate step"(body) {
-                Assert.ok(body.includes("3. **Build and test gate.** Determine the project's build and test commands and run them as ordered gates, reworking until both pass, before any review runs (see Build and test below)."), "Procedure must list a build-and-test gate step");
+            "checks staged unstaged and untracked changes"(body) {
+                Assert.ok(body.includes("inspect staged, unstaged, and untracked changes"));
             },
-            "the gate step comes after the Work step"(body) {
-                Assert.ok(body.indexOf("2. **Work.**") < body.indexOf("3. **Build and test gate.**"), "the build-and-test gate step must come after the Work step");
+            "matches a .spec directory at any depth"(body) {
+                Assert.ok(body.includes("any changed path that traverses a directory whose name is exactly `.spec`, at any depth"));
             },
-            "the gate step comes before the Review step"(body) {
-                Assert.ok(body.indexOf("3. **Build and test gate.**") < body.indexOf("4. **Review.**"), "the build-and-test gate step must come before the Review step");
+            "commits exactly changed spec files"(body) {
+                Assert.ok(body.includes("stage and commit exactly all changed spec files without including pending non-spec files"));
             },
-            "the Iterate step re-runs the gate before the next review round"(body) {
-                Assert.ok(body.includes("5. **Iterate.** While the reviewer reports violations, rework the implementation to address them, re-run the build and test gate before the next review round, and review again, with no fixed upper bound."), "the Iterate step must re-run the gate after a review-driven rework before the next review round");
+            "uses the fixed English message"(body) {
+                Assert.ok(body.includes("`Commit pending spec changes`"));
+            },
+            "does not commit when there are none"(body) {
+                Assert.ok(body.includes("When none has changed, make no commit."));
+            },
+            "reports git output and stops on failure"(body) {
+                Assert.ok(body.includes("report git's stdout and stderr and stop before workspace setup, baseline capture, or work"));
             }
         }
     });
 
-    test("contains a self-contained build-and-test gate section reproducing the determination and ordered-gate semantics", {
+    test("provisions isolated temporary folders and detected gate scripts", {
         ARRANGE() {},
-        ACT() { return workSkillBody; },
+        ACT() { return implementSkillBody; },
         ASSERTS: {
-            "has a Build and test section heading"(body) {
-                Assert.ok(body.includes("## Build and test"), "must have a Build and test section heading");
+            "creates the main folder"(body) {
+                Assert.ok(body.includes("Create one main temporary folder"));
             },
-            "(a) determines the commands by inspecting the project"(body) {
-                Assert.ok(body.includes("Determine the build and test commands yourself by inspecting the project"), "must determine the build and test commands by inspecting the project");
+            "creates one independent folder per reviewer"(body) {
+                Assert.ok(body.includes("independently create one temporary folder per configured reviewer"));
             },
-            "(a) determines without asking the user or consulting a configuration file"(body) {
-                Assert.ok(body.includes("do not ask the user, and do not consult any configuration file"), "must determine without asking the user or consulting a configuration file");
+            "forbids reviewer-folder nesting"(body) {
+                Assert.ok(body.includes("never inside the main folder or another reviewer folder"));
             },
-            "(a) determines the build and test commands independently"(body) {
-                Assert.ok(body.includes("The build command and the test command are determined independently — either one may be determinable while the other is not."), "must determine the build and test commands independently");
+            "chooses Windows script names"(body) {
+                Assert.ok(body.includes("`build.bat` and `test.bat` on Windows"));
             },
-            "(b) an undeterminable command marks that gate skipped with no fallback invented"(body) {
-                Assert.ok(body.includes("A command you cannot confidently determine leaves that gate skipped, and you invent no fallback command in its place."), "must skip the gate for an undeterminable command and invent no fallback");
+            "chooses non-Windows script names"(body) {
+                Assert.ok(body.includes("`build.sh` and `test.sh` elsewhere"));
             },
-            "(c) runs the build command first, then the test command"(body) {
-                Assert.ok(body.includes("Run the two gates in order: the build command first, then the test command."), "must run the build command first, then the test command");
+            "runs detection with worker fields"(body) {
+                Assert.ok(body.includes("configured worker's tool, model, effort, and fast values"));
             },
-            "(c) runs each in the foreground without backgrounding or detaching"(body) {
-                Assert.ok(body.includes("Run each in the foreground, keeping your turn active until that command finishes — never start either in the background, never detach it, and never end your turn while it is still running."), "must run each in the foreground and never background or detach");
+            "tracks build and test independently"(body) {
+                Assert.ok(body.includes("inspect the two chosen paths independently"));
             },
-            "(d) captures each command's output"(body) {
-                Assert.ok(body.includes("Capture each command's output."), "must capture each command's output");
-            },
-            "(d) reworks on a non-zero exit using the captured output then re-runs the gate"(body) {
-                Assert.ok(body.includes("A command that completes with a non-zero exit status is a failing gate: rework the implementation using that command's captured output, then run the gate again."), "must rework using the captured output on a non-zero exit and run the gate again");
-            },
-            "(e) proceeds to the review only once both gates pass, a skipped gate counting as passed"(body) {
-                Assert.ok(body.includes("Proceed to the review only once the build and test gates have both passed; a gate whose command you could not determine is skipped, and a skipped gate counts as passed."), "must proceed to the review only once both gates pass, with a skipped gate counting as passed");
+            "passes the same paths to workers"(body) {
+                Assert.ok(body.includes("Pass these same two paths to every worker invocation."));
             }
         }
     });
 
-    test("launches exactly one reviewer as a fresh-session subagent via the host tool's mechanism", {
-        ARRANGE() {},
-        ACT() { return workSkillBody; },
-        ASSERTS: {
-            "runs exactly one adversarial reviewer as a subagent"(body) {
-                Assert.ok(body.includes("validate it through exactly one adversarial reviewer that you run as a subagent of this same session"), "must run exactly one adversarial reviewer as a subagent of the same session");
-            },
-            "uses a fresh subagent session that does not share context"(body) {
-                Assert.ok(body.includes("in a fresh subagent session that does not share context with the work you just performed"), "must use a fresh subagent session that does not share context");
-            },
-            "names the Claude Code Agent tool"(body) {
-                Assert.ok(body.includes("In Claude Code, you spawn the reviewer through the Agent tool."), "must name the Claude Code Agent tool");
-            },
-            "names the Codex CLI subagent surface and names no host after it"(body) {
-                Assert.ok(body.includes("In Codex CLI, you spawn it through whatever Codex documents as its subagent surface at the time of the run.\n"), "the subagent-mechanism clause must name the Codex CLI surface and end there, naming no further host after it");
-            },
-            "runs a single reviewer per round, never a list and never concurrently"(body) {
-                Assert.ok(body.includes("You run a single reviewer per review round — never a list of reviewers and never several reviewers concurrently."), "must run a single reviewer per round, never a list and never concurrently");
-            },
-            "the reviewer's tool, model, and effort are the host session's"(body) {
-                Assert.ok(body.includes("The reviewer's tool, model, and effort are the host session's."), "the reviewer's tool, model, and effort must be the host session's");
-            },
-            "consults no .flanders/ configuration to choose the reviewer"(body) {
-                Assert.ok(body.includes("You do not read or consult any \`.flanders/\` configuration to choose the reviewer"), "must consult no .flanders/ configuration to choose the reviewer");
-            }
-        }
-    });
-
-    test("states the inline-fallback conditions and forbids ergonomic fallback", {
-        ARRANGE() {},
-        ACT() { return workSkillBody; },
-        ASSERTS: {
-            "permits inline fallback when the host exposes no subagent mechanism"(body) {
-                Assert.ok(body.includes("when the host AI tool exposes no subagent mechanism"), "must permit inline fallback when the host exposes no subagent mechanism");
-            },
-            "permits inline fallback on an unrecoverable subagent error"(body) {
-                Assert.ok(body.includes("unrecoverable error (spawn failure, transport error, environment refusal)"), "must permit inline fallback on an unrecoverable subagent error");
-            },
-            "requires stating the fallback and its concrete reason in chat"(body) {
-                Assert.ok(body.includes("state in chat that you are falling back and name the concrete reason"), "must require stating the fallback and its concrete reason in chat");
-            },
-            "names a silent fallback as a violation"(body) {
-                Assert.ok(body.includes("a silent fallback is a violation"), "must name a silent fallback as a violation");
-            },
-            "forbids ergonomic inline fallback"(body) {
-                Assert.ok(body.includes("Inline fallback for ergonomic reasons"), "must name ergonomic inline fallback");
-                Assert.ok(body.includes("is forbidden"), "must forbid ergonomic inline fallback");
-            }
-        }
-    });
-
-    test("embeds the shared reviewer-methodology core framed against the user's request", {
-        ARRANGE() {},
-        ACT() { return workSkillBody; },
-        ASSERTS: {
-            "embeds the shared reviewer-methodology core verbatim"(body) {
-                Assert.ok(body.includes(reviewerMethodologyCore), "must embed the shared reviewer-methodology core verbatim");
-            },
-            "frames the spec under review as the user's request"(body) {
-                Assert.ok(body.includes("the spec under review is the user's request that you implemented"), "must frame the spec under review as the user's request");
-            },
-            "core carries change-set determination via git status --porcelain"(body) {
-                Assert.ok(body.includes("git status --porcelain"), "embedded core must carry change-set determination via git status --porcelain");
-            },
-            "core carries the empty-reduced-change-set judgment against the full tree"(body) {
-                Assert.ok(body.includes("Judge each spec element against the working tree as it stands"), "embedded core must judge an empty reduced set against the full working tree");
-            },
-            "core uses latest commit HEAD as its baseline"(body) {
-                Assert.ok(body.includes("The baseline is the latest commit (\`HEAD\`)"), "embedded core must use HEAD as its baseline");
-            },
-            "core keeps all uncommitted changes regardless of session authorship"(body) {
-                Assert.ok(body.includes("subtraction keeps every uncommitted change, whether or not this session produced it"), "embedded core must keep all uncommitted changes");
-            },
-            "core carries the five FAIL conditions"(body) {
-                Assert.ok(body.includes("You MUST check all five conditions below"), "embedded core must carry the five FAIL conditions");
-            },
-            "core carries the exhaustiveness obligation"(body) {
-                Assert.ok(body.includes("Exhaustiveness: do not stop at the first violation."), "embedded core must carry the exhaustiveness obligation");
-            },
-            "core carries the spec-verification protocol"(body) {
-                Assert.ok(body.includes("Spec-verification protocol"), "embedded core must carry the spec-verification protocol");
-            },
-            "core records the verdict by appending violations to the error-log file"(body) {
-                Assert.ok(body.includes("you MUST append every violation to the error-log file immediately"), "embedded core must record the verdict by appending violations to the error-log file");
-            },
-            "core creates the error-log file empty when there is no violation"(body) {
-                Assert.ok(body.includes("you must still create the error-log file as an empty file as your final act"), "embedded core must create the error-log file empty when there is no violation");
-            }
-        }
-    });
-
-    test("the embedded reviewer core carries the five FAIL conditions byte-equal to the expected block", {
-        ARRANGE() {
-            return { expected: expectedReviewerFailConditions("the spec under review", "The spec under review is not satisfied.") };
-        },
-        ACT() {
-            return reviewerFailConditionsBlock(workSkillBody);
-        },
-        ASSERT(block, { expected }) {
-            Assert.strictEqual(block, expected);
-        }
-    });
-
-    test("the embedded reviewer core carries the shared change-set judgment scope once", {
-        ARRANGE() {
-            return { expected: expectedReviewerJudgmentScope("the spec under review") };
-        },
-        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
-        ASSERTS: {
-            "workSkillBody carries the exact citation-free judgment scope"({ body }, { expected }) {
-                Assert.ok(body.includes(expected), "workSkillBody must carry the shared citation-free judgment scope");
-            },
-            "reviewerMethodologyCore carries the same judgment scope"({ core }, { expected }) {
-                Assert.ok(core.includes(expected), "reviewerMethodologyCore must carry the same judgment scope");
-            },
-            "workSkillBody carries no surface-specific duplicate"({ body }, { expected }) {
-                Assert.strictEqual(body.split(expected).length - 1, 1);
-            },
-            "reviewerMethodologyCore carries the scope once"({ core }, { expected }) {
-                Assert.strictEqual(core.split(expected).length - 1, 1);
-            },
-            "the scope records an obligation with no change-set trigger as untriggered"({ body }) {
-                Assert.ok(body.includes("classify it as untriggered, not violated"), "the reviewer must classify an obligation with no change-set trigger as untriggered");
-            },
-            "the scope enforces a triggered obligation even when its remedy is another file"({ body }) {
-                Assert.ok(body.includes("Enforce triggered obligations even when their remedy requires another file"), "the reviewer must enforce a triggered obligation across files");
-            },
-            "the scope leaves the whole project corpus in reach under conditions 4 and 5"({ body }) {
-                Assert.ok(body.includes("conditions 4 and 5 still cover every project contract, rule, and behavior rule"), "the reviewer must keep every project contract, rule, and behavior rule in reach");
-            }
-        }
-    });
-
-    test("the embedded citation-free reviewer core carries the referenced-obligation enumeration paragraph", {
-        ARRANGE() {},
-        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
-        ASSERTS: {
-            "workSkillBody carries the referenced-obligation paragraph verbatim"({ body }) {
-                Assert.ok(body.includes(REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH), "workSkillBody must carry the citation-free referenced-obligation enumeration paragraph verbatim");
-            },
-            "reviewerMethodologyCore carries the same referenced-obligation paragraph verbatim"({ core }) {
-                Assert.ok(core.includes(REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH), "reviewerMethodologyCore must carry the referenced-obligation enumeration paragraph verbatim");
-            },
-            "the paragraph forbids satisfying a multi-obligation contract or rule in general"({ body }) {
-                Assert.ok(body.includes("Never approve a multi-obligation reference in general: give each obligation its own confirmation or classification"), "the referenced-obligation paragraph must forbid satisfying a multi-obligation contract or rule in general");
-            },
-            "the paragraph confirms triggered obligations and classifies the rest under the judgment scope"({ body }) {
-                Assert.ok(body.includes("Confirm each triggered obligation in the changes and classify every other item under the scope above."), "the referenced-obligation paragraph must confirm triggered obligations and classify the rest under the judgment scope");
-            },
-            "the paragraph treats an omitted or unapplied triggered obligation as a violation"({ body }) {
-                Assert.ok(body.includes("treat an omitted or unapplied triggered obligation as a violation"), "the referenced-obligation paragraph must treat an omitted or unapplied triggered obligation as a violation");
-            },
-            "the paragraph expands an N-obligation reference into N items"({ body }) {
-                Assert.ok(body.includes("Expand N discrete obligations into N items."), "the referenced-obligation paragraph must expand an N-obligation reference into N items");
-            }
-        }
-    });
-
-    test("the embedded citation-free reviewer core is test-methodology-agnostic", {
-        ARRANGE() {},
-        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
-        ASSERTS: {
-            "workSkillBody carries no toolchain-guarded branch, in any casing"({ body }) {
-                Assert.strictEqual(body.toLowerCase().includes("toolchain-guarded"), false);
-            },
-            "workSkillBody carries no test-guarded branch, in any casing"({ body }) {
-                Assert.strictEqual(body.toLowerCase().includes("test-guarded"), false);
-            },
-            "workSkillBody carries no review-adjudicated branch, in any casing"({ body }) {
-                Assert.strictEqual(body.toLowerCase().includes("review-adjudicated"), false);
-            },
-            "workSkillBody carries no classify-every-claim opener"({ body }) {
-                Assert.strictEqual(body.includes("Classify every claim by ONE question"), false);
-            },
-            "workSkillBody carries no regression-signal question"({ body }) {
-                Assert.strictEqual(body.includes("regression-signal question"), false);
-            },
-            "workSkillBody carries no test-coverage adequacy sentence"({ body }) {
-                Assert.strictEqual(body.includes("cover every case and every fact"), false);
-            },
-            "workSkillBody carries no full test-body read paragraph"({ body }) {
-                Assert.strictEqual(body.includes("Read the complete body of every test"), false);
-            },
-            "workSkillBody carries no counterfactual regression construction"({ body }) {
-                Assert.strictEqual(body.includes("construct the simplest plausible regression"), false);
-            },
-            "reviewerMethodologyCore carries none of the taxonomy branches, in any casing"({ core }) {
-                Assert.strictEqual(core.toLowerCase().includes("toolchain-guarded") || core.toLowerCase().includes("test-guarded") || core.toLowerCase().includes("review-adjudicated"), false);
-            }
-        }
-    });
-
-    test("the embedded citation-free reviewer core carries the agnostic spec-verification protocol", {
-        ARRANGE() {},
-        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
-        ASSERTS: {
-            "workSkillBody enumerates every spec element as its own item, expanding N independent facts into N items"({ body }) {
-                Assert.ok(body.includes("a. Enumerate every spec element in the spec under review as a separate numbered item, explicitly in your reasoning; an item that enumerates N independent facts expands into N items."), "workSkillBody must enumerate every spec element as its own item and expand N independent facts into N items");
-            },
-            "workSkillBody confirms each enumerated item is satisfied and makes an unsatisfied item a violation"({ body }) {
-                Assert.ok(body.includes("b. For each enumerated item, confirm the changes under review actually satisfy it. An item left unsatisfied is a violation, never waved through on \"the code looks right\"."), "workSkillBody must confirm each enumerated item against the changes under review and treat an unsatisfied item as a violation");
-            },
-            "reviewerMethodologyCore carries the same spec-verification steps"({ core }) {
-                Assert.ok(core.includes("a. Enumerate every spec element in the spec under review as a separate numbered item, explicitly in your reasoning; an item that enumerates N independent facts expands into N items.") && core.includes("b. For each enumerated item, confirm the changes under review actually satisfy it. An item left unsatisfied is a violation, never waved through on \"the code looks right\"."), "reviewerMethodologyCore must carry the same enumerate-and-confirm spec-verification steps");
-            }
-        }
-    });
-
-    test("the embedded citation-free reviewer core affirms no test standard of the reviewer's own", {
-        ARRANGE() {},
-        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
-        ASSERTS: {
-            "workSkillBody carries the no-own-test-standard sentence verbatim"({ body }) {
-                Assert.ok(body.includes(NO_OWN_TEST_STANDARD_SENTENCE), "workSkillBody must carry the no-own-test-standard sentence verbatim");
-            },
-            "reviewerMethodologyCore carries the same sentence verbatim"({ core }) {
-                Assert.ok(core.includes(NO_OWN_TEST_STANDARD_SENTENCE), "reviewerMethodologyCore must carry the no-own-test-standard sentence verbatim");
-            }
-        }
-    });
-
-    test("the embedded citation-free reviewer core carries the non-execution paragraph", {
-        ARRANGE() {},
-        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
-        ASSERTS: {
-            "workSkillBody carries the non-execution paragraph verbatim"({ body }) {
-                Assert.ok(body.includes(NON_EXECUTION_PARAGRAPH), "workSkillBody must carry the non-execution paragraph verbatim");
-            },
-            "reviewerMethodologyCore carries the same paragraph verbatim"({ core }) {
-                Assert.ok(core.includes(NON_EXECUTION_PARAGRAPH), "reviewerMethodologyCore must carry the non-execution paragraph verbatim");
-            },
-            "the paragraph makes the reviewer edit nothing and generate no files"({ body }) {
-                Assert.ok(body.includes("You are inspection-only: you make no edit and run no operation that generates files."), "the non-execution paragraph must make the reviewer edit nothing and generate no files");
-            },
-            "the paragraph names compiling and testing as file-generating, so the reviewer does neither"({ body }) {
-                Assert.ok(body.includes("Compiling the project and running its tests both generate files, so you run neither the build command nor the test command — not directly, not through the project's package manager, and not through any wrapper."), "the non-execution paragraph must name compiling and testing as file-generating operations the reviewer never runs");
-            },
-            "the paragraph assumes the gates already passed against the changes before the review"({ body }) {
-                Assert.ok(body.includes("The build and test gates already passed against these changes before this review started, so you take the build as succeeding and the tests as passing without running them"), "the non-execution paragraph must assume the already-passed gates instead of re-running them");
-            },
-            "the paragraph confirms a gate-catchable claim by naming the already-passed gate or test"({ body }) {
-                Assert.ok(body.includes("you confirm a claim one of those gates would catch by naming that already-passed gate or test instead of executing it"), "the non-execution paragraph must confirm a gate-catchable claim by naming the already-passed gate or test");
-            },
-            "the paragraph limits the reviewer's commands to the read-only git operations"({ body }) {
-                Assert.ok(body.includes("The only commands you run are the read-only git operations that derive the change set."), "the non-execution paragraph must limit the reviewer's commands to the read-only git operations that derive the change set");
-            }
-        }
-    });
-
-    test("all five citation-free reviewer-core additions stay citation-free", {
+    test("embeds all shared citation-free prompt cores", {
         ARRANGE() {
             return {
-                judgmentScope: expectedReviewerJudgmentScope("the spec under review"),
-                referenced: REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH,
-                commentAdjudication: COMMENT_ADJUDICATION_PARAGRAPH,
-                noOwnStandard: NO_OWN_TEST_STANDARD_SENTENCE,
-                nonExecution: NON_EXECUTION_PARAGRAPH
+                detect: detectBuildAndTestPromptCore,
+                worker: workerPromptCore,
+                reviewer: reviewerMethodologyCore,
+                diagnosis: hardStopDiagnosisCore
             };
         },
-        ACT(additions) { return additions; },
+        ACT() { return implementSkillBody; },
         ASSERTS: {
-            "the judgment-scope paragraph names no flanders-internal spec path"({ judgmentScope }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(judgmentScope), false);
+            "embeds detection core verbatim"(body, { detect }) {
+                Assert.ok(body.includes(detect));
             },
-            "the judgment-scope paragraph contains no .md path at all"({ judgmentScope }) {
-                Assert.strictEqual(judgmentScope.includes(".md"), false);
+            "embeds worker core verbatim"(body, { worker }) {
+                Assert.ok(body.includes(worker));
             },
-            "the referenced-obligation paragraph names no flanders-internal spec path"({ referenced }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(referenced), false);
+            "embeds reviewer methodology verbatim"(body, { reviewer }) {
+                Assert.ok(body.includes(reviewer));
             },
-            "the referenced-obligation paragraph contains no .md path at all"({ referenced }) {
-                Assert.strictEqual(referenced.includes(".md"), false);
+            "embeds hard-stop diagnosis verbatim"(body, { diagnosis }) {
+                Assert.ok(body.includes(diagnosis));
             },
-            "the comment-adjudication paragraph names no flanders-internal spec path"({ commentAdjudication }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(commentAdjudication), false);
-            },
-            "the comment-adjudication paragraph contains no .md path at all"({ commentAdjudication }) {
-                Assert.strictEqual(commentAdjudication.includes(".md"), false);
-            },
-            "the no-own-test-standard sentence names no flanders-internal spec path"({ noOwnStandard }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(noOwnStandard), false);
-            },
-            "the no-own-test-standard sentence contains no .md path at all"({ noOwnStandard }) {
-                Assert.strictEqual(noOwnStandard.includes(".md"), false);
-            },
-            "the non-execution paragraph names no flanders-internal spec path"({ nonExecution }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(nonExecution), false);
-            },
-            "the non-execution paragraph contains no .md path at all"({ nonExecution }) {
-                Assert.strictEqual(nonExecution.includes(".md"), false);
+            "receives exactly the three cycle-agent entry-point boundaries through the embedded cores"(body) {
+                Assert.strictEqual(body.split("Flanders entry-point boundary:").length - 1, 3);
             }
         }
     });
 
-    test("drives the loop from the error-log file with the three-way branch and no cap", {
+    test("injects the reviewer baseline only through the methodology core", {
         ARRANGE() {},
-        ACT() { return workSkillBody; },
+        ACT() { return implementSkillBody; },
         ASSERTS: {
-            "a review round is reached only after the build and test gate passes"(body) {
-                Assert.ok(body.includes("A review round is reached only after the build and test gate has passed, so every round runs against changes that already build and pass tests."), "a review round must be reached only after the build and test gate passes");
+            "has exactly one reviewer baseline placeholder"(body) {
+                Assert.strictEqual(body.match(/<RUN_BASELINE>/g)?.length, 1);
             },
-            "provisions the verdict file as absent before each round"(body) {
-                Assert.ok(body.includes("ensure the temporary error-log file does not exist, deleting it if a previous round left one"), "must provision the verdict file as absent before each round");
-            },
-            "absent: relaunches the reviewer with no maximum count"(body) {
-                Assert.ok(body.includes("Relaunch the reviewer for the same round, repeating with no maximum count until the file exists."), "absent branch must relaunch the reviewer unbounded");
-            },
-            "absent is never read as a pass"(body) {
-                Assert.ok(body.includes("An absent file is never read as a pass."), "an absent file must never be read as a pass");
-            },
-            "present and empty: accepts and finalizes"(body) {
-                Assert.ok(body.includes("the reviewer ran to a verdict and found no violation. Accept the work; the loop ends and you finalize."), "present-and-empty branch must accept the work and finalize");
-            },
-            "present and non-empty: reworks every recorded violation then re-runs the gate"(body) {
-                Assert.ok(body.includes("Rework the implementation to address every recorded violation, re-run the build and test gate (which must pass before the review runs again), then start a new review round from step 1 against a freshly-provisioned absent file."), "present-and-non-empty branch must rework every violation, re-run the gate, and start a fresh round");
-            },
-            "states there is no iteration cap"(body) {
-                Assert.ok(body.includes("There is no iteration cap"), "must state there is no iteration cap");
-            },
-            "reads the verdict only from the file, never from streamed output or exit code"(body) {
-                Assert.ok(body.includes("Read the verdict only from the file's presence and content, never from the reviewer's streamed output or its exit code."), "must read the verdict only from the file, never from streamed output or exit code");
+            "replaces the methodology placeholder with the captured baseline"(body) {
+                Assert.ok(body.includes("the methodology below with its run-baseline placeholder replaced by the captured baseline"));
             }
         }
     });
 
-    test("finalizes without commit, plan write, or configuration write, leaving changes in the working tree", {
+    test("discovers and injects the complete three-part project spec corpus", {
         ARRANGE() {},
-        ACT() { return workSkillBody; },
+        ACT() { return implementSkillBody; },
         ASSERTS: {
-            "performs no commit or other git mutation"(body) {
-                Assert.ok(body.includes("Run no \`git add\`, \`git commit\`, or any other git command that mutates repository state."), "must perform no commit or other git mutation");
+            "walks every .spec directory at every depth"(body) {
+                Assert.ok(body.includes("discover every directory named `.spec` at any depth"));
             },
-            "leaves the implemented changes in the working tree"(body) {
-                Assert.ok(body.includes("The implemented changes are left in the working tree as an uncommitted change set"), "must leave the implemented changes in the working tree");
+            "excludes git-ignored paths"(body) {
+                Assert.ok(body.includes("traverse the non-git-ignored project tree"));
             },
-            "writes or updates no plan file"(body) {
-                Assert.ok(body.includes("Create, modify, delete, or rename nothing in the \`plans/\` folder."), "must write or update no plan file");
+            "collects contract namespaces"(body) {
+                Assert.ok(body.includes("every file below each `.spec/contracts` directory"));
+            },
+            "collects rule namespaces"(body) {
+                Assert.ok(body.includes("every file below each `.spec/rules` directory"));
+            },
+            "collects behavior-rule namespaces"(body) {
+                Assert.ok(body.includes("every file below each `.spec/flanders` directory, including nested files"));
+            },
+            "puts all lists in every worker and reviewer prompt"(body) {
+                Assert.ok(body.includes("Put all three lists in every worker and reviewer prompt."));
+            },
+            "places lists above methodology"(body) {
+                Assert.ok(body.indexOf("## Available contracts") < body.indexOf("## Adversarial review awaits"));
+            },
+            "states the list placement explicitly"(body) {
+                Assert.ok(body.includes("place the lists above the role methodology"));
+            }
+        }
+    });
+
+    test("launches configured agents as awaited non-interactive maximum-access processes", {
+        ARRANGE() {},
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "maps detect to worker configuration"(body) {
+                Assert.ok(body.includes("Detect uses the worker entry"));
+            },
+            "maps each reviewer to its own entry"(body) {
+                Assert.ok(body.includes("reviewer N uses reviewer N's entry"));
+            },
+            "forbids subagents"(body) {
+                Assert.ok(body.includes("Never run an agent as a subagent of this session"));
+            },
+            "forbids inline replacement"(body) {
+                Assert.ok(body.includes("never perform an inline pass in its place"));
+            },
+            "requires non-interactive maximum access"(body) {
+                Assert.ok(body.includes("Every invocation is non-interactive and receives the maximum access its CLI offers."));
+            },
+            "includes Claude maximum-access invocation"(body) {
+                Assert.ok(body.includes("`--dangerously-skip-permissions`"));
+            },
+            "feeds Claude one stream-json user message through stdin"(body) {
+                Assert.ok(body.includes("deliver the prompt as one user message in the input stream-json on stdin, then close stdin"));
+            },
+            "applies Claude fast mode through session settings"(body) {
+                Assert.ok(body.includes("the `fastMode` session setting through `--settings`"));
+            },
+            "includes Codex maximum-access invocation"(body) {
+                Assert.ok(body.includes("`-c sandbox_mode=danger-full-access`"));
+            },
+            "feeds Codex prompts through stdin"(body) {
+                Assert.ok(body.includes("a trailing `-` that reads the prompt from stdin"));
+            },
+            "applies model effort and fast from each entry"(body) {
+                Assert.ok(body.includes("Apply non-empty model and effort values and apply fast mode exactly when the entry enables it"));
+            },
+            "awaits each process in its launching turn"(body) {
+                Assert.ok(body.includes("Wait for every process inside the same turn that launched it."));
+            },
+            "terminates cancelled processes before verdict formation"(body) {
+                Assert.ok(body.includes("terminate and await its process before forming the round verdict"));
+            }
+        }
+    });
+
+    test("absorbs limits errors login failures and worker relaunches", {
+        ARRANGE() {},
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "waits and relaunches usage limits"(body) {
+                Assert.ok(body.includes("A usage or rate limit is a wait, not an error. Wait until retry is allowed and relaunch until the invocation completes."));
+            },
+            "counts ordinary errors per agent and iteration"(body) {
+                Assert.ok(body.includes("Count consecutive errored invocations per agent and per current iteration"));
+            },
+            "counts detector errors in setup iteration zero"(body) {
+                Assert.ok(body.includes("treating pre-cycle detection as iteration 0"));
+            },
+            "resets the count on completion"(body) {
+                Assert.ok(body.includes("a completed invocation resets that agent's count"));
+            },
+            "stops on the third consecutive error with the error reproduced"(body) {
+                Assert.ok(body.includes("On the third consecutive error, stop, name the agent, and reproduce the error."));
+            },
+            "never retries or counts authentication failure"(body) {
+                Assert.ok(body.includes("Do not relaunch it or count it toward the error allowance"));
+            },
+            "does not spend an iteration on worker relaunch"(body) {
+                Assert.ok(body.includes("stays in the current iteration and does not consume a new iteration"));
+            },
+            "keeps the current later-iteration resume or fresh form on relaunch"(body) {
+                Assert.ok(body.includes("resume the retained worker session when its identifier is available, otherwise use the fresh fallback defined below"));
+            }
+        }
+    });
+
+    test("builds every worker iteration from the standard core and preserves session continuity when available", {
+        ARRANGE() {},
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "fills only real iteration-one placeholders"(body) {
+                const start = body.indexOf("On iteration 1,");
+                const end = body.indexOf("Use the resulting core as the fresh worker prompt:", start);
+                const instructions = body.slice(start, end);
+                Assert.strictEqual(instructions.includes("briefing paths"), false);
+                Assert.strictEqual(instructions.includes("replace the iteration"), false);
+                Assert.ok(instructions.includes("Iteration 1 has no previous-iteration briefing."));
+            },
+            "captures the first session identifier"(body) {
+                Assert.ok(body.includes("Capture and retain the worker session identifier surfaced during iteration 1."));
+            },
+            "uses Claude's resume form"(body) {
+                Assert.ok(body.includes("Resume with `--resume <session-id>`."));
+            },
+            "uses Codex's resume form"(body) {
+                Assert.ok(body.includes("Resume through `codex exec resume <session-id>`"));
+            },
+            "uses the same worker core on every later iteration"(body) {
+                Assert.ok(body.includes("Build every later iteration's prompt from the same worker core"));
+            },
+            "does not re-inject the request"(body) {
+                Assert.ok(body.includes("Do not inject, summarize, or repeat the resolved request or previously supplied reference content."));
+            },
+            "retains every standard path and global list"(body) {
+                Assert.ok(body.includes("reuse the same build, test, and hard-stop paths; inject the current three complete namespace lists"));
+            },
+            "briefing identifies the new iteration and prior problem"(body) {
+                Assert.ok(body.includes("names the current iteration, states that the previous iteration produced a problem to review whose cause must be addressed as part of this iteration's work"));
+            },
+            "briefing points to the full error context"(body) {
+                Assert.ok(body.includes("points to the main folder's `error.log` for the full context"));
+            },
+            "resumes when a session identifier exists"(body) {
+                Assert.ok(body.includes("When a retained session identifier is available, launch every later iteration by resuming that session"));
+            },
+            "falls back to a fresh later invocation without a session identifier"(body) {
+                Assert.ok(body.includes("If no identifier was captured, launch the same later-iteration prompt as a fresh invocation"));
+            },
+            "fresh fallback retains the standard methodology and paths"(body) {
+                Assert.ok(body.includes("the global lists, gate paths, hard-stop path, full methodology, and briefing remain present"));
+            },
+            "fresh fallback can reread needed project files"(body) {
+                Assert.ok(body.includes("it may reread the project files it needs"));
+            },
+            "retains a replacement session identifier"(body) {
+                Assert.ok(body.includes("retain the replacement for subsequent launches"));
+            }
+        }
+    });
+
+    test("runs the six ordered cycle stages with a fixed five-iteration cap", {
+        ARRANGE() {},
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "starts iteration at zero with maximum five"(body) {
+                Assert.ok(body.includes("Set `iteration` to 0 and the fixed maximum to 5."));
+            },
+            "hard-stops after five"(body) {
+                Assert.ok(body.includes("If it is greater than 5, enter the iteration-cap hard stop."));
+            },
+            "stages all changes after worker"(body) {
+                Assert.ok(body.includes("Otherwise run `git add -A`."));
+            },
+            "runs build before test"(body) {
+                Assert.ok(body.indexOf("3. **Build.**") < body.indexOf("4. **Test.**"));
+            },
+            "passes an undetermined build gate"(body) {
+                Assert.ok(body.includes("If the build script is absent or empty, pass this gate."));
+            },
+            "passes an undetermined test gate"(body) {
+                Assert.ok(body.includes("A missing or empty script passes"));
+            },
+            "writes a failed stage to the briefing"(body) {
+                Assert.ok(body.includes("overwrite the main `error.log` with both streams"));
+            },
+            "restarts after a failed review"(body) {
+                Assert.ok(body.includes("records each violating reviewer's content as this iteration's review-stage history, and restarts at step 1"));
+            },
+            "runs commit only after review passes"(body) {
+                Assert.ok(body.indexOf("5. **Adversarial review.**") < body.indexOf("6. **Commit.**"));
+            }
+        }
+    });
+
+    test("runs the weighted concurrent reviewer round from isolated verdict files", {
+        ARRANGE() {},
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "deletes every verdict file before launch"(body) {
+                Assert.ok(body.includes("Before every reviewer process launch or relaunch"));
+            },
+            "deletes the reviewer verdict file across every relaunch cause"(body) {
+                Assert.ok(body.includes("after an error, usage-limit wait, or successful completion without a verdict file — delete that reviewer's own `error.log` so it is absent"));
+            },
+            "gives each reviewer its own verdict path and write instruction"(body) {
+                Assert.ok(body.includes("that reviewer's own verdict path and instruction to append violations there or create it empty on pass"));
+            },
+            "launches all reviewers concurrently"(body) {
+                Assert.ok(body.includes("launch all reviewers concurrently"));
+            },
+            "captures each reviewer process output in the main folder"(body) {
+                Assert.ok(body.includes("Stream each process into its per-iteration reviewer output log in the main folder."));
+            },
+            "inspects each reviewer file after successful completion"(body) {
+                Assert.ok(body.includes("After each reviewer completes successfully, inspect only its own verdict file"));
+            },
+            "relaunches a missing-file reviewer without a cap"(body) {
+                Assert.ok(body.includes("Relaunch that reviewer fresh, without a maximum count"));
+            },
+            "does not consume an iteration for a missing verdict"(body) {
+                Assert.ok(body.includes("without consuming an iteration"));
+            },
+            "requires no running reviewer"(body) {
+                Assert.ok(body.includes("Complete only when no reviewer is running"));
+            },
+            "requires every required verdict"(body) {
+                Assert.ok(body.includes("every required reviewer has a verdict"));
+            },
+            "requires the configured minimum"(body) {
+                Assert.ok(body.includes("at least `minimumReviews` reviewers have verdicts"));
+            },
+            "cancels only still-waiting optional reviewers"(body) {
+                Assert.ok(body.includes("cancel every still-waiting optional reviewer"));
+            },
+            "never cancels a required reviewer"(body) {
+                Assert.ok(body.includes("Never cancel a required reviewer."));
+            },
+            "concatenates in configured order with newlines"(body) {
+                Assert.ok(body.includes("in configured order, join all contents unconditionally with one newline between files"));
+            },
+            "trims and tests the aggregate once"(body) {
+                Assert.ok(body.includes("trim the joined string, and test that single string once"));
+            }
+        }
+    });
+
+    test("commits accepted work and reports committed success", {
+        ARRANGE() {},
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "stages the whole tree at commit"(body) {
+                Assert.ok(body.includes("Run `git add -A`, derive an English single-line message"));
+            },
+            "derives the summary from the request"(body) {
+                Assert.ok(body.includes("from the request that summarizes the work performed"));
+            },
+            "allows an empty commit"(body) {
+                Assert.ok(body.includes("run `git commit --allow-empty`"));
+            },
+            "cycles on commit failure"(body) {
+                Assert.ok(body.includes("records commit-stage history, and restarts at step 1"));
+            },
+            "reports what was implemented"(body) {
+                Assert.ok(body.includes("report what was implemented"));
+            },
+            "reports that it is committed"(body) {
+                Assert.ok(body.includes("that the result is committed"));
+            },
+            "keeps both commit messages English"(body) {
+                Assert.ok(body.includes("This is independent of the code the worker writes and of the English commit messages."));
+            }
+        }
+    });
+
+    test("diagnoses iteration and worker hard stops before asking for a next skill", {
+        ARRANGE() {},
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "diagnoses immediately without asking first"(body) {
+                Assert.ok(body.includes("Diagnose this stop immediately in the same execution, without asking the user first."));
+            },
+            "uses the shared diagnosis procedure"(body) {
+                Assert.ok(body.includes(hardStopDiagnosisCore));
+            },
+            "identifies the request that hard-stopped"(body) {
+                Assert.ok(body.includes("Present the resolved request as the work that hard-stopped"));
+            },
+            "reproduces the worker declaration facts"(body) {
+                Assert.ok(body.includes("reproduce verbatim the structural cause, evidence, and proposed unblocker recorded in the main `hard-stop.log`"));
+            },
+            "reports the worker declaration path"(body) {
+                Assert.ok(body.includes("report that file's exact path"));
+            },
+            "verifies the worker declaration independently"(body) {
+                Assert.ok(body.includes("treat the declaration as evidence and still perform the independent diagnosis"));
+            },
+            "recommends spec for a contract or rule defect"(body) {
+                Assert.ok(body.includes("Recommend `/flanders-spec` when a defective or ambiguous contract or rule caused the stop."));
+            },
+            "recommends plan for an oversized request"(body) {
+                Assert.ok(body.includes("Recommend `/flanders-plan` when the evidence shows the request is too large for one task"));
+            },
+            "states a narrower implement reinvocation without launching"(body) {
+                Assert.ok(body.includes("state how to re-invoke `/flanders-implement` with that narrower request and recommend neither skill"));
+            },
+            "states an unchanged retry without launching"(body) {
+                Assert.ok(body.includes("when the remedy is to repeat unchanged, say so and recommend neither"));
+            },
+            "asks the launch choice as plain chat text"(body) {
+                Assert.ok(body.includes("a plain-text question asking which skill to launch — /flanders-spec, /flanders-plan, or neither"));
+            },
+            "keeps the diagnosis and launch question in one message"(body) {
+                Assert.ok(body.includes("End the same chat message that carries the diagnosis with"));
+            },
+            "launches a chosen next skill in the same session without data"(body) {
+                Assert.ok(body.includes("launch that skill in this same session with no `<data>` argument"));
+            }
+        }
+    });
+
+    test("handles authentication hard stop without work diagnosis", {
+        ARRANGE() {},
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "skips diagnosis"(body) {
+                Assert.ok(body.includes("Do not diagnose or identify the work"));
+            },
+            "skips the launch question"(body) {
+                Assert.ok(body.includes("do not ask a launch question"));
+            },
+            "reports the configured tool is not logged in"(body) {
+                Assert.ok(body.includes("Report that the configured AI tool is not logged in"));
+            },
+            "asks the user to log in and reinvoke"(body) {
+                Assert.ok(body.includes("tell the user to log in and re-invoke `/flanders-implement`"));
+            },
+            "preserves temporary folders"(body) {
+                Assert.ok(body.includes("end with every temporary folder preserved"));
+            },
+            "reports the preserved main folder path"(body) {
+                Assert.ok(body.includes("give the preserved main temporary folder's exact path"));
+            }
+        }
+    });
+
+    test("cleans ordinary endings and materializes every hard-stop failure history shape", {
+        ARRANGE() {},
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "cleans every non-hard-stop ending"(body) {
+                Assert.ok(body.includes("register it for automatic cleanup on every ending that is not a hard stop"));
+            },
+            "registers cleanup as each folder is created"(body) {
+                Assert.ok(body.includes("Immediately after creating each folder"));
+            },
+            "suppresses cleanup on hard stop"(body) {
+                Assert.ok(body.includes("A hard stop suppresses all cleanup and preserves every folder."));
+            },
+            "materializes build history"(body) {
+                Assert.ok(body.includes("`build.<iteration>.error.log` for each failed build stage"));
+            },
+            "materializes test history"(body) {
+                Assert.ok(body.includes("`test.<iteration>.error.log` for each failed test stage"));
+            },
+            "materializes commit history"(body) {
+                Assert.ok(body.includes("`commit.<iteration>.error.log` for each failed commit stage"));
+            },
+            "materializes only violating reviewer histories"(body) {
+                Assert.ok(body.includes("`reviewer.<iteration>.<position>.error.log` for each reviewer that recorded violations"));
+            },
+            "removes the briefing before preservation"(body) {
+                Assert.ok(body.includes("then delete the briefing `error.log`"));
+            },
+            "preserves all folders after materialization"(body) {
+                Assert.ok(body.includes("Preserve the main and every reviewer folder after materialization."));
+            },
+            "reports the main folder path for every hard stop"(body) {
+                Assert.ok(body.includes("For every hard stop, report the main temporary folder's exact path"));
+            }
+        }
+    });
+
+    test("enforces all project write boundaries", {
+        ARRANGE() {},
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "keeps this session from project code and tests"(body) {
+                Assert.ok(body.includes("it edits no project code or test and performs no worker or reviewer pass"));
+            },
+            "forbids all governed spec folders"(body) {
+                Assert.ok(body.includes("Neither this session nor the detect agent, worker, or any reviewer creates, modifies, deletes, or renames a file inside any `.spec/contracts`, `.spec/rules`, or `.spec/flanders` directory"));
+            },
+            "forbids plan writes"(body) {
+                Assert.ok(body.includes("or inside `plans/`"));
             },
             "writes no Flanders configuration"(body) {
-                Assert.ok(body.includes("Write nothing to \`.flanders/\`. The skill consumes no configuration and produces none."), "must write no Flanders configuration");
+                Assert.ok(body.includes("The skill never writes inside `.flanders/`."));
+            },
+            "keeps reviewers inspection-only"(body) {
+                Assert.ok(body.includes("reviewers are inspection-only"));
+            },
+            "limits detect writes to the scripts"(body) {
+                Assert.ok(body.includes("detect writes only the two chosen scripts"));
             }
         }
     });
 
-    test("contains no instruction for the in-session worker to produce an Evidence Report", {
-        ARRANGE() {},
-        ACT() { return workSkillBody; },
-        ASSERT(body) {
-            Assert.ok(!body.includes("Evidence Report"), "must contain no instruction to produce an Evidence Report");
-        }
-    });
-
-    test("carries the interaction-language obligation resolved independently of the code it writes", {
-        ARRANGE() {},
-        ACT() { return workSkillBody; },
-        ASSERTS: {
-            "has interaction language heading"(body) {
-                Assert.ok(body.includes("## Interaction language"), "must have interaction language section");
-            },
-            "user-facing messages follow the language of the user's most recent message"(body) {
-                Assert.ok(body.includes("the natural language of the user's most recent message in the conversation"), "must state user-facing messages follow the language of the user's most recent message");
-            },
-            "follows a mid-conversation language switch"(body) {
-                Assert.ok(body.includes("every subsequent message you address to the user follows the language of their latest message"), "must state the language follows a mid-conversation switch");
-            },
-            "resolved independently of the code written"(body) {
-                Assert.ok(body.includes("This is resolved independently of the code you write"), "must state the interaction language is resolved independently of the code written");
-            },
-            "never governs the language or content of the code produced"(body) {
-                Assert.ok(body.includes("never the language or content of the code you produce"), "must state it never governs the language or content of the code produced");
-            }
-        }
-    });
-
-    test("carries the code-comment discipline byte-equal, routed to the chat report", {
+    test("is self-contained and removes the former published name from every skill body", {
         ARRANGE() {
-            return { expected: expectedCodeCommentEconomy("the report you give the user in chat") };
+            return {
+                removedName: "flanders" + "-work",
+                bodies: [planSkillBody, specSkillBody, implementSkillBody, hardStopReviewSkillBody]
+            };
         },
-        ACT() { return workSkillBody; },
+        ACT({ bodies }) { return bodies; },
         ASSERTS: {
-            "the block renders byte-equal with the chat-report channel"(body, { expected }) {
-                const start = body.indexOf("Code comments:");
-                const end = body.indexOf("\n\n", start);
-                Assert.strictEqual(body.substring(start, end), expected);
+            "contains no internal spec-file citation"(bodies) {
+                for (const body of bodies) {
+                    Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(body), false);
+                }
             },
-            "the discipline sits in the work section, ahead of the build and test gate"(body) {
-                Assert.ok(body.indexOf("Code comments:") > body.indexOf("## Performing the work"), "the discipline must sit inside the work section");
-                Assert.ok(body.indexOf("Code comments:") < body.indexOf("## Build and test"), "the discipline must precede the build and test section");
+            "contains no former published name"(bodies, { removedName }) {
+                for (const body of bodies) {
+                    Assert.strictEqual(body.includes(removedName), false);
+                }
             },
-            "the discipline is not routed to the implement worker's Evidence Report"(body) {
-                Assert.strictEqual(body.includes("belong in your Evidence Report"), false);
+            "plan names implement as the skill it does not launch"(bodies) {
+                Assert.ok(bodies[0]!.includes("including /flanders-implement"));
             },
-            "the discipline carries no flanders-internal spec-path citation"(body) {
-                const start = body.indexOf("Code comments:");
-                const block = body.substring(start, body.indexOf("\n\n", start));
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(block), false);
-                Assert.strictEqual(block.includes(".md"), false);
+            "spec offers implement as the small-change next step"(bodies) {
+                Assert.ok(bodies[1]!.includes("recommend /flanders-implement when the spec describes a single, small, self-contained change"));
             }
         }
     });
 
-    test("the embedded citation-free reviewer core carries the comment-adjudication paragraph", {
-        ARRANGE() {},
-        ACT() { return { body: workSkillBody, core: reviewerMethodologyCore }; },
-        ASSERTS: {
-            "workSkillBody carries the comment-adjudication paragraph verbatim"({ body }) {
-                Assert.ok(body.includes(COMMENT_ADJUDICATION_PARAGRAPH), "workSkillBody must carry the citation-free comment-adjudication paragraph verbatim");
-            },
-            "reviewerMethodologyCore carries the same comment-adjudication paragraph verbatim"({ core }) {
-                Assert.ok(core.includes(COMMENT_ADJUDICATION_PARAGRAPH), "reviewerMethodologyCore must carry the comment-adjudication paragraph verbatim");
-            },
-            "the paragraph confines the reviewer to the comments the change set touched"({ body }) {
-                Assert.ok(body.includes("comments in files the change set does not touch — or that a touched file carried unmodified — are out of scope"), "the paragraph must confine the adjudication to added or modified comments");
-            },
-            "the paragraph exempts only the content a project rule requires and judges the rest"({ body }) {
-                Assert.ok(body.includes("The content a rule of the project requires at that construct is never a violation, and any further content the same comment carries beyond what the rule requires is judged by the same test as any other comment"), "the paragraph must exempt only the required content and judge any further content the comment carries");
-            }
-        }
-    });
-
-    test("addresses the user in the soft Flanders voice excluding the code it writes", {
+    test("carries interaction language and the skill-specific voice exclusion", {
         ARRANGE() {
-            return { voice: expectedSkillVoice("the code you write") };
+            return {
+                voice: expectedSkillVoice("the code your worker writes and the violation entries your reviewers record")
+            };
         },
-        ACT() { return workSkillBody; },
+        ACT() { return implementSkillBody; },
         ASSERTS: {
-            "contains the user-facing tone instruction verbatim with the code exclusion"(body, { voice }) {
-                Assert.ok(body.includes(voice), "workSkillBody must contain the user-facing Flanders-voice section verbatim, excluding the code it writes");
+            "has the interaction-language section"(body) {
+                Assert.ok(body.includes("## Interaction language"));
             },
-            "names no sample greeting exemplar anywhere in the body"(body) {
-                Assert.strictEqual(body.includes(`"neighbor"`), false);
+            "uses the user's most recent language"(body) {
+                Assert.ok(body.includes("natural language of the user's most recent message"));
             },
-            "names no sample interjection exemplar anywhere in the body"(body) {
+            "follows language switches"(body) {
+                Assert.ok(body.includes("When the user switches language, every subsequent message follows the latest message."));
+            },
+            "contains the exact skill voice section"(body, { voice }) {
+                Assert.ok(body.includes(voice));
+            },
+            "contains no sample mannerism"(body) {
                 Assert.strictEqual(body.includes(`"okely-dokely"`), false);
-            },
-            "names no sample suffix exemplar anywhere in the body"(body) {
-                Assert.strictEqual(body.includes(`"-diddly-"`), false);
-            },
-            "the tone instruction excludes machine-read tokens"(body) {
-                Assert.ok(userFacingVoiceSection(body).includes("machine-read tokens"), "the tone instruction must keep the flavor out of machine-read tokens");
-            },
-            "the tone instruction excludes git commit messages"(body) {
-                Assert.ok(userFacingVoiceSection(body).includes("git commit messages"), "the tone instruction must keep the flavor out of git commit messages");
-            },
-            "the tone instruction cites no flanders-internal spec path"(body) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(userFacingVoiceSection(body)), false);
-            }
-        }
-    });
-
-    test("the reviewer-prompt assembly carries the narration-only tone instruction with exact verdict mechanics", {
-        ARRANGE() {
-            return { reviewerTone: flandersToneInstruction(true) };
-        },
-        ACT() { return workSkillBody; },
-        ASSERTS: {
-            "lists the tone instruction as the fifth assembly part"(body) {
-                Assert.ok(body.includes("5. The narration-only tone instruction below, verbatim."), "the reviewer-prompt assembly must list the tone instruction as its fifth part");
-            },
-            "embeds the narration-only reviewer tone instruction verbatim"(body, { reviewerTone }) {
-                Assert.ok(body.includes(reviewerTone), "the reviewer-prompt assembly must embed the narration-only tone instruction verbatim");
-            },
-            "carves the flavor out of machine-read tokens, git commit messages, and the recorded violation entries"(body) {
-                Assert.ok(body.includes("machine-read tokens, git commit messages, and the violation entries you record in your error-log file."), "the reviewer tone instruction must keep the flavor out of machine-read tokens, git commit messages, and the recorded violation entries");
-            },
-            "keeps the verdict-file mechanics in the methodology, not the tone instruction"(body) {
-                Assert.ok(body.includes("The orchestrator does not parse your output for a verdict token."), "the reviewer-prompt methodology must keep the verdict-file mechanics exact");
-                Assert.strictEqual(body.includes("The flavor never changes how you record your verdict"), false);
-            }
-        }
-    });
-
-    test("self-contained body: no flanders-internal citations and no deferral to a spec file", {
-        ARRANGE() {},
-        ACT() { return workSkillBody; },
-        ASSERTS: {
-            "no path under contracts/, rules/, flanders/, or plans/ names a specific .md file"(body) {
-                Assert.strictEqual(
-                    INTERNAL_SPEC_PATH_CITATION.test(body),
-                    false
-                );
-            },
-            "does not defer an obligation to a spec file"(body) {
-                Assert.ok(!body.includes("the full obligation lives in"), "must not defer an obligation to a spec file");
-            },
-            "does not name the work-skill contract file"(body) {
-                Assert.ok(!body.includes("work-skill.md"), "must not name the work-skill contract file");
-            },
-            "does not name the reviewer-hosted rule file"(body) {
-                Assert.ok(!body.includes("reviewer-hosted-as-in-session-subagent.md"), "must not name the reviewer-hosted rule file");
-            },
-            "does not name the review-loop rule file"(body) {
-                Assert.ok(!body.includes("review-loop-driven-by-error-log-presence.md"), "must not name the review-loop rule file");
-            },
-            "does not name the finalization rule file"(body) {
-                Assert.ok(!body.includes("finalization-without-commit-or-plan.md"), "must not name the finalization rule file");
-            },
-            "does not name the flanders-config contract file"(body) {
-                Assert.ok(!body.includes("flanders-config.md"), "must not name the flanders-config contract file");
-            },
-            "does not name the spec-folder-write-authority contract file"(body) {
-                Assert.ok(!body.includes("spec-folder-write-authority.md"), "must not name the spec-folder-write-authority contract file");
-            }
-        }
-    });
-
-    test("states the spec-folder write boundary binding the work and the reviewer", {
-        ARRANGE() {},
-        ACT() { return workSkillBody; },
-        ASSERTS: {
-            "binds both the work and the reviewer subagent"(body) {
-                Assert.ok(body.includes("Neither the work you perform nor the reviewer subagent creates, modifies, deletes, or renames any file inside any \`.spec/contracts\` folder, any \`.spec/rules\` folder, any \`.spec/flanders\` folder, or the \`plans/\` folder."), "must forbid the work and the reviewer from writing inside .spec/contracts, .spec/rules, .spec/flanders, or plans/");
-            },
-            "allows reading the spec corpus but never writing to it"(body) {
-                Assert.ok(body.includes("consult them freely but never write to them"), "must allow consulting the spec corpus but never writing to it");
-            }
-        }
-    });
-
-    test("the embedded reviewer prompt states the git and foreground boundaries citation-free", {
-        ARRANGE() {},
-        ACT() { return workSkillBody; },
-        ASSERTS: {
-            "states the read-only git boundary"(body) {
-                Assert.ok(body.includes("It runs only read-only git commands"), "must state the reviewer runs only read-only git commands");
-            },
-            "forbids commands that mutate repository state"(body) {
-                Assert.ok(body.includes("never a command that mutates repository state"), "must forbid commands that mutate repository state");
-            },
-            "states the foreground boundary"(body) {
-                Assert.ok(body.includes("It runs every command it executes in the foreground and keeps its turn active until that command finishes"), "must state the reviewer runs every command in the foreground");
-            },
-            "forbids backgrounding a command"(body) {
-                Assert.ok(body.includes("never starts a command in the background, never detaches one, and never ends its turn while a spawned command is still running"), "must forbid backgrounding or detaching a command");
-            }
-        }
-    });
-
-    test("has no unresolved placeholders or TODOs", {
-        ARRANGE() {},
-        ACT() { return workSkillBody; },
-        ASSERTS: {
-            "does not contain TODO"(body) {
-                Assert.ok(!body.includes("TODO"), "must not contain TODO");
-            },
-            "does not contain {{ placeholders"(body) {
-                Assert.ok(!body.includes("{{"), "must not contain {{ placeholders");
-            },
-            "does not contain }} placeholders"(body) {
-                Assert.ok(!body.includes("}}"), "must not contain }} placeholders");
             }
         }
     });

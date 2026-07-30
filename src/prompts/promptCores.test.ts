@@ -3,7 +3,14 @@ import { createHash } from "crypto";
 
 import test from "arrange-act-assert";
 
-import { detectBuildAndTestPromptCore, hardStopDiagnosisCore, prompts, workerPromptCore } from "./prompts";
+import {
+    detectBuildAndTestPromptCore,
+    flandersEntryPointBoundary,
+    hardStopDiagnosisCore,
+    prompts,
+    reviewerMethodologyCore,
+    workerPromptCore
+} from "./prompts";
 import { hardStopReviewSkillBody } from "./skills";
 
 const FLANDERS_INTERNAL_SPEC_CITATION = /(?:\.spec[\\/](?:contracts|rules|flanders)|plans)[\\/][A-Za-z0-9]|(?:rules[\\/]ai[\\/]agents[\\/](?:no-git-writes|no-background-commands)|shared[\\/]spec-folder-write-authority)\.md/i;
@@ -14,7 +21,7 @@ function sha256(value:string):string {
 }
 
 test.describe("citation-free prompt cores", test => {
-    test("preserves the existing command and hard-stop-review outputs byte for byte", {
+    test("preserves the existing command scaffolding outside the entry-point boundary and the hard-stop-review output byte for byte", {
         ARRANGE() {
             return {
                 workerDigest: "6c91263ac47f149b5ade0ba788308a4b2f8cb520771c346c423665da0850b43e",
@@ -24,16 +31,16 @@ test.describe("citation-free prompt cores", test => {
         },
         ACT() {
             return {
-                workerDigest: sha256(prompts.worker),
-                detectionDigest: sha256(prompts.detectBuildAndTest),
+                workerDigest: sha256(prompts.worker.replace(`${flandersEntryPointBoundary("your Evidence Report")}\n\n`, "")),
+                detectionDigest: sha256(prompts.detectBuildAndTest.replace(`${flandersEntryPointBoundary("your final report")}\n\n`, "")),
                 hardStopReviewDigest: sha256(hardStopReviewSkillBody)
             };
         },
         ASSERTS: {
-            "prompts.worker remains byte-identical"({ workerDigest }, expected) {
+            "prompts.worker changes only by the new boundary"({ workerDigest }, expected) {
                 Assert.strictEqual(workerDigest, expected.workerDigest);
             },
-            "prompts.detectBuildAndTest remains byte-identical"({ detectionDigest }, expected) {
+            "prompts.detectBuildAndTest changes only by the new boundary"({ detectionDigest }, expected) {
                 Assert.strictEqual(detectionDigest, expected.detectionDigest);
             },
             "hardStopReviewSkillBody remains byte-identical"({ hardStopReviewDigest }, expected) {
@@ -42,12 +49,13 @@ test.describe("citation-free prompt cores", test => {
         }
     });
 
-    test("exports three non-empty cores without internal file paths or plan-specific framing", {
+    test("exports four non-empty cores without internal file paths or plan-specific framing", {
         ARRANGE() {},
         ACT() {
             return {
                 worker: workerPromptCore,
                 detection: detectBuildAndTestPromptCore,
+                reviewer: reviewerMethodologyCore,
                 diagnosis: hardStopDiagnosisCore
             };
         },
@@ -58,6 +66,9 @@ test.describe("citation-free prompt cores", test => {
             "the detection core is non-empty"({ detection }) {
                 Assert.ok(detection.length > 0);
             },
+            "the reviewer core is non-empty"({ reviewer }) {
+                Assert.ok(reviewer.length > 0);
+            },
             "the diagnosis core is non-empty"({ diagnosis }) {
                 Assert.ok(diagnosis.length > 0);
             },
@@ -67,6 +78,9 @@ test.describe("citation-free prompt cores", test => {
             "the detection core carries no Flanders-internal spec citation"({ detection }) {
                 Assert.strictEqual(FLANDERS_INTERNAL_SPEC_CITATION.test(detection), false);
             },
+            "the reviewer core carries no Flanders-internal spec citation"({ reviewer }) {
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_CITATION.test(reviewer), false);
+            },
             "the diagnosis core carries no Flanders-internal spec citation"({ diagnosis }) {
                 Assert.strictEqual(FLANDERS_INTERNAL_SPEC_CITATION.test(diagnosis), false);
             },
@@ -75,6 +89,9 @@ test.describe("citation-free prompt cores", test => {
             },
             "the detection core carries no plan-file or plan-task framing"({ detection }) {
                 Assert.strictEqual(PLAN_SPECIFIC_REFERENCE.test(detection), false);
+            },
+            "the reviewer core carries no plan-file or plan-task framing"({ reviewer }) {
+                Assert.strictEqual(PLAN_SPECIFIC_REFERENCE.test(reviewer), false);
             },
             "the diagnosis core carries no plan-file or plan-task framing"({ diagnosis }) {
                 Assert.strictEqual(PLAN_SPECIFIC_REFERENCE.test(diagnosis), false);
@@ -98,10 +115,15 @@ test.describe("workerPromptCore", test => {
                 Assert.ok(core.includes("3. A rule referenced by the task is not actively applied"));
             },
             "fails when an applicable global contract or rule is not applied"(core) {
-                Assert.ok(core.includes("4. A contract or rule from the global lists below that the reviewer determines should have been applied but was not"));
+                Assert.ok(core.includes("4. A contract or rule from the global lists above that the reviewer determines should have been applied but was not"));
             },
             "fails when an enclosing behavior rule is not honored"(core) {
-                Assert.ok(core.includes("5. A behavior rule from the behavior-rule list below whose `.spec/flanders` scope encloses the files your changes touch is not honored"));
+                Assert.ok(core.includes("5. A behavior rule from the behavior-rule list above whose `.spec/flanders` scope encloses the files your changes touch is not honored"));
+            },
+            "places all three reference lists above the methodology"(core) {
+                Assert.ok(core.indexOf("## Available contracts") < core.indexOf("## Adversarial review awaits")
+                    && core.indexOf("## Available rules") < core.indexOf("## Adversarial review awaits")
+                    && core.indexOf("## Available behavior rules") < core.indexOf("## Adversarial review awaits"));
             }
         }
     });

@@ -46,6 +46,10 @@ function buildSpecFolderWriteBoundary(authority:string):string {
 const specFolderWriteBoundary = buildSpecFolderWriteBoundary("These folders are governed by dedicated skills and the implement command's bounded checkpoint updates; no other agent may write to them. See shared/spec-folder-write-authority.md for the full obligation.");
 const citationFreeSpecFolderWriteBoundary = buildSpecFolderWriteBoundary("These folders are governed by dedicated skills and bounded orchestration updates; no agent may write to them.");
 
+export function flandersEntryPointBoundary(reportingChannel:string):string {
+    return `Flanders entry-point boundary: do not invoke any Flanders skill in your AI tool or run any Flanders CLI command, directly or indirectly: not as a slash command; not through a skill-invocation tool, package runner, script, or wrapper that reaches either entry point; and not by asking another agent or process to do so. You already run inside a Flanders execution: invoking its implementation skill or implementation command would nest a new cycle inside the one you serve, while installing or updating mid-flight would rewrite the skill artifacts this execution is running from. If you conclude that an entry point owns needed work, report that need through ${reportingChannel}, continue with what your role can do, and leave invocation to the user.`;
+}
+
 // Both prompts that author source code write under adversarial review that demands visible
 // compliance at a named `file:line`; without an alternative the only channel they have for that is a
 // comment in the diff, so `channel` names where the justification goes instead. The text stays
@@ -81,6 +85,7 @@ export interface ReviewerMethodologySurface {
     nextWorkerActor: string;
     errorLogPlain: string;
     baseline: string;
+    flandersEntryPointBoundary: string;
 }
 
 // The surface-agnostic adversarial-reviewer methodology, shared across every Flanders
@@ -131,6 +136,8 @@ b. For each enumerated item, confirm ${s.ownerChangesEvidence} actually satisfy 
 You apply no test-adequacy, coverage, or regression standard of your own: you require a test, a particular assertion, or a regression guard for an enumerated item only where a contract or rule in scope requires one, and you then enforce that requirement as you enforce any other rule under conditions 3 and 4.
 
 You are inspection-only: you make no edit and run no operation that generates files. Compiling the project and running its tests both generate files, so you run neither the build command nor the test command — not directly, not through the project's package manager, and not through any wrapper. The build and test gates already passed against these changes before this review started, so you take the build as succeeding and the tests as passing without running them, and you confirm a claim one of those gates would catch by naming that already-passed gate or test instead of executing it. The only commands you run are the read-only git operations that derive the change set.
+
+${s.flandersEntryPointBoundary}
 
 ## Review protocol
 
@@ -192,7 +199,8 @@ const implementReviewerSurface: ReviewerMethodologySurface = {
 
 <run-baseline>
 ${Placeholders.RUN_BASELINE}
-</run-baseline>`
+</run-baseline>`,
+    flandersEntryPointBoundary: flandersEntryPointBoundary("a violation entry in your own verdict file, not your streamed output, which the orchestrator does not parse")
 };
 
 // The surface-neutral, citation-free instantiation: this is the shared reviewer-methodology
@@ -219,7 +227,12 @@ const citationFreeReviewerSurface: ReviewerMethodologySurface = {
     errorLogPath: "the error-log file",
     nextWorkerActor: "the next round of work",
     errorLogPlain: "the error-log file",
-    baseline: "The baseline is the latest commit (`HEAD`), so subtraction keeps every uncommitted change, whether or not this session produced it."
+    baseline: `Use this fixed run snapshot, captured before the first worker invocation, to separate inherited content from work produced by the cycle:
+
+<run-baseline>
+${Placeholders.RUN_BASELINE}
+</run-baseline>`,
+    flandersEntryPointBoundary: flandersEntryPointBoundary("a violation entry in your own verdict file, not your streamed output, which the orchestrator does not parse")
 };
 
 const implementReviewerMethodology = buildReviewerMethodology(implementReviewerSurface);
@@ -233,7 +246,7 @@ ${citationFreeReviewerMethodology.audit}`;
 // The shared Flanders-voice instruction, kept as the single source so a tone fix cannot drift between
 // the agent prompts and the skill bodies. Every surface composes its section from
 // `buildFlandersVoiceSection`: the implement worker and reviewer prompts (via `flandersToneInstruction`
-// below) and the four skill bodies plus the /flanders-work reviewer prompt assembled in skills.ts.
+// below) and the four skill bodies plus the /flanders-implement reviewer prompt assembled in skills.ts.
 // The instruction trusts a capable model to know the voice: it fixes only what would otherwise break —
 // English-only and the technical surfaces the flavor must never touch. The language gate must lead the
 // sentence, before the touch is introduced: a persona-first form with the gate trailing as a qualifier
@@ -272,11 +285,13 @@ export function flandersToneInstruction(reviewer: boolean): string {
 export interface WorkerPromptSurface {
     introduction: string;
     taskSection: string;
+    referenceListsPlacement: "before-methodology" | "after-methodology";
     readTaskInstruction: string;
     hardStopDeclaration: string;
     checkpointInstruction: string;
     gitBoundary: string;
     specFolderWriteBoundary: string;
+    flandersEntryPointBoundary: string;
     reportingChannel: string;
     foregroundBoundary: string;
     toneInstruction: string;
@@ -287,10 +302,35 @@ function buildWorkerGitBoundary(commitDisposition:string, citation:string):strin
 }
 
 export function buildWorkerPrompt(s:WorkerPromptSurface):string {
+    const referenceLists = `## Available contracts
+
+Each path below is the contract's namespace. Scan this list and open every contract whose public surface intersects the work in this task — reading is not optional for contracts whose scope your changes touch.
+
+${Placeholders.CONTRACT_LIST}
+
+## Available rules
+
+Each path below is the rule's namespace. Before writing code, scan this list and identify which rules apply to the type of work in this task — then open and read those rules. Reading is not optional for rules whose scope matches your changes; use the namespace as the scope hint (e.g., if you modify or add tests, open the applicable rules under a \`testing/\` subfolder; if you touch timers, listeners, controllers, or any async lifecycle, open the rules under a \`disposables/\` subfolder; if you change terminal UI, open the rules under a \`ui/\` subfolder).
+
+${Placeholders.RULE_LIST}
+
+## Available behavior rules
+
+Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes you author are named, placed, and organized within the part of the project tree that the rule's \`.spec/flanders\` folder scopes. You must honor every behavior rule whose \`.spec/flanders\` scope encloses the files your changes touch. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them.
+
+${Placeholders.BEHAVIOR_RULE_LIST}`;
+    const listsBeforeMethodology = s.referenceListsPlacement === "before-methodology"
+        ? `${referenceLists}\n\n`
+        : "";
+    const listsAfterMethodology = s.referenceListsPlacement === "after-methodology"
+        ? `\n\n${referenceLists}`
+        : "";
+    const listDirection = s.referenceListsPlacement === "before-methodology" ? "above" : "below";
     return `${s.introduction}
 
 ${s.taskSection}
 
+${listsBeforeMethodology}\
 ## Adversarial review awaits
 
 Your output will be inspected by an adversarial reviewer immediately after you finish. The reviewer is instructed to FAIL on ANY of:
@@ -298,8 +338,8 @@ Your output will be inspected by an adversarial reviewer immediately after you f
 1. The task spec is not satisfied.
 2. A contract referenced by the task is not honored.
 3. A rule referenced by the task is not actively applied — acknowledging a rule is not enough; the changes must demonstrate compliance.
-4. A contract or rule from the global lists below that the reviewer determines should have been applied but was not — even if the task did not reference it.
-5. A behavior rule from the behavior-rule list below whose \`.spec/flanders\` scope encloses the files your changes touch is not honored by the changes — in-scope behavior rules are mandatory whether or not the task links them.
+4. A contract or rule from the global lists ${listDirection} that the reviewer determines should have been applied but was not — even if the task did not reference it.
+5. A behavior rule from the behavior-rule list ${listDirection} whose \`.spec/flanders\` scope encloses the files your changes touch is not honored by the changes — in-scope behavior rules are mandatory whether or not the task links them.
 
 Condition 4 causes most rejections in practice. The reviewer will also enumerate every occurrence of a pattern violation, not just the first one, so partial compliance within a file is itself a FAIL.
 
@@ -330,29 +370,13 @@ ${s.gitBoundary}
 
 ${s.specFolderWriteBoundary}
 
+${s.flandersEntryPointBoundary}
+
 ${codeCommentEconomy(s.reportingChannel)}
 
 ${s.foregroundBoundary}
 
-${s.toneInstruction}
-
-## Available contracts
-
-Each path below is the contract's namespace. Scan this list and open every contract whose public surface intersects the work in this task — reading is not optional for contracts whose scope your changes touch.
-
-${Placeholders.CONTRACT_LIST}
-
-## Available rules
-
-Each path below is the rule's namespace. Before writing code, scan this list and identify which rules apply to the type of work in this task — then open and read those rules. Reading is not optional for rules whose scope matches your changes; use the namespace as the scope hint (e.g., if you modify or add tests, open the applicable rules under a \`testing/\` subfolder; if you touch timers, listeners, controllers, or any async lifecycle, open the rules under a \`disposables/\` subfolder; if you change terminal UI, open the rules under a \`ui/\` subfolder).
-
-${Placeholders.RULE_LIST}
-
-## Available behavior rules
-
-Each path below is a behavior rule's namespace. A behavior rule governs how the files and changes you author are named, placed, and organized within the part of the project tree that the rule's \`.spec/flanders\` folder scopes. You must honor every behavior rule whose \`.spec/flanders\` scope encloses the files your changes touch. Like the global contract and rule lists above, in-scope behavior rules are mandatory whether or not the task links them.
-
-${Placeholders.BEHAVIOR_RULE_LIST}`;
+${s.toneInstruction}${listsAfterMethodology}`;
 }
 
 const implementWorkerSurface:WorkerPromptSurface = {
@@ -364,6 +388,7 @@ The plan file is at ${Placeholders.PLAN_PATH}; you may open it for broader conte
 `## Your task
 
 ${Placeholders.TASK_TEXT}`,
+    referenceListsPlacement: "after-methodology",
     readTaskInstruction: "Read the task shown above and respect the obligations of every contract and rule it references exactly. You may consult those files, or the plan file for broader context, at your discretion.",
     hardStopDeclaration: `If you establish the task cannot reach a clean iteration through any implementation it authorizes — its acceptance criteria cannot be satisfied while honoring a contract or rule the task references or the design the plan prescribes, or closing the recorded review findings requires design decisions or work outside the task's scope — write a \`hard-stop.log\` file at ${Placeholders.HARD_STOP_LOG_PATH} stating the structural cause, the evidence (the criterion and the obligation or design statement in conflict), and the plan or spec change that would unblock the task, then end your turn without further implementation work. Ordinary difficulty, a failing gate, or findings you can still address within the task's scope never qualify.`,
     checkpointInstruction: "Do not flip the task's checkbox in the plan file. Flanders flips the checkbox itself once the implementation passes build, test, and adversarial review.",
@@ -372,6 +397,7 @@ ${Placeholders.TASK_TEXT}`,
         " The full obligation lives in rules/ai/agents/no-git-writes.md."
     ),
     specFolderWriteBoundary,
+    flandersEntryPointBoundary: flandersEntryPointBoundary("your Evidence Report"),
     reportingChannel: "your Evidence Report",
     foregroundBoundary,
     toneInstruction: flandersToneInstruction(false)
@@ -383,6 +409,7 @@ const citationFreeWorkerSurface:WorkerPromptSurface = {
 `## Work to implement
 
 ${Placeholders.TASK_TEXT}`,
+    referenceListsPlacement: "before-methodology",
     readTaskInstruction: "Read the work shown above and respect every applicable contract, rule, and behavior rule exactly. Consult the project's specs as needed.",
     hardStopDeclaration: `If you establish the task cannot reach a clean iteration through any implementation it authorizes — its stated outcome cannot be satisfied while honoring an applicable obligation or prescribed design, or closing the recorded review findings requires decisions or work outside the task's scope — write a \`hard-stop.log\` file at ${Placeholders.HARD_STOP_LOG_PATH} stating the structural cause, the evidence (the outcome and obligation or design statement in conflict), and the change to the request or project specs that would unblock the task, then end your turn without further implementation work. Ordinary difficulty, a failing gate, or findings you can still address within the task's scope never qualify.`,
     checkpointInstruction: "Leave orchestration checkpoints and task status unchanged; the orchestrator updates them only after build, test, and adversarial review pass.",
@@ -391,6 +418,7 @@ ${Placeholders.TASK_TEXT}`,
         ""
     ),
     specFolderWriteBoundary: citationFreeSpecFolderWriteBoundary,
+    flandersEntryPointBoundary: flandersEntryPointBoundary("your Evidence Report"),
     reportingChannel: "your Evidence Report",
     foregroundBoundary: citationFreeForegroundBoundary,
     toneInstruction: flandersToneInstruction(false)
@@ -403,6 +431,7 @@ export interface BuildTestDetectionSurface {
     introduction: string;
     gitBoundary: string;
     specFolderWriteBoundary: string;
+    flandersEntryPointBoundary: string;
     foregroundBoundary: string;
 }
 
@@ -434,6 +463,8 @@ ${s.gitBoundary}
 
 ${s.specFolderWriteBoundary}
 
+${s.flandersEntryPointBoundary}
+
 ${s.foregroundBoundary}`;
 }
 
@@ -441,6 +472,7 @@ const implementBuildTestDetectionSurface:BuildTestDetectionSurface = {
     introduction: "You are the build/test detection agent for the Flanders implement command.",
     gitBoundary: buildDetectionGitBoundary(" See rules/ai/agents/no-git-writes.md for the full obligation."),
     specFolderWriteBoundary,
+    flandersEntryPointBoundary: flandersEntryPointBoundary("your final report"),
     foregroundBoundary
 };
 
@@ -448,6 +480,7 @@ const citationFreeBuildTestDetectionSurface:BuildTestDetectionSurface = {
     introduction: "You are the build/test detection agent for a Flanders single-task cycle.",
     gitBoundary: buildDetectionGitBoundary(""),
     specFolderWriteBoundary: citationFreeSpecFolderWriteBoundary,
+    flandersEntryPointBoundary: flandersEntryPointBoundary("your final report"),
     foregroundBoundary: citationFreeForegroundBoundary
 };
 

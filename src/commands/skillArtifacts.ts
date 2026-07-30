@@ -2,7 +2,7 @@ import type { FsContext } from "../contexts";
 import type { ToolName } from "../ai/ToolAdapter";
 import { abortError } from "../abortError";
 import { joinPath } from "../system/fsUtils";
-import { planSkillBody, specSkillBody, workSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
+import { planSkillBody, specSkillBody, implementSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
 
 type SkillDef = Readonly<{
     name:string;
@@ -12,7 +12,7 @@ type SkillDef = Readonly<{
 export const SKILLS:readonly SkillDef[] = [
     { name: "flanders-spec", body: specSkillBody },
     { name: "flanders-plan", body: planSkillBody },
-    { name: "flanders-work", body: workSkillBody },
+    { name: "flanders-implement", body: implementSkillBody },
     { name: "flanders-hard-stop-review", body: hardStopReviewSkillBody }
 ];
 
@@ -21,6 +21,7 @@ const TOOL_SUBDIRS:Readonly<Record<ToolName, string>> = {
     codex: ".agents"
 };
 const SKILLS_SUBDIR = "skills";
+const FORMER_IMPLEMENT_SKILL_NAME = ["flanders", "work"].join("-");
 
 export function skillArtifactPath(scopeRoot:string, tool:ToolName, skillName:string):string {
     return joinPath(scopeRoot, TOOL_SUBDIRS[tool], SKILLS_SUBDIR, skillName, "SKILL.md");
@@ -29,6 +30,14 @@ export function skillArtifactPath(scopeRoot:string, tool:ToolName, skillName:str
 export function skillArtifactPaths(scopeRoot:string, tool:ToolName):readonly string[] {
     return SKILLS.map(skill => skillArtifactPath(scopeRoot, tool, skill.name));
 }
+
+export function skillArtifactDetectionPaths(scopeRoot:string, tool:ToolName):readonly string[] {
+    return [
+        ...skillArtifactPaths(scopeRoot, tool),
+        skillArtifactPath(scopeRoot, tool, FORMER_IMPLEMENT_SKILL_NAME)
+    ];
+}
+
 
 export type WriteSkillArtifactsResult =
     | Readonly<{ ok:true; writtenPaths:readonly string[] }>

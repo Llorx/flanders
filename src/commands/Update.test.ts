@@ -4,7 +4,7 @@ import test from "arrange-act-assert";
 
 import { Update } from "./Update";
 import type { UpdateContexts } from "./Update";
-import { planSkillBody, specSkillBody, workSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
+import { planSkillBody, specSkillBody, implementSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
 import { removeStoredPath } from "./memoryFs.fixtures";
 import { interceptAbortListenerRemoval } from "./abortController.fixtures";
 import { settleThenSchedule } from "./asyncSettlement.fixtures";
@@ -69,27 +69,30 @@ function assertMutationsConfinedTo(mutationPaths:readonly string[], allowedDirs:
 const PROJ_CLAUDE = {
     spec: "/proj/.claude/skills/flanders-spec/SKILL.md",
     plan: "/proj/.claude/skills/flanders-plan/SKILL.md",
-    work: "/proj/.claude/skills/flanders-work/SKILL.md",
+    implement: "/proj/.claude/skills/flanders-implement/SKILL.md",
     hardStop: "/proj/.claude/skills/flanders-hard-stop-review/SKILL.md"
 };
 const PROJ_CODEX = {
     spec: "/proj/.agents/skills/flanders-spec/SKILL.md",
     plan: "/proj/.agents/skills/flanders-plan/SKILL.md",
-    work: "/proj/.agents/skills/flanders-work/SKILL.md",
+    implement: "/proj/.agents/skills/flanders-implement/SKILL.md",
     hardStop: "/proj/.agents/skills/flanders-hard-stop-review/SKILL.md"
 };
 const HOME_CLAUDE = {
     spec: "/home/testuser/.claude/skills/flanders-spec/SKILL.md",
     plan: "/home/testuser/.claude/skills/flanders-plan/SKILL.md",
-    work: "/home/testuser/.claude/skills/flanders-work/SKILL.md",
+    implement: "/home/testuser/.claude/skills/flanders-implement/SKILL.md",
     hardStop: "/home/testuser/.claude/skills/flanders-hard-stop-review/SKILL.md"
 };
 const HOME_CODEX = {
     spec: "/home/testuser/.agents/skills/flanders-spec/SKILL.md",
     plan: "/home/testuser/.agents/skills/flanders-plan/SKILL.md",
-    work: "/home/testuser/.agents/skills/flanders-work/SKILL.md",
+    implement: "/home/testuser/.agents/skills/flanders-implement/SKILL.md",
     hardStop: "/home/testuser/.agents/skills/flanders-hard-stop-review/SKILL.md"
 };
+const FORMER_IMPLEMENT_SKILL_NAME = ["flanders", "work"].join("-");
+const PROJ_CLAUDE_FORMER_IMPLEMENT = `/proj/.claude/skills/${FORMER_IMPLEMENT_SKILL_NAME}/SKILL.md`;
+const PROJ_CODEX_FORMER_IMPLEMENT = `/proj/.agents/skills/${FORMER_IMPLEMENT_SKILL_NAME}/SKILL.md`;
 
 test.describe("Update refresh by scope and tool", test => {
     test("refreshes a project-scope Claude installation to the full set", {
@@ -114,8 +117,8 @@ test.describe("Update refresh by scope and tool", test => {
             "rewrites the plan skill with the current body"(_code, { files }) {
                 Assert.strictEqual(files.get(PROJ_CLAUDE.plan), planSkillBody);
             },
-            "rewrites the work skill with the current body"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CLAUDE.work), workSkillBody);
+            "rewrites the implement skill with the current body"(_code, { files }) {
+                Assert.strictEqual(files.get(PROJ_CLAUDE.implement), implementSkillBody);
             },
             "rewrites the hard-stop-review skill with the current body"(_code, { files }) {
                 Assert.strictEqual(files.get(PROJ_CLAUDE.hardStop), hardStopReviewSkillBody);
@@ -124,7 +127,7 @@ test.describe("Update refresh by scope and tool", test => {
                 Assert.strictEqual(files.size, 4);
             },
             "prints exactly the four written paths, one per line, with no blank lines"(_code, { written }) {
-                Assert.strictEqual(written.join(""), [PROJ_CLAUDE.spec, PROJ_CLAUDE.plan, PROJ_CLAUDE.work, PROJ_CLAUDE.hardStop].map(p => `${p}\n`).join(""));
+                Assert.strictEqual(written.join(""), [PROJ_CLAUDE.spec, PROJ_CLAUDE.plan, PROJ_CLAUDE.implement, PROJ_CLAUDE.hardStop].map(p => `${p}\n`).join(""));
             },
             "produces no errors"(_code, { errors }) {
                 Assert.strictEqual(errors.length, 0);
@@ -157,8 +160,8 @@ test.describe("Update refresh by scope and tool", test => {
             "rewrites the plan skill with the complete body"(_code, { files }) {
                 Assert.strictEqual(files.get(PROJ_CODEX.plan), planSkillBody);
             },
-            "rewrites the work skill with the complete body"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CODEX.work), workSkillBody);
+            "rewrites the implement skill with the complete body"(_code, { files }) {
+                Assert.strictEqual(files.get(PROJ_CODEX.implement), implementSkillBody);
             },
             "rewrites the hard-stop-review skill with the complete body"(_code, { files }) {
                 Assert.strictEqual(files.get(PROJ_CODEX.hardStop), hardStopReviewSkillBody);
@@ -194,8 +197,8 @@ test.describe("Update refresh by scope and tool", test => {
             "rewrites the plan skill under the home directory"(_code, { files }) {
                 Assert.strictEqual(files.get(HOME_CLAUDE.plan), planSkillBody);
             },
-            "rewrites the work skill under the home directory"(_code, { files }) {
-                Assert.strictEqual(files.get(HOME_CLAUDE.work), workSkillBody);
+            "rewrites the implement skill under the home directory"(_code, { files }) {
+                Assert.strictEqual(files.get(HOME_CLAUDE.implement), implementSkillBody);
             },
             "rewrites the hard-stop-review skill under the home directory"(_code, { files }) {
                 Assert.strictEqual(files.get(HOME_CLAUDE.hardStop), hardStopReviewSkillBody);
@@ -231,8 +234,8 @@ test.describe("Update refresh by scope and tool", test => {
             "rewrites the plan skill under the home directory"(_code, { files }) {
                 Assert.strictEqual(files.get(HOME_CODEX.plan), planSkillBody);
             },
-            "rewrites the work skill under the home directory"(_code, { files }) {
-                Assert.strictEqual(files.get(HOME_CODEX.work), workSkillBody);
+            "rewrites the implement skill under the home directory"(_code, { files }) {
+                Assert.strictEqual(files.get(HOME_CODEX.implement), implementSkillBody);
             },
             "rewrites the hard-stop-review skill under the home directory"(_code, { files }) {
                 Assert.strictEqual(files.get(HOME_CODEX.hardStop), hardStopReviewSkillBody);
@@ -264,18 +267,18 @@ test.describe("Update refresh by scope and tool", test => {
                 Assert.strictEqual(code, 0);
             },
             "rewrites the Claude set"(_code, { files }) {
-                Assert.ok(files.has(PROJ_CLAUDE.spec) && files.has(PROJ_CLAUDE.plan) && files.has(PROJ_CLAUDE.work) && files.has(PROJ_CLAUDE.hardStop));
+                Assert.ok(files.has(PROJ_CLAUDE.spec) && files.has(PROJ_CLAUDE.plan) && files.has(PROJ_CLAUDE.implement) && files.has(PROJ_CLAUDE.hardStop));
             },
             "rewrites the Codex set"(_code, { files }) {
-                Assert.ok(files.has(PROJ_CODEX.spec) && files.has(PROJ_CODEX.plan) && files.has(PROJ_CODEX.work) && files.has(PROJ_CODEX.hardStop));
+                Assert.ok(files.has(PROJ_CODEX.spec) && files.has(PROJ_CODEX.plan) && files.has(PROJ_CODEX.implement) && files.has(PROJ_CODEX.hardStop));
             },
             "writes exactly the eight artifacts across both tools"(_code, { files }) {
                 Assert.strictEqual(files.size, 8);
             },
             "prints exactly every written path across both tools, one per line, in order, with no blank lines"(_code, { written }) {
                 Assert.strictEqual(written.join(""), [
-                    PROJ_CLAUDE.spec, PROJ_CLAUDE.plan, PROJ_CLAUDE.work, PROJ_CLAUDE.hardStop,
-                    PROJ_CODEX.spec, PROJ_CODEX.plan, PROJ_CODEX.work, PROJ_CODEX.hardStop
+                    PROJ_CLAUDE.spec, PROJ_CLAUDE.plan, PROJ_CLAUDE.implement, PROJ_CLAUDE.hardStop,
+                    PROJ_CODEX.spec, PROJ_CODEX.plan, PROJ_CODEX.implement, PROJ_CODEX.hardStop
                 ].map(p => `${p}\n`).join(""));
             },
             "confines every filesystem mutation to the two installed project destinations"(_code, { mutationPaths }) {
@@ -284,33 +287,40 @@ test.describe("Update refresh by scope and tool", test => {
         }
     });
 
-    const DETECTION_SKILLS:ReadonlyArray<{ key:"spec"|"plan"|"work"|"hardStop"; body:string }> = [
+    // The single-artifact detection cases share one arrange/act/assert core: seeding only one of the
+    // four artifacts at a destination must still make `update` detect the installation and refresh the
+    // complete four-artifact set there with the current bodies. Only the destination map, its
+    // mutation-boundary directory, and which artifact is the sole seeded marker vary, so the cases are
+    // data over that one shared core rather than a copy per case.
+    const DETECTION_SKILLS:ReadonlyArray<{ key:"spec"|"plan"|"implement"|"hardStop"; body:string }> = [
         { key: "spec", body: specSkillBody },
         { key: "plan", body: planSkillBody },
-        { key: "work", body: workSkillBody },
+        { key: "implement", body: implementSkillBody },
         { key: "hardStop", body: hardStopReviewSkillBody }
     ];
     const DETECTION_CASES:ReadonlyArray<{
         title:string;
-        dest:Record<"spec"|"plan"|"work"|"hardStop", string>;
+        dest:Record<"spec"|"plan"|"implement"|"hardStop", string>;
         destDir:string;
-        seeded:"spec"|"plan"|"work"|"hardStop";
+        seededPath:string;
     }> = [
-        { title: "completes a project Claude installation detected via the plan artifact alone", dest: PROJ_CLAUDE, destDir: PROJ_CLAUDE_DIR, seeded: "plan" },
-        { title: "completes a project Claude installation detected via the work artifact alone", dest: PROJ_CLAUDE, destDir: PROJ_CLAUDE_DIR, seeded: "work" },
-        { title: "completes a project Claude installation detected via the hard-stop-review artifact alone", dest: PROJ_CLAUDE, destDir: PROJ_CLAUDE_DIR, seeded: "hardStop" },
-        { title: "completes a global Claude installation detected via the hard-stop-review artifact alone", dest: HOME_CLAUDE, destDir: HOME_CLAUDE_DIR, seeded: "hardStop" },
-        { title: "completes a project Codex installation detected via the plan artifact alone", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, seeded: "plan" },
-        { title: "completes a project Codex installation detected via the work artifact alone", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, seeded: "work" },
-        { title: "completes a project Codex installation detected via the hard-stop-review artifact alone", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, seeded: "hardStop" },
-        { title: "completes a global Codex installation detected via the hard-stop-review artifact alone", dest: HOME_CODEX, destDir: HOME_CODEX_DIR, seeded: "hardStop" }
+        { title: "completes a project Claude installation detected via the plan artifact alone", dest: PROJ_CLAUDE, destDir: PROJ_CLAUDE_DIR, seededPath: PROJ_CLAUDE.plan },
+        { title: "completes a project Claude installation detected via the implement artifact alone", dest: PROJ_CLAUDE, destDir: PROJ_CLAUDE_DIR, seededPath: PROJ_CLAUDE.implement },
+        { title: "completes a project Claude installation detected via the hard-stop-review artifact alone", dest: PROJ_CLAUDE, destDir: PROJ_CLAUDE_DIR, seededPath: PROJ_CLAUDE.hardStop },
+        { title: "completes a global Claude installation detected via the hard-stop-review artifact alone", dest: HOME_CLAUDE, destDir: HOME_CLAUDE_DIR, seededPath: HOME_CLAUDE.hardStop },
+        { title: "completes a project Codex installation detected via the plan artifact alone", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, seededPath: PROJ_CODEX.plan },
+        { title: "completes a project Codex installation detected via the implement artifact alone", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, seededPath: PROJ_CODEX.implement },
+        { title: "completes a project Codex installation detected via the hard-stop-review artifact alone", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, seededPath: PROJ_CODEX.hardStop },
+        { title: "completes a global Codex installation detected via the hard-stop-review artifact alone", dest: HOME_CODEX, destDir: HOME_CODEX_DIR, seededPath: HOME_CODEX.hardStop },
+        { title: "migrates a project Claude installation detected only through the former implement artifact", dest: PROJ_CLAUDE, destDir: PROJ_CLAUDE_DIR, seededPath: PROJ_CLAUDE_FORMER_IMPLEMENT },
+        { title: "migrates a project Codex installation detected only through the former implement artifact", dest: PROJ_CODEX, destDir: PROJ_CODEX_DIR, seededPath: PROJ_CODEX_FORMER_IMPLEMENT }
     ];
     for (const detectionCase of DETECTION_CASES) {
         test(detectionCase.title, {
             ARRANGE() {
                 const s = stubContexts();
                 // Only one artifact is present — detection must still find the installation.
-                s.files.set(detectionCase.dest[detectionCase.seeded], "old content");
+                s.files.set(detectionCase.seededPath, "old content");
                 return s;
             },
             async ACT({ contexts }) {
@@ -328,8 +338,16 @@ test.describe("Update refresh by scope and tool", test => {
                         Assert.strictEqual(files.get(detectionCase.dest[skill.key]), skill.body);
                     }
                 },
-                "ends holding exactly the four artifacts"(_code, { files }) {
-                    Assert.strictEqual(files.size, 4);
+                "ends holding the published set plus any distinct former marker"(_code, { files }) {
+                    Assert.strictEqual(files.size, new Set([...Object.values(detectionCase.dest), detectionCase.seededPath]).size);
+                },
+                "prints exactly the four current artifact paths"(_code, { written }) {
+                    Assert.deepStrictEqual(written, Object.values(detectionCase.dest).map(path => `${path}\n`));
+                },
+                "never writes the former marker while migrating"(_code, { mutationPaths }) {
+                    if (!Object.values(detectionCase.dest).includes(detectionCase.seededPath)) {
+                        Assert.strictEqual(mutationPaths.includes(detectionCase.seededPath), false);
+                    }
                 },
                 "confines every filesystem mutation to the installed destination"(_code, { mutationPaths }) {
                     assertMutationsConfinedTo(mutationPaths, [detectionCase.destDir]);
@@ -356,16 +374,16 @@ test.describe("Update refresh by scope and tool", test => {
                 Assert.strictEqual(code, 0);
             },
             "refreshes the installed project Claude destination"(_code, { files }) {
-                Assert.strictEqual(files.get(PROJ_CLAUDE.work), workSkillBody);
+                Assert.strictEqual(files.get(PROJ_CLAUDE.implement), implementSkillBody);
             },
             "refreshes the installed global Codex destination"(_code, { files }) {
-                Assert.strictEqual(files.get(HOME_CODEX.work), workSkillBody);
+                Assert.strictEqual(files.get(HOME_CODEX.implement), implementSkillBody);
             },
             "leaves the uninstalled project Codex destination untouched"(_code, { files }) {
-                Assert.ok(!files.has(PROJ_CODEX.spec) && !files.has(PROJ_CODEX.plan) && !files.has(PROJ_CODEX.work) && !files.has(PROJ_CODEX.hardStop));
+                Assert.ok(!files.has(PROJ_CODEX.spec) && !files.has(PROJ_CODEX.plan) && !files.has(PROJ_CODEX.implement) && !files.has(PROJ_CODEX.hardStop));
             },
             "leaves the uninstalled global Claude destination untouched"(_code, { files }) {
-                Assert.ok(!files.has(HOME_CLAUDE.spec) && !files.has(HOME_CLAUDE.plan) && !files.has(HOME_CLAUDE.work) && !files.has(HOME_CLAUDE.hardStop));
+                Assert.ok(!files.has(HOME_CLAUDE.spec) && !files.has(HOME_CLAUDE.plan) && !files.has(HOME_CLAUDE.implement) && !files.has(HOME_CLAUDE.hardStop));
             },
             "performs no filesystem mutation on either uninstalled destination"(_code, { mutationPaths }) {
                 assertMutationsConfinedTo(mutationPaths, [PROJ_CLAUDE_DIR, HOME_CODEX_DIR]);
@@ -375,8 +393,8 @@ test.describe("Update refresh by scope and tool", test => {
             },
             "prints exactly every written path across both refreshed destinations, one per line, in order, with no blank lines"(_code, { written }) {
                 Assert.strictEqual(written.join(""), [
-                    PROJ_CLAUDE.spec, PROJ_CLAUDE.plan, PROJ_CLAUDE.work, PROJ_CLAUDE.hardStop,
-                    HOME_CODEX.spec, HOME_CODEX.plan, HOME_CODEX.work, HOME_CODEX.hardStop
+                    PROJ_CLAUDE.spec, PROJ_CLAUDE.plan, PROJ_CLAUDE.implement, PROJ_CLAUDE.hardStop,
+                    HOME_CODEX.spec, HOME_CODEX.plan, HOME_CODEX.implement, HOME_CODEX.hardStop
                 ].map(p => `${p}\n`).join(""));
             }
         }
