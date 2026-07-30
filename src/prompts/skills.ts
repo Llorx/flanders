@@ -502,7 +502,7 @@ Every invocation is non-interactive and receives the maximum access its CLI offe
 - Claude Code: use its single-turn structured-output form with \`--print\`, \`--output-format stream-json\`, \`--input-format stream-json\`, \`--verbose\`, and \`--dangerously-skip-permissions\`; deliver the prompt as one user message in the input stream-json on stdin, then close stdin; add \`--model <model>\` and \`--effort <effort>\` only when configured, and enable the \`fastMode\` session setting through \`--settings\` only when configured. Resume with \`--resume <session-id>\`.
 - Codex CLI: use \`codex exec --json\` with \`-c approval_policy=never\`, \`-c sandbox_mode=danger-full-access\`, and a trailing \`-\` that reads the prompt from stdin; add \`-m <model>\` and \`-c model_reasoning_effort=<effort>\` only when configured. Resume through \`codex exec resume <session-id>\` with the same non-interactive, access, model, and effort settings.
 
-Start every process in the project root. Capture its structured output, session identifier when available, stdout, stderr, exit status, usage-limit state, authentication state, and termination. Wait for every process inside the same turn that launched it. Concurrent reviewers are the only concurrent agent launches; when a reviewer is cancelled, terminate and await its process before forming the round verdict. No agent or command may survive the stage that started it.
+Start every process in the project root. Capture each process's structured output, stdout, stderr, exit status, usage-limit state, authentication state, and termination. Wait for every process inside the same turn that launched it. Concurrent reviewers are the only concurrent agent launches; when a reviewer is cancelled, terminate and await its process before forming the round verdict. No agent or command may survive the stage that started it.
 
 Absorb an invocation that reaches no result:
 
@@ -524,7 +524,7 @@ Keep same-named files distinct by their full namespaces. Put all three lists in 
 
 ## Pending spec commit
 
-Before creating the run baseline and before any worker does work, inspect staged, unstaged, and untracked changes. A spec file is any changed path that traverses a directory whose name is exactly \`.spec\`, at any depth. When at least one such file has changed, stage and commit exactly all changed spec files without including pending non-spec files, under the English message \`Commit pending spec changes\`. When none has changed, make no commit. If staging or committing those files fails, report git's stdout and stderr and stop before workspace setup, baseline capture, or work.
+Before workspace setup, baseline capture, or worker work, inspect staged, unstaged, and untracked changes. A spec file is any changed path that traverses a directory whose name is exactly \`.spec\`, at any depth. When at least one such file has changed, stage and commit exactly all changed spec files without including pending non-spec files, under the English message \`Commit pending spec changes\`. When none has changed, make no commit. If staging or committing those files fails, report git's stdout and stderr and stop.
 
 ## Workspace setup
 
@@ -554,7 +554,7 @@ When a retained session identifier is available, launch every later iteration by
 
 ### Reviewer core
 
-Every reviewer invocation is fresh and independent. Build its prompt with, in order: the resolved request verbatim as the spec under review; the three complete namespace lists; that reviewer's own verdict path and instruction to append violations there or create it empty on pass; the methodology below with its run-baseline placeholder replaced by the captured baseline; the reviewer voice section; and the read-only git, governed-folder, and foreground-command boundaries. Keep the three lists above the methodology.
+Each reviewer is fresh and independent; never capture its session ID or resume its session. Build its prompt with, in order: the resolved request verbatim as the spec under review; the three complete namespace lists; that reviewer's own verdict path and instruction to append violations there or create it empty on pass; the methodology below with its run-baseline placeholder replaced by the captured baseline; the reviewer voice section; and the read-only git, governed-folder, and foreground-command boundaries. Keep the three lists above the methodology.
 
 ${reviewerMethodologyCore}
 
@@ -590,7 +590,7 @@ After each reviewer completes successfully, inspect only its own verdict file:
 
 Re-evaluate round completion whenever a reviewer reaches a verdict or enters a usage-limit wait. Complete only when no reviewer is running, every required reviewer has a verdict, and at least \`minimumReviews\` reviewers have verdicts. A reviewer waiting on a usage limit is waiting rather than running. When all three conditions hold, cancel every still-waiting optional reviewer, terminate and await each cancelled process, and do not relaunch or read an absent verdict file for a cancelled reviewer. Never cancel a required reviewer.
 
-After termination is complete, read every present verdict file from reviewers that reached a verdict in configured order, join all contents unconditionally with one newline between files, trim the joined string, and test that single string once. That trimmed concatenation is the round verdict: empty passes; non-empty fails and becomes the next iteration's briefing.
+After termination is complete, read the verdict file of every reviewer that reached a verdict in configured order, join all contents unconditionally with one newline between files, trim the joined string, and test that single string once. That trimmed concatenation is the round verdict: empty passes; non-empty fails and becomes the next iteration's briefing.
 
 ## Successful completion
 

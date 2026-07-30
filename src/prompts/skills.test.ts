@@ -2686,6 +2686,9 @@ test.describe("skills – implementSkillBody", test => {
         ARRANGE() {},
         ACT() { return implementSkillBody; },
         ASSERTS: {
+            "requires a git repository"(body) {
+                Assert.ok(body.includes("Require the current project to be a git repository."));
+            },
             "uses the project configuration first"(body) {
                 Assert.ok(body.includes("If the project root contains a `.flanders/` folder, select its `.flanders/config.json` and ignore the global scope completely"));
             },
@@ -2712,6 +2715,9 @@ test.describe("skills – implementSkillBody", test => {
             },
             "validates fast-mode compatibility"(body) {
                 Assert.ok(body.includes("Require `fast` to be false unless the role uses Claude Code with a model that supports fast mode."));
+            },
+            "reads but never writes the configuration"(body) {
+                Assert.ok(body.includes("Read this configuration; never write it."));
             }
         }
     });
@@ -2720,6 +2726,15 @@ test.describe("skills – implementSkillBody", test => {
         ARRANGE() {},
         ACT() { return implementSkillBody; },
         ASSERTS: {
+            "runs before workspace setup"(body) {
+                Assert.ok(body.includes("Before workspace setup, baseline capture, or worker work"));
+            },
+            "runs before baseline capture"(body) {
+                Assert.ok(body.includes("Before workspace setup, baseline capture, or worker work"));
+            },
+            "runs before worker work"(body) {
+                Assert.ok(body.includes("Before workspace setup, baseline capture, or worker work"));
+            },
             "checks staged unstaged and untracked changes"(body) {
                 Assert.ok(body.includes("inspect staged, unstaged, and untracked changes"));
             },
@@ -2736,7 +2751,10 @@ test.describe("skills – implementSkillBody", test => {
                 Assert.ok(body.includes("When none has changed, make no commit."));
             },
             "reports git output and stops on failure"(body) {
-                Assert.ok(body.includes("report git's stdout and stderr and stop before workspace setup, baseline capture, or work"));
+                Assert.ok(body.includes("If staging or committing those files fails, report git's stdout and stderr and stop."));
+            },
+            "applies failure handling to staging and committing"(body) {
+                Assert.ok(body.includes("If staging or committing those files fails"));
             }
         }
     });
@@ -2754,6 +2772,12 @@ test.describe("skills – implementSkillBody", test => {
             "forbids reviewer-folder nesting"(body) {
                 Assert.ok(body.includes("never inside the main folder or another reviewer folder"));
             },
+            "assigns scripts and run logs to the main folder"(body) {
+                Assert.ok(body.includes("The main folder holds the gate scripts, per-iteration worker/build/test/reviewer output logs, the briefing `error.log`, and a possible worker-declared `hard-stop.log`."));
+            },
+            "isolates each reviewer verdict and reference material"(body) {
+                Assert.ok(body.includes("Each reviewer folder holds only that reviewer's `error.log` verdict and any reference material supplied to that reviewer."));
+            },
             "chooses Windows script names"(body) {
                 Assert.ok(body.includes("`build.bat` and `test.bat` on Windows"));
             },
@@ -2766,8 +2790,17 @@ test.describe("skills – implementSkillBody", test => {
             "tracks build and test independently"(body) {
                 Assert.ok(body.includes("inspect the two chosen paths independently"));
             },
+            "uses each present non-empty gate file as its script"(body) {
+                Assert.ok(body.includes("A present non-empty file is that gate's script"));
+            },
+            "skips each absent or empty gate file"(body) {
+                Assert.ok(body.includes("an absent or empty file means the command was not determined and that gate is skipped"));
+            },
             "passes the same paths to workers"(body) {
                 Assert.ok(body.includes("Pass these same two paths to every worker invocation."));
+            },
+            "limits detect writes to the chosen paths"(body) {
+                Assert.ok(body.includes("The detect agent writes nowhere except these paths."));
             }
         }
     });
@@ -2833,6 +2866,15 @@ test.describe("skills – implementSkillBody", test => {
             "collects behavior-rule namespaces"(body) {
                 Assert.ok(body.includes("every file below each `.spec/flanders` directory, including nested files"));
             },
+            "builds three separate complete lists"(body) {
+                Assert.ok(body.includes("Build three complete, separate namespace lists"));
+            },
+            "uses project-root-relative namespaces"(body) {
+                Assert.ok(body.includes("each path relative to the project root"));
+            },
+            "distinguishes homonyms by full namespace"(body) {
+                Assert.ok(body.includes("Keep same-named files distinct by their full namespaces."));
+            },
             "puts all lists in every worker and reviewer prompt"(body) {
                 Assert.ok(body.includes("Put all three lists in every worker and reviewer prompt."));
             },
@@ -2849,8 +2891,14 @@ test.describe("skills – implementSkillBody", test => {
         ARRANGE() {},
         ACT() { return implementSkillBody; },
         ASSERTS: {
+            "launches every agent as a separate process"(body) {
+                Assert.ok(body.includes("Launch the detect agent, worker, and each reviewer as separate processes"));
+            },
             "maps detect to worker configuration"(body) {
                 Assert.ok(body.includes("Detect uses the worker entry"));
+            },
+            "maps worker to worker configuration"(body) {
+                Assert.ok(body.includes("the worker uses the worker entry"));
             },
             "maps each reviewer to its own entry"(body) {
                 Assert.ok(body.includes("reviewer N uses reviewer N's entry"));
@@ -2885,6 +2933,18 @@ test.describe("skills – implementSkillBody", test => {
             "awaits each process in its launching turn"(body) {
                 Assert.ok(body.includes("Wait for every process inside the same turn that launched it."));
             },
+            "allows concurrency only for reviewers"(body) {
+                Assert.ok(body.includes("Concurrent reviewers are the only concurrent agent launches"));
+            },
+            "lets no agent or command outlive its stage"(body) {
+                Assert.ok(body.includes("No agent or command may survive the stage that started it."));
+            },
+            "contains no process-wide session-continuity instruction"(body) {
+                const start = body.indexOf("Start every process in the project root.");
+                const end = body.indexOf("\n\n", start);
+                const instructions = body.slice(start, end);
+                Assert.strictEqual(/\b(?:capture|retain|resume)\b[^.]*\bsession\b/i.test(instructions), false);
+            },
             "terminates cancelled processes before verdict formation"(body) {
                 Assert.ok(body.includes("terminate and await its process before forming the round verdict"));
             }
@@ -2897,6 +2957,9 @@ test.describe("skills – implementSkillBody", test => {
         ASSERTS: {
             "waits and relaunches usage limits"(body) {
                 Assert.ok(body.includes("A usage or rate limit is a wait, not an error. Wait until retry is allowed and relaunch until the invocation completes."));
+            },
+            "relaunches the same agent after another error"(body) {
+                Assert.ok(body.includes("Any other error relaunches the same agent."));
             },
             "counts ordinary errors per agent and iteration"(body) {
                 Assert.ok(body.includes("Count consecutive errored invocations per agent and per current iteration"));
@@ -2912,6 +2975,9 @@ test.describe("skills – implementSkillBody", test => {
             },
             "never retries or counts authentication failure"(body) {
                 Assert.ok(body.includes("Do not relaunch it or count it toward the error allowance"));
+            },
+            "enters authentication hard stop immediately"(body) {
+                Assert.ok(body.includes("follow the authentication hard stop below immediately"));
             },
             "does not spend an iteration on worker relaunch"(body) {
                 Assert.ok(body.includes("stays in the current iteration and does not consume a new iteration"));
@@ -2937,6 +3003,15 @@ test.describe("skills – implementSkillBody", test => {
             "captures the first session identifier"(body) {
                 Assert.ok(body.includes("Capture and retain the worker session identifier surfaced during iteration 1."));
             },
+            "injects the verbatim request in iteration one"(body) {
+                Assert.ok(body.includes("replace its task-text placeholder with the resolved request verbatim"));
+            },
+            "injects the main gate and hard-stop paths in iteration one"(body) {
+                Assert.ok(body.includes("replace the build, test, and hard-stop paths with the main-folder paths"));
+            },
+            "injects all three lists in iteration one"(body) {
+                Assert.ok(body.includes("replace all three namespace-list placeholders with the discovered lists"));
+            },
             "uses Claude's resume form"(body) {
                 Assert.ok(body.includes("Resume with `--resume <session-id>`."));
             },
@@ -2945,6 +3020,9 @@ test.describe("skills – implementSkillBody", test => {
             },
             "uses the same worker core on every later iteration"(body) {
                 Assert.ok(body.includes("Build every later iteration's prompt from the same worker core"));
+            },
+            "uses a continuation instruction in later iterations"(body) {
+                Assert.ok(body.includes("replace the task-text placeholder with a short instruction to continue implementing the current request"));
             },
             "does not re-inject the request"(body) {
                 Assert.ok(body.includes("Do not inject, summarize, or repeat the resolved request or previously supplied reference content."));
@@ -2976,6 +3054,43 @@ test.describe("skills – implementSkillBody", test => {
         }
     });
 
+    test("captures one fixed content baseline for reviewer change-set reduction", {
+        ARRANGE() {},
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "captures after the pending-spec commit"(body) {
+                Assert.ok(body.includes("After the pending-spec commit and workspace setup, but before the first iteration"));
+            },
+            "captures after workspace setup"(body) {
+                Assert.ok(body.includes("After the pending-spec commit and workspace setup, but before the first iteration"));
+            },
+            "captures before the first iteration"(body) {
+                Assert.ok(body.includes("After the pending-spec commit and workspace setup, but before the first iteration"));
+            },
+            "captures staged and unstaged tracked content"(body) {
+                Assert.ok(body.includes("staged and unstaged tracked changes"));
+            },
+            "captures untracked contents"(body) {
+                Assert.ok(body.includes("untracked files and their contents"));
+            },
+            "captures deletions and renames"(body) {
+                Assert.ok(body.includes("deletions, and renames"));
+            },
+            "keeps the baseline fixed for the run"(body) {
+                Assert.ok(body.includes("Keep this fixed for the whole run."));
+            },
+            "injects the baseline into every reviewer prompt"(body) {
+                Assert.ok(body.includes("Inject it into every reviewer prompt"));
+            },
+            "limits only review"(body) {
+                Assert.ok(body.includes("The baseline limits review only"));
+            },
+            "leaves the entire pending tree in the cycle commit"(body) {
+                Assert.ok(body.includes("the successful cycle commit still captures the entire pending tree"));
+            }
+        }
+    });
+
     test("runs the six ordered cycle stages with a fixed five-iteration cap", {
         ARRANGE() {},
         ACT() { return implementSkillBody; },
@@ -2985,6 +3100,9 @@ test.describe("skills – implementSkillBody", test => {
             },
             "hard-stops after five"(body) {
                 Assert.ok(body.includes("If it is greater than 5, enter the iteration-cap hard stop."));
+            },
+            "checks worker hard stop before any gate"(body) {
+                Assert.ok(body.includes("if it exists, enter the worker-declared hard stop before any gate"));
             },
             "stages all changes after worker"(body) {
                 Assert.ok(body.includes("Otherwise run `git add -A`."));
@@ -3001,6 +3119,15 @@ test.describe("skills – implementSkillBody", test => {
             "writes a failed stage to the briefing"(body) {
                 Assert.ok(body.includes("overwrite the main `error.log` with both streams"));
             },
+            "retains every failed stage in run history"(body) {
+                Assert.ok(body.includes("Keep every failed stage's captured context in run history"));
+            },
+            "restarts after a failed build"(body) {
+                Assert.ok(body.includes("retain that failure as this iteration's build-stage history, and restart at step 1"));
+            },
+            "applies build failure semantics to test"(body) {
+                Assert.ok(body.includes("Apply the same semantics to the test script after build passes."));
+            },
             "restarts after a failed review"(body) {
                 Assert.ok(body.includes("records each violating reviewer's content as this iteration's review-stage history, and restarts at step 1"));
             },
@@ -3014,6 +3141,9 @@ test.describe("skills – implementSkillBody", test => {
         ARRANGE() {},
         ACT() { return implementSkillBody; },
         ASSERTS: {
+            "uses each reviewer's configuration and folder"(body) {
+                Assert.ok(body.includes("with that reviewer's configuration and folder"));
+            },
             "deletes every verdict file before launch"(body) {
                 Assert.ok(body.includes("Before every reviewer process launch or relaunch"));
             },
@@ -3053,11 +3183,71 @@ test.describe("skills – implementSkillBody", test => {
             "never cancels a required reviewer"(body) {
                 Assert.ok(body.includes("Never cancel a required reviewer."));
             },
+            "reads only reviewers that reached a verdict"(body) {
+                Assert.ok(body.includes("read the verdict file of every reviewer that reached a verdict"));
+            },
             "concatenates in configured order with newlines"(body) {
                 Assert.ok(body.includes("in configured order, join all contents unconditionally with one newline between files"));
             },
             "trims and tests the aggregate once"(body) {
                 Assert.ok(body.includes("trim the joined string, and test that single string once"));
+            },
+            "passes an empty aggregate"(body) {
+                Assert.ok(body.includes("empty passes"));
+            },
+            "briefs the next iteration with a non-empty aggregate"(body) {
+                Assert.ok(body.includes("non-empty fails and becomes the next iteration's briefing"));
+            }
+        }
+    });
+
+    test("builds every reviewer prompt as a fresh independent verdict invocation", {
+        ARRANGE() {
+            return {
+                voice: flandersToneInstruction(true)
+            };
+        },
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "launches every reviewer fresh and independently"(body) {
+                Assert.ok(body.includes("Each reviewer is fresh and independent"));
+            },
+            "never captures a reviewer session identifier"(body) {
+                Assert.ok(body.includes("never capture its session ID"));
+            },
+            "never resumes a reviewer session"(body) {
+                Assert.ok(body.includes("or resume its session"));
+            },
+            "contains no positive reviewer session-continuity instruction"(body) {
+                const start = body.indexOf("Each reviewer is fresh and independent");
+                const end = body.indexOf("\n\n", start);
+                const instructions = body.slice(start, end)
+                    .replace("never capture its session ID or resume its session", "");
+                Assert.strictEqual(/\b(?:capture|retain|resume)\b[^.]*\bsession\b/i.test(instructions), false);
+            },
+            "injects the verbatim request as the reviewed spec"(body) {
+                Assert.ok(body.includes("the resolved request verbatim as the spec under review"));
+            },
+            "places all three lists above reviewer methodology"(body) {
+                Assert.ok(body.includes("Keep the three lists above the methodology."));
+            },
+            "supplies the reviewer's verdict protocol"(body) {
+                Assert.ok(body.includes("that reviewer's own verdict path and instruction to append violations there or create it empty on pass"));
+            },
+            "replaces the methodology baseline placeholder"(body) {
+                Assert.ok(body.includes("the methodology below with its run-baseline placeholder replaced by the captured baseline"));
+            },
+            "includes the reviewer voice section"(body, { voice }) {
+                Assert.ok(body.includes(voice));
+            },
+            "includes the read-only git boundary"(body) {
+                Assert.ok(body.includes("the read-only git, governed-folder, and foreground-command boundaries"));
+            },
+            "includes the governed-folder boundary"(body) {
+                Assert.ok(body.includes("the read-only git, governed-folder, and foreground-command boundaries"));
+            },
+            "includes the foreground-command boundary"(body) {
+                Assert.ok(body.includes("the read-only git, governed-folder, and foreground-command boundaries"));
             }
         }
     });
