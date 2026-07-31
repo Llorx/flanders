@@ -456,7 +456,14 @@ export class Implement {
             [Placeholders.TEST_SCRIPT_PATH]: ws.testScript,
             [Placeholders.RULE_LIST]: this._formatPathList(this._ruleList)
         });
-        await this._runAi(this._config!.worker.tool, this._config!.worker.model, this._config!.worker.effort, this._config!.worker.fast, prompt);
+        await this._runAiToLog(
+            this._config!.worker.tool,
+            this._config!.worker.model,
+            this._config!.worker.effort,
+            this._config!.worker.fast,
+            prompt,
+            ws.detectLog
+        );
     }
     private _setActivity(activity:Activity):void {
         /* coverage ignore next */ // — Defensive: _setActivity is only called within _runTask which always sets _currentTask.
@@ -1174,7 +1181,30 @@ export class Implement {
     private _runAi(tool:ToolName, model:string, effort:string, fast:boolean, prompt:string, initialSessionId?:string|null, priorSessionUsage?:ToolTokenUsage) {
         return this._runAiWith(tool, model, effort, fast, prompt, initialSessionId ?? null, this._defaultRunAiCallbacks(), priorSessionUsage);
     }
-    private async _runAiWith(tool:ToolName, model:string, effort:string, fast:boolean, prompt:string, initialSessionId:string|null, callbacks:RunAiCallbacks, priorSessionUsage?:ToolTokenUsage) {
+    private _runAiToLog(tool:ToolName, model:string, effort:string, fast:boolean, prompt:string, logPath:string) {
+        return this._runAiWith(
+            tool,
+            model,
+            effort,
+            fast,
+            prompt,
+            null,
+            this._defaultRunAiCallbacks(),
+            undefined,
+            capturedOutput => this._writeLog(logPath, capturedOutput)
+        );
+    }
+    private async _runAiWith(
+        tool:ToolName,
+        model:string,
+        effort:string,
+        fast:boolean,
+        prompt:string,
+        initialSessionId:string|null,
+        callbacks:RunAiCallbacks,
+        priorSessionUsage?:ToolTokenUsage,
+        capturedOutputSink?:(capturedOutput:string) => Promise<void>
+    ) {
         /* coverage ignore next 3 */ // — Defensive: disposed guard; _runAiWith is only called from methods that already checked _disposed.
         if (this._disposed) {
             throw new Error("Implement disposed");
@@ -1217,7 +1247,11 @@ export class Implement {
             return { result, capturedOutput };
         } finally {
             callbacks.unregister(session);
-            await session.dispose();
+            try {
+                await session.dispose();
+            } finally {
+                await capturedOutputSink?.(capturedOutput);
+            }
         }
     }
     private async _runScript(scriptPath:string) {

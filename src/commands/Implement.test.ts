@@ -334,7 +334,7 @@ const DEFAULT_CONFIG:FlandersConfig = { worker: { tool: "claude", model: "", eff
 const CONFIG_PATH = "/project/.flanders/config.json";
 
 test.describe("Implement per-iteration logs", test => {
-    test("writes all four log files after one successful iteration", {
+    test("writes the run-wide detection log and per-iteration agent logs after one successful iteration", {
         ARRANGE() {
             const s = stubContexts();
             gitRunQueue(s.gitQueue);
@@ -342,7 +342,8 @@ test.describe("Implement per-iteration logs", test => {
             s.claudeQueue.push({ text: "No build or test scripts needed." });
             s.claudeQueue.push({ text: "Worker output for feature A" });
             s.claudeQueue.push({ text: "Looks good.\n\nPASS", errorLog: "" });
-            return s;
+            const detectionLogWrites = recordWritesTo(s, WS_ROOT + "/detect.log");
+            return { ...s, detectionLogWrites };
         },
         async ACT({ contexts }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
@@ -350,13 +351,25 @@ test.describe("Implement per-iteration logs", test => {
             await cmd.dispose();
             return code;
         },
-        ASSERT(code, { files }) {
-            Assert.strictEqual(code, 0);
-            Assert.ok(files.has(WS_ROOT + "/worker.1.log"), "worker.1.log should exist");
-            Assert.ok(files.get(WS_ROOT + "/worker.1.log")!.includes("Worker output for feature A"), "worker.1.log should contain worker output");
-            Assert.ok(files.has(WS_ROOT + "/reviewer.1.1.log"), "reviewer.1.1.log should exist");
-            Assert.ok(files.get(WS_ROOT + "/reviewer.1.1.log")!.includes("Looks good."));
-            Assert.ok(files.get(WS_ROOT + "/reviewer.1.1.log")!.includes("Verdict: PASS"));
+        ASSERTS: {
+            "the run succeeds"(code) {
+                Assert.strictEqual(code, 0);
+            },
+            "the detection session has one log file for the run"(_code, { detectionLogWrites }) {
+                Assert.strictEqual(detectionLogWrites.length, 1);
+            },
+            "the detection log captures the session output"(_code, { detectionLogWrites }) {
+                Assert.ok(detectionLogWrites[0]!.includes("No build or test scripts needed."));
+            },
+            "the worker log captures the worker output"(_code, { files }) {
+                Assert.ok(files.get(WS_ROOT + "/worker.1.log")!.includes("Worker output for feature A"));
+            },
+            "the reviewer log captures the reviewer output"(_code, { files }) {
+                Assert.ok(files.get(WS_ROOT + "/reviewer.1.1.log")!.includes("Looks good."));
+            },
+            "the reviewer log carries the pass verdict"(_code, { files }) {
+                Assert.ok(files.get(WS_ROOT + "/reviewer.1.1.log")!.includes("Verdict: PASS"));
+            }
         }
     });
 
@@ -2072,10 +2085,14 @@ test.describe("Implement fatal login-failure hard stop", test => {
             s.files.set(WS_ROOT + "/error.log", "stale briefing from an earlier run");
             s.files.set(WS_ROOT + "/worker.1.log", "an earlier run's streamed worker output");
             gitActivationQueue(s.gitQueue);
+            const streamedDetectOutput = "detect output before login failure";
             const { toolsUsed, totalInvocations } = fakeAdapters(s, 1, () =>
-                (async function *():AsyncGenerator<ToolEvent> { yield FATAL_LOGIN_EVENT; })()
+                (async function *():AsyncGenerator<ToolEvent> {
+                    yield { type: "output", title: "Assistant", subtitle: "", details: streamedDetectOutput };
+                    yield FATAL_LOGIN_EVENT;
+                })()
             );
-            return { ...s, toolsUsed, totalInvocations };
+            return { ...s, toolsUsed, totalInvocations, streamedDetectOutput };
         },
         async ACT({ contexts }) {
             const cmd = new Implement([PLAN_PATH], { projectRoot: "/project" }, contexts);
@@ -2106,6 +2123,12 @@ test.describe("Implement fatal login-failure hard stop", test => {
             },
             "the unrelated existing workspace log is left untouched"(_code, { files }) {
                 Assert.strictEqual(files.get(WS_ROOT + "/worker.1.log"), "an earlier run's streamed worker output");
+            },
+            "the preserved workspace contains the run-wide detection log"(_code, { files }) {
+                Assert.strictEqual(files.has(WS_ROOT + "/detect.log"), true);
+            },
+            "the detection log retains output streamed before the fatal rejection"(_code, { files, streamedDetectOutput }) {
+                Assert.ok(files.get(WS_ROOT + "/detect.log")!.includes(streamedDetectOutput));
             },
             "no per-iteration error log is materialized — there was nothing retained to write"(_code, { files }) {
                 Assert.deepStrictEqual(materializedErrorLogs(files), []);

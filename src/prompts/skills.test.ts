@@ -2771,8 +2771,11 @@ test.describe("skills – implementSkillBody", test => {
             "forbids reviewer-folder nesting"(body) {
                 Assert.ok(body.includes("never inside the main folder or another reviewer folder"));
             },
-            "assigns scripts and run logs to the main folder"(body) {
+            "assigns scripts and per-iteration logs to the main folder"(body) {
                 Assert.ok(body.includes("The main folder holds the gate scripts, per-iteration worker/build/test/reviewer output logs, the briefing `error.log`, and a possible worker-declared `hard-stop.log`."));
+            },
+            "captures every detection launch in one run-wide log"(body) {
+                Assert.ok(body.includes("Append each detect-agent invocation's stream to the main folder's `detect.log`."));
             },
             "isolates each reviewer verdict and reference material"(body) {
                 Assert.ok(body.includes("Each reviewer folder holds only that reviewer's `error.log` verdict and any reference material supplied to that reviewer."));

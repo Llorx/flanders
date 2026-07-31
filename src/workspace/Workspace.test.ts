@@ -42,7 +42,7 @@ function stubPlatform(windows:boolean):PlatformContext {
     };
 }
 
-test.describe("WorkspacePaths per-iteration log paths", test => {
+test.describe("WorkspacePaths output log paths", test => {
     test("workerLog returns unique path per iteration", {
         ARRANGE() {
             return new Workspace(stubFs(), stubPlatform(false));
@@ -170,37 +170,7 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
         }
     });
 
-    test("prepLog returns path with joinPath(root, prep.<taskIndex>.log)", {
-        ARRANGE() {
-            return new Workspace(stubFs(), stubPlatform(false));
-        },
-        async ACT(ws) {
-            return await ws.setup(0);
-        },
-        ASSERTS: {
-            "task 0 path"(paths) {
-                Assert.strictEqual(paths.prepLog(0), paths.root + "/prep.0.log");
-            },
-            "task 3 path"(paths) {
-                Assert.strictEqual(paths.prepLog(3), paths.root + "/prep.3.log");
-            }
-        }
-    });
-
-    test("prepLog is stable across multiple calls", {
-        ARRANGE() {
-            return new Workspace(stubFs(), stubPlatform(false));
-        },
-        async ACT(ws) {
-            const paths = await ws.setup(0);
-            return { first: paths.prepLog(1), second: paths.prepLog(1) };
-        },
-        ASSERT({ first, second }) {
-            Assert.strictEqual(first, second);
-        }
-    });
-
-    test("all log paths for one task produce zero collisions (Set size 6)", {
+    test("detectLog is a single fixed path inside the main root", {
         ARRANGE() {
             return new Workspace(stubFs(), stubPlatform(false));
         },
@@ -208,13 +178,38 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
             return await ws.setup(0);
         },
         ASSERT(paths) {
-            const taskIndex = 1;
+            Assert.strictEqual(paths.detectLog, paths.root + "/detect.log");
+        }
+    });
+
+    test("paths() exposes the same run-wide detectLog", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            const setupPaths = await ws.setup(0);
+            return { setupPath: setupPaths.detectLog, pathsPath: ws.paths().detectLog };
+        },
+        ASSERT({ setupPath, pathsPath }) {
+            Assert.strictEqual(pathsPath, setupPath);
+        }
+    });
+
+    test("the detection and per-iteration log paths produce zero collisions", {
+        ARRANGE() {
+            return new Workspace(stubFs(), stubPlatform(false));
+        },
+        async ACT(ws) {
+            return await ws.setup(0);
+        },
+        ASSERT(paths) {
+            const iteration = 1;
             const all = [
-                paths.prepLog(taskIndex),
-                paths.workerLog(taskIndex),
-                paths.buildLog(taskIndex),
-                paths.testLog(taskIndex),
-                paths.reviewerLog(taskIndex),
+                paths.detectLog,
+                paths.workerLog(iteration),
+                paths.buildLog(iteration),
+                paths.testLog(iteration),
+                paths.reviewerLog(iteration),
                 paths.errorLog
             ];
             Assert.strictEqual(new Set(all).size, 6);
@@ -249,8 +244,8 @@ test.describe("WorkspacePaths per-iteration log paths", test => {
             return ws.paths();
         },
         ASSERTS: {
-            "prepLog path"(paths) {
-                Assert.strictEqual(paths.prepLog(2), paths.root + "/prep.2.log");
+            "detectLog path"(paths) {
+                Assert.strictEqual(paths.detectLog, paths.root + "/detect.log");
             },
             "workerLog path"(paths) {
                 Assert.strictEqual(paths.workerLog(2), paths.root + "/worker.2.log");
@@ -895,8 +890,8 @@ test.describe("Workspace setup allocates one independent folder per reviewer", t
             "errorLog is inside main root"(paths) {
                 Assert.strictEqual(paths.errorLog, paths.root + "/error.log");
             },
-            "prepLog is inside main root"(paths) {
-                Assert.strictEqual(paths.prepLog(0), paths.root + "/prep.0.log");
+            "detectLog is inside main root"(paths) {
+                Assert.strictEqual(paths.detectLog, paths.root + "/detect.log");
             },
             "workerLog is inside main root"(paths) {
                 Assert.strictEqual(paths.workerLog(1), paths.root + "/worker.1.log");

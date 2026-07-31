@@ -9,6 +9,7 @@ import {
     reviewerMethodologyCore,
     workerPromptCore
 } from "./prompts";
+import { BUILD_TEST_DETECTION_LOG_FILENAME } from "../workspace/Workspace";
 
 // The user-facing Flanders-voice section each installed skill body carries, so the skill seasons the
 // messages it addresses to the user with the voice on top of the resolved interaction language while
@@ -536,7 +537,7 @@ Choose and retain the two gate paths from the host platform: \`build.bat\` and \
 
 ${detectBuildAndTestPromptCore}
 
-After detection completes, inspect the two chosen paths independently. A present non-empty file is that gate's script; an absent or empty file means the command was not determined and that gate is skipped. Pass these same two paths to every worker invocation. The detect agent writes nowhere except these paths.
+Append each detect-agent invocation's stream to the main folder's \`${BUILD_TEST_DETECTION_LOG_FILENAME}\`. After detection completes, inspect the two chosen paths independently. A present non-empty file is that gate's script; an absent or empty file means the command was not determined and that gate is skipped. Pass these same two paths to every worker invocation. The detect agent writes nowhere except these paths.
 
 ## Prompt cores
 
