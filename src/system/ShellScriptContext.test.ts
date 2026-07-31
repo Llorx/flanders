@@ -2,12 +2,13 @@ import * as Assert from "assert";
 
 import test from "arrange-act-assert";
 
-import type { ScriptContext } from "../contexts";
+import type { ScriptContext, SpawnedReadable } from "../contexts";
 import { ShellScriptContext } from "./ShellScriptContext";
-import type { KillPrimitive, RawSpawnedChild, RawSpawner } from "./ShellScriptContext";
+import type { KillPrimitive, RawSpawnedChild, RawSpawnedReadable, RawSpawner } from "./ShellScriptContext";
 import type { PlatformContext } from "../workspace/Workspace";
 
 type SpawnOpts = Parameters<ScriptContext["spawn"]>[2];
+type DataListener = Parameters<SpawnedReadable["on"]>[1];
 
 type SpawnCall = Readonly<{
     command:string;
@@ -21,6 +22,9 @@ type FakeChild = Readonly<{
     emitError(e:unknown):void;
     emitStdout(chunk:string):void;
     emitStderr(chunk:string):void;
+    closeOutputStreams():void;
+    stdoutReaderCount():number;
+    stderrReaderCount():number;
     stdinWrites:readonly string[];
     stdinEnded():boolean;
     rawKillSignals:ReadonlyArray<"SIGINT"|"SIGTERM">;
@@ -32,11 +36,49 @@ type FakeChildOpts = Readonly<{
     noStdin?:boolean;
 }>;
 
+class FakeReadable implements RawSpawnedReadable {
+    private _dataListeners:DataListener[] = [];
+    private _closeListeners:Array<() => void> = [];
+
+    on(_event:"data", listener:DataListener):void {
+        this._dataListeners.push(listener);
+    }
+
+    once(_event:"close", listener:() => void):void {
+        this._closeListeners.push(listener);
+    }
+
+    off(event:"data"|"close", listener:DataListener|(() => void)):void {
+        if (event === "data") {
+            this._remove(this._dataListeners, listener as DataListener);
+        } else {
+            this._remove(this._closeListeners, listener as () => void);
+        }
+    }
+
+    emit(chunk:string):void {
+        for (const listener of this._dataListeners.slice()) listener(chunk);
+    }
+
+    close():void {
+        for (const listener of this._closeListeners.slice()) listener();
+    }
+
+    readerCount():number {
+        return this._dataListeners.length;
+    }
+
+    private _remove<T>(listeners:T[], listener:T):void {
+        const index = listeners.indexOf(listener);
+        if (index !== -1) listeners.splice(index, 1);
+    }
+}
+
 function makeFakeChild(pid:number, opts?:FakeChildOpts):FakeChild {
     const exitListeners:Array<(code:number|null, signal:string|null) => void> = [];
     const errorListeners:Array<(e:unknown) => void> = [];
-    const stdoutListeners:Array<(chunk:Buffer|string) => void> = [];
-    const stderrListeners:Array<(chunk:Buffer|string) => void> = [];
+    const stdout = new FakeReadable();
+    const stderr = new FakeReadable();
     const stdinWrites:string[] = [];
     const rawKillSignals:Array<"SIGINT"|"SIGTERM"> = [];
     let stdinEnded = false;
@@ -52,12 +94,8 @@ function makeFakeChild(pid:number, opts?:FakeChildOpts):FakeChild {
                 errorListeners.push(listener as (e:unknown) => void);
             }
         },
-        stdout: opts?.noStdout ? undefined : {
-            on(_event, l) { stdoutListeners.push(l); }
-        },
-        stderr: opts?.noStderr ? undefined : {
-            on(_event, l) { stderrListeners.push(l); }
-        },
+        stdout: opts?.noStdout ? undefined : stdout,
+        stderr: opts?.noStderr ? undefined : stderr,
         stdin: opts?.noStdin ? undefined : {
             write(chunk:string) { stdinWrites.push(chunk); },
             end() { stdinEnded = true; }
@@ -72,11 +110,17 @@ function makeFakeChild(pid:number, opts?:FakeChildOpts):FakeChild {
             for (const l of errorListeners) l(e);
         },
         emitStdout(chunk) {
-            for (const l of stdoutListeners) l(chunk);
+            stdout.emit(chunk);
         },
         emitStderr(chunk) {
-            for (const l of stderrListeners) l(chunk);
+            stderr.emit(chunk);
         },
+        closeOutputStreams() {
+            stdout.close();
+            stderr.close();
+        },
+        stdoutReaderCount: () => stdout.readerCount(),
+        stderrReaderCount: () => stderr.readerCount(),
         stdinWrites,
         stdinEnded: () => stdinEnded,
         rawKillSignals
@@ -480,22 +524,107 @@ test.describe("ShellScriptContext", test => {
     });
 
     test.describe("returned SpawnedProcess streams and events", test => {
-        test("forwards stdout data from the raw child to listeners on the returned object", {
+        test("attaches readers to both raw output streams before returning", {
             ARRANGE() {
                 const fake = makeFakeChild(1000);
                 const { spawner } = makeSpawner(() => fake.child);
                 const ctx = new ShellScriptContext(spawner, makeKillRecorder().kill, posixPlatform());
-                const received:string[] = [];
+                return { ctx, fake };
+            },
+            ACT({ ctx }) {
+                return ctx.spawn("cat", [], {});
+            },
+            ASSERTS: {
+                "stdout has a reader without a handle subscriber"(_proc, { fake }) {
+                    Assert.strictEqual(fake.stdoutReaderCount(), 1);
+                },
+                "stderr has a reader without a handle subscriber"(_proc, { fake }) {
+                    Assert.strictEqual(fake.stderrReaderCount(), 1);
+                }
+            }
+        });
+
+        test("releases both raw output readers when their streams close", {
+            ARRANGE() {
+                const fake = makeFakeChild(1000);
+                const { spawner } = makeSpawner(() => fake.child);
+                const ctx = new ShellScriptContext(spawner, makeKillRecorder().kill, posixPlatform());
+                ctx.spawn("cat", [], {});
+                return { fake };
+            },
+            ACT({ fake }) {
+                fake.closeOutputStreams();
+            },
+            ASSERTS: {
+                "stdout reader is released"(_result, { fake }) {
+                    Assert.strictEqual(fake.stdoutReaderCount(), 0);
+                },
+                "stderr reader is released"(_result, { fake }) {
+                    Assert.strictEqual(fake.stderrReaderCount(), 0);
+                }
+            }
+        });
+
+        test("forwards stdout data in order to every listener on the returned object", {
+            ARRANGE() {
+                const fake = makeFakeChild(1000);
+                const { spawner } = makeSpawner(() => fake.child);
+                const ctx = new ShellScriptContext(spawner, makeKillRecorder().kill, posixPlatform());
+                const firstReceived:string[] = [];
+                const secondReceived:string[] = [];
                 const proc = ctx.spawn("cat", [], {});
-                proc.stdout!.on("data", chunk => received.push(String(chunk)));
-                return { fake, received };
+                proc.stdout!.on("data", chunk => firstReceived.push(String(chunk)));
+                proc.stdout!.on("data", chunk => secondReceived.push(String(chunk)));
+                return { fake, firstReceived, secondReceived };
             },
             ACT({ fake }) {
                 fake.emitStdout("chunk1");
                 fake.emitStdout("chunk2");
             },
+            ASSERTS: {
+                "first listener receives every chunk in order"(_result, { firstReceived }) {
+                    Assert.deepStrictEqual(firstReceived, ["chunk1", "chunk2"]);
+                },
+                "second listener receives every chunk in order"(_result, { secondReceived }) {
+                    Assert.deepStrictEqual(secondReceived, ["chunk1", "chunk2"]);
+                }
+            }
+        });
+
+        test("does not replay stdout data emitted before subscription", {
+            ARRANGE() {
+                const fake = makeFakeChild(1000);
+                const { spawner } = makeSpawner(() => fake.child);
+                const ctx = new ShellScriptContext(spawner, makeKillRecorder().kill, posixPlatform());
+                const proc = ctx.spawn("cat", [], {});
+                fake.emitStdout("discarded");
+                const received:string[] = [];
+                return { proc, received };
+            },
+            ACT({ proc, received }) {
+                proc.stdout!.on("data", chunk => received.push(String(chunk)));
+            },
             ASSERT(_result, { received }) {
-                Assert.deepStrictEqual(received, ["chunk1", "chunk2"]);
+                Assert.deepStrictEqual(received, []);
+            }
+        });
+
+        test("ignores stdout subscriptions after the raw stream closes", {
+            ARRANGE() {
+                const fake = makeFakeChild(1000);
+                const { spawner } = makeSpawner(() => fake.child);
+                const ctx = new ShellScriptContext(spawner, makeKillRecorder().kill, posixPlatform());
+                const proc = ctx.spawn("cat", [], {});
+                fake.closeOutputStreams();
+                const received:string[] = [];
+                return { fake, proc, received };
+            },
+            ACT({ fake, proc, received }) {
+                proc.stdout!.on("data", chunk => received.push(String(chunk)));
+                fake.emitStdout("after-close");
+            },
+            ASSERT(_result, { received }) {
+                Assert.deepStrictEqual(received, []);
             }
         });
 

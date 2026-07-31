@@ -1,10 +1,13 @@
-import type { ScriptContext, SpawnedProcess } from "../contexts";
+import type { ScriptContext, SpawnedProcess, SpawnedReadable } from "../contexts";
 import type { PlatformContext } from "../workspace/Workspace";
 
 type SpawnOpts = Parameters<ScriptContext["spawn"]>[2];
+type DataListener = Parameters<SpawnedReadable["on"]>[1];
 
 export interface RawSpawnedReadable {
-    on(event:"data", listener:(chunk:Buffer|string) => void):void;
+    on(event:"data", listener:DataListener):void;
+    once(event:"close", listener:() => void):void;
+    off(event:"data"|"close", listener:DataListener|(() => void)):void;
 }
 
 export interface RawSpawnedStdin {
@@ -30,6 +33,38 @@ export interface KillPrimitive {
     (pid:number, signal:"SIGINT"|"SIGTERM"):void;
 }
 
+type DrainedReadableOwner = Readonly<{
+    readable:SpawnedReadable;
+    dispose():void;
+}>;
+
+function createDrainedReadable(source:RawSpawnedReadable):DrainedReadableOwner {
+    const subscribers:DataListener[] = [];
+    let disposed = false;
+    const forward = (chunk:Buffer|string) => {
+        for (const subscriber of subscribers.slice()) {
+            subscriber(chunk);
+        }
+    };
+    const close = () => {
+        disposed = true;
+        subscribers.length = 0;
+        source.off("close", close);
+        source.off("data", forward);
+    };
+    source.on("data", forward);
+    source.once("close", close);
+    return {
+        readable: {
+            on(_event, listener) {
+                if (disposed) return;
+                subscribers.push(listener);
+            }
+        },
+        dispose: close
+    };
+}
+
 export class ShellScriptContext implements ScriptContext {
     constructor(
         private _rawSpawn:RawSpawner,
@@ -40,6 +75,8 @@ export class ShellScriptContext implements ScriptContext {
     spawn(command:string, args:readonly string[], options:SpawnOpts):SpawnedProcess {
         const isWindows = this._platform.isWindows();
         const child = this._shellLaunch(command, args, options, isWindows);
+        const stdoutOwner = child.stdout ? createDrainedReadable(child.stdout) : undefined;
+        const stderrOwner = child.stderr ? createDrainedReadable(child.stderr) : undefined;
         const pid = child.pid;
         const proc:SpawnedProcess = {
             on(event, listener) {
@@ -56,16 +93,8 @@ export class ShellScriptContext implements ScriptContext {
                     this._kill(-pid, signal);
                 }
             },
-            stdout: child.stdout ? {
-                on(event, listener) {
-                    child.stdout!.on(event, listener);
-                }
-            } : undefined,
-            stderr: child.stderr ? {
-                on(event, listener) {
-                    child.stderr!.on(event, listener);
-                }
-            } : undefined,
+            stdout: stdoutOwner?.readable,
+            stderr: stderrOwner?.readable,
             stdin: child.stdin ? {
                 write(chunk) {
                     child.stdin!.write(chunk);
