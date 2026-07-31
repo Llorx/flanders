@@ -5,10 +5,8 @@ import type {
     ToolAdapterUsageCallback,
     ToolTokenUsage,
     ToolEvent,
-    ToolEventDone,
-    ToolEventError,
     ToolEventOutput,
-    ToolEventRateLimit,
+    ToolTerminalEvent,
 } from "./ToolAdapter";
 import { wait } from "../system/wait";
 import { abortError } from "../abortError";
@@ -80,7 +78,7 @@ export async function run(args:RunArgs):Promise<RunResult> {
                 : baseInvokeArgs;
             firstInvocation = false;
 
-            let terminal:ToolEventError|ToolEventRateLimit|ToolEventDone|null = null;
+            let terminal:ToolTerminalEvent|null = null;
 
             const attemptStartedAtMs = time.now();
             const iterable:AsyncIterable<ToolEvent> = adapter.invoke(invokeArgs);

@@ -15,6 +15,9 @@ export function manualTimeContext(initialNow = 0) {
                 }
             }
         },
+        $pendingTimerCount() {
+            return timers.filter(timer => !timer.cancelled).length;
+        },
         ...({
             now() { return now; },
             setTimeout(handler:() => void, ms:number):TimeoutHandle {

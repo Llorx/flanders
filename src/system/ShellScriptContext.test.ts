@@ -5,6 +5,7 @@ import test from "arrange-act-assert";
 import type { ScriptContext, SpawnedReadable } from "../contexts";
 import { ShellScriptContext } from "./ShellScriptContext";
 import type { KillPrimitive, RawSpawnedChild, RawSpawnedReadable, RawSpawner } from "./ShellScriptContext";
+import { removeSpawnedProcessListener } from "./spawnedProcessListeners.fixtures";
 import type { PlatformContext } from "../workspace/Workspace";
 
 type SpawnOpts = Parameters<ScriptContext["spawn"]>[2];
@@ -74,7 +75,7 @@ class FakeReadable implements RawSpawnedReadable {
     }
 }
 
-function makeFakeChild(pid:number, opts?:FakeChildOpts):FakeChild {
+function makeFakeChild(pid:number|undefined, opts?:FakeChildOpts):FakeChild {
     const exitListeners:Array<(code:number|null, signal:string|null) => void> = [];
     const errorListeners:Array<(e:unknown) => void> = [];
     const stdout = new FakeReadable();
@@ -93,6 +94,9 @@ function makeFakeChild(pid:number, opts?:FakeChildOpts):FakeChild {
             } else {
                 errorListeners.push(listener as (e:unknown) => void);
             }
+        },
+        off(event, listener) {
+            removeSpawnedProcessListener(event, listener, exitListeners, errorListeners);
         },
         stdout: opts?.noStdout ? undefined : stdout,
         stderr: opts?.noStderr ? undefined : stderr,
@@ -697,6 +701,26 @@ test.describe("ShellScriptContext", test => {
             }
         });
 
+        test("removes an event listener from the raw child", {
+            ARRANGE() {
+                const fake = makeFakeChild(1000);
+                const { spawner } = makeSpawner(() => fake.child);
+                const ctx = new ShellScriptContext(spawner, makeKillRecorder().kill, posixPlatform());
+                const received:Array<{ code:number|null; signal:string|null }> = [];
+                const listener = (code:number|null, signal:string|null) => received.push({ code, signal });
+                const proc = ctx.spawn("echo", [], {});
+                proc.on("exit", listener);
+                return { fake, proc, received, listener };
+            },
+            ACT({ fake, proc, listener }) {
+                proc.off!("exit", listener);
+                fake.emitExit(0, null);
+            },
+            ASSERT(_result, { received }) {
+                Assert.deepStrictEqual(received, []);
+            }
+        });
+
         test("forwards the error event with the original error value", {
             ARRANGE() {
                 const fake = makeFakeChild(1000);
@@ -763,6 +787,28 @@ test.describe("ShellScriptContext", test => {
     });
 
     test.describe("kill on POSIX", test => {
+        test("does nothing when a failed spawn has no pid", {
+            ARRANGE() {
+                const fake = makeFakeChild(undefined);
+                const { spawner, calls } = makeSpawner(() => fake.child);
+                const recorder = makeKillRecorder();
+                const ctx = new ShellScriptContext(spawner, recorder.kill, posixPlatform());
+                const proc = ctx.spawn("missing", [], {});
+                return { proc, spawnCalls: calls, killCalls: recorder.calls };
+            },
+            ACT({ proc }) {
+                proc.kill("SIGINT");
+            },
+            ASSERTS: {
+                "does not call the kill primitive"(_result, { killCalls }) {
+                    Assert.deepStrictEqual(killCalls, []);
+                },
+                "does not spawn a termination command"(_result, { spawnCalls }) {
+                    Assert.strictEqual(spawnCalls.length, 1);
+                }
+            }
+        });
+
         test("calls the injected kill primitive with the negated pid and SIGINT", {
             ARRANGE() {
                 const fake = makeFakeChild(12345);

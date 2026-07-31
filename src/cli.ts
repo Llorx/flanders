@@ -28,12 +28,15 @@ import type { PlatformContext } from "./workspace/Workspace";
 const rawSpawn:RawSpawner = (command, args, options) => {
     const child = nodeSpawn(command, [...args], options);
     const raw:RawSpawnedChild = {
-        pid: child.pid ?? 0,
+        pid: child.pid,
         stdout: child.stdout,
         stderr: child.stderr,
         stdin: child.stdin,
         on(event, listener) {
             child.on(event, listener as (...a:unknown[]) => void);
+        },
+        off(event, listener) {
+            child.off(event, listener as (...a:unknown[]) => void);
         },
         kill(signal) {
             child.kill(signal);

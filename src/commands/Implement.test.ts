@@ -18,6 +18,7 @@ import { recordingOutput, STUB_COLUMNS, STUB_ROWS } from "../ui/recordingOutput.
 import { workingPool, successPool, hardStopPool, interruptionPool, failurePool, tasksCompletedPool, allTasksCompletedPool } from "../voiceVariants";
 import { settleAsyncWork as flush } from "../system/settleAsyncWork.fixtures";
 import { unavailableTerminalKeyInputContext } from "../ui/TerminalKeyInputSource.fixtures";
+import { removeSpawnedProcessListener } from "../system/spawnedProcessListeners.fixtures";
 
 // The stub random context returns 0, so the rotating working footer label is
 // always workingPool[0] — the deterministic label the live footer renders here.
@@ -47,6 +48,9 @@ function fakeProcess():FakeProcess {
         on(event:"exit"|"error", listener:((code:number|null, signal:string|null) => void)|((e:unknown) => void)) {
             if (event === "exit") exitListeners.push(listener as (code:number|null, signal:string|null) => void);
             else if (event === "error") errorListeners.push(listener as (e:unknown) => void);
+        },
+        off(event, listener) {
+            removeSpawnedProcessListener(event, listener, exitListeners, errorListeners);
         },
         stdout: { on(_event:"data", listener:(chunk:Buffer|string) => void) { stdoutListeners.push(listener); } },
         stderr: { on(_event:"data", listener:(chunk:Buffer|string) => void) { stderrListeners.push(listener); } },

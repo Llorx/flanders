@@ -30,12 +30,15 @@ export type ToolEventDone = Readonly<{
     type:"done";
 }>;
 
-export type ToolEvent =
-    | ToolEventOutput
-    | ToolEventSession
+export type ToolTerminalEvent =
     | ToolEventError
     | ToolEventRateLimit
     | ToolEventDone;
+
+export type ToolEvent =
+    | ToolEventOutput
+    | ToolEventSession
+    | ToolTerminalEvent;
 
 export type ToolTokenUsage = Readonly<{ inputTokens:number; outputTokens:number }>;
 

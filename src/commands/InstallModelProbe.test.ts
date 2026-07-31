@@ -65,6 +65,10 @@ function makeProbeStub(opts:{
                     }
                     start();
                 },
+                off(event, listener) {
+                    if (event === "exit" && exitListener === listener) exitListener = null;
+                    if (event === "error" && errorListener === listener) errorListener = null;
+                },
                 kill() {},
                 stdout: {
                     on(_event:"data", listener:DataListener) {
@@ -593,6 +597,9 @@ test.describe("probeModelList", test => {
                                     exitListener?.(0, null);
                                 });
                             }
+                        },
+                        off(event, listener) {
+                            if (event === "exit" && exitListener === listener) exitListener = null;
                         },
                         kill() {},
                         stdout: {

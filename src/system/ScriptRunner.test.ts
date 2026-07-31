@@ -4,6 +4,7 @@ import test from "arrange-act-assert";
 
 import { ScriptRunner } from "./ScriptRunner";
 import type { ScriptContext, SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
+import { removeSpawnedProcessListener } from "./spawnedProcessListeners.fixtures";
 
 type SpawnedProcessSpy = SpawnedProcess & {
     $emit(event:"exit", code:number|null, signal?:string|null):void;
@@ -37,6 +38,9 @@ function scriptContext() {
                         } else if (event === "error") {
                             errorListeners.push(listener as (e:unknown) => void);
                         }
+                    },
+                    off(event, listener) {
+                        removeSpawnedProcessListener(event, listener, exitListeners, errorListeners);
                     },
                     stdout: {
                         on(_event, listener) {

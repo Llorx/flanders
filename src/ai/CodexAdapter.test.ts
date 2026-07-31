@@ -7,6 +7,8 @@ import { CodexAdapter, CodexAdapterContexts, formatCodexCommand } from "./CodexA
 import type { ToolEvent, ToolEventError, ToolAdapterInvokeArgs } from "./ToolAdapter";
 import { UNKNOWN_TOOL_ERROR_MESSAGE } from "./toolErrorClassification";
 import type { RandomContext, ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
+import { manualTimeContext } from "../system/manualTimeContext.fixtures";
+import { removeSpawnedProcessListener } from "../system/spawnedProcessListeners.fixtures";
 
 type SpawnedProcessSpy = SpawnedProcess & {
     $emit(event:"exit", code:number|null, signal?:string|null):void;
@@ -17,7 +19,7 @@ type SpawnedProcessSpy = SpawnedProcess & {
     $stdinEnded:boolean;
 };
 
-function spawnedProcessSpy():SpawnedProcessSpy {
+function spawnedProcessSpy(pid:number|null = 1):SpawnedProcessSpy {
     const exitListeners:Array<(code:number|null, signal:string|null) => void> = [];
     const errorListeners:Array<(e:unknown) => void> = [];
     const stdoutListeners:Array<(chunk:Buffer|string) => void> = [];
@@ -25,6 +27,7 @@ function spawnedProcessSpy():SpawnedProcessSpy {
     const stdinWrites:string[] = [];
     let stdinEnded = false;
     return {
+        pid: pid ?? undefined,
         stdin: {
             write(chunk:string) { stdinWrites.push(chunk); },
             end() { stdinEnded = true; }
@@ -33,6 +36,9 @@ function spawnedProcessSpy():SpawnedProcessSpy {
         on(event, listener) {
             if (event === "exit") exitListeners.push(listener as (code:number|null, signal:string|null) => void);
             else if (event === "error") errorListeners.push(listener as (e:unknown) => void);
+        },
+        off(event, listener) {
+            removeSpawnedProcessListener(event, listener, exitListeners, errorListeners);
         },
         stdout: { on(_event, listener) { stdoutListeners.push(listener); } } as SpawnedReadable,
         $emit(event:string, codeOrError:unknown, signal?:unknown) {
@@ -46,7 +52,7 @@ function spawnedProcessSpy():SpawnedProcessSpy {
     };
 }
 
-function scriptContext() {
+function scriptContext(pid:number|null = 1) {
     const spawned:Array<{ command:string; args:readonly string[] }> = [];
     const processes:SpawnedProcessSpy[] = [];
     return {
@@ -54,7 +60,7 @@ function scriptContext() {
         $processes: processes,
         ...({
             spawn(command, args) {
-                const proc = spawnedProcessSpy();
+                const proc = spawnedProcessSpy(pid);
                 spawned.push({ command, args });
                 processes.push(proc);
                 return proc;
@@ -1008,9 +1014,206 @@ test.describe("CodexAdapter", test => {
 
     test.describe("process exit scenarios", test => {
 
+        test("completed turn waits ten seconds, terminates a stuck child, then emits done", {
+            ARRANGE() {
+                const time = manualTimeContext();
+                const { contexts, script } = makeContexts({ time });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script, time };
+            },
+            async ACT({ adapter, args, script, time }) {
+                const iter = adapter.invoke(args)[Symbol.asyncIterator]();
+                const proc = script.$processes[0]!;
+                emitEvent(proc, { type: "turn.completed" });
+                proc.$emit("error", new Error("live process error after terminal"));
+                let terminalResolved = false;
+                const terminalPromise = iter.next().then(result => {
+                    terminalResolved = true;
+                    return result;
+                });
+                await Promise.resolve();
+                const durations = [...time.$durations];
+                time.$advance(9_999);
+                const killsBeforeGrace = [...proc.$kills];
+                time.$advance(1);
+                await Promise.resolve();
+                const killsAtGrace = [...proc.$kills];
+                const resolvedBeforeExit = terminalResolved;
+                proc.$emit("exit", null, "SIGINT");
+                const terminal = await terminalPromise;
+                const end = await iter.next();
+                return { durations, killsBeforeGrace, killsAtGrace, resolvedBeforeExit, terminal, end };
+            },
+            ASSERTS: {
+                "uses one ten-second grace timer from the injected time context"(result) {
+                    Assert.deepStrictEqual(result.durations, [10_000]);
+                },
+                "does not terminate before the grace expires"(result) {
+                    Assert.deepStrictEqual(result.killsBeforeGrace, []);
+                },
+                "requests tree termination when the grace expires"(result) {
+                    Assert.deepStrictEqual(result.killsAtGrace, ["SIGINT"]);
+                },
+                "does not emit the terminal event before child termination"(result) {
+                    Assert.strictEqual(result.resolvedBeforeExit, false);
+                },
+                "preserves the determined done event after signal exit"(result) {
+                    Assert.deepStrictEqual(result.terminal, { value: { type: "done" }, done: false });
+                },
+                "closes after the terminal event"(result) {
+                    Assert.strictEqual(result.end.done, true);
+                }
+            }
+        });
+
+        test("completed turn cancels its grace timer when the child exits naturally", {
+            ARRANGE() {
+                const time = manualTimeContext();
+                const { contexts, script } = makeContexts({ time });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script, time };
+            },
+            async ACT({ adapter, args, script, time }) {
+                let pendingTimersBeforeExit = 0;
+                let pendingTimersAfterExit = 0;
+                const events = await collectEvents(adapter, args, script, proc => {
+                    emitEvent(proc, { type: "turn.completed" });
+                    pendingTimersBeforeExit = time.$pendingTimerCount();
+                    time.$advance(9_999);
+                    proc.$emit("exit", 0, null);
+                    pendingTimersAfterExit = time.$pendingTimerCount();
+                    time.$advance(1);
+                });
+                return {
+                    events,
+                    kills: [...script.$processes[0]!.$kills],
+                    pendingTimersBeforeExit,
+                    pendingTimersAfterExit
+                };
+            },
+            ASSERTS: {
+                "emits done"(result) {
+                    Assert.deepStrictEqual(result.events, [{ type: "done" }]);
+                },
+                "does not request termination"(result) {
+                    Assert.deepStrictEqual(result.kills, []);
+                },
+                "has an active grace timer before exit"(result) {
+                    Assert.strictEqual(result.pendingTimersBeforeExit, 1);
+                },
+                "cancels the grace timer on exit"(result) {
+                    Assert.strictEqual(result.pendingTimersAfterExit, 0);
+                }
+            }
+        });
+
+        test("classified error survives termination of a stuck child", {
+            ARRANGE() {
+                const time = manualTimeContext();
+                const { contexts, script } = makeContexts({ time });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script, time };
+            },
+            async ACT({ adapter, args, script, time }) {
+                const events = await collectEvents(adapter, args, script, proc => {
+                    emitEvent(proc, { type: "error", message: "the tool declined the request" });
+                    time.$advance(10_000);
+                    proc.$emit("exit", null, "SIGINT");
+                });
+                return { events, kills: [...script.$processes[0]!.$kills] };
+            },
+            ASSERTS: {
+                "preserves the classified error"(result) {
+                    Assert.deepStrictEqual(result.events, [{
+                        type: "error",
+                        retryable: false,
+                        message: "the tool declined the request"
+                    }]);
+                },
+                "requests termination once"(result) {
+                    Assert.deepStrictEqual(result.kills, ["SIGINT"]);
+                }
+            }
+        });
+
+        test("classified rate limit survives termination of a stuck child", {
+            ARRANGE() {
+                const time = manualTimeContext(NOW_MS);
+                const { contexts, script } = makeContexts({ time, random: randomContext(MID_DRAW) });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script, time };
+            },
+            async ACT({ adapter, args, script, time }) {
+                const events = await collectEvents(adapter, args, script, proc => {
+                    emitEvent(proc, { type: "error", message: "rate limit exceeded" });
+                    time.$advance(10_000);
+                    proc.$emit("exit", null, "SIGINT");
+                });
+                return { events, kills: [...script.$processes[0]!.$kills] };
+            },
+            ASSERTS: {
+                "preserves the classified rate limit"(result) {
+                    Assert.deepStrictEqual(result.events, [
+                        { type: "rate_limit", waitUntilMs: NOW_MS + 600_000 }
+                    ]);
+                },
+                "requests termination once"(result) {
+                    Assert.deepStrictEqual(result.kills, ["SIGINT"]);
+                }
+            }
+        });
+
+        test("live process error starts the grace instead of counting as child exit", {
+            ARRANGE() {
+                const time = manualTimeContext();
+                const { contexts, script } = makeContexts({ time });
+                const adapter = new CodexAdapter(contexts);
+                const args = baseArgs();
+                return { adapter, args, script, time };
+            },
+            async ACT({ adapter, args, script, time }) {
+                const iter = adapter.invoke(args)[Symbol.asyncIterator]();
+                const proc = script.$processes[0]!;
+                proc.$emit("error", new Error("live process error"));
+                let terminalResolved = false;
+                const terminalPromise = iter.next().then(result => {
+                    terminalResolved = true;
+                    return result;
+                });
+                await Promise.resolve();
+                time.$advance(10_000);
+                await Promise.resolve();
+                const resolvedBeforeExit = terminalResolved;
+                const killsBeforeExit = [...proc.$kills];
+                proc.$emit("exit", null, "SIGINT");
+                const terminal = await terminalPromise;
+                await iter.next();
+                return { resolvedBeforeExit, killsBeforeExit, terminal };
+            },
+            ASSERTS: {
+                "does not emit before actual exit"(result) {
+                    Assert.strictEqual(result.resolvedBeforeExit, false);
+                },
+                "terminates the still-live child after the grace"(result) {
+                    Assert.deepStrictEqual(result.killsBeforeExit, ["SIGINT"]);
+                },
+                "preserves the process error terminal"(result) {
+                    Assert.deepStrictEqual(result.terminal, {
+                        value: { type: "error", retryable: false, message: "live process error" },
+                        done: false
+                    });
+                }
+            }
+        });
+
         test("ENOENT emits non-retryable error with codex binary not found", {
             ARRANGE() {
-                const { contexts, script } = makeContexts();
+                const script = scriptContext(null);
+                const { contexts } = makeContexts({ script });
                 const adapter = new CodexAdapter(contexts);
                 const args = baseArgs();
                 return { adapter, args, script };
@@ -1320,6 +1523,74 @@ test.describe("CodexAdapter", test => {
         ));
     });
 
+    test("onUsage abort cannot reinstall a terminal event", {
+        ARRANGE() {
+            const controller = new AbortController();
+            const { contexts, script } = makeContexts();
+            const adapter = new CodexAdapter(contexts);
+            const args = baseArgs({
+                abortSignal: controller.signal,
+                onUsage() { controller.abort(); }
+            });
+            return { adapter, args, script };
+        },
+        async ACT({ adapter, args, script }) {
+            const iterable = adapter.invoke(args);
+            const proc = script.$processes[0]!;
+            emitEvent(proc, {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 }
+            });
+            proc.$emit("exit", null, "SIGINT");
+            const events:ToolEvent[] = [];
+            for await (const event of iterable) events.push(event);
+            return { events, kills: [...proc.$kills] };
+        },
+        ASSERTS: {
+            "terminates the child"(result) {
+                Assert.deepStrictEqual(result.kills, ["SIGINT"]);
+            },
+            "closes without a terminal event"(result) {
+                Assert.deepStrictEqual(result.events, []);
+            }
+        }
+    });
+
+    test("abort discards a terminal queued behind an output event", {
+        ARRANGE() {
+            const controller = new AbortController();
+            const { contexts, script } = makeContexts();
+            const adapter = new CodexAdapter(contexts);
+            const args = baseArgs({ abortSignal: controller.signal });
+            return { adapter, args, script, controller };
+        },
+        async ACT({ adapter, args, script, controller }) {
+            const iter = adapter.invoke(args)[Symbol.asyncIterator]();
+            const proc = script.$processes[0]!;
+            emitEvent(proc, { type: "item.completed", item: { type: "agent_message", text: "ready" } });
+            emitEvent(proc, { type: "turn.completed" });
+            proc.$emit("exit", 0, null);
+            const output = await iter.next();
+            controller.abort();
+            const end = await iter.next();
+            return { output, end, kills: [...proc.$kills] };
+        },
+        ASSERTS: {
+            "yields the output before cancellation"(result) {
+                Assert.deepStrictEqual(result.output, {
+                    value: { type: "output", title: "Assistant", subtitle: "", details: "ready" },
+                    done: false
+                });
+            },
+            "closes without yielding the queued terminal"(result) {
+                Assert.strictEqual(result.end.done, true);
+            },
+            "does not terminate an already exited child"(result) {
+                Assert.deepStrictEqual(result.kills, []);
+            }
+        }
+    });
+
     test("abortSignal sends SIGINT to child and closes iterable", {
         ARRANGE() {
             const controller = new AbortController();
@@ -1331,15 +1602,29 @@ test.describe("CodexAdapter", test => {
         async ACT({ adapter, args, script, controller }) {
             const iterable = adapter.invoke(args);
             const proc = script.$processes[0]!;
-            controller.abort();
-            proc.$emit("exit", null, "SIGINT");
             const events:ToolEvent[] = [];
-            for await (const e of iterable) events.push(e);
-            return { events, kills: proc.$kills };
+            let iterableClosed = false;
+            const collectPromise = (async () => {
+                for await (const event of iterable) events.push(event);
+                iterableClosed = true;
+            })();
+            await new Promise<void>(resolve => setImmediate(resolve));
+            controller.abort();
+            await new Promise<void>(resolve => setImmediate(resolve));
+            const closedBeforeExit = iterableClosed;
+            proc.$emit("exit", null, "SIGINT");
+            await collectPromise;
+            return { events, kills: proc.$kills, closedBeforeExit, closedAfterExit: iterableClosed };
         },
         ASSERTS: {
             "child receives SIGINT exactly once"(result) {
                 Assert.deepStrictEqual(result.kills, ["SIGINT"]);
+            },
+            "iterable remains open until child exit"(result) {
+                Assert.strictEqual(result.closedBeforeExit, false);
+            },
+            "iterable closes after child exit"(result) {
+                Assert.strictEqual(result.closedAfterExit, true);
             },
             "iterable closes with no events"(result) {
                 Assert.deepStrictEqual(result.events, []);
@@ -1465,6 +1750,7 @@ test.describe("CodexAdapter", test => {
         async ACT({ adapter, args, script }) {
             return await collectEvents(adapter, args, script, proc => {
                 proc.$emit("error", "string error value");
+                proc.$emit("exit", 1, null);
             });
         },
         ASSERT(result) {
@@ -1484,6 +1770,7 @@ test.describe("CodexAdapter", test => {
         async ACT({ adapter, args, script }) {
             return await collectEvents(adapter, args, script, proc => {
                 proc.$emit("error", new Error("something broke"));
+                proc.$emit("exit", 1, null);
             });
         },
         ASSERT(result) {

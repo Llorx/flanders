@@ -68,6 +68,9 @@ function stubContexts() {
                             Promise.resolve().then(() => exitListener?.(0, null));
                         }
                     },
+                    off(event, listener) {
+                        if (event === "exit" && exitListener === listener) exitListener = null;
+                    },
                     kill() {},
                     stdout: { on() {} },
                     stderr: { on() {} }
@@ -1193,6 +1196,9 @@ test.describe("Install writes regardless of tool CLI availability", test => {
                                 Promise.resolve().then(() => exitListener?.(0, null));
                             }
                         },
+                        off(event, listener) {
+                            if (event === "exit" && exitListener === listener) exitListener = null;
+                        },
                         kill() {},
                         stdout: { on() {} },
                         stderr: { on() {} }
@@ -1249,6 +1255,9 @@ test.describe("Install writes regardless of tool CLI availability", test => {
                                 exitListener = listener;
                                 Promise.resolve().then(() => exitListener?.(0, null));
                             }
+                        },
+                        off(event, listener) {
+                            if (event === "exit" && exitListener === listener) exitListener = null;
                         },
                         kill() {},
                         stdout: { on() {} },
@@ -1876,6 +1885,9 @@ function makeModelScript(opts:{
                             });
                         }
                     },
+                    off(event, listener) {
+                        if (event === "exit" && exitListener === listener) exitListener = null;
+                    },
                     kill() {},
                     stdout: { on(_e:"data", l:DataListener) { stdoutListener = l; } },
                     stderr: { on(_e:"data", l:DataListener) { stderrListener = l; } }
@@ -1888,6 +1900,9 @@ function makeModelScript(opts:{
                         exitListener = listener;
                         Promise.resolve().then(() => exitListener?.(0, null));
                     }
+                },
+                off(event, listener) {
+                    if (event === "exit" && exitListener === listener) exitListener = null;
                 },
                 kill() {},
                 stdout: { on() {} },
@@ -1964,6 +1979,9 @@ test.describe("Install model question", test => {
                                     }
                                 }).then(() => exitListener?.(0, null));
                             }
+                        },
+                        off(event, listener) {
+                            if (event === "exit" && exitListener === listener) exitListener = null;
                         },
                         kill() {},
                         stdout: { on(_e:"data", l:DataListener) { dataListener = l; } },
@@ -2985,6 +3003,9 @@ test.describe("Install model question", test => {
                                     resolveExit = () => exitListener?.(0, null);
                                 }
                             },
+                            off(event, listener) {
+                                if (event === "exit" && exitListener === listener) exitListener = null;
+                            },
                             kill() {},
                             stdout: { on() {} },
                             stderr: { on() {} }
@@ -2997,6 +3018,9 @@ test.describe("Install model question", test => {
                                 exitListener = listener;
                                 Promise.resolve().then(() => exitListener?.(0, null));
                             }
+                        },
+                        off(event, listener) {
+                            if (event === "exit" && exitListener === listener) exitListener = null;
                         },
                         kill() {},
                         stdout: { on() {} },

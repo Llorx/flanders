@@ -5,8 +5,10 @@ export type SpawnedReadable = {
 };
 
 export type SpawnedProcess = {
+    readonly pid?:number;
     on(event:"exit", listener:(code:number|null, signal:string|null) => void):void;
     on(event:"error", listener:(e:unknown) => void):void;
+    off(event:"exit"|"error", listener:((code:number|null, signal:string|null) => void)|((e:unknown) => void)):void;
     kill(signal:"SIGINT"|"SIGTERM"):void;
     stdout?:SpawnedReadable;
     stderr?:SpawnedReadable;

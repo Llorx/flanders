@@ -1,8 +1,9 @@
 import type { SpawnOptions } from "child_process";
 
-import type { RandomContext, ScriptContext, SpawnedProcess, TimeContext } from "../contexts";
+import type { RandomContext, ScriptContext, TimeContext } from "../contexts";
 import { classifyToolFailure, UNKNOWN_TOOL_ERROR_MESSAGE } from "./toolErrorClassification";
-import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent } from "./ToolAdapter";
+import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent, ToolTerminalEvent } from "./ToolAdapter";
+import { ToolProcessLifecycle } from "./ToolProcessLifecycle";
 
 const COMMAND_INLINE_MAX = 120;
 
@@ -58,14 +59,13 @@ export class CodexAdapter implements ToolAdapter {
 }
 
 class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
-    private _proc:SpawnedProcess|null = null;
     private _capturedSessionId:string|null = null;
     private _queue:ToolEvent[] = [];
     private _done = false;
     private _waitResolve:(() => void)|null = null;
     private _abortListener:(() => void)|null = null;
-    private _exitPromise:Promise<void>|null = null;
-    private _sawTurnCompleted = false;
+    private _pendingTerminal:ToolTerminalEvent|null = null;
+    private _processLifecycle:ToolProcessLifecycle|null = null;
 
     private _receivedAnyEvent = false;
     private _usedResume = false;
@@ -83,14 +83,22 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
 
         const argv = this._buildArgv(isResume);
         const spawnOptions:SpawnOptions = { stdio: "pipe" };
-        const proc = this._contexts.script.spawn("codex", argv, spawnOptions);
-        this._proc = proc;
+        const processLifecycle = new ToolProcessLifecycle(
+            this._contexts.script,
+            "codex",
+            argv,
+            spawnOptions,
+            this._contexts.time,
+            {
+                onExit: (code, signal) => this._handleProcessExit(code, signal),
+                onError: error => this._handleProcessError(error)
+            }
+        );
+        this._processLifecycle = processLifecycle;
+        const proc = processLifecycle.process;
 
         proc.stdin?.write(this._args.prompt);
         proc.stdin?.end();
-
-        let exitResolve:(() => void)|null = null;
-        this._exitPromise = new Promise<void>(resolve => { exitResolve = resolve; });
 
         let buffer = "";
         proc.stdout?.on("data", (chunk:Buffer|string) => {
@@ -106,66 +114,51 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
             }
         });
 
-        proc.on("error", (e:unknown) => {
-            if (this._done) {
-                exitResolve?.();
-                return;
-            }
-            this._done = true;
-            const err = e instanceof Error ? e : new Error(String(e));
-            if ((err as {code?:string}).code === "ENOENT") {
-                this._queue.push({ type: "error", retryable: false, message: "codex binary not found" });
-            } else {
-                this._queue.push({ type: "error", retryable: false, message: err.message });
-            }
-            this._wake();
-            exitResolve?.();
-        });
-
-        proc.on("exit", (code:number|null, signal:string|null) => {
-            if (this._done) {
-                exitResolve?.();
-                return;
-            }
-
-            if (this._sawTurnCompleted) {
-                this._queue.push({ type: "done" });
-            } else if (signal) {
-                this._queue.push({
-                    type: "error",
-                    retryable: true,
-                    message: `codex terminated by signal ${signal}`
-                });
-            } else if (this._usedResume && !this._receivedAnyEvent) {
-                this._queue.push({
-                    type: "error",
-                    retryable: false,
-                    message: "codex exec resume unavailable in installed CLI"
-                });
-            } else {
-                this._queue.push({
-                    type: "error",
-                    retryable: true,
-                    message: `codex exited unexpectedly (code ${code} signal ${signal})`
-                });
-            }
-
-            this._done = true;
-            this._wake();
-            exitResolve?.();
-        });
-
         this._abortListener = () => {
+            this._pendingTerminal = null;
+            this._queue.length = 0;
             this._done = true;
-            if (this._proc) {
-                this._proc.kill("SIGINT");
-            }
+            void this._processLifecycle?.dispose();
             this._wake();
         };
         if (this._args.abortSignal.aborted) {
             this._abortListener();
         } else {
             this._args.abortSignal.addEventListener("abort", this._abortListener, { once: true });
+        }
+    }
+
+    private _handleProcessError(error:unknown):void {
+        const err = error instanceof Error ? error : new Error(String(error));
+        if ((err as {code?:string}).code === "ENOENT") {
+            this._finishWithTerminal({ type: "error", retryable: false, message: "codex binary not found" });
+        } else {
+            this._finishWithTerminal({ type: "error", retryable: false, message: err.message });
+        }
+    }
+
+    private _handleProcessExit(code:number|null, signal:string|null):void {
+        if (this._done || this._pendingTerminal) {
+            return;
+        }
+        if (signal) {
+            this._finishWithTerminal({
+                type: "error",
+                retryable: true,
+                message: `codex terminated by signal ${signal}`
+            });
+        } else if (this._usedResume && !this._receivedAnyEvent) {
+            this._finishWithTerminal({
+                type: "error",
+                retryable: false,
+                message: "codex exec resume unavailable in installed CLI"
+            });
+        } else {
+            this._finishWithTerminal({
+                type: "error",
+                retryable: true,
+                message: `codex exited unexpectedly (code ${code} signal ${signal})`
+            });
         }
     }
 
@@ -195,7 +188,7 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
     }
 
     private _handleLine(line:string):void {
-        if (this._done) return;
+        if (this._done || this._pendingTerminal) return;
 
         let parsed:CodexNativeEvent|null = null;
         try {
@@ -215,7 +208,6 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
         if (parsed.type === "item.completed" && parsed.item) {
             this._handleItemCompleted(parsed.item);
         } else if (parsed.type === "turn.completed") {
-            this._sawTurnCompleted = true;
             if (parsed.usage && this._args.onUsage) {
                 // `turn.completed.usage` is a session-cumulative running total. On a resumed
                 // invocation it already includes every token the session's prior invocations
@@ -227,6 +219,7 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
                     outputTokens: (parsed.usage.output_tokens ?? 0) - (base?.outputTokens ?? 0)
                 });
             }
+            this._finishWithTerminal({ type: "done" });
         } else if (parsed.type === "error") {
             this._handleFailure(typeof parsed.message === "string" ? parsed.message : UNKNOWN_TOOL_ERROR_MESSAGE);
         } else if (parsed.type === "turn.failed") {
@@ -262,8 +255,20 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
     }
 
     private _handleFailure(message:string):void {
-        this._queue.push(classifyToolFailure(message, this._contexts.time, this._contexts.random));
-        this._done = true;
+        this._finishWithTerminal(classifyToolFailure(message, this._contexts.time, this._contexts.random));
+    }
+
+    private _finishWithTerminal(terminal:ToolTerminalEvent):void {
+        if (this._done || this._pendingTerminal || this._args.abortSignal.aborted) {
+            return;
+        }
+        this._pendingTerminal = terminal;
+        this._processLifecycle!.finishAfterExit(() => {
+            this._queue.push(this._pendingTerminal!);
+            this._pendingTerminal = null;
+            this._done = true;
+            this._wake();
+        });
     }
 
     private _wake():void {
@@ -287,8 +292,8 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
             }
             if (this._done && this._queue.length === 0) {
                 this._cleanup();
-                if (this._exitPromise) {
-                    await this._exitPromise;
+                if (this._processLifecycle) {
+                    await this._processLifecycle.dispose();
                 }
                 return { value: undefined as unknown as ToolEvent, done: true };
             }
@@ -297,13 +302,11 @@ class CodexAdapterIterator implements AsyncIterator<ToolEvent> {
     }
 
     async return():Promise<IteratorResult<ToolEvent>> {
+        this._pendingTerminal = null;
         this._done = true;
         this._cleanup();
-        if (this._proc) {
-            this._proc.kill("SIGINT");
-            if (this._exitPromise) {
-                await this._exitPromise;
-            }
+        if (this._processLifecycle) {
+            await this._processLifecycle.dispose();
         }
         return { value: undefined as unknown as ToolEvent, done: true };
     }

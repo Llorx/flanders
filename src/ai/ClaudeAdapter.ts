@@ -1,8 +1,9 @@
 import type { SpawnOptions } from "child_process";
 
-import type { ScriptContext, TimeContext, RandomContext, SpawnedProcess } from "../contexts";
-import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent } from "./ToolAdapter";
+import type { ScriptContext, TimeContext, RandomContext } from "../contexts";
+import type { ToolAdapter, ToolAdapterInvokeArgs, ToolEvent, ToolTerminalEvent } from "./ToolAdapter";
 import { synthesizeRateLimitEvent, UNKNOWN_TOOL_ERROR_MESSAGE } from "./toolErrorClassification";
+import { ToolProcessLifecycle } from "./ToolProcessLifecycle";
 
 const TOOL_INPUT_INLINE_MAX = 120;
 
@@ -158,14 +159,13 @@ export class ClaudeAdapter implements ToolAdapter {
 }
 
 class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
-    private _proc:SpawnedProcess|null = null;
     private _capturedSessionId:string|null = null;
     private _queue:ToolEvent[] = [];
     private _done = false;
     private _waitResolve:(() => void)|null = null;
     private _abortListener:(() => void)|null = null;
-    private _pendingTerminal:ToolEvent|null = null;
-    private _exitPromise:Promise<void>|null = null;
+    private _pendingTerminal:ToolTerminalEvent|null = null;
+    private _processLifecycle:ToolProcessLifecycle|null = null;
     private _retainedRateLimitInfo:ClaudeRateLimitInfo|null = null;
 
     constructor(
@@ -178,8 +178,33 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
     private _start():void {
         const argv = this._buildArgv();
         const spawnOptions:SpawnOptions = { stdio: "pipe" };
-        const proc = this._contexts.claude.spawn("claude", argv, spawnOptions);
-        this._proc = proc;
+        let stderrBuf = "";
+        const processLifecycle = new ToolProcessLifecycle(
+            this._contexts.claude,
+            "claude",
+            argv,
+            spawnOptions,
+            this._contexts.time,
+            {
+                onError: error => this._handleProcessError(error),
+                onExit: (code, signal) => {
+                    if (stderrBuf) {
+                        this._queue.push({
+                            type: "output",
+                            title: "stderr",
+                            subtitle: "",
+                            details: stderrBuf
+                        });
+                        stderrBuf = "";
+                    }
+                    if (!this._pendingTerminal) {
+                        this._handleProcessExit(code, signal);
+                    }
+                }
+            }
+        );
+        this._processLifecycle = processLifecycle;
+        const proc = processLifecycle.process;
 
         const initialMessage = {
             type: "user",
@@ -187,9 +212,6 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
         };
         proc.stdin?.write(JSON.stringify(initialMessage) + "\n");
         proc.stdin?.end();
-
-        let exitResolve:(() => void)|null = null;
-        this._exitPromise = new Promise<void>(resolve => { exitResolve = resolve; });
 
         let buffer = "";
         proc.stdout?.on("data", (chunk:Buffer|string) => {
@@ -205,75 +227,48 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
             }
         });
 
-        let stderrBuf = "";
         proc.stderr?.on("data", (chunk:Buffer|string) => {
             stderrBuf += String(chunk);
         });
 
-        proc.on("error", (e:unknown) => {
-            if (!this._done) {
-                const err = e instanceof Error ? e : new Error(String(e));
-                this._done = true;
-                this._queue.push({
-                    type: "error",
-                    retryable: false,
-                    message: (err as { code?:string }).code === "ENOENT"
-                        ? "claude binary not found"
-                        : err.message
-                });
-                this._wake();
-            }
-            exitResolve?.();
-        });
-
-        proc.on("exit", (code:number|null, signal:string|null) => {
-            if (this._done) {
-                exitResolve?.();
-                return;
-            }
-            if (stderrBuf) {
-                this._queue.push({
-                    type: "output",
-                    title: "stderr",
-                    subtitle: "",
-                    details: stderrBuf
-                });
-                stderrBuf = "";
-            }
-            if (this._pendingTerminal) {
-                this._queue.push(this._pendingTerminal);
-                this._pendingTerminal = null;
-            } else if (signal) {
-                this._queue.push({
-                    type: "error",
-                    retryable: true,
-                    message: `claude terminated by signal ${signal}`
-                });
-            } else {
-                this._queue.push({
-                    type: "error",
-                    retryable: true,
-                    message: `claude exited unexpectedly (code ${code} signal ${signal})`
-                });
-            }
-            if (!this._done) {
-                this._done = true;
-            }
-            this._wake();
-            exitResolve?.();
-        });
-
         this._abortListener = () => {
+            this._pendingTerminal = null;
+            this._queue.length = 0;
             this._done = true;
-            if (this._proc) {
-                this._proc.kill("SIGINT");
-            }
+            void this._processLifecycle?.dispose();
             this._wake();
         };
         if (this._args.abortSignal.aborted) {
             this._abortListener();
         } else {
             this._args.abortSignal.addEventListener("abort", this._abortListener, { once: true });
+        }
+    }
+
+    private _handleProcessError(error:unknown):void {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this._finishWithTerminal({
+            type: "error",
+            retryable: false,
+            message: (err as { code?:string }).code === "ENOENT"
+                ? "claude binary not found"
+                : err.message
+        });
+    }
+
+    private _handleProcessExit(code:number|null, signal:string|null):void {
+        if (signal) {
+            this._finishWithTerminal({
+                type: "error",
+                retryable: true,
+                message: `claude terminated by signal ${signal}`
+            });
+        } else {
+            this._finishWithTerminal({
+                type: "error",
+                retryable: true,
+                message: `claude exited unexpectedly (code ${code} signal ${signal})`
+            });
         }
     }
 
@@ -309,7 +304,7 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
     }
 
     private _handleLine(line:string):void {
-        if (this._done) return;
+        if (this._done || this._pendingTerminal) return;
 
         let parsed:ClaudeNativeEvent|null = null;
         try {
@@ -389,16 +384,16 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
             }
 
             if (!parsed.is_error) {
-                this._pendingTerminal = { type: "done" };
+                this._finishWithTerminal({ type: "done" });
             } else {
-                this._pendingTerminal = this._classifyError(parsed);
+                this._finishWithTerminal(this._classifyError(parsed));
             }
         }
 
         this._wake();
     }
 
-    private _classifyError(parsed:ClaudeNativeEvent):ToolEvent {
+    private _classifyError(parsed:ClaudeNativeEvent):ToolTerminalEvent {
         const status = parsed.api_error_status;
         const subtype = parsed.subtype;
         const errorDetail = typeof parsed.error === "object" ? parsed.error : undefined;
@@ -446,6 +441,19 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
         return { type: "error", retryable: false, message };
     }
 
+    private _finishWithTerminal(terminal:ToolTerminalEvent):void {
+        if (this._done || this._pendingTerminal || this._args.abortSignal.aborted) {
+            return;
+        }
+        this._pendingTerminal = terminal;
+        this._processLifecycle!.finishAfterExit(() => {
+            this._queue.push(this._pendingTerminal!);
+            this._pendingTerminal = null;
+            this._done = true;
+            this._wake();
+        });
+    }
+
     private _wake():void {
         if (this._waitResolve) {
             const resolve = this._waitResolve;
@@ -467,8 +475,8 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
             }
             if (this._done && this._queue.length === 0) {
                 this._cleanup();
-                if (this._exitPromise) {
-                    await this._exitPromise;
+                if (this._processLifecycle) {
+                    await this._processLifecycle.dispose();
                 }
                 return { value: undefined as unknown as ToolEvent, done: true };
             }
@@ -477,13 +485,11 @@ class ClaudeAdapterIterator implements AsyncIterator<ToolEvent> {
     }
 
     async return():Promise<IteratorResult<ToolEvent>> {
+        this._pendingTerminal = null;
         this._done = true;
         this._cleanup();
-        if (this._proc) {
-            this._proc.kill("SIGINT");
-            if (this._exitPromise) {
-                await this._exitPromise;
-            }
+        if (this._processLifecycle) {
+            await this._processLifecycle.dispose();
         }
         return { value: undefined as unknown as ToolEvent, done: true };
     }

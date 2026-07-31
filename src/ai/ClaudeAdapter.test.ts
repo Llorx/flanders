@@ -6,6 +6,8 @@ import { ClaudeAdapter, ClaudeAdapterContexts, formatToolInput } from "./ClaudeA
 import type { ToolEvent, ToolAdapterInvokeArgs } from "./ToolAdapter";
 import { UNKNOWN_TOOL_ERROR_MESSAGE } from "./toolErrorClassification";
 import type { RandomContext, ScriptContext, SpawnedProcess, SpawnedReadable, TimeContext, TimeoutHandle } from "../contexts";
+import { manualTimeContext } from "../system/manualTimeContext.fixtures";
+import { removeSpawnedProcessListener } from "../system/spawnedProcessListeners.fixtures";
 
 type SpawnedProcessSpy = SpawnedProcess & {
     $emit(event:"exit", code:number|null, signal?:string|null):void;
@@ -17,7 +19,7 @@ type SpawnedProcessSpy = SpawnedProcess & {
     $stdinEnded:boolean;
 };
 
-function spawnedProcessSpy():SpawnedProcessSpy {
+function spawnedProcessSpy(pid:number|null = 1):SpawnedProcessSpy {
     const exitListeners:Array<(code:number|null, signal:string|null) => void> = [];
     const errorListeners:Array<(e:unknown) => void> = [];
     const stdoutListeners:Array<(chunk:Buffer|string) => void> = [];
@@ -26,6 +28,7 @@ function spawnedProcessSpy():SpawnedProcessSpy {
     const stdinWrites:string[] = [];
     let stdinEnded = false;
     return {
+        pid: pid ?? undefined,
         stdin: {
             write(chunk:string) { stdinWrites.push(chunk); },
             end() { stdinEnded = true; }
@@ -34,6 +37,9 @@ function spawnedProcessSpy():SpawnedProcessSpy {
         on(event, listener) {
             if (event === "exit") exitListeners.push(listener as (code:number|null, signal:string|null) => void);
             else if (event === "error") errorListeners.push(listener as (e:unknown) => void);
+        },
+        off(event, listener) {
+            removeSpawnedProcessListener(event, listener, exitListeners, errorListeners);
         },
         stdout: { on(_event, listener) { stdoutListeners.push(listener); } } as SpawnedReadable,
         stderr: { on(_event, listener) { stderrListeners.push(listener); } } as SpawnedReadable,
@@ -49,7 +55,7 @@ function spawnedProcessSpy():SpawnedProcessSpy {
     };
 }
 
-function claudeContext() {
+function claudeContext(pid:number|null = 1) {
     const spawned:Array<{ command:string; args:readonly string[] }> = [];
     const processes:SpawnedProcessSpy[] = [];
     return {
@@ -57,7 +63,7 @@ function claudeContext() {
         $processes: processes,
         ...({
             spawn(command, args) {
-                const proc = spawnedProcessSpy();
+                const proc = spawnedProcessSpy(pid);
                 spawned.push({ command, args });
                 processes.push(proc);
                 return proc;
@@ -1397,6 +1403,7 @@ test.describe("ClaudeAdapter", test => {
             const iterable = adapter.invoke(args);
             const proc = claude.$processes[0]!;
             proc.$emit("error", new Error("spawn failed"));
+            proc.$emit("exit", 1);
             const events:ToolEvent[] = [];
             for await (const e of iterable) events.push(e);
             return events;
@@ -1410,7 +1417,8 @@ test.describe("ClaudeAdapter", test => {
 
     test("process ENOENT emits claude binary not found", {
         ARRANGE() {
-            const { contexts, claude } = makeContexts();
+            const claude = claudeContext(null);
+            const { contexts } = makeContexts({ claude });
             const adapter = new ClaudeAdapter(contexts);
             const args = baseArgs();
             return { adapter, args, claude };
@@ -1582,6 +1590,285 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
+    test("successful result waits ten seconds, terminates a stuck child, then emits done", {
+        ARRANGE() {
+            const time = manualTimeContext();
+            const { contexts, claude } = makeContexts({ time });
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude, time };
+        },
+        async ACT({ adapter, args, claude, time }) {
+            const iter = adapter.invoke(args)[Symbol.asyncIterator]();
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            proc.$emit("error", new Error("live process error after terminal"));
+            let terminalResolved = false;
+            const terminalPromise = iter.next().then(result => {
+                terminalResolved = true;
+                return result;
+            });
+            await Promise.resolve();
+            const durations = [...time.$durations];
+            time.$advance(9_999);
+            const killsBeforeGrace = [...proc.$kills];
+            time.$advance(1);
+            await Promise.resolve();
+            const killsAtGrace = [...proc.$kills];
+            const resolvedBeforeExit = terminalResolved;
+            proc.$emit("exit", null, "SIGINT");
+            const terminal = await terminalPromise;
+            const end = await iter.next();
+            return { durations, killsBeforeGrace, killsAtGrace, resolvedBeforeExit, terminal, end };
+        },
+        ASSERTS: {
+            "uses one ten-second grace timer from the injected time context"(result) {
+                Assert.deepStrictEqual(result.durations, [10_000]);
+            },
+            "does not terminate before the grace expires"(result) {
+                Assert.deepStrictEqual(result.killsBeforeGrace, []);
+            },
+            "requests tree termination when the grace expires"(result) {
+                Assert.deepStrictEqual(result.killsAtGrace, ["SIGINT"]);
+            },
+            "does not emit the terminal event before child termination"(result) {
+                Assert.strictEqual(result.resolvedBeforeExit, false);
+            },
+            "preserves the determined done event after signal exit"(result) {
+                Assert.deepStrictEqual(result.terminal, { value: { type: "done" }, done: false });
+            },
+            "closes after the terminal event"(result) {
+                Assert.strictEqual(result.end.done, true);
+            }
+        }
+    });
+
+    test("successful result cancels its grace timer when the child exits naturally", {
+        ARRANGE() {
+            const time = manualTimeContext();
+            const { contexts, claude } = makeContexts({ time });
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude, time };
+        },
+        async ACT({ adapter, args, claude, time }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            const pendingTimersBeforeExit = time.$pendingTimerCount();
+            time.$advance(9_999);
+            proc.$emit("exit", 0, null);
+            const pendingTimersAfterExit = time.$pendingTimerCount();
+            time.$advance(1);
+            const events:ToolEvent[] = [];
+            for await (const event of iterable) events.push(event);
+            return { events, kills: [...proc.$kills], pendingTimersBeforeExit, pendingTimersAfterExit };
+        },
+        ASSERTS: {
+            "emits done"(result) {
+                Assert.deepStrictEqual(result.events, [{ type: "done" }]);
+            },
+            "does not request termination"(result) {
+                Assert.deepStrictEqual(result.kills, []);
+            },
+            "has an active grace timer before exit"(result) {
+                Assert.strictEqual(result.pendingTimersBeforeExit, 1);
+            },
+            "cancels the grace timer on exit"(result) {
+                Assert.strictEqual(result.pendingTimersAfterExit, 0);
+            }
+        }
+    });
+
+    test("classified error survives termination of a stuck child", {
+        ARRANGE() {
+            const time = manualTimeContext();
+            const { contexts, claude } = makeContexts({ time });
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude, time };
+        },
+        async ACT({ adapter, args, claude, time }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "result",
+                is_error: true,
+                api_error_status: 418,
+                error: { message: NEUTRAL_ERROR_MESSAGE }
+            }) + "\n");
+            time.$advance(10_000);
+            proc.$emit("exit", null, "SIGINT");
+            const events:ToolEvent[] = [];
+            for await (const event of iterable) events.push(event);
+            return { events, kills: [...proc.$kills] };
+        },
+        ASSERTS: {
+            "preserves the classified error"(result) {
+                Assert.deepStrictEqual(result.events, [{
+                    type: "error",
+                    retryable: false,
+                    message: NEUTRAL_ERROR_MESSAGE
+                }]);
+            },
+            "requests termination once"(result) {
+                Assert.deepStrictEqual(result.kills, ["SIGINT"]);
+            }
+        }
+    });
+
+    test("classified rate limit survives termination of a stuck child", {
+        ARRANGE() {
+            const now = 1_000_000;
+            const time = manualTimeContext(now);
+            const { contexts, claude } = makeContexts({ time, random: randomContext(0.5) });
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude, time, now };
+        },
+        async ACT({ adapter, args, claude, time, now }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "result",
+                is_error: true,
+                api_error_status: 429,
+                error: { message: NEUTRAL_ERROR_MESSAGE }
+            }) + "\n");
+            time.$advance(10_000);
+            proc.$emit("exit", null, "SIGINT");
+            const events:ToolEvent[] = [];
+            for await (const event of iterable) events.push(event);
+            return { events, kills: [...proc.$kills], now };
+        },
+        ASSERTS: {
+            "preserves the classified rate limit"(result) {
+                Assert.deepStrictEqual(result.events, [{
+                    type: "rate_limit",
+                    waitUntilMs: result.now + 600_000
+                }]);
+            },
+            "requests termination once"(result) {
+                Assert.deepStrictEqual(result.kills, ["SIGINT"]);
+            }
+        }
+    });
+
+    test("live process error starts the grace instead of counting as child exit", {
+        ARRANGE() {
+            const time = manualTimeContext();
+            const { contexts, claude } = makeContexts({ time });
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude, time };
+        },
+        async ACT({ adapter, args, claude, time }) {
+            const iter = adapter.invoke(args)[Symbol.asyncIterator]();
+            const proc = claude.$processes[0]!;
+            proc.$emit("error", new Error("live process error"));
+            let terminalResolved = false;
+            const terminalPromise = iter.next().then(result => {
+                terminalResolved = true;
+                return result;
+            });
+            await Promise.resolve();
+            time.$advance(10_000);
+            await Promise.resolve();
+            const resolvedBeforeExit = terminalResolved;
+            const killsBeforeExit = [...proc.$kills];
+            proc.$emit("exit", null, "SIGINT");
+            const terminal = await terminalPromise;
+            await iter.next();
+            return { resolvedBeforeExit, killsBeforeExit, terminal };
+        },
+        ASSERTS: {
+            "does not emit before actual exit"(result) {
+                Assert.strictEqual(result.resolvedBeforeExit, false);
+            },
+            "terminates the still-live child after the grace"(result) {
+                Assert.deepStrictEqual(result.killsBeforeExit, ["SIGINT"]);
+            },
+            "preserves the process error terminal"(result) {
+                Assert.deepStrictEqual(result.terminal, {
+                    value: { type: "error", retryable: false, message: "live process error" },
+                    done: false
+                });
+            }
+        }
+    });
+
+    test("onUsage abort cannot reinstall a terminal event", {
+        ARRANGE() {
+            const controller = new AbortController();
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs({
+                abortSignal: controller.signal,
+                onUsage() { controller.abort(); }
+            });
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "result",
+                is_error: false,
+                usage: { input_tokens: 1, output_tokens: 1 }
+            }) + "\n");
+            proc.$emit("exit", null, "SIGINT");
+            const events:ToolEvent[] = [];
+            for await (const event of iterable) events.push(event);
+            return { events, kills: [...proc.$kills] };
+        },
+        ASSERTS: {
+            "terminates the child"(result) {
+                Assert.deepStrictEqual(result.kills, ["SIGINT"]);
+            },
+            "closes without a terminal event"(result) {
+                Assert.deepStrictEqual(result.events, []);
+            }
+        }
+    });
+
+    test("abort discards a terminal queued behind an output event", {
+        ARRANGE() {
+            const controller = new AbortController();
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs({ abortSignal: controller.signal });
+            return { adapter, args, claude, controller };
+        },
+        async ACT({ adapter, args, claude, controller }) {
+            const iter = adapter.invoke(args)[Symbol.asyncIterator]();
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({
+                type: "assistant",
+                message: { role: "assistant", content: [{ type: "text", text: "ready" }] }
+            }) + "\n");
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            proc.$emit("exit", 0, null);
+            const output = await iter.next();
+            controller.abort();
+            const end = await iter.next();
+            return { output, end, kills: [...proc.$kills] };
+        },
+        ASSERTS: {
+            "yields the output before cancellation"(result) {
+                Assert.deepStrictEqual(result.output, {
+                    value: { type: "output", title: "Assistant", subtitle: "", details: "ready" },
+                    done: false
+                });
+            },
+            "closes without yielding the queued terminal"(result) {
+                Assert.strictEqual(result.end.done, true);
+            },
+            "does not terminate an already exited child"(result) {
+                Assert.deepStrictEqual(result.kills, []);
+            }
+        }
+    });
+
     test("process error with non-Error payload emits non-retryable tool error", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
@@ -1593,6 +1880,7 @@ test.describe("ClaudeAdapter", test => {
             const iterable = adapter.invoke(args);
             const proc = claude.$processes[0]!;
             proc.$emit("error", "string error");
+            proc.$emit("exit", 1);
             const events:ToolEvent[] = [];
             for await (const e of iterable) events.push(e);
             return events;
@@ -1601,6 +1889,28 @@ test.describe("ClaudeAdapter", test => {
             Assert.deepStrictEqual(result, [
                 { type: "error", retryable: false, message: "string error" }
             ]);
+        }
+    });
+
+    test("process error after done is ignored", {
+        ARRANGE() {
+            const { contexts, claude } = makeContexts();
+            const adapter = new ClaudeAdapter(contexts);
+            const args = baseArgs();
+            return { adapter, args, claude };
+        },
+        async ACT({ adapter, args, claude }) {
+            const iterable = adapter.invoke(args);
+            const proc = claude.$processes[0]!;
+            proc.$emitStdout(JSON.stringify({ type: "result", is_error: false }) + "\n");
+            proc.$emit("exit", 0);
+            proc.$emit("error", new Error("late error"));
+            const events:ToolEvent[] = [];
+            for await (const event of iterable) events.push(event);
+            return events;
+        },
+        ASSERT(result) {
+            Assert.deepStrictEqual(result, [{ type: "done" }]);
         }
     });
 
@@ -1741,7 +2051,7 @@ test.describe("ClaudeAdapter", test => {
         }
     });
 
-    test("break from for-await triggers return() and kills process", {
+    test("break from for-await does not kill a child that already exited", {
         ARRANGE() {
             const { contexts, claude } = makeContexts();
             const adapter = new ClaudeAdapter(contexts);
@@ -1765,8 +2075,8 @@ test.describe("ClaudeAdapter", test => {
             "collected one event before break"(result) {
                 Assert.strictEqual(result.events.length, 1);
             },
-            "process killed with SIGINT on break"(result) {
-                Assert.deepStrictEqual(result.kills, ["SIGINT"]);
+            "process is not killed after its exit"(result) {
+                Assert.deepStrictEqual(result.kills, []);
             }
         }
     });
@@ -1802,9 +2112,10 @@ test.describe("ClaudeAdapter", test => {
         async ACT({ adapter, args, claude, abort }) {
             const iterable = adapter.invoke(args);
             const proc = claude.$processes[0]!;
+            const events:ToolEvent[] = [];
             let iterableClosed = false;
             const collectPromise = (async () => {
-                for await (const _ of iterable) { void _; }
+                for await (const event of iterable) events.push(event);
                 iterableClosed = true;
             })();
             await new Promise<void>(r => setImmediate(r));
@@ -1813,7 +2124,7 @@ test.describe("ClaudeAdapter", test => {
             const closedBeforeExit = iterableClosed;
             proc.$emit("exit", null);
             await collectPromise;
-            return { closedBeforeExit, closedAfterExit: iterableClosed, kills: proc.$kills.slice() };
+            return { events, closedBeforeExit, closedAfterExit: iterableClosed, kills: proc.$kills.slice() };
         },
         ASSERTS: {
             "child process was killed"(result) {
@@ -1824,6 +2135,9 @@ test.describe("ClaudeAdapter", test => {
             },
             "iterable closed after child exit"(result) {
                 Assert.strictEqual(result.closedAfterExit, true);
+            },
+            "iterable closes with no events"(result) {
+                Assert.deepStrictEqual(result.events, []);
             }
         }
     });

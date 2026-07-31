@@ -16,12 +16,13 @@ export interface RawSpawnedStdin {
 }
 
 export interface RawSpawnedChild {
-    pid:number;
+    pid?:number;
     stdout?:RawSpawnedReadable|null;
     stderr?:RawSpawnedReadable|null;
     stdin?:RawSpawnedStdin|null;
     on(event:"exit", listener:(code:number|null, signal:string|null) => void):void;
     on(event:"error", listener:(e:unknown) => void):void;
+    off(event:"exit"|"error", listener:((code:number|null, signal:string|null) => void)|((e:unknown) => void)):void;
     kill(signal:"SIGINT"|"SIGTERM"):void;
 }
 
@@ -79,6 +80,7 @@ export class ShellScriptContext implements ScriptContext {
         const stderrOwner = child.stderr ? createDrainedReadable(child.stderr) : undefined;
         const pid = child.pid;
         const proc:SpawnedProcess = {
+            pid,
             on(event, listener) {
                 if (event === "exit") {
                     child.on(event, listener as (code:number|null, signal:string|null) => void);
@@ -86,7 +88,13 @@ export class ShellScriptContext implements ScriptContext {
                     child.on(event, listener as (e:unknown) => void);
                 }
             },
+            off(event, listener) {
+                child.off(event, listener);
+            },
             kill: (signal) => {
+                if (pid === undefined) {
+                    return;
+                }
                 if (isWindows) {
                     this._shellLaunch("taskkill", ["/pid", String(pid), "/t", "/f"], {}, true);
                 } else {

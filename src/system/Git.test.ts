@@ -6,6 +6,7 @@ import * as path from "path";
 
 import { isGitAvailable, isInsideWorkTree, inspectPreflightChanges, readStagedDiff, addAll, commit, listNonIgnoredFiles, listIgnoredPaths } from "./Git";
 import type { OutputContext, ScriptContext, SpawnedProcess, TimeContext, TimeoutHandle } from "../contexts";
+import { removeSpawnedProcessListener } from "./spawnedProcessListeners.fixtures";
 
 type FakeProcess = SpawnedProcess & {
     $emitStdout(chunk:string):void;
@@ -28,6 +29,9 @@ function fakeProcess():FakeProcess {
         on(event:"exit"|"error", listener:((code:number|null, signal:string|null) => void)|((e:unknown) => void)) {
             if (event === "exit") exitListeners.push(listener as (code:number|null, signal:string|null) => void);
             else if (event === "error") errorListeners.push(listener as (e:unknown) => void);
+        },
+        off(event, listener) {
+            removeSpawnedProcessListener(event, listener, exitListeners, errorListeners);
         },
         stdout: { on(_event:"data", listener:(chunk:Buffer|string) => void) { stdoutListeners.push(listener); } },
         stderr: { on(_event:"data", listener:(chunk:Buffer|string) => void) { stderrListeners.push(listener); } },
