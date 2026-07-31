@@ -1340,6 +1340,45 @@ Every message you address to the user during the run — your clarifying questio
         }
     });
 
+    test("plan content rules cut every leaf task at passing build and test gates", {
+        ARRANGE() {},
+        ACT() { return planSkillBody; },
+        ASSERTS: {
+            "states that every leaf task leaves the project building and its tests passing"(body) {
+                const planContentRules = sectionBetween(body, "### Plan content rules", "## Post-write verification");
+                Assert.ok(planContentRules.includes("Every leaf task leaves the project building and its tests passing"), "the Plan content rules list must require every leaf task to leave the project building and its tests passing");
+            },
+            "explains that build and test gates run inside every task's own cycle"(body) {
+                const planContentRules = sectionBetween(body, "### Plan content rules", "## Post-write verification");
+                Assert.ok(planContentRules.includes("The build and test gates run inside every task's own cycle"), "the Plan content rules list must explain why every task boundary must leave the project green");
+            },
+            "requires compilation and the whole test suite to pass at each task's end"(body) {
+                const planContentRules = sectionBetween(body, "### Plan content rules", "## Post-write verification");
+                Assert.ok(planContentRules.includes("the code it produces compiles and the whole test suite passes at that task's end"), "the Plan content rules list must require the complete build and test gates to pass between tasks");
+            },
+            "keeps compilation type checking and broken-test updates in the task that breaks them"(body) {
+                const planContentRules = sectionBetween(body, "### Plan content rules", "## Post-write verification");
+                Assert.ok(planContentRules.includes("the compilation, the type checking, and the test updates a change breaks are delivered by the task that breaks them"), "the Plan content rules list must keep every gate repair in the task that requires it");
+            },
+            "keeps inseparable signature and behavior changes in one task regardless of size"(body) {
+                const planContentRules = sectionBetween(body, "### Plan content rules", "## Post-write verification");
+                Assert.ok(planContentRules.includes("work that only holds together as a unit — a signature change and the call sites it breaks, a behavior change and the tests asserting the previous behavior — lands in one task however large that task becomes"), "the Plan content rules list must keep work with inseparable build or test consequences in one task");
+            },
+            "repeats the green-task obligation in validator category 4"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("Every leaf task leaves the project building and its tests passing"), "category 4 must carry the same passing build and test obligation");
+            },
+            "judges each task against its own cumulative end state"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("Judge each leaf task at its own end state — the current on-disk source plus the changes that task and every earlier task prescribe"), "category 4 must judge each task at the end state where its own gates run");
+            },
+            "FAILs a task that leaves a gate broken for a later task to repair"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("A task that leaves compilation, type checking, or any test broken for a later task to repair is FAIL"), "category 4 must reject a task boundary that leaves the project red");
+            },
+            "makes the failure identify both the break and its deferred repair"(body) {
+                Assert.ok(planValidatorCategory4(body).includes("the FAIL names the change that breaks the gate and the later task the repair falls to"), "category 4 must make a deferred gate repair actionable");
+            }
+        }
+    });
+
     test("validator inputs state the validator reads the source and audits each task against its baseline", {
         ARRANGE() {},
         ACT() { return planSkillBody; },
