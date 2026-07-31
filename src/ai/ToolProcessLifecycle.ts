@@ -17,7 +17,7 @@ export class ToolProcessLifecycle {
     private _exited = false;
     private _exitListener:(code:number|null, signal:string|null) => void;
     private _exitPromise:Promise<void>;
-    private _resolveExit:() => void = () => {};
+    private _resolveExit!:() => void;
     private _graceTimer:TimeoutHandle|null = null;
     private _terminalReady:(() => void)|null = null;
     private _terminationRequested = false;
