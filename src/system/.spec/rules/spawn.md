@@ -62,3 +62,24 @@ Once a shell parses the command line, an unescaped argument is at the mercy of t
 - An argument is concatenated into the shell command line without escaping, so a value containing a space, a quote, or a shell metacharacter is split, glob-expanded, or interpreted by the shell instead of reaching the child verbatim.
 - The implementation passes a non-empty argument array to the underlying spawn primitive while the shell option is enabled (the `DEP0190` path), letting the primitive concatenate the arguments into the command line unescaped, instead of assembling a single pre-escaped command-line string and passing it as the sole command with an empty argument array.
 - A call site is made to escape its own arguments or to choose the shell mode, instead of the single context implementation owning both.
+
+## Every standard stream of a spawned child is consumed for the child's whole lifetime
+
+The production spawn implementation begins reading each piped stream of the child at the moment it creates it, and keeps reading until the child has exited, delivering what it reads to the subscribers registered on the corresponding stream of the handle it returned. A stream no caller subscribes to is read and discarded all the same. Every pipe the child writes to therefore always has a reader draining it, so the child completes its writes and reaches its own exit however much it emits and whichever streams its callers happen to be interested in.
+
+### Who this applies to
+
+- **Subject:** the single production implementation of the spawn context interface (`ScriptContext.spawn`) — the part that creates the child and exposes its streams on the returned handle.
+- **Not subject:** the call sites that spawn through the context (the AI tool adapters, the `install` model-list probe, the git helper, and the generic script runner). Each subscribes to the streams whose content it consumes and leaves the rest unsubscribed; keeping the child unblocked is not their obligation.
+- **Not subject:** test doubles of the spawn context, which simulate the streams rather than holding real pipes.
+
+### Why the implementation drains rather than the caller
+
+An operating-system pipe holds a bounded amount of unread data — on Windows roughly 64 KB. Once a child has written that much to a pipe nobody is reading, its next write blocks and stays blocked: it runs no further work, answers no further request, and never reaches its own exit, so every caller awaiting that exit waits forever. Whether the child blocks is decided by whether some reader is draining the pipe, which is a property of the process the implementation owns rather than of any caller's interest in the content. Placing the obligation on the implementation makes every spawn safe by construction, including on the streams no caller ever looks at.
+
+### Failure signals
+
+- The implementation only forwards subscription registrations to the child's streams, so a stream no caller subscribes to is never read and the child blocks once that pipe fills.
+- The implementation begins reading a stream only once a caller subscribes to it, leaving the child blocked on that pipe for as long as the subscription is absent.
+- The implementation stops reading a stream before the child has exited, so the child blocks on the remainder of its output.
+- A call site is made to subscribe to a stream whose content it does not use, in order to keep the child unblocked.

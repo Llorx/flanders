@@ -166,6 +166,32 @@ This obligation is distinct from non-interactivity (see [src/ai/.spec/rules/runn
 - **Subject:** every per-tool adapter — today the Claude adapter (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)) and the Codex adapter (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)), and any adapter added later. Each adapter realizes this obligation through the specific access flag(s) of its own binary, pinned in that adapter's rule.
 - **Not subject:** the AI runner and the runner's call sites (worker stage, reviewer stage, detect agent), which never touch a tool's invocation surface directly.
 
+## Every AI adapter ends its invocation with its child process terminated
+
+An adapter's spawned child never outlives the invocation that created it. Once the adapter has determined the invocation's terminal event, it gives the child a grace period of 10 seconds to exit on its own; when that grace elapses with the child still running, the adapter terminates the child's whole process tree through the handle's kill (see [src/system/.spec/rules/spawn.md#killing-a-spawned-process-terminates-its-whole-process-tree](/src/system/.spec/rules/spawn.md#killing-a-spawned-process-terminates-its-whole-process-tree)) and waits for that termination to take effect. On either path the adapter then yields the terminal event it had determined and ends the iterable.
+
+That terminal event stands whatever the child's exit took: a turn the tool reported as completed is reported as `{ type: "done" }` whether the child exited on its own inside the grace or had to be terminated at its end. The manner of the child's exit qualifies the invocation's result only where the adapter has not already determined a terminal event from the tool's own event stream.
+
+### Who this applies to
+
+- **Subject:** every per-tool adapter — today the Claude adapter (see [src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-claude-adapter-spawns-claude---print---output-format-stream-json-and-maps-its-events-to-the-tool-interface)) and the Codex adapter (see [src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface](/src/ai/.spec/rules/runner.md#the-codex-adapter-spawns-codex-exec---json-and-maps-its-events-to-the-tool-interface)) — on every path that ends an invocation with a terminal event, whichever of `done`, `error`, or `rate_limit` it is.
+- **Not subject:** the cancellation path, where `abortSignal` triggers and the adapter terminates the child, awaits its termination, and ends the iterable without a terminal event per [src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface](/src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface).
+- **Not subject:** the AI runner and its call sites, which consume events and never hold the child.
+
+### Why a bounded grace rather than an unbounded wait
+
+A tool that has finished its turn can still fail to exit — a write it cannot complete, a long-lived helper process it started, a shutdown sequence that never ends. An adapter that waits unconditionally for that exit inherits the stall: it yields no terminal event, the runner sees neither success nor failure, and the whole command waits behind a process whose work is already finished and already reported. Bounding the wait turns that indefinite stall into a completed invocation, and terminating the tree once the bound elapses preserves the guarantee the runner depends on, that no tool process survives the call. The grace period is what keeps an orderly exit that is merely slow from being cut short.
+
+### Failure signals
+
+- The adapter makes its terminal event conditional on the child's exit, so a child that never exits leaves the invocation with no terminal event and its caller waiting indefinitely.
+- The adapter ends the iterable while the child is still running, leaking the tool process past the invocation.
+- The adapter determines a terminal event from a failure the tool reported and then abandons the still-running child, leaving it working unsupervised after the invocation has ended.
+- The adapter terminates the child the instant it determines the terminal event, cutting short an orderly exit that was merely slow.
+- The adapter waits beyond the grace period before terminating a child that has not exited.
+- The adapter downgrades a terminal event it had already determined because the child had to be terminated, reporting a completed turn as a failure.
+- The adapter signals only the immediate child instead of terminating the whole tree through the handle's kill, leaving the real tool running as an orphan.
+
 ## The Claude adapter spawns `claude --print --output-format stream-json` and maps its events to the tool interface
 
 The Claude adapter is the per-tool implementation of the generic tool-adapter interface defined in [src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface](/src/ai/.spec/rules/runner.md#all-ai-tools-implement-the-same-generic-tool-adapter-interface). It is the bridge between the `claude` binary's native `stream-json` event format and the runner's abstract `ToolEvent` stream. This rule pins both how the binary is invoked and how each native event is mapped to a `ToolEvent`.
@@ -369,9 +395,9 @@ The adapter acts on whichever of the two failure events arrives first, emits exa
 
 **When the child process exits without having emitted a failure event (`type: "error"` or `type: "turn.failed"`) and without having emitted `type: "turn.completed"`** — the adapter treats the failure as a transport-level retryable error and emits `{ type: "error", retryable: true, message: <synthesized message describing the unexpected exit> }`.
 
-**When the child process exits via a signal and `abortSignal` has not triggered** — same treatment: emit `{ type: "error", retryable: true, message: <synthesized message naming the signal> }`.
+**When the child process exits via a signal that neither `abortSignal` nor the adapter's own termination caused** — same treatment: emit `{ type: "error", retryable: true, message: <synthesized message naming the signal> }`. A child the adapter itself terminated once its grace period elapsed (see [src/ai/.spec/rules/runner.md#every-ai-adapter-ends-its-invocation-with-its-child-process-terminated](/src/ai/.spec/rules/runner.md#every-ai-adapter-ends-its-invocation-with-its-child-process-terminated)) exits by that signal with the terminal event already determined, so its signal exit qualifies nothing.
 
-**When `type: "turn.completed"` is emitted and the child then exits with status 0** — emit `{ type: "done" }`.
+**When `type: "turn.completed"` is emitted** — the turn succeeded and the adapter emits `{ type: "done" }`, once the child has exited on its own or, when it has not, once the adapter's grace period has elapsed and it has terminated the process tree per [src/ai/.spec/rules/runner.md#every-ai-adapter-ends-its-invocation-with-its-child-process-terminated](/src/ai/.spec/rules/runner.md#every-ai-adapter-ends-its-invocation-with-its-child-process-terminated). The `turn.completed` event is what establishes the successful turn, so the child's exit status leaves that outcome unchanged.
 
 The adapter never inspects `stderr` or the prompt text to decide retryability; the structured event stream plus the exit shape are authoritative.
 
@@ -410,4 +436,6 @@ When `abortSignal` triggers, the adapter sends `SIGINT` to the spawned `codex` p
 - The adapter ignores the `turn.failed` event and classifies only `type: "error"`, so a failure surfaced through `turn.failed` is dropped.
 - The adapter emits two terminal events when Codex emits both `error` and `turn.failed` for the same failure, instead of acting on the first and absorbing the second.
 - The adapter leaks the spawned `codex` process on cancellation.
+- The adapter holds the invocation open waiting for the child to exit after `turn.completed`, so a child that never exits leaves the completed turn with no terminal event.
+- The adapter classifies the signal exit of a child it terminated itself, once the grace period elapsed, as a retryable error, turning a turn Codex reported as completed into a retry.
 - A call site spawns `codex` directly, bypassing the adapter.
