@@ -6,6 +6,7 @@ Define, once for every Flanders surface that runs the single-task cycle of [.spe
 ## Temporary folder
 At the start of every run, a main temporary folder is created. It directly holds:
 - The build script and the test script (see below).
+- The streamed output of the build and test script detection session (see [Build and test script detection](#build-and-test-script-detection)), captured into its own log file: one file for the whole run, because that session runs once before the first iteration.
 - Per-iteration log files: worker output, build output, test output, each reviewer's streamed output, and `error.log` — a single fixed-name file used to brief subsequent iterations (see [.spec/contracts/shared/task-cycle.md#previous-iteration-error-briefing](/.spec/contracts/shared/task-cycle.md#previous-iteration-error-briefing)).
 - `hard-stop.log` — the worker-declared structural-impossibility report, present only when a worker declared one (see [.spec/contracts/shared/task-cycle.md#hard-stop](/.spec/contracts/shared/task-cycle.md#hard-stop)).
 - Any further material a surface consolidates for its worker, defined where that surface is defined.
