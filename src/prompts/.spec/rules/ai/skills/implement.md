@@ -36,6 +36,34 @@ A skill that both writes the code and judges the run collapses two roles the cyc
 - The skill launches an interactive invocation, or one that gates the tool's access, so an agent stalls waiting for an approval that never comes.
 - An agent prompt cites a flanders-internal spec path instead of inlining the obligation.
 
+## Every process the `/flanders-implement` skill launches runs unbounded in duration
+
+The `/flanders-implement` skill launches each agent process — the worker, each reviewer, and the detect agent — and each run of the build and test scripts through the command facility of the AI tool it is hosted in, and it lets every one of them run until it exits. What ends the wait is the process reaching its result or the skill's own decision to terminate it; elapsed time never is.
+
+### Who this applies to
+
+- **Subject:** the source content that produces the `/flanders-implement` skill artifact body — the prompt text the `install` command ships — at every point where it directs the skill to launch an agent process or to run the build or test script; and the `/flanders-implement` skill at runtime when it launches one.
+- **Not subject:** the `implement` command, whose agents are spawned through flanders' own process facility rather than a host tool's command facility (see [src/ai/.spec/contracts/ai-runner.md](/src/ai/.spec/contracts/ai-runner.md)); the content-skill validators, which are in-session subagents governed by [src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way](/src/prompts/.spec/rules/ai/skills/skills-common.md#every-flanders-content-skill-hosts-its-final-validator-the-same-way); and the short-lived commands the skill runs for its own bookkeeping — reading the configuration, provisioning the workspace, and its git commits — whose runtime never approaches such a limit.
+
+### Behavior
+
+1. **No limit where the facility lets one be omitted.** The skill names no time limit when it launches the process, so the facility waits on the process rather than on a clock.
+
+2. **The facility's maximum where a limit is mandatory.** When the facility requires a time limit, or caps how long it will wait for a command, the skill supplies the highest value that facility accepts.
+
+3. **Only the process ends the wait.** The skill stops waiting when the process exits, or when it terminates the process by a decision of its own — a reviewer the round cancels, an agent a hard stop ends. Because no wait is cut short by elapsed time, the awaiting obligation of [src/prompts/.spec/rules/ai/skills/implement.md#the-flanders-implement-skill-orchestrates-the-cycle-and-implements-nothing-itself](/src/prompts/.spec/rules/ai/skills/implement.md#the-flanders-implement-skill-orchestrates-the-cycle-and-implements-nothing-itself) holds for a process of any duration.
+
+### Why
+
+A worker implementing a task, a reviewer reading a whole change set against the corpus, and a full build or test suite each routinely run far longer than the default a command facility applies when its caller names none. A process killed at that boundary reaches no result, and the skill cannot tell it apart from an invocation that genuinely failed: it relaunches work that was progressing, spends that agent's error allowance on it, and every relaunch dies at the same boundary — a cycle that cannot finish for a reason nothing in the run reports. Naming no limit, or the largest the facility grants, is what lets each stage take as long as its work does.
+
+### Failure signals
+
+- The skill artifact body directs an agent launch or a gate run without stating that no time limit is supplied, leaving the facility's default in force.
+- The skill supplies a time limit to a facility that would have accepted none.
+- The skill supplies a value below the maximum where the facility requires a limit.
+- An agent process or a gate run is killed for elapsed time, and the skill treats that killed invocation as an errored one, consuming the agent's error allowance.
+
 ## The `/flanders-implement` skill absorbs its agents' usage limits, errors, and login failures itself
 
 The `/flanders-implement` skill launches its agents as bare AI-tool processes, with no AI runner between it and them, so nothing else absorbs an invocation that reaches no result. The skill takes that on, identically for the worker, each reviewer, and the detect agent: it waits out a usage limit, relaunches an errored invocation up to a bounded number of consecutive attempts, and stops on the spot when a tool reports it is not logged in.
