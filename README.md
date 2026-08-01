@@ -1,6 +1,6 @@
-# Motivation
+# Flanders
 
-Hi-diddly-ho, neighbor! I am a Node.js toolkit that helps avoid AI drifting. I was sick of the AI not reading the `CLAUDE.md`, avoiding rules and forgetting what I told it 3 prompts ago. You know that I, Ned Flanders, will never break a rule, so it was natural for me to spawn here at some point. I will help you define a specification, the public contracts and private rules, and then I will orchestrate the AI for you to implement and review anything without breaking the specification. I have no problem hitting the AI with a stick when it drifts.
+Hi-diddly-ho, neighbor! Flanders is a Node.js toolkit for keeping AI-assisted work aligned with the specifications you choose. It helps you author a spec corpus, derive an ordered plan, and implement each task through build, test, adversarial review, and commit gates.
 
 ## Contents
 
@@ -15,260 +15,195 @@ Hi-diddly-ho, neighbor! I am a Node.js toolkit that helps avoid AI drifting. I w
 
 ## How it works
 
-With Flanders you first define a specification that will be stored in a `.spec` folder alongside where the specification applies. Then Flanders will help you to create a plan divided into tasks, and via CLI you then implement the plan.
+The usual cycle is **spec → plan → implement**:
 
-Flanders will implement one task at a time, and then will launch, in parallel, as many validators as you have configured. If something differs from the specification, they will notify the worker to review the problem and fix it.
+1. From inside an AI coding session, invoke `/flanders-spec` to capture the project's obligations and conventions.
+2. From inside an AI coding session, invoke `/flanders-plan` to turn the request and spec corpus into an ordered plan under `plans/`.
+3. From the Flanders CLI, run `npx flanders implement` to execute the plan one task at a time.
 
-I'm not gonna lie, it is token hungry, but that's what you get when you want to reduce specification drifting. The AI has to iterate and validate multiple times what it is doing to avoid the typical "Ah, you are right! You already told me that". Still, when an AI session hits a rate limit, Flanders keeps retrying it periodically in the background and resumes the run as soon as the session recovers, so you can let an implementation run overnight while you sleep.
+For a small, self-contained change, invoke `/flanders-implement` from inside an AI coding session instead. It skips the plan and runs one request through the same task cycle.
 
-The whole neighborly cycle runs **spec → plan → implement**:
+At the start of a run, Flanders detects the project's build and test commands; a command it cannot determine confidently is skipped. For each task, it launches the configured worker, runs build then test, runs the configured adversarial reviewers concurrently, and commits the accepted result. Failed gates brief the next iteration, and reviewers judge the worker's changes against the task and every applicable obligation.
 
-1. Capture obligations and conventions as contracts and rules in the spec corpus (with `/flanders-spec`).
-2. Derive an ordered work plan from them under `plans/` (with `/flanders-plan`).
-3. Implement the plan task by task, gating each result through build, test, and adversarial review (with `flanders implement`).
+I'm not gonna lie, it is token hungry: the AI may iterate and validate several times to prevent specification drift. When an AI session reaches a rate limit, Flanders retries it periodically and resumes as soon as it recovers. During a CLI `implement` run, you can also press `F5` to retry rate-limited jobs manually.
 
-For a small, self-contained change that doesn't need a whole plan, there's a friendly shortcut: **`/flanders-implement`** carries the request through the same configured worker, build, test, adversarial-review, and commit cycle as one `implement` task, all in one invocation.
+The spec corpus can contain `.spec` folders at the project root or deeper in the tree; ignored `.spec` folders are not part of the corpus. Each folder scopes its containing directory and everything below it:
 
-Underneath, Flanders keeps a tidy little spec corpus alongside your code, and everything flows from it:
+- `.spec/contracts` holds behavior visible across that scope's boundary.
+- `.spec/rules` holds implementation conventions internal to that scope.
+- `.spec/flanders` holds behavior rules for Flanders commands and skills working in that scope.
+- The project-root `plans/` folder holds project-wide work plans.
 
-- **`.spec/contracts`** holds the public obligations a scope exposes — the promises its surface makes to the outside world.
-- **`.spec/rules`** holds the internal conventions its code follows — the house rules it keeps for itself.
-- **`.spec/flanders`** holds behavior rules — the obligations that govern how Flanders' own commands and skills behave while they work in your project.
+`/flanders-spec` is the entry point for authoring contracts, rules, and behavior rules, while `/flanders-plan` authors plans. Workers and reviewers may read those files but do not edit them; the CLI's bounded plan-file changes are described in [Implementing a plan](#implementing-a-plan).
 
-The practices Flanders enforces are the ones you choose to write into that corpus, neighbor. Whether SOLID, a duplication policy, a style guide, or any other practice governs your project's design, architecture, or code quality is your decision: Flanders brings none of its own. It is the machinery that enforces the contracts and rules you write, and with an empty corpus it has nothing of its own to demand.
-
-One working discipline comes with that machinery regardless of what the corpus carries: a worker that authors source code must try to make the code carry its meaning and reserve comments for what the code cannot express.
+Flanders enforces the practices you put in the corpus. Whether SOLID, a duplication policy, a style guide, or another design, architecture, or code-quality practice governs the project is your decision; Flanders supplies none of its own. Its one built-in discipline is for source comments: workers first make the code express its meaning and reserve comments for constraints, invariants, or consequences the code cannot express.
 
 ## Requirements
 
-A few neighborly things to have on hand before you start:
+- Node.js.
+- Claude Code or OpenAI Codex CLI.
+- Git on `PATH` and a git working tree when running `implement` or `/flanders-implement`.
+- A logged-in session for every configured AI tool.
 
-- **Node.js**.
-- **A git repository** — the `implement` command and `/flanders-implement` require the project to be a git repository.
-- **A tidy working tree** — before `implement` starts, everything under your `.spec` folders must be committed, and nothing outside them may carry unstaged changes (your plan file excepted). Staged changes to everything else are perfectly welcome: they ride along in the first task's commit.
-- **A supported CLI AI coding tool** — currently Claude Code or Codex CLI.
+The CLI `implement` command also requires every spec file to be committed and every unstaged change outside the selected plan to be staged or committed before it starts. Staged non-spec changes are allowed and join the first accepted task's commit.
 
 ## Installation
 
-Setting Flanders up is a breeze, neighbor — just run:
+Install the package from a shell with npm:
 
 ```sh
-npm install flanders -g
+npm install --global flanders
 ```
 
-and then:
+Then run setup from the Flanders CLI:
 
 ```sh
-flanders install
+npx flanders install
 ```
 
-This is how Flanders first sets up on disk: it is the only command that writes the persistent `.flanders/` configuration that `implement` reads, and the way you publish the skills to a fresh scope.
+With no flags, `install` asks for the skills tool or tools, installation scope, worker, and one or more reviewers. Each worker and reviewer has its own tool, model, effort, and optional Claude fast-mode setting, which is off by default. With multiple reviewers, setup also collects the minimum number that must reach a verdict and which reviewers may be abandoned if they are still rate-limited after the round can complete. By default every reviewer is required.
 
-### Scope
+The two mutually exclusive scopes are:
 
-Flanders installs at one of two scopes, chosen with a pair of mutually exclusive flags:
-
-- `--project` — the scope is the current working directory. Skills go into the project's AI-tool skill folders, and the `.flanders/` configuration is written at the project root.
-- `--global` — the scope is your home directory. Skills go into the user-level AI-tool skill folders, and the `.flanders/` configuration is written at your home directory.
-
-### What it writes
-
-For each AI tool you select for skills, `install` writes one skill artifact per Flanders skill (`/flanders-spec`, `/flanders-plan`, `/flanders-implement`, and `/flanders-hard-stop-review`) into that tool's skill folder for the chosen scope:
-
-| Tool | Project scope | Global scope |
+| Flag | Skills | Configuration |
 | --- | --- | --- |
-| Claude Code | `.claude/skills/` | `~/.claude/skills/` |
-| Codex CLI | `.agents/skills/` | `~/.agents/skills/` |
+| `--project` | `.claude/skills/` and/or `.agents/skills/` in the current project | `.flanders/` at the project root |
+| `--global` | `~/.claude/skills/` and/or `~/.agents/skills/` | `~/.flanders/` |
 
-Select both tools and the artifacts are written for each, into its own folder. Alongside the skills, the command writes the `.flanders/` configuration at the chosen scope (see [Configuration](#configuration)).
-
-### Interactive prompts
-
-Run it without flags and Flanders walks you through the setup, asking in this order:
-
-1. **Skills tool** — one or more of `claude` and `codex`.
-2. **Scope** — `--project` or `--global`, each option labelled with the concrete destination path(s) for the skills tool you picked.
-3. **Worker tool, model, and effort** — the AI the `implement` command's worker uses.
-4. **Reviewer configuration** — an ordered list of one or more adversarial reviewers, each with its own tool, model, and effort. You can have any number of reviewers, for example Claude Opus, Claude Sonnet and Codex. You can even duplicate them if you think that one pass is not enough to detect a problem.
-5. **Weighted-review configuration** — when two or more reviewers are configured, the minimum number of reviewers that must run to a verdict, and which reviewers are optional. Optional reviewers will not halt the implementation when they reach a rate limit.
-
-After the effort question, both the worker and each reviewer are also asked whether to enable Claude Code's fast mode — but only when that role's tool is Claude Code and its chosen model supports fast mode. The question defaults to off, since fast mode bills at a higher rate, and your answer is persisted per role in the `.flanders/` configuration.
-
-And if a `.flanders/` configuration already lives at the scope you choose, neighbor, `install` reads it the moment you pick that scope and pre-selects your stored answers as the question defaults. Just press Enter straight through to reproduce your saved configuration just as it was.
+For every selected AI tool, `install` writes the `/flanders-spec`, `/flanders-plan`, `/flanders-implement`, and `/flanders-hard-stop-review` skill artifacts. Selecting both tools installs the full set for each.
 
 ### Flags
 
-Every question has an equivalent command-line flag, so the whole setup can run without a single prompt:
+Every setup answer has a flag equivalent. Omit any flag and `install` asks for that answer interactively.
 
-**Scope** (mutually exclusive)
+| Flag | Meaning |
+| --- | --- |
+| `--project`, `--global` | Choose one installation scope. |
+| `--skills-tool=<claude\|codex\|claude,codex>` | Install skills for one or both supported tools. Values must be distinct. |
+| `--worker-tool=<claude\|codex>` | Select the worker tool. |
+| `--worker-model=<value>` | Select the worker model; an empty value uses the tool's configured default. |
+| `--worker-effort=<value>` | Select the worker effort; an empty value uses the tool's configured default. |
+| `--worker-fast` | Enable higher-speed, higher-cost fast mode for a Claude worker whose model supports it. |
+| `--reviewer-tool=<claude\|codex>` | Select reviewer 1's tool. |
+| `--reviewer-model=<value>` | Select reviewer 1's model; an empty value uses the tool's configured default. |
+| `--reviewer-effort=<value>` | Select reviewer 1's effort; an empty value uses the tool's configured default. |
+| `--reviewer-fast` | Enable fast mode for reviewer 1 when it uses a supported Claude model. |
+| `--reviewer-N-tool=<claude\|codex>` | Select reviewer `N`'s tool, for `N` starting at 2. |
+| `--reviewer-N-model=<value>` | Select reviewer `N`'s model; an empty value uses the tool's configured default. |
+| `--reviewer-N-effort=<value>` | Select reviewer `N`'s effort; an empty value uses the tool's configured default. |
+| `--reviewer-N-fast` | Enable fast mode for reviewer `N` when it uses a supported Claude model. |
+| `--reviewer-optional`, `--reviewer-N-optional` | Mark a configured reviewer optional. |
+| `--reviewer-minimum=<value>` | Require an integer from `1` through the configured reviewer count to reach a verdict. |
 
-- `--project` — install into the current working directory.
-- `--global` — install into your home directory.
+Reviewer tool, model, and effort flags establish an ordered, contiguous reviewer list starting with reviewer 1. Supplying any of them fixes the list to the indices supplied; fast and optional flags only annotate reviewers already in that list. Weighted-review flags require at least two reviewers, and no reviewer may be optional when the minimum equals the reviewer count. Tool values are restricted to the supported names; model and effort values are accepted verbatim. Fast flags are valid only for Claude roles whose selected model supports fast mode.
 
-**Skills and worker**
+If the chosen scope already has readable configuration, `install` uses its worker and reviewer choices as the interactive defaults. Missing, malformed, or unreadable existing configuration falls back to fresh defaults and is replaced by a completed run.
 
-- `--skills-tool=<claude|codex|claude,codex>` — which AI tool(s) the skills are installed for, as a comma-separated list of one or more of `claude` and `codex`.
-- `--worker-tool=<claude|codex>` — which AI tool the `implement` worker uses.
-- `--worker-model=<value>` — model the worker tool invokes; an empty value means "use the tool's default configured model".
-- `--worker-effort=<value>` — reasoning effort the worker tool invokes; an empty value means "use the tool's default configured effort".
-- `--worker-fast` — a presence flag that enables Claude Code's fast mode for the worker; off by default, and valid only for a worker whose tool is `claude` and whose model supports fast mode.
-
-**Reviewers** — an ordered list, where reviewer 1 uses the unindexed names and reviewer `N` (2 or greater) carries the index:
-
-- `--reviewer-tool=<claude|codex>` / `--reviewer-N-tool=<claude|codex>`
-- `--reviewer-model=<value>` / `--reviewer-N-model=<value>`
-- `--reviewer-effort=<value>` / `--reviewer-N-effort=<value>`
-
-The reviewer indices must form a contiguous run starting at reviewer 1. Supplying any reviewer flag fixes the reviewer list to those indices and skips the "configure another reviewer?" prompt.
-
-A presence flag, `--reviewer-fast` / `--reviewer-N-fast`, enables Claude Code's fast mode for that reviewer; off by default, and valid only for a reviewer whose tool is `claude` and whose model supports fast mode. It annotates a reviewer within the established list rather than establishing or extending it, so — unlike the tool, model, and effort flags above — it neither fixes the list nor skips the "configure another reviewer?" prompt.
-
-**Weighted review** — only meaningful with two or more reviewers:
-
-- `--reviewer-optional` / `--reviewer-N-optional` — a presence flag that marks that reviewer optional; a reviewer with no such flag is required.
-- `--reviewer-minimum=<value>` — the minimum number of reviewers that must run to a verdict each round, an integer between `1` and the number of configured reviewers.
-
-A tool flag rejects a value outside its accepted set; model and effort flags accept any value verbatim, for every tool. Supplying a weighted-review flag with a single reviewer — or a `--reviewer-minimum` equal to the reviewer count together with any optional flag — is a usage error.
-
-### Overwriting and output
-
-Existing files at the destination — both skill artifacts and `.flanders/` configuration files — are overwritten silently, with no backup and no prompt, so preserving prior versions is up to your own version control. On success, the command prints the full list of files it wrote, one path per line.
+Existing skills and configuration at the destination are overwritten without a prompt or backup. On success, `install` prints every file it wrote.
 
 ## Updating
 
-Updated the lib and itching for the freshest skills, neighbor? Just run:
+After upgrading the package, refresh installed skills from the Flanders CLI with:
 
 ```sh
-flanders update
+npx flanders update
 ```
 
-`update` takes no flags. It scans the four skill destinations `install` writes to — Claude Code's `.claude/skills/` and `~/.claude/skills/`, and Codex CLI's `.agents/skills/` and `~/.agents/skills/` — and wherever it finds at least one Flanders skill artifact already in place, it rewrites the full `/flanders-spec`, `/flanders-plan`, `/flanders-implement`, and `/flanders-hard-stop-review` set there with the current version. A destination where no Flanders skill artifact is present is left untouched, so `update` refreshes the installations you already have and never creates one where you had none.
+`update` takes no flags. It checks every project and global Claude Code and Codex CLI skill destination; wherever it finds at least one Flanders skill, it overwrites the full four-skill set with the current version without a prompt or backup. It does not create a new installation, and it neither reads nor changes `.flanders/` configuration. On success it prints every skill file written; if it finds no installation, it exits with a diagnostic directing you to `install`.
 
 ## Configuration
 
-The `install` command tucks your answers into a `.flanders/` folder so the surfaces that consume them — `implement` and `/flanders-implement` — know just how you like things done. (`update` leaves this configuration untouched; it only refreshes the skills.) Where that folder lives depends on the scope you chose:
+`install` persists the configured worker and ordered reviewer list, including each role's tool, model, effort, fast-mode setting, reviewer optionality, and the minimum reviewer count. The skills-tool choice is used only during installation and is not stored.
 
-- **Project scope** — `.flanders/` at the project root.
-- **Global scope** — `~/.flanders/` in your home directory.
-
-### Which configuration wins
-
-When a command reads the configuration, a project-scope `.flanders/` always takes precedence over a global one — and it's all or nothing, with no field-by-field merge between the two. So a project `.flanders/` is used in full when it's present; otherwise the global `~/.flanders/` is used.
+When Flanders runs, project configuration takes precedence over global configuration as a complete unit: if the project has `.flanders/`, Flanders uses it alone; otherwise it uses `~/.flanders/`. The two scopes are never merged. Malformed selected configuration is an error; if neither scope has configuration, `implement` and `/flanders-implement` stop and direct you to `npx flanders install`.
 
 ## Usage
 
-With Flanders installed, here's how to put it to work — running plans from the CLI and shaping them with the four skills.
+Flanders has three CLI commands—`install`, `update`, and `implement [plan]`—and four skills invoked from inside an AI coding session.
 
 ### The four skills
 
-- **`/flanders-spec`** — turns a free-form request into your contracts, rules, and behavior rules, written into the `.spec/contracts`, `.spec/rules`, and `.spec/flanders` folders.
-- **`/flanders-plan`** — derives a single, ordered, specification-aware work plan from your request.
-- **`/flanders-implement`** — orchestrates a small, self-contained request through the configured worker, build, test, concurrent adversarial reviewers, and a final commit, all in one invocation and without a plan file.
-- **`/flanders-hard-stop-review`** — diagnoses an `implement` hard stop from its preserved temporary folder and recommends how to relaunch `implement` so the stuck task finishes instead of stopping again.
+The slash forms below name the skills. Invoke each through the skill mechanism provided by Claude Code or Codex CLI; the exact token the tool expects may differ.
 
-The first three skills take the same optional `<data>` argument, and `/flanders-hard-stop-review` takes one too:
-
-```
+```text
 /flanders-spec [<data>]
 /flanders-plan [<data>]
 /flanders-implement [<data>]
 /flanders-hard-stop-review [<data>]
 ```
 
-For `/flanders-spec`, `/flanders-plan`, and `/flanders-implement`, `<data>` is your request:
+For `/flanders-spec`, `/flanders-plan`, and `/flanders-implement`, `<data>` is the request. Omit it to use the conversation, supply an existing file path to use that file's contents, or supply other text to use it verbatim. For `/flanders-hard-stop-review`, `<data>` is the preserved hard-stop folder path; omit it when the path is already in the conversation.
 
-- Omit it, and the skill takes your request straight from the conversation.
-- Give it a path to an existing file, and the skill reads that file as the input.
-- Give it any other text, and the skill uses that text verbatim.
+Skills address you in the language of your latest message when it is determinable, adding the light Flanders touch only in English. For a path-only hard-stop review, the skill falls back to the plan and then the spec corpus for that language. When skills have independent clarification questions, they ask them together; bounded choices use the AI tool's question facility when available. Any report owed before a question is delivered first.
 
-For `/flanders-hard-stop-review`, `<data>` is the path of the preserved hard-stop temporary folder to diagnose — omit it, and the skill takes that path from the conversation.
+- **`/flanders-spec`** classifies a request into contracts, rules, and behavior rules across the appropriate `.spec` scopes. It asks about unresolved obligations, shows the planned file layout and the effect of changed obligations for approval, writes only after approval, and validates the files it changed. It updates existing coverage instead of duplicating it, then offers `/flanders-plan`, `/flanders-implement`, or neither. When it changes project-root public contracts, it warns that the README may need reconciliation. Written specs use an explicitly requested language, otherwise the existing corpus language, otherwise the request language.
+- **`/flanders-plan`** creates exactly one ordered, specification-aware markdown plan in `plans/`, with complete leaf tasks, acceptance criteria, and markdown links to applicable contracts and rules. It asks only about observable outcomes, scope ambiguities, or unverified runtime premises that the plan cannot reasonably resolve. It writes without a pre-write approval step, validates its output, reports the plan path, and tells you to implement it from the Flanders CLI. The plan uses the request's language unless you ask otherwise.
+- **`/flanders-implement`** follows the shortcut path introduced in [How it works](#how-it-works). It first commits pending spec changes; other inherited changes remain in place and are included in the accepted-work commit. On success it reports what was implemented; its hard-stop behavior is covered in [Hard stop](#hard-stop).
+- **`/flanders-hard-stop-review`** is the read-only recovery skill described in [Hard stop](#hard-stop).
 
 ### Implementing a plan
 
+Run from the Flanders CLI:
+
 ```sh
-flanders implement [plan]
+npx flanders implement [plan]
 ```
 
-`implement` takes a plan from your `plans/` folder and carries it through from start to finish. Leave `[plan]` off and Flanders runs the single plan in `plans/` for you automatically; when there's more than one plan in there, it asks you which one to run before anything else starts. Each entry in that list shows the plan's filename right alongside the date and time it was last modified, and the plans are ordered by how recently you last touched each — the freshest one at the bottom, all pre-picked and ready, so a plain Enter takes the plan you were just working on. From there it works through each open task with the worker AI, gating every result through build, test, and adversarial review before marking that task complete in the plan — and it commits once per accepted task, so each step lands as its own neat little commit. That opening question is the only one Flanders ever puts to you: once a plan is chosen and the run begins, it never stops to ask you anything, and it caps each task at five attempts, calling a hard stop if a task overruns those attempts, if the worker declares it structurally impossible, or if the AI tool you configured turns out not to be logged in (see [Hard stop](#hard-stop)). The project must be a git repository: `implement` needs git and has no flag to turn it off. Before it sets anything up it gives your working tree a once-over, and it stops right there with a diagnostic if any spec file is left uncommitted — it names each one for you — or if anything outside your `.spec` folders carries unstaged changes.
+`[plan]`, when supplied, is a markdown file under `plans/`. Leave it off and Flanders runs the single plan in `plans/`, or asks which one to run when `plans/` holds more than one. An empty `plans/` folder, or a selected plan that is missing, empty, or malformed, produces a startup diagnostic; a plan whose tasks are already complete exits successfully without running a task.
 
-While an AI session is waiting on a rate limit, the footer shows the announced end of its wait — directly or as a remaining countdown — and, when a periodic retry falls before that end, the time left until the retry. Flanders makes those retries in the background and resumes the session as soon as the limit clears, even when that happens before the announced end.
+Before work begins, `implement` validates the plan and checks the git requirements under [Requirements](#requirements). Once the plan is selected, the run asks no further questions. It streams the worker, build, test, and reviewer output while showing live task and plan progress.
 
-To bring the next attempt forward, give `F5` a tap and Flanders immediately retries every session waiting at that moment, all at once — including concurrent reviewers, neighborino. Working sessions keep working, and the press is not saved for sessions that start later. Pressing it is always optional: the run never stops to wait for `F5` or turns it into a prompt; when input is piped, redirected, or closed, `F5` is simply unavailable and the run carries on unchanged.
-
-When the plan implementation is finished, you can squash all the plan commits. They are ordered by task for easier identification.
+Each open task runs through the cycle described in [How it works](#how-it-works), with up to five iterations. An accepted task has its checkbox and metrics updated and is committed with its plan number and title. Completing the last task prefixes the plan filename with `V-`. A hard stop follows the recovery path in [Hard stop](#hard-stop).
 
 ### A typical workflow
 
-Here's the neighborly path from a blank slate to shipped code:
+1. From the Flanders CLI, run `npx flanders install` to configure Flanders and install its skills.
+2. From inside an AI coding session, invoke `/flanders-spec` with the project's obligations and conventions.
+3. From inside an AI coding session, invoke `/flanders-plan` with the work to plan.
+4. From the Flanders CLI, run `npx flanders implement` against that plan.
 
-1. **`flanders install`** — set Flanders up and deliver the skills.
-2. **`/flanders-spec`** — capture your obligations and conventions as contracts, rules, and behavior rules.
-3. **`/flanders-plan`** — derive an ordered work plan from them under `plans/`.
-4. **`flanders implement`** — build the plan task by task, each result gated through build, test, and review.
-
-And when a change is small enough that a whole plan would be overkill, **`/flanders-implement`** is your shortcut — it carries that one request from request to reviewed, committed finish without a plan.
+For small work, replace steps 3 and 4 by invoking `/flanders-implement` from inside the AI coding session.
 
 ## A worked example
 
-Let's build a tiny web calculator that only multiplies and subtracts, neighbor — start to finish, the whole spec → plan → implement stroll.
+Here is the same path for a calculator that only multiplies and subtracts, neighbor:
 
-1. **Set Flanders up** in your project and deliver the skills:
+1. From the Flanders CLI, install project-scoped skills and configuration:
 
-```sh
-flanders install
-```
+   ```sh
+   npx flanders install --project
+   ```
 
-2. **Capture the spec** with `/flanders-spec`. You describe what you want; the skill sorts each obligation into the right folder — public behavior into `.spec/contracts`, internal conventions into `.spec/rules`:
+2. From inside an AI coding session, invoke the spec skill with the requirement:
 
-```
-/flanders-spec A web calculator with exactly two operations — multiply and subtract — over two number inputs, showing the result. The operation buttons are teal, the result panel is white, and the page background is slate. Build the UI with React bundled by Vite, and use no other UI framework.
-```
+   ```text
+   /flanders-spec A web calculator with exactly two operations—multiply and subtract—over two number inputs, showing the result. Use teal operation buttons, a white result panel, a slate background, and React bundled by Vite with no other UI framework.
+   ```
 
-From that one request it writes, for example:
+3. In the same AI coding session, invoke the planning skill after the spec is approved and validated:
 
-- a **functionality contract** under `.spec/contracts/` — the calculator offers exactly two operations, multiply and subtract, over two numeric inputs, and shows the result;
-- a **colors contract** under `.spec/contracts/` — the operation buttons are teal, the result panel white, and the background slate;
-- a **frameworks rule** under `.spec/rules/` — the UI is built with React bundled by Vite, and no other UI framework is introduced.
+   ```text
+   /flanders-plan
+   ```
 
-The skill shows you the planned layout first and writes the files once you approve. That preview also tells you, for each obligation it is changing, whether the new wording leaves behavior your project already committed in violation — and names what it puts there — so a rewrite never slips past you as a change of behavior.
+4. From the Flanders CLI, implement the resulting plan:
 
-3. **Derive the plan** with `/flanders-plan` — one ordered, specification-aware plan under `plans/`, each task linked back to the contracts and rules it satisfies:
+   ```sh
+   npx flanders implement
+   ```
 
-```
-/flanders-plan
-```
-
-4. **Build it** with `implement` — Flanders works each task with the worker AI, gates every result through build, test, and adversarial review, and lands one commit per accepted task:
-
-```sh
-flanders implement
-```
-
-When it finishes, the contracts are honored by code: a calculator that multiplies and subtracts and nothing else, in teal, white, and slate, built on the framework your rule pinned.
-
-5. **Tweak it later** with the shortcut — a small change that doesn't need a whole plan:
-
-```
-/flanders-implement make the result panel use a larger font
-```
-
-If you really want the font to be kept at that size, just save the spec, and no future work will ever break that specification:
-
-```
-/flanders-spec make the result panel use a larger font
-```
-```
-/flanders-implement
-```
+5. For a later small change, invoke `/flanders-spec` from inside an AI coding session to add `make the result panel use a larger font`, then accept its offer to launch `/flanders-implement` in that session.
 
 ## Hard stop
 
-Even the most neighborly run can run out of road, and there are three ways it can happen. The first is when Flanders can't get a single task built, tested, reviewed, and committed within its five attempts — it doesn't keep flailing away. The second is when the worker itself decides the task simply can't be reached by any implementation the task allows, and rather than burn attempts on the impossible it writes a `hard-stop.log` into that run's temporary folder, declaring the structural cause, the evidence, and the change to the plan or the spec that would unblock the task. The third is when the AI tool you configured isn't logged in — no amount of waiting mends that one, so Flanders stops the moment any of its AI calls reports it, be that the worker, one of the reviewers, or the little detection step that runs before the first task is even picked. Any of the three calls a **hard stop**: the whole `implement` run ends right there and exits with a non-zero status.
+When a hard stop happens, hand the preserved folder path that `implement` prints to the `/flanders-hard-stop-review` skill from inside an AI coding session. A hard stop ends the run with a non-zero status and occurs for one of three causes:
 
-It won't leave you guessing, though. Flanders prints an error that names the task that got stuck — its line number in the plan and its title — and points you at that run's temporary folder. When the stop was the worker's own declaration, that error also reads back the contents of the `hard-stop.log` — the cause, the evidence, and the unblocking change. When it was the login, there's no task to blame: the error simply tells you the configured AI tool isn't logged in and asks you to log in and re-run. Every other time Flanders exits it tidies that folder away, but on a hard stop it leaves it right where it is, on purpose, so you can have a look.
+- A task exceeds the fixed limit of five iterations.
+- The worker declares that the task is structurally impossible within the work and obligations it was given.
+- A configured AI tool reports that it is not logged in.
 
-Inside you'll find `detect.log` from the one-off build-and-test detection session, plus the sessions from every attempt on the task — the worker's output, the build and test output, and each reviewer's output. Alongside them, each iteration that fell short leaves its error set down by the stage that tripped it: a build, test, or commit log for the iteration whose build, test, or commit stage failed, and — when it was the review that failed — one log per reviewer that recorded a violation. So the folder spells out plainly which stage failed in each iteration: it's the whole story of what was tried and where each go-round fell short. And when the stop was the worker's declaration, the `hard-stop.log` it wrote is sitting right there in the folder too.
+For a task stop, `implement` identifies the plan line and task title; for a worker-declared stop, it also reports the worker's cause, evidence, and proposed unblocking change. A login stop instead tells you which configured tool needs a login and asks you to re-run. The temporary folder is preserved so it can be inspected.
 
-And here's the neighborly part — you don't have to untangle it all yourself. Invoke **`/flanders-hard-stop-review`** in your AI coding tool and hand it that folder's path, and it reads back through the sessions, tells you why the run failed, and recommends how to relaunch `implement` so the stuck task finishes this time — mending the spec or the plan, or simply running it again.
+`/flanders-hard-stop-review` reads the folder, the affected plan task, and its specs, then reports the root cause and recommends re-running unchanged, revising the plan through `/flanders-plan`, fixing the spec through `/flanders-spec`, or combining those actions. It can offer to launch the appropriate skill, but it does not re-run the Flanders CLI itself.
 
-`/flanders-implement` uses the same three hard-stop causes for its one-request cycle. It preserves its own evidence too, but diagnoses iteration-cap and worker-declared stops immediately in the same invocation and offers the appropriate next skill; a login failure is reported without diagnosis.
+`/flanders-implement` uses the same hard-stop causes for its one-request cycle. It diagnoses iteration-cap and worker-declared stops in the same invocation and offers the appropriate next skill; a login failure is reported without diagnosis. Its temporary folder is preserved on every hard stop.
