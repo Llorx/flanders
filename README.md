@@ -35,6 +35,10 @@ Underneath, Flanders keeps a tidy little spec corpus alongside your code, and ev
 - **`.spec/rules`** holds the internal conventions its code follows — the house rules it keeps for itself.
 - **`.spec/flanders`** holds behavior rules — the obligations that govern how Flanders' own commands and skills behave while they work in your project.
 
+The practices Flanders enforces are the ones you choose to write into that corpus, neighbor. Whether SOLID, a duplication policy, a style guide, or any other practice governs your project's design, architecture, or code quality is your decision: Flanders brings none of its own. It is the machinery that enforces the contracts and rules you write, and with an empty corpus it has nothing of its own to demand.
+
+Just two working disciplines come with that machinery regardless of what the corpus carries. First, a worker that authors source code must try to make the code carry its meaning and reserve comments for what the code cannot express. Second, the worker in each single-task cycle is instructed to cover new behavior with tests.
+
 ## Requirements
 
 A few neighborly things to have on hand before you start:
