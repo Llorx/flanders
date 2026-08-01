@@ -498,6 +498,8 @@ Parse the selected file as UTF-8 JSON. Require its top-level keys to be exactly 
 
 ## Agent processes
 
+Every agent process launch or relaunch and every build or test script run follows this unbounded-duration rule: when the host command facility lets you omit a time limit, name none; when a limit is mandatory or the facility caps its wait, supply the highest value it accepts. Wait until the process exits or this skill decides to terminate it; elapsed time never ends the wait.
+
 Launch the detect agent, worker, and each reviewer as separate processes of the AI tool named by that agent's configuration entry. Detect uses the worker entry; the worker uses the worker entry; reviewer N uses reviewer N's entry. Never run an agent as a subagent of this session and never perform an inline pass in its place.
 
 Every invocation is non-interactive and receives the maximum access its CLI offers. Deliver its prompt through the tool's stdin protocol and close stdin immediately after delivery. Apply non-empty model and effort values and apply fast mode exactly when the entry enables it:

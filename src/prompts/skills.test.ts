@@ -2992,6 +2992,28 @@ test.describe("skills – implementSkillBody", test => {
         }
     });
 
+    test("runs every launched process unbounded in duration", {
+        ARRANGE() {},
+        ACT() { return implementSkillBody; },
+        ASSERTS: {
+            "covers every agent launch and relaunch plus both gate scripts"(body) {
+                Assert.ok(body.includes("Every agent process launch or relaunch and every build or test script run follows this unbounded-duration rule"));
+            },
+            "omits a time limit when the host facility permits omission"(body) {
+                Assert.ok(body.includes("when the host command facility lets you omit a time limit, name none"));
+            },
+            "uses the facility maximum when a limit is mandatory or capped"(body) {
+                Assert.ok(body.includes("when a limit is mandatory or the facility caps its wait, supply the highest value it accepts"));
+            },
+            "waits for process exit or an explicit skill termination decision"(body) {
+                Assert.ok(body.includes("Wait until the process exits or this skill decides to terminate it"));
+            },
+            "never ends a wait because time elapsed"(body) {
+                Assert.ok(body.includes("elapsed time never ends the wait"));
+            }
+        }
+    });
+
     test("absorbs limits errors login failures and worker relaunches", {
         ARRANGE() {},
         ACT() { return implementSkillBody; },
