@@ -345,7 +345,7 @@ Condition 4 causes most rejections in practice. The reviewer will also enumerate
 
 Procedure:
 1. ${s.readTaskInstruction}
-2. Implement the task. Update or extend tests so the new behavior is covered.
+2. Implement the task. The applicable contracts, rules, and behavior rules are the whole of the code practice you are held to; this prompt adds a standard of its own only for the source comments you write.
 3. If your implementation changes how the project builds or how its tests run, also update the build and test scripts at:
    - Build script: ${Placeholders.BUILD_SCRIPT_PATH}
    - Test script: ${Placeholders.TEST_SCRIPT_PATH}

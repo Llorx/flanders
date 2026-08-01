@@ -21,10 +21,10 @@ function sha256(value:string):string {
 }
 
 test.describe("citation-free prompt cores", test => {
-    test("preserves the existing command scaffolding outside the entry-point boundary and the hard-stop-review output byte for byte", {
+    test("pins the current command scaffolding outside the entry-point boundary and preserves the hard-stop-review output byte for byte", {
         ARRANGE() {
             return {
-                workerDigest: "6c91263ac47f149b5ade0ba788308a4b2f8cb520771c346c423665da0850b43e",
+                workerDigest: "892efcb64f84d60758140f2f88e0f16ad5af95094686f1c9c86c190bb3d82148",
                 detectionDigest: "863088173249cfd8c35d6c8756a1056503d4a41d9dc799f556410c7c5cdd856f",
                 hardStopReviewDigest: "d2e839291c806a247d7c95810b8c790e234c61882c9252224308402740a56899"
             };
@@ -37,7 +37,7 @@ test.describe("citation-free prompt cores", test => {
             };
         },
         ASSERTS: {
-            "prompts.worker changes only by the new boundary"({ workerDigest }, expected) {
+            "prompts.worker outside the entry-point boundary matches its current golden digest"({ workerDigest }, expected) {
                 Assert.strictEqual(workerDigest, expected.workerDigest);
             },
             "prompts.detectBuildAndTest changes only by the new boundary"({ detectionDigest }, expected) {
@@ -135,8 +135,8 @@ test.describe("workerPromptCore", test => {
             "instructs implementation of the task"(core) {
                 Assert.ok(core.includes("2. Implement the task."));
             },
-            "requires tests for the new behavior"(core) {
-                Assert.ok(core.includes("Update or extend tests so the new behavior is covered."));
+            "limits code-practice obligations to the applicable corpus and source comments"(core) {
+                Assert.ok(core.includes("The applicable contracts, rules, and behavior rules are the whole of the code practice you are held to; this prompt adds a standard of its own only for the source comments you write."));
             },
             "names the build script path supplied by the orchestrator"(core) {
                 Assert.ok(core.includes("Build script: <BUILD_SCRIPT_PATH>"));
