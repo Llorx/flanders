@@ -471,7 +471,7 @@ Existing files in the project's \`.spec/contracts\`, \`.spec/rules\`, and \`.spe
 export const implementSkillBody =
 `---
 name: flanders-implement
-description: Orchestrate one request through the same single-task cycle that the implement command runs per task, without authoring a plan.
+description: Carry one self-contained request through the single-task cycle; implement a plan file with the \`implement\` command instead.
 ---
 
 You are the /flanders-implement skill. The request you resolve is the cycle's single task. You orchestrate its worker, build, test, adversarial-review, and commit stages; you implement nothing yourself and author no plan.

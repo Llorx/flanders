@@ -21,7 +21,7 @@ The usual cycle is **spec → plan → implement**:
 2. From inside an AI coding session, invoke `/flanders-plan` to turn the request and spec corpus into an ordered plan under `plans/`.
 3. From the Flanders CLI, run `npx flanders implement` to execute the plan one task at a time.
 
-For a small, self-contained change, invoke `/flanders-implement` from inside an AI coding session instead. It skips the plan and runs one request through the same task cycle.
+For one self-contained request, invoke `/flanders-implement` from inside an AI coding session. It carries that request through the same task cycle. To implement a plan, run `npx flanders implement` from the Flanders CLI instead.
 
 At the start of a run, Flanders detects the project's build and test commands; a command it cannot determine confidently is skipped. For each task, it launches the configured worker, runs build then test, runs the configured adversarial reviewers concurrently, and commits the accepted result. Failed gates brief the next iteration, and reviewers judge the worker's changes against the task and every applicable obligation.
 
@@ -132,7 +132,7 @@ The slash forms below name the skills. Invoke each through the skill mechanism p
 /flanders-hard-stop-review [<data>]
 ```
 
-For `/flanders-spec`, `/flanders-plan`, and `/flanders-implement`, `<data>` is the request. Omit it to use the conversation, supply an existing file path to use that file's contents, or supply other text to use it verbatim. For `/flanders-hard-stop-review`, `<data>` is the preserved hard-stop folder path; omit it when the path is already in the conversation.
+For `/flanders-spec`, `/flanders-plan`, and `/flanders-implement`, `<data>` is the request. Omit it to use the conversation, supply an existing file path to use that file's contents, or supply other text to use it verbatim. For `/flanders-implement`, file-path `<data>` does not make a plan file a valid request; see the [request-versus-plan boundary](#how-it-works). For `/flanders-hard-stop-review`, `<data>` is the preserved hard-stop folder path; omit it when the path is already in the conversation.
 
 Skills address you in the language of your latest message when it is determinable, adding the light Flanders touch only in English. For a path-only hard-stop review, the skill falls back to the plan and then the spec corpus for that language. When skills have independent clarification questions, they ask them together; bounded choices use the AI tool's question facility when available. Any report owed before a question is delivered first.
 

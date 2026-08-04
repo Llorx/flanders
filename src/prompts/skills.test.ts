@@ -2678,8 +2678,8 @@ test.describe("skills – implementSkillBody", test => {
             "starts with YAML frontmatter"(body) {
                 Assert.ok(body.startsWith("---\n"));
             },
-            "describes the same single-task cycle as the implement command"(body) {
-                Assert.ok(body.includes("description: Orchestrate one request through the same single-task cycle that the implement command runs per task, without authoring a plan."));
+            "frontmatter description carries one self-contained request and sends plan files to implement"(body) {
+                Assert.match(yamlFrontmatter(body), /^description: Carry one self-contained request through the single-task cycle; implement a plan file with the `implement` command instead\.$/m);
             },
             "names the installed skill"(body) {
                 Assert.ok(body.includes("You are the /flanders-implement skill."));
