@@ -6,8 +6,12 @@ Carry a single, self-contained piece of work from request to reviewed, committed
 ## Provisioning
 The skill becomes available only after the user runs `npx flanders install` (see [.spec/contracts/cli-commands/install.md](/.spec/contracts/cli-commands/install.md)). The skill is installed for each AI tool the user picked at install time (Claude Code, Codex CLI, or both). The user reaches the installed skill through the invoking tool's own skill-invocation mechanism, pinned in [.spec/contracts/ai-skills/skill-invocation.md](/.spec/contracts/ai-skills/skill-invocation.md).
 
+The short description the invoking tool presents for the skill — the text an AI session reads when it decides whether this skill fits a request — states that the skill carries one request through the cycle and that a plan file is implemented by running the `implement` command (see [.spec/contracts/cli-commands/implement/overview.md](/.spec/contracts/cli-commands/implement/overview.md)) instead.
+
 ## Invocation
 The user invokes the skill by its name from inside an AI-tool session, optionally supplying one `<data>` argument after it (see [.spec/contracts/ai-skills/skill-invocation.md](/.spec/contracts/ai-skills/skill-invocation.md)). The optional `<data>` argument is interpreted the same way as `/flanders-spec` (see [.spec/contracts/ai-skills/spec-skill.md](/.spec/contracts/ai-skills/spec-skill.md)) and `/flanders-plan`. The resolved request is the task the cycle carries, and its verbatim text is what the orchestrator injects into the worker and into every reviewer.
+
+That resolved request is a single, self-contained piece of work. A plan file is not such a request: its tasks are carried by the `implement` command (see [.spec/contracts/cli-commands/implement/overview.md](/.spec/contracts/cli-commands/implement/overview.md)), which selects the plan, advances it one task at a time, and records each accepted task in it.
 
 ## Behavior
 
@@ -62,4 +66,4 @@ The natural language the skill converses in with the user — its progress repor
 ## Out of scope
 - The skill authors, selects, updates, and renames no plan file, and records no task metrics. Those belong to the `implement` command, which carries a plan (see [.spec/contracts/cli-commands/implement/overview.md](/.spec/contracts/cli-commands/implement/overview.md)).
 - The skill reads the Flanders configuration and never writes it.
-- The exact internal contents of the skill artifact (frontmatter fields, body shape) are implementation choices, pinned only insofar as the user is able to invoke `/flanders-implement` from inside an AI-tool session of each selected tool after a successful `install` run.
+- Beyond the discovery description pinned under [Provisioning](#provisioning), the exact internal contents of the skill artifact are implementation choices, pinned only insofar as the user is able to invoke `/flanders-implement` from inside an AI-tool session of each selected tool after a successful `install` run.
