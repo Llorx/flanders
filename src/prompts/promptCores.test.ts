@@ -11,9 +11,9 @@ import {
     reviewerMethodologyCore,
     workerPromptCore
 } from "./prompts";
+import { FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH } from "./internalSpecPath.fixtures";
 import { hardStopReviewSkillBody } from "./skills";
 
-const FLANDERS_INTERNAL_SPEC_CITATION = /(?:\.spec[\\/](?:contracts|rules|flanders)|plans)[\\/][A-Za-z0-9]|(?:rules[\\/]ai[\\/]agents[\\/](?:no-git-writes|no-background-commands)|shared[\\/]spec-folder-write-authority)\.md/i;
 const PLAN_SPECIFIC_REFERENCE = /<PLAN_PATH>|\bplan\b/i;
 
 function sha256(value:string):string {
@@ -73,16 +73,16 @@ test.describe("citation-free prompt cores", test => {
                 Assert.ok(diagnosis.length > 0);
             },
             "the worker core carries no Flanders-internal spec citation"({ worker }) {
-                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_CITATION.test(worker), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(worker), false);
             },
             "the detection core carries no Flanders-internal spec citation"({ detection }) {
-                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_CITATION.test(detection), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(detection), false);
             },
             "the reviewer core carries no Flanders-internal spec citation"({ reviewer }) {
-                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_CITATION.test(reviewer), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(reviewer), false);
             },
             "the diagnosis core carries no Flanders-internal spec citation"({ diagnosis }) {
-                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_CITATION.test(diagnosis), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(diagnosis), false);
             },
             "the worker core carries no plan-file or plan-task framing"({ worker }) {
                 Assert.strictEqual(PLAN_SPECIFIC_REFERENCE.test(worker), false);

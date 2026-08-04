@@ -10,10 +10,8 @@ import {
     reviewerMethodologyCore,
     workerPromptCore
 } from "./prompts";
+import { FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH } from "./internalSpecPath.fixtures";
 import { hardStopReviewSkillBody, planSkillBody, specSkillBody, implementSkillBody } from "./skills";
-
-// Folder-only references end at a delimiter; another path segment names a governed file.
-const INTERNAL_SPEC_PATH_CITATION = /(?:\.spec[\\/](?:contracts|rules|flanders)|plans)[\\/](?![`'"\s)\]}.,;:])[^\s`'")\]}]+/;
 
 // The AI-tool host name that the skill bodies no longer name. Assembled from fragments so the literal token never appears contiguously in this test file, while still letting each describe block assert — case-insensitively, over the public generated body string — that no occurrence of it survives anywhere in that body.
 const REMOVED_HOST_NAME = "Anti" + "gravity";
@@ -438,7 +436,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(userFacingVoiceSection(body).includes("git commit messages"), "the tone instruction must keep the flavor out of git commit messages");
             },
             "the tone instruction cites no flanders-internal spec path"(body) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(userFacingVoiceSection(body)), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(userFacingVoiceSection(body)), false);
             }
         }
     });
@@ -888,7 +886,7 @@ Every message you address to the user during the run — your clarifying questio
         ASSERTS: {
             "no path under contracts/, rules/, flanders/, or plans/ names a specific .md file"(body) {
                 Assert.strictEqual(
-                    INTERNAL_SPEC_PATH_CITATION.test(body),
+                    FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(body),
                     false
                 );
             },
@@ -1599,7 +1597,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(planValidatorCategory4(body).includes("If no implementation does, FAIL, naming and quoting the two or more colliding obligations."), "category 4 must FAIL a jointly unsatisfiable task, naming and quoting the two or more colliding obligations");
             },
             "the joint protocol names no path under contracts/, rules/, flanders/, or plans/"(body) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(jointSatisfiabilityProtocol(body)), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(jointSatisfiabilityProtocol(body)), false);
             },
             "the joint protocol contains no .md path at all"(body) {
                 Assert.strictEqual(jointSatisfiabilityProtocol(body).includes(".md"), false);
@@ -2230,7 +2228,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(userFacingVoiceSection(body).includes("git commit messages"), "the tone instruction must keep the flavor out of git commit messages");
             },
             "the tone instruction cites no flanders-internal spec path"(body) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(userFacingVoiceSection(body)), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(userFacingVoiceSection(body)), false);
             }
         }
     });
@@ -2447,7 +2445,7 @@ Every message you address to the user during the run — your clarifying questio
         ACT() { return specSkillBody; },
         ASSERT(body) {
             Assert.strictEqual(
-                INTERNAL_SPEC_PATH_CITATION.test(body),
+                FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(body),
                 false
             );
         }
@@ -2545,7 +2543,7 @@ Every message you address to the user during the run — your clarifying questio
                 Assert.ok(specValidatorCategoryC(body).includes("it is not a sweep for latent contradictions between specs the run did not touch."), "category C must exclude a sweep for latent contradictions between specs the run did not touch");
             },
             "the source-grounded form names no path under contracts/, rules/, flanders/, or plans/"(body) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(sourceGroundedContradictionForm(body)), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(sourceGroundedContradictionForm(body)), false);
             },
             "the source-grounded form contains no .md path at all"(body) {
                 Assert.strictEqual(sourceGroundedContradictionForm(body).includes(".md"), false);
@@ -3538,7 +3536,7 @@ test.describe("skills – implementSkillBody", test => {
         ASSERTS: {
             "contains no internal spec-file citation"(bodies) {
                 for (const body of bodies) {
-                    Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(body), false);
+                    Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(body), false);
                 }
             },
             "contains no former published name"(bodies, { removedName }) {
@@ -3908,7 +3906,7 @@ test.describe("skills – hardStopReviewSkillBody", test => {
         ARRANGE() {},
         ACT() { return hardStopReviewSkillBody; },
         ASSERT(body) {
-            Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(body), false);
+            Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(body), false);
         }
     });
 

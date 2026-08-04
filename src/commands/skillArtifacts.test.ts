@@ -3,12 +3,78 @@ import * as Assert from "assert";
 import test, { monad } from "arrange-act-assert";
 
 import { isAbortError } from "../abortError";
-import { writeSkillArtifacts, skillArtifactPaths } from "./skillArtifacts";
+import { SKILLS, writeSkillArtifacts, skillArtifactPaths } from "./skillArtifacts";
 import type { FsContext } from "../contexts";
 import type { ToolName } from "../ai/ToolAdapter";
 import { planSkillBody, specSkillBody, implementSkillBody, hardStopReviewSkillBody } from "../prompts/skills";
+import { FLANDERS_INTERNAL_SPEC_MARKDOWN_PATHS } from "../prompts/internalSpecPath.fixtures";
 import { removeStoredPath } from "./memoryFs.fixtures";
 import { rejectThenSchedule, settleThenSchedule } from "./asyncSettlement.fixtures";
+
+test.describe("installed skill body self-containment", test => {
+    test("all final assembled bodies contain exactly zero flanders-internal spec markdown paths", {
+        ARRANGE() {
+            return SKILLS;
+        },
+        ACT(skills) {
+            return skills.flatMap(skill =>
+                (skill.body.match(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATHS) ?? [])
+                    .map(match => ({ skill: skill.name, match }))
+            );
+        },
+        ASSERT(matches) {
+            Assert.strictEqual(matches.length, 0, JSON.stringify(matches));
+        }
+    });
+
+    test("the global detector recognizes every forbidden path form and ignores folder-only references", {
+        ARRANGE() {
+            const positive = [
+                ["contracts relative", ".spec/contracts/ai-skills/spec-skill.md", 1],
+                ["rules nested with fragment", "src/prompts/.spec/rules/ai/skills/skills-common.md#deterministic-regression-guard", 1],
+                ["flanders absolute Windows", "C:\\repo\\.spec\\flanders\\file-placement.md", 1],
+                ["plans absolute POSIX", "/repo/plans/2026-01-01_00.00-example.md", 1],
+                ["contracts namespace", "contracts/ai-skills/spec-skill.md", 1],
+                ["rules namespace Windows with fragment", "rules\\ai\\agents\\no-background-commands.md#scope", 1],
+                ["flanders relative", ".spec/flanders/file-placement.md", 1],
+                ["flanders namespace", "flanders/file-placement.md", 1],
+                ["plans Windows with fragment", "plans\\2026-01-01_00.00-example.md#task-1", 1],
+                ["non-ASCII filename", ".spec/rules/validación.md", 1],
+                ["deferral sentence ending in a period", "The full obligation lives in rules/ai/agents/no-git-writes.md.", 1],
+                ["abbreviated shared namespace", "shared/spec-folder-write-authority.md", 1],
+                ["multiple paths", ".spec/contracts/one.md and rules/two.md#section", 2]
+            ] as const;
+            const negative = [
+                ["contracts folder", ".spec/contracts", 0],
+                ["rules folder with separator", ".spec/rules/", 0],
+                ["flanders folder Windows", ".spec\\flanders\\", 0],
+                ["flanders folder", ".spec/flanders", 0],
+                ["plans folder", "plans/", 0],
+                ["ordinary markdown file", "README.md", 0]
+            ] as const;
+            return { positive, negative };
+        },
+        ACT({ positive, negative }) {
+            const matchCounts = (fixtures:readonly (readonly [string, string, number])[]) => fixtures.map(([name, value, expectedCount]) => ({
+                name,
+                count: (value.match(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATHS) ?? []).length,
+                expectedCount
+            }));
+            return {
+                positive: matchCounts(positive),
+                negative: matchCounts(negative)
+            };
+        },
+        ASSERTS: {
+            "matches every positive fixture the exact expected number of times"({ positive }) {
+                Assert.deepStrictEqual(positive.filter(({ count, expectedCount }) => count !== expectedCount), []);
+            },
+            "matches no permitted folder-only or unrelated markdown fixture"({ negative }) {
+                Assert.deepStrictEqual(negative.filter(({ count, expectedCount }) => count !== expectedCount), []);
+            }
+        }
+    });
+});
 
 function stubFs() {
     const files = new Map<string, string>();

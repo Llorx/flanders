@@ -10,9 +10,8 @@ import {
     reviewerMethodologyCore,
     workerPromptCore
 } from "./prompts";
+import { FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH } from "./internalSpecPath.fixtures";
 import { COMMENT_ADJUDICATION_PARAGRAPH, expectedCodeCommentEconomy, expectedReviewerFailConditions, expectedReviewerJudgmentScope, NO_OWN_TEST_STANDARD_SENTENCE, NON_EXECUTION_PARAGRAPH, REFERENCED_OBLIGATION_ENUMERATION_PARAGRAPH, reviewerFailConditionsBlock } from "./reviewerMethodology.fixtures";
-
-const INTERNAL_SPEC_PATH_CITATION = /(contracts|rules|flanders|plans)\/[A-Za-z][A-Za-z0-9_/\-]*\.md/;
 
 // The spec-folder write boundary the detect, worker, and reviewer prompts share, byte-exact.
 // Independent literal — pinned here so a regression in the prompt's enumeration (a dropped or
@@ -1506,7 +1505,7 @@ test.describe("reviewerMethodologyCore", test => {
         ACT() { return reviewerMethodologyCore; },
         ASSERTS: {
             "matches no internal spec-path citation pattern"(core) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(core), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(core), false);
             },
             "contains no .md path at all"(core) {
                 Assert.strictEqual(core.includes(".md"), false);
@@ -1888,31 +1887,31 @@ test.describe("prompts – reviewer – every addition appears identically acros
         ACT(additions) { return additions; },
         ASSERTS: {
             "the judgment-scope paragraph matches no internal spec-path citation"({ judgmentScope }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(judgmentScope), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(judgmentScope), false);
             },
             "the judgment-scope paragraph contains no .md path at all"({ judgmentScope }) {
                 Assert.strictEqual(judgmentScope.includes(".md"), false);
             },
             "the referenced-obligation paragraph matches no internal spec-path citation"({ referenced }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(referenced), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(referenced), false);
             },
             "the referenced-obligation paragraph contains no .md path at all"({ referenced }) {
                 Assert.strictEqual(referenced.includes(".md"), false);
             },
             "the comment-adjudication paragraph matches no internal spec-path citation"({ commentAdjudication }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(commentAdjudication), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(commentAdjudication), false);
             },
             "the comment-adjudication paragraph contains no .md path at all"({ commentAdjudication }) {
                 Assert.strictEqual(commentAdjudication.includes(".md"), false);
             },
             "the no-own-test-standard sentence matches no internal spec-path citation"({ noOwnStandard }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(noOwnStandard), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(noOwnStandard), false);
             },
             "the no-own-test-standard sentence contains no .md path at all"({ noOwnStandard }) {
                 Assert.strictEqual(noOwnStandard.includes(".md"), false);
             },
             "the non-execution paragraph matches no internal spec-path citation"({ nonExecution }) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(nonExecution), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(nonExecution), false);
             },
             "the non-execution paragraph contains no .md path at all"({ nonExecution }) {
                 Assert.strictEqual(nonExecution.includes(".md"), false);
@@ -1974,7 +1973,7 @@ test.describe("prompts – code comment economy", test => {
         ACT() { return expectedCodeCommentEconomy("the report you give the user in chat"); },
         ASSERTS: {
             "it matches no internal spec-path citation"(block) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(block), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(block), false);
             },
             "it contains no .md path at all"(block) {
                 Assert.strictEqual(block.includes(".md"), false);
@@ -2036,7 +2035,7 @@ test.describe("prompts – reviewer does not run build or test", test => {
                 Assert.ok(core.includes(NON_EXECUTION_PARAGRAPH));
             },
             "carries no flanders-internal spec-path citation"(core) {
-                Assert.strictEqual(INTERNAL_SPEC_PATH_CITATION.test(core), false);
+                Assert.strictEqual(FLANDERS_INTERNAL_SPEC_MARKDOWN_PATH.test(core), false);
             },
             "carries no .md path at all"(core) {
                 Assert.strictEqual(core.includes(".md"), false);
