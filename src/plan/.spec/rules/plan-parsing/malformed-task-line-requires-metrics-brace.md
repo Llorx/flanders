@@ -5,7 +5,7 @@ The `implement` command's plan parser distinguishes a malformed task line from o
 ## Who this applies to
 
 - **Subject:** the `implement` command's plan-parsing code — the code that reads a plan file at startup, detects task lines, and emits the "malformed checkbox lines" diagnostic before exiting non-zero (see [.spec/contracts/cli-commands/implement/overview.md](/.spec/contracts/cli-commands/implement/overview.md) and [.spec/contracts/shared/plan-file-format.md](/.spec/contracts/shared/plan-file-format.md)).
-- **Not subject:** the `plan` command's generation path and the `/flanders-plan` validator, which recognize valid task lines through the canonical task-line regex pinned in [src/prompts/.spec/rules/ai/skills/plan.md#the-flanders-plan-validator-confirms-task-line-format-by-exact-matching-the-canonical-recognizer-regex](/src/prompts/.spec/rules/ai/skills/plan.md#the-flanders-plan-validator-confirms-task-line-format-by-exact-matching-the-canonical-recognizer-regex). This rule governs only the malformed-candidate detection that runs alongside that recognizer.
+- **Not subject:** `/flanders-plan`'s generation path and its validator, which recognize valid task lines through the canonical task-line regex pinned in [src/prompts/.spec/rules/ai/skills/plan.md#the-flanders-plan-validator-confirms-task-line-format-by-exact-matching-the-canonical-recognizer-regex](/src/prompts/.spec/rules/ai/skills/plan.md#the-flanders-plan-validator-confirms-task-line-format-by-exact-matching-the-canonical-recognizer-regex). This rule governs only the malformed-candidate detection that runs alongside that recognizer.
 
 ## The malformed-task-line recognizer
 

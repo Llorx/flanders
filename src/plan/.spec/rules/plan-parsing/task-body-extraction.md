@@ -5,7 +5,7 @@ When the `implement` command extracts a leaf task's body from the plan file — 
 ## Who this applies to
 
 - **Subject:** the `implement` command's plan-parsing code, when it extracts the body of a leaf task to inject as the full task text (see [.spec/contracts/shared/plan-file-format.md](/.spec/contracts/shared/plan-file-format.md) and [.spec/contracts/cli-commands/implement/iteration-loop.md](/.spec/contracts/cli-commands/implement/iteration-loop.md)).
-- **Not subject:** the `plan` command's generation path and the `/flanders-plan` validator, which write and count task lines but do not extract task bodies.
+- **Not subject:** `/flanders-plan`'s generation path and its validator, which write and count task lines but do not extract task bodies.
 
 ## How to apply this rule
 

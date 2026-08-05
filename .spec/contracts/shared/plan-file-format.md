@@ -1,7 +1,7 @@
 # Plan File Format Contract
 
 ## Purpose
-Define the shape of a plan markdown file in a way that both the `plan` command (which writes plans) and the `implement` command (which reads and updates plans) follow exactly. The detection rule and the generation rule are the same rule, applied in two directions.
+Define the shape of a plan markdown file in a way that both `/flanders-plan` (which writes plans) and the `implement` command (which reads and updates plans) follow exactly. The detection rule and the generation rule are the same rule, applied in two directions.
 
 ## Task lines
 A task is a markdown list item that carries, at the start of its content, a checkbox and a metrics object. The shape of a task line is:
@@ -20,7 +20,7 @@ with the following pieces, in this exact order and spacing:
 - A single space.
 - The task title.
 
-A task line is detected by matching this shape on a non-blank line in the document. The same shape is used when generating tasks: any task line the `plan` command writes must be one the `implement` command's detector would recognize — in particular it must carry the leading list marker, otherwise the detector skips it and the plan is treated as having no tasks.
+A task line is detected by matching this shape on a non-blank line in the document. The same shape is used when generating tasks: any task line `/flanders-plan` writes must be one the `implement` command's detector would recognize — in particular it must carry the leading list marker, otherwise the detector skips it and the plan is treated as having no tasks.
 
 ## Malformed task lines
 A line is reported as a malformed task line only when it attempts the checkbox-and-metrics shape but does not fully conform to it. A line attempts that shape when, after the list marker, it carries a bracketed token whose closing `]` is immediately followed by the metrics-object opener `{` — that is, it looks like a checkbox followed by a metrics object. When such a line does not conform to the full task-line shape above — for example the checkbox holds something other than a single space or `x`, or the metrics object is not a strict, complete JSON literal — it is a malformed task line.

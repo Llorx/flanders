@@ -10,6 +10,8 @@ Flanders ships two user-facing surfaces:
   - `install` — see [.spec/contracts/cli-commands/install.md](/.spec/contracts/cli-commands/install.md).
   - `update` — see [.spec/contracts/cli-commands/update.md](/.spec/contracts/cli-commands/update.md).
   - `implement [plan]` — see [.spec/contracts/cli-commands/implement/overview.md](/.spec/contracts/cli-commands/implement/overview.md).
+  - `specs [--titles] <path>...` — reports which spec files govern the given paths; see [.spec/contracts/cli-commands/specs.md](/.spec/contracts/cli-commands/specs.md).
+  - `plan <plan-file>` — reports what a plan file contains; see [.spec/contracts/cli-commands/plan.md](/.spec/contracts/cli-commands/plan.md).
 - Four **AI-tool skills**, invoked from inside an AI-coding-tool session. Each skill owns its own contract under `.spec/contracts/ai-skills/`:
   - `/flanders-spec` — authors contracts, rules, and behavior rules; see [.spec/contracts/ai-skills/spec-skill.md](/.spec/contracts/ai-skills/spec-skill.md).
   - `/flanders-plan` — see [.spec/contracts/ai-skills/plan-skill.md](/.spec/contracts/ai-skills/plan-skill.md).

@@ -27,5 +27,10 @@ Plans are project-level. They live in a single `plans/` folder at the project ro
 ## The corpus
 The project's contracts are the union of every contract file across every `.spec/contracts` folder in the tree; the project's rules are the union of every rule file across every `.spec/rules` folder. A `.spec` folder located under a path the project's git ignore rules exclude is not part of the corpus — placing a `.spec` folder in an ignored location keeps its specs out of the corpus entirely. Every Flanders surface that consults the project's specs considers all of them: a contract or rule placed in any non-ignored `.spec` folder at any depth is part of the corpus and is honored.
 
+## Scopes above the project
+Because a `.spec` folder scopes the directory that contains it and everything beneath it, a `.spec` folder placed in a directory that encloses the project root scopes the project's files too, and the specs it holds govern them. Such a folder is how a user states obligations that span more than one project without placing them inside any of them.
+
+These enclosing scopes are reached by asking which specs govern a given path — the question [.spec/contracts/cli-commands/specs.md](/.spec/contracts/cli-commands/specs.md) answers, by walking from that path up to the filesystem root. The project's corpus above stays the set of specs the project tree itself holds, so a spec in an enclosing scope reaches an agent through that per-path answer rather than through the project-wide listings a run assembles.
+
 ## Namespace
 A spec's namespace is its path relative to the project root. For a spec inside a nested `.spec` folder, that path includes the directories above the `.spec` folder, so two specs that share a filename in different `.spec` folders stay distinct. The namespace is how tasks, listings, and tooling reference a spec.
