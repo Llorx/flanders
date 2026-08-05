@@ -2,7 +2,7 @@
 
 ## Every Flanders prompt whose agent must establish which specs apply names the spec-query commands
 
-Every prompt Flanders authors for an agent whose work depends on establishing which specs govern a path names the read-only Flanders commands that answer that question, states what each takes and what it returns, and presents them as the way to reach that answer. The agent is otherwise left to infer applicability from the namespaces of a global listing, which names files without stating what any of them governs; the commands turn that inference into a lookup the agent can run.
+Every prompt Flanders authors for an agent whose work depends on establishing which specs govern a path names the read-only Flanders commands that answer that question, states what each takes and what it returns, and presents them as the way to reach that answer. A global listing tells the agent what the project's specs carry but not which of them reach the path in front of it, and it stops at the project tree; the commands answer both, turning an inference into a lookup the agent can run.
 
 ### Who this applies to
 
@@ -19,7 +19,7 @@ Every prompt Flanders authors for an agent whose work depends on establishing wh
 
 ### Failure signals
 
-- A prompt in scope carries the global spec listing and no mention of the path-query command, leaving the agent to infer applicability from namespaces alone.
+- A prompt in scope carries the global spec listing and no mention of the path-query command, leaving the agent to work out from that listing alone which specs reach the path in front of it.
 - A prompt in scope names a command without stating what it takes or what it returns, so the agent cannot call it without guessing its interface.
 - A prompt in scope names the commands but not the work its own agent would use the answer for.
 - A prompt in scope names the commands while its entry-point boundary still reads as barring them, leaving the agent with two instructions it cannot satisfy at once.
